@@ -16,14 +16,15 @@
 
 const path = require('path');
 const InlineSource = require('./webpack-inline-source-plugin.js');
-
+/** @type {import('webpack').Configuration} */
 module.exports = {
   entry: path.join(__dirname, 'injectedScript.ts'),
-  devtool: 'source-map',
+  mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+  devtool: false,
   module: {
     rules: [
       {
-        test: /\.tsx?$/,
+        test: /\.(j|t)sx?$/,
         loader: 'ts-loader',
         options: {
           transpileOnly: true
@@ -37,6 +38,9 @@ module.exports = {
   },
   output: {
     filename: 'injectedScriptSource.js',
+    libraryTarget: 'var',
+    libraryExport: 'default',
+    library: 'pwExport',
     path: path.resolve(__dirname, '../../../lib/server/injected/packed')
   },
   plugins: [

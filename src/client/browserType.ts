@@ -16,12 +16,12 @@
 
 import * as channels from '../protocol/channels';
 import { Browser } from './browser';
-import { BrowserContext, validateBrowserContextOptions } from './browserContext';
+import { BrowserContext, prepareBrowserContextParams } from './browserContext';
 import { ChannelOwner } from './channelOwner';
 import { LaunchOptions, LaunchServerOptions, ConnectOptions, LaunchPersistentContextOptions } from './types';
-import * as WebSocket from 'ws';
-import * as path from 'path';
-import * as fs from 'fs';
+import WebSocket from 'ws';
+import path from 'path';
+import fs from 'fs';
 import { Connection } from './connection';
 import { serializeError } from '../protocol/serializers';
 import { Events } from './events';
@@ -32,19 +32,21 @@ import { assert, makeWaitForNextTask, mkdirIfNeeded } from '../utils/utils';
 import { SelectorsOwner, sharedSelectors } from './selectors';
 import { kBrowserClosedError } from '../utils/errors';
 import { Stream } from './stream';
+import * as api from '../../types/types';
 
 export interface BrowserServerLauncher {
-  launchServer(options?: LaunchServerOptions): Promise<BrowserServer>;
+  launchServer(options?: LaunchServerOptions): Promise<api.BrowserServer>;
 }
 
-export interface BrowserServer {
+// This is here just for api generation and checking.
+export interface BrowserServer extends api.BrowserServer {
   process(): ChildProcess;
   wsEndpoint(): string;
   close(): Promise<void>;
   kill(): Promise<void>;
 }
 
-export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, channels.BrowserTypeInitializer> {
+export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, channels.BrowserTypeInitializer> implements api.BrowserType<api.Browser> {
   private _timeoutSettings = new TimeoutSettings();
   _serverLauncher?: BrowserServerLauncher;
 
@@ -83,7 +85,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
     }, logger);
   }
 
-  async launchServer(options: LaunchServerOptions = {}): Promise<BrowserServer> {
+  async launchServer(options: LaunchServerOptions = {}): Promise<api.BrowserServer> {
     if (!this._serverLauncher)
       throw new Error('Launching server is not supported');
     return this._serverLauncher.launchServer(options);
@@ -92,36 +94,36 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
   async launchPersistentContext(userDataDir: string, options: LaunchPersistentContextOptions = {}): Promise<BrowserContext> {
     return this._wrapApiCall('browserType.launchPersistentContext', async () => {
       assert(!(options as any).port, 'Cannot specify a port without launching as a server.');
-      const contextOptions = validateBrowserContextOptions(options);
-      const persistentOptions: channels.BrowserTypeLaunchPersistentContextParams = {
-        ...contextOptions,
+      const contextParams = await prepareBrowserContextParams(options);
+      const persistentParams: channels.BrowserTypeLaunchPersistentContextParams = {
+        ...contextParams,
         ignoreDefaultArgs: Array.isArray(options.ignoreDefaultArgs) ? options.ignoreDefaultArgs : undefined,
         ignoreAllDefaultArgs: !!options.ignoreDefaultArgs && !Array.isArray(options.ignoreDefaultArgs),
         env: options.env ? envObjectToArray(options.env) : undefined,
         userDataDir,
       };
-      const result = await this._channel.launchPersistentContext(persistentOptions);
+      const result = await this._channel.launchPersistentContext(persistentParams);
       const context = BrowserContext.from(result.context);
-      context._options = contextOptions;
+      context._options = contextParams;
       context._logger = options.logger;
       return context;
     }, options.logger);
   }
 
-  async connect(options: ConnectOptions): Promise<Browser> {
-    const logger = options.logger;
+  async connect(params: ConnectOptions): Promise<Browser> {
+    const logger = params.logger;
     return this._wrapApiCall('browserType.connect', async () => {
       const connection = new Connection();
 
-      const ws = new WebSocket(options.wsEndpoint, [], {
+      const ws = new WebSocket(params.wsEndpoint, [], {
         perMessageDeflate: false,
         maxPayload: 256 * 1024 * 1024, // 256Mb,
-        handshakeTimeout: this._timeoutSettings.timeout(options),
+        handshakeTimeout: this._timeoutSettings.timeout(params),
       });
 
       // The 'ws' module in node sometimes sends us multiple messages in a single task.
-      const waitForNextTask = options.slowMo
-        ? (cb: () => any) => setTimeout(cb, options.slowMo)
+      const waitForNextTask = params.slowMo
+        ? (cb: () => any) => setTimeout(cb, params.slowMo)
         : makeWaitForNextTask();
       connection.onmessage = message => {
         if (ws.readyState !== WebSocket.OPEN) {
@@ -137,14 +139,18 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
       });
 
       return await new Promise<Browser>(async (fulfill, reject) => {
-        if ((options as any).__testHookBeforeCreateBrowser) {
+        if ((params as any).__testHookBeforeCreateBrowser) {
           try {
-            await (options as any).__testHookBeforeCreateBrowser();
+            await (params as any).__testHookBeforeCreateBrowser();
           } catch (e) {
             reject(e);
           }
         }
         ws.addEventListener('open', async () => {
+          const prematureCloseListener = (event: { reason: string }) => {
+            reject(new Error('Server disconnected: ' + event.reason));
+          };
+          ws.addEventListener('close', prematureCloseListener);
           const remoteBrowser = await connection.waitForObjectWithKnownName('remoteBrowser') as RemoteBrowser;
 
           // Inherit shared selectors for connected browser.
@@ -163,6 +169,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
             }
             browser._didClose();
           };
+          ws.removeEventListener('close', prematureCloseListener);
           ws.addEventListener('close', closeListener);
           browser.on(Events.Browser.Disconnected, () => {
             sharedSelectors._removeChannel(selectorsOwner);
@@ -173,9 +180,29 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
         });
         ws.addEventListener('error', event => {
           ws.close();
-          reject(new Error('WebSocket error: ' + event.message));
+          reject(new Error(event.message + '. Most likely ws endpoint is incorrect'));
         });
       });
+    }, logger);
+  }
+
+  async connectOverCDP(params: ConnectOptions): Promise<Browser> {
+    if (this.name() !== 'chromium')
+      throw new Error('Connecting over CDP is only supported in Chromium.');
+    const logger = params.logger;
+    return this._wrapApiCall('browserType.connectOverCDP', async () => {
+      const result = await this._channel.connectOverCDP({
+        sdkLanguage: 'javascript',
+        wsEndpoint: params.wsEndpoint,
+        slowMo: params.slowMo,
+        timeout: params.timeout
+      });
+      const browser = Browser.from(result.browser);
+      if (result.defaultContext)
+        browser._contexts.add(BrowserContext.from(result.defaultContext));
+      browser._isRemote = true;
+      browser._logger = logger;
+      return browser;
     }, logger);
   }
 }

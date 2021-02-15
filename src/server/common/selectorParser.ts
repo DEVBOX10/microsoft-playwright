@@ -14,17 +14,40 @@
  * limitations under the License.
  */
 
-// This file can't have dependencies, it is a part of the utility script.
+import { CSSComplexSelectorList, parseCSS } from './cssParser';
+
+export type ParsedSelectorPart = {
+  name: string,
+  body: string,
+} | CSSComplexSelectorList;
 
 export type ParsedSelector = {
-  parts: {
-    name: string,
-    body: string,
-  }[],
+  parts: ParsedSelectorPart[],
   capture?: number,
 };
 
+export const customCSSNames = new Set(['not', 'is', 'where', 'has', 'scope', 'light', 'visible', 'text', 'text-matches', 'text-is', 'has-text', 'above', 'below', 'right-of', 'left-of', 'near', 'nth-match']);
+
 export function parseSelector(selector: string): ParsedSelector {
+  const result = parseSelectorV1(selector);
+  result.parts = result.parts.map(part => {
+    if (Array.isArray(part))
+      return part;
+    if (part.name === 'css' || part.name === 'css:light') {
+      if (part.name === 'css:light')
+        part.body = ':light(' + part.body + ')';
+      const parsedCSS = parseCSS(part.body, customCSSNames);
+      return parsedCSS.selector;
+    }
+    return part;
+  });
+  return {
+    parts: result.parts,
+    capture: result.capture,
+  };
+}
+
+function parseSelectorV1(selector: string): ParsedSelector {
   let index = 0;
   let quote: string | undefined;
   let start = 0;
@@ -65,6 +88,13 @@ export function parseSelector(selector: string): ParsedSelector {
       result.capture = result.parts.length - 1;
     }
   };
+
+  if (!selector.includes('>>')) {
+    index = selector.length;
+    append();
+    return result;
+  }
+
   while (index < selector.length) {
     const c = selector[index];
     if (c === '\\' && index + 1 < selector.length) {

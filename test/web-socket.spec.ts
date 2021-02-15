@@ -69,6 +69,22 @@ it('should emit frame events', async ({ page, server, isFirefox }) => {
   expect(log.join(':')).toBe('close:open:received<incoming>:sent<outgoing>');
 });
 
+it('should pass self as argument to close event', async ({ page, server, isFirefox }) => {
+  let socketClosed;
+  const socketClosePromise = new Promise(f => socketClosed = f);
+  let webSocket;
+  page.on('websocket', ws => {
+    webSocket = ws;
+    ws.on('close', socketClosed);
+  });
+  await page.evaluate(port => {
+    const ws = new WebSocket('ws://localhost:' + port + '/ws');
+    ws.addEventListener('open', () => ws.close());
+  }, server.PORT);
+  const eventArg = await socketClosePromise;
+  expect(eventArg).toBe(webSocket);
+});
+
 it('should emit binary frame events', async ({ page, server }) => {
   let doneCallback;
   const donePromise = new Promise(f => doneCallback = f);
@@ -108,41 +124,47 @@ it('should emit error', async ({page, server, isFirefox}) => {
     expect(message).toContain(': 400');
 });
 
-it('should not have stray error events', async ({page, server, isFirefox}) => {
-  const [ws] = await Promise.all([
-    page.waitForEvent('websocket'),
+it('should not have stray error events', async ({page, server}) => {
+  let error;
+  page.on('websocket', ws => ws.on('socketerror', e => error = e));
+  await Promise.all([
+    page.waitForEvent('websocket').then(async ws => {
+      await ws.waitForEvent('framereceived');
+      return ws;
+    }),
     page.evaluate(port => {
       (window as any).ws = new WebSocket('ws://localhost:' + port + '/ws');
     }, server.PORT)
   ]);
-  let error;
-  ws.on('socketerror', e => error = e);
-  await ws.waitForEvent('framereceived');
   await page.evaluate('window.ws.close()');
   expect(error).toBeFalsy();
 });
 
-it('should reject waitForEvent on socket close', async ({page, server, isFirefox}) => {
+it('should reject waitForEvent on socket close', async ({page, server}) => {
   const [ws] = await Promise.all([
-    page.waitForEvent('websocket'),
+    page.waitForEvent('websocket').then(async ws => {
+      await ws.waitForEvent('framereceived');
+      return ws;
+    }),
     page.evaluate(port => {
       (window as any).ws = new WebSocket('ws://localhost:' + port + '/ws');
     }, server.PORT)
   ]);
-  await ws.waitForEvent('framereceived');
   const error = ws.waitForEvent('framesent').catch(e => e);
   await page.evaluate('window.ws.close()');
   expect((await error).message).toContain('Socket closed');
 });
 
-it('should reject waitForEvent on page close', async ({page, server, isFirefox}) => {
+it('should reject waitForEvent on page close', async ({page, server}) => {
   const [ws] = await Promise.all([
-    page.waitForEvent('websocket'),
+    page.waitForEvent('websocket').then(async ws => {
+      await ws.waitForEvent('framereceived');
+      return ws;
+    }),
     page.evaluate(port => {
       (window as any).ws = new WebSocket('ws://localhost:' + port + '/ws');
     }, server.PORT)
   ]);
-  await ws.waitForEvent('framereceived');
   const error = ws.waitForEvent('framesent').catch(e => e);
   await page.close();
   expect((await error).message).toContain('Page closed');

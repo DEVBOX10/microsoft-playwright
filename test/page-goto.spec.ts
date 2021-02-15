@@ -477,25 +477,6 @@ it('should fail when canceled by another navigation', async ({page, server}) => 
   expect(error.message).toBeTruthy();
 });
 
-it('extraHttpHeaders should be pushed to provisional page', (test, parameters) => {
-  test.flaky('This test is flaky, because we cannot await page.setExtraHTTPHeaders.');
-  // We need a way to test our implementation by more than just public api.
-}, async ({page, server}) => {
-  await page.goto(server.EMPTY_PAGE);
-  const pagePath = '/one-style.html';
-  server.setRoute(pagePath, async (req, res) => {
-    page.setExtraHTTPHeaders({ foo: 'bar' });
-    server.serveFile(req, res);
-  });
-  const [htmlReq, cssReq] = await Promise.all([
-    server.waitForRequest(pagePath),
-    server.waitForRequest('/one-style.css'),
-    page.goto(server.CROSS_PROCESS_PREFIX + pagePath)
-  ]);
-  expect(htmlReq.headers['foo']).toBe(undefined);
-  expect(cssReq.headers['foo']).toBe('bar');
-});
-
 it('should work with lazy loading iframes', async ({page, server}) => {
   await page.goto(server.PREFIX + '/frames/lazy-frame.html');
   expect(page.frames().length).toBe(2);
@@ -512,4 +493,9 @@ it('should report raw buffer for main resource', (test, { browserName, platform 
   const response = await page.goto(server.PREFIX + '/empty.html');
   const body = await response.body();
   expect(body.toString()).toBe('Ü (lowercase ü)');
+});
+
+it('should not throw unhandled rejections on invalid url', async ({page, server}) => {
+  const e = await page.goto('https://www.youtube Panel Title.com/').catch(e => e);
+  expect(e.toString()).toContain('Panel Title');
 });

@@ -35,12 +35,13 @@ import * as channels from '../protocol/channels';
 import { ChromiumBrowser } from './chromiumBrowser';
 import { ChromiumBrowserContext } from './chromiumBrowserContext';
 import { Stream } from './stream';
-import { createScheme, Validator, ValidationError } from '../protocol/validator';
 import { WebKitBrowser } from './webkitBrowser';
 import { FirefoxBrowser } from './firefoxBrowser';
 import { debugLogger } from '../utils/debugLogger';
 import { SelectorsOwner } from './selectors';
 import { isUnderTest } from '../utils/utils';
+import { Android, AndroidSocket, AndroidDevice } from './android';
+import { captureStackTrace } from '../utils/stackTrace';
 
 class Root extends ChannelOwner<channels.Channel, {}> {
   constructor(connection: Connection) {
@@ -70,20 +71,17 @@ export class Connection {
     return this._objects.get(guid)!;
   }
 
-  async sendMessageToServer(type: string, guid: string, method: string, params: any): Promise<any> {
-    const stackObject: any = {};
-    Error.captureStackTrace(stackObject);
-    const stack = stackObject.stack.startsWith('Error') ? stackObject.stack.substring(5) : stackObject.stack;
+  async sendMessageToServer(guid: string, method: string, params: any): Promise<any> {
+    const { stack, frames } = captureStackTrace();
     const id = ++this._lastId;
-    const validated = method === 'debugScopeState' ? params : validateParams(type, method, params);
-    const converted = { id, guid, method, params: validated };
+    const converted = { id, guid, method, params };
     // Do not include metadata in debug logs to avoid noise.
     debugLogger.log('channel:command', converted);
-    this.onmessage({ ...converted, metadata: { stack } });
+    this.onmessage({ ...converted, metadata: { stack: frames } });
     try {
       return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject }));
     } catch (e) {
-      const innerStack = (isUnderTest() && e.stack) ? e.stack.substring(e.stack.indexOf(e.message) + e.message.length) : '';
+      const innerStack = ((process.env.PWDEBUGIMPL || isUnderTest()) && e.stack) ? e.stack.substring(e.stack.indexOf(e.message) + e.message.length) : '';
       e.stack = e.message + innerStack + stack;
       throw e;
     }
@@ -122,7 +120,7 @@ export class Connection {
     }
     const object = this._objects.get(guid);
     if (!object)
-      throw new Error(`Cannot find object to call "${method}": ${guid}`);
+      throw new Error(`Cannot find object to emit "${method}": ${guid}`);
     object._channel.emit(method, this._replaceGuidsWithChannels(params));
   }
 
@@ -149,6 +147,15 @@ export class Connection {
     let result: ChannelOwner<any, any>;
     initializer = this._replaceGuidsWithChannels(initializer);
     switch (type) {
+      case 'Android':
+        result = new Android(parent, type, guid, initializer);
+        break;
+      case 'AndroidSocket':
+        result = new AndroidSocket(parent, type, guid, initializer);
+        break;
+      case 'AndroidDevice':
+        result = new AndroidDevice(parent, type, guid, initializer);
+        break;
       case 'BindingCall':
         result = new BindingCall(parent, type, guid, initializer);
         break;
@@ -165,11 +172,11 @@ export class Connection {
         break;
       }
       case 'BrowserContext': {
-        const browserName = (initializer as channels.BrowserContextInitializer).browserName;
-        if (browserName === 'chromium')
+        const {isChromium} = (initializer as channels.BrowserContextInitializer);
+        if (isChromium)
           result = new ChromiumBrowserContext(parent, type, guid, initializer);
         else
-          result = new BrowserContext(parent, type, guid, initializer, browserName);
+          result = new BrowserContext(parent, type, guid, initializer);
         break;
       }
       case 'BrowserType':
@@ -242,21 +249,4 @@ export class Connection {
     }
     return result;
   }
-}
-
-const tChannel = (name: string): Validator => {
-  return (arg: any, path: string) => {
-    if (arg._object instanceof ChannelOwner && (name === '*' || arg._object._type === name))
-      return { guid: arg._object._guid };
-    throw new ValidationError(`${path}: expected ${name}`);
-  };
-};
-
-const scheme = createScheme(tChannel);
-
-function validateParams(type: string, method: string, params: any): any {
-  const name = type + method[0].toUpperCase() + method.substring(1) + 'Params';
-  if (!scheme[name])
-    throw new ValidationError(`Unknown scheme for ${type}.${method}`);
-  return scheme[name](params, '');
 }

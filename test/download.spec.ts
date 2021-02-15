@@ -145,8 +145,8 @@ describe('download event', () => {
     await page.close();
   });
 
-  it('should save when connected remotely', (test, { wire }) => {
-    test.skip(wire);
+  it('should save when connected remotely', (test, { mode }) => {
+    test.skip(mode !== 'default');
   }, async ({testInfo, server, browserType, remoteServer}) => {
     const browser = await browserType.connect({ wsEndpoint: remoteServer.wsEndpoint() });
     const page = await browser.newPage({ acceptDownloads: true });
@@ -191,8 +191,8 @@ describe('download event', () => {
     await page.close();
   });
 
-  it('should error when saving after deletion when connected remotely', (test, { wire }) => {
-    test.skip(wire);
+  it('should error when saving after deletion when connected remotely', (test, { mode }) => {
+    test.skip(mode !== 'default');
   }, async ({testInfo, server, browserType, remoteServer}) => {
     const browser = await browserType.connect({ wsEndpoint: remoteServer.wsEndpoint() });
     const page = await browser.newPage({ acceptDownloads: true });
@@ -364,5 +364,53 @@ describe('download event', () => {
     expect(fs.existsSync(path1)).toBeFalsy();
     expect(fs.existsSync(path2)).toBeFalsy();
     expect(fs.existsSync(path.join(path1, '..'))).toBeFalsy();
+  });
+
+  it('should close the context without awaiting the failed download', (test, { browserName }) => {
+    test.skip(browserName !== 'chromium', 'Only Chromium downloads on alt-click');
+  }, async ({browser, server, httpsServer, testInfo}) => {
+    const page = await browser.newPage({ acceptDownloads: true });
+    await page.goto(server.EMPTY_PAGE);
+    await page.setContent(`<a href="${httpsServer.PREFIX}/downloadWithFilename" download="file.txt">click me</a>`);
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      // Use alt-click to force the download. Otherwise browsers might try to navigate first,
+      // probably because of http -> https link.
+      page.click('a', { modifiers: ['Alt']})
+    ]);
+    const [downloadPath, saveError] = await Promise.all([
+      download.path(),
+      download.saveAs(testInfo.outputPath('download.txt')).catch(e => e),
+      page.context().close(),
+    ]);
+    expect(downloadPath).toBe(null);
+    expect(saveError.message).toContain('Download deleted upon browser context closure.');
+  });
+
+  it('should close the context without awaiting the download', (test, { browserName, platform }) => {
+    test.skip(browserName === 'webkit' && platform === 'linux', 'WebKit on linux does not convert to the download immediately upon receiving headers');
+  }, async ({browser, server, testInfo}) => {
+    server.setRoute('/downloadStall', (req, res) => {
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename=file.txt');
+      res.writeHead(200);
+      res.flushHeaders();
+      res.write(`Hello world`);
+    });
+
+    const page = await browser.newPage({ acceptDownloads: true });
+    await page.goto(server.EMPTY_PAGE);
+    await page.setContent(`<a href="${server.PREFIX}/downloadStall" download="file.txt">click me</a>`);
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('a')
+    ]);
+    const [downloadPath, saveError] = await Promise.all([
+      download.path(),
+      download.saveAs(testInfo.outputPath('download.txt')).catch(e => e),
+      page.context().close(),
+    ]);
+    expect(downloadPath).toBe(null);
+    expect(saveError.message).toContain('Download deleted upon browser context closure.');
   });
 });

@@ -435,8 +435,8 @@ it('should not throw an error when evaluation does a synchronous navigation and 
   expect(result).toBe(undefined);
 });
 
-it('should transfer 100Mb of data from page to node.js', (test, { wire }) => {
-  test.skip(wire);
+it('should transfer 100Mb of data from page to node.js', (test, { mode }) => {
+  test.skip(mode !== 'default');
 }, async ({ page }) => {
   // This is too slow with wire.
   const a = await page.evaluate(() => Array(100 * 1024 * 1024 + 1).join('a'));
@@ -553,4 +553,8 @@ it('should not use toJSON when evaluating', async ({ page }) => {
 it('should not use toJSON in jsonValue', async ({ page }) => {
   const resultHandle = await page.evaluateHandle(() => ({ toJSON: () => 'string', data: 'data' }));
   expect(await resultHandle.jsonValue()).toEqual({ data: 'data', toJSON: {} });
+});
+
+it('should not expose the injected script export', async ({ page }) => {
+  expect(await page.evaluate('typeof pwExport === "undefined"')).toBe(true);
 });

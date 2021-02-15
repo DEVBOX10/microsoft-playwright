@@ -4,11 +4,11 @@ set -x
 
 function cleanup {
   # Cleanup all possibly created package tars.
-  [[ ! -z "${PLAYWRIGHT_TGZ}" ]] && rm -rf "${PLAYWRIGHT_TGZ}"
-  [[ ! -z "${PLAYWRIGHT_CORE_TGZ}" ]] && rm -rf "${PLAYWRIGHT_CORE_TGZ}"
-  [[ ! -z "${PLAYWRIGHT_WEBKIT_TGZ}" ]] && rm -rf "${PLAYWRIGHT_WEBKIT_TGZ}"
-  [[ ! -z "${PLAYWRIGHT_FIREFOX_TGZ}" ]] && rm -rf "${PLAYWRIGHT_FIREFOX_TGZ}"
-  [[ ! -z "${PLAYWRIGHT_CHROMIUM_TGZ}" ]] && rm -rf "${PLAYWRIGHT_CHROMIUM_TGZ}"
+  if [[ ! -z "${PLAYWRIGHT_TGZ}" ]]; then rm -rf "${PLAYWRIGHT_TGZ}"; fi
+  if [[ ! -z "${PLAYWRIGHT_CORE_TGZ}" ]]; then rm -rf "${PLAYWRIGHT_CORE_TGZ}"; fi
+  if [[ ! -z "${PLAYWRIGHT_WEBKIT_TGZ}" ]]; then rm -rf "${PLAYWRIGHT_WEBKIT_TGZ}"; fi
+  if [[ ! -z "${PLAYWRIGHT_FIREFOX_TGZ}" ]]; then rm -rf "${PLAYWRIGHT_FIREFOX_TGZ}"; fi
+  if [[ ! -z "${PLAYWRIGHT_CHROMIUM_TGZ}" ]]; then rm -rf "${PLAYWRIGHT_CHROMIUM_TGZ}"; fi
 }
 
 trap "cleanup; cd $(pwd -P)" EXIT
@@ -42,6 +42,7 @@ fi
 cd ..
 
 NPM_PUBLISH_TAG="next"
+
 VERSION=$(node -e 'console.log(require("./package.json").version)')
 
 if [[ $1 == "--release" ]]; then
@@ -56,6 +57,10 @@ if [[ $1 == "--release" ]]; then
   fi
   NPM_PUBLISH_TAG="latest"
 elif [[ $1 == "--tip-of-tree" ]]; then
+  if [[ $(git status -s) != " M package.json" ]]; then
+    echo "ERROR: git status is unexpected; some uncommitted changes or untracked files"
+    exit 1
+  fi
   # Ensure package version contains dash.
   if [[ "${VERSION}" != *-* ]]; then
     echo "ERROR: cannot publish release version with --tip-of-tree flag"
@@ -75,6 +80,8 @@ else
   exit 1
 fi
 
+echo "==================== Building version ${VERSION} ================"
+
 PLAYWRIGHT_TGZ="$PWD/playwright.tgz"
 PLAYWRIGHT_CORE_TGZ="$PWD/playwright-core.tgz"
 PLAYWRIGHT_WEBKIT_TGZ="$PWD/playwright-webkit.tgz"
@@ -85,6 +92,8 @@ node ./packages/build_package.js playwright-core "${PLAYWRIGHT_CORE_TGZ}"
 node ./packages/build_package.js playwright-webkit "${PLAYWRIGHT_WEBKIT_TGZ}"
 node ./packages/build_package.js playwright-firefox "${PLAYWRIGHT_FIREFOX_TGZ}"
 node ./packages/build_package.js playwright-chromium "${PLAYWRIGHT_CHROMIUM_TGZ}"
+
+echo "==================== Publishing version ${VERSION} ================"
 
 npm publish ${PLAYWRIGHT_TGZ}           --tag="${NPM_PUBLISH_TAG}"
 npm publish ${PLAYWRIGHT_CORE_TGZ}      --tag="${NPM_PUBLISH_TAG}"

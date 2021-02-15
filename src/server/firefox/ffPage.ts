@@ -134,11 +134,14 @@ export class FFPage implements PageDelegate {
     if (!frame)
       return;
     const delegate = new FFExecutionContext(this._session, executionContextId);
-    const context = new dom.FrameExecutionContext(delegate, frame);
+    let worldName: types.World|null = null;
     if (auxData.name === UTILITY_WORLD_NAME)
-      frame._contextCreated('utility', context);
+      worldName = 'utility';
     else if (!auxData.name)
-      frame._contextCreated('main', context);
+      worldName = 'main';
+    const context = new dom.FrameExecutionContext(delegate, frame, worldName);
+    if (worldName)
+      frame._contextCreated(worldName, context);
     this._contextIdToContext.set(executionContextId, context);
   }
 
@@ -216,6 +219,7 @@ export class FFPage implements PageDelegate {
 
   _onDialogOpened(params: Protocol.Page.dialogOpenedPayload) {
     this._page.emit(Page.Events.Dialog, new dialog.Dialog(
+        this._page,
         params.type,
         params.message,
         async (accept: boolean, promptText?: string) => {
@@ -240,7 +244,7 @@ export class FFPage implements PageDelegate {
 
   async _onWorkerCreated(event: Protocol.Page.workerCreatedPayload) {
     const workerId = event.workerId;
-    const worker = new Worker(event.url);
+    const worker = new Worker(this._page, event.url);
     const workerSession = new FFSession(this._session._connection, 'worker', workerId, (message: any) => {
       this._session.send('Page.sendMessageToWorker', {
         frameId: event.frameId,
@@ -290,6 +294,8 @@ export class FFPage implements PageDelegate {
   }
 
   async exposeBinding(binding: PageBinding) {
+    if (binding.world !== 'main')
+      throw new Error('Only main context bindings are supported in Firefox.');
     await this._session.send('Page.addBinding', { name: binding.name, script: binding.source });
   }
 
@@ -378,18 +384,6 @@ export class FFPage implements PageDelegate {
   async setBackgroundColor(color?: { r: number; g: number; b: number; a: number; }): Promise<void> {
     if (color)
       throw new Error('Not implemented');
-  }
-
-  async startScreencast(options: types.PageScreencastOptions): Promise<void> {
-    this._session.send('Page.startVideoRecording', {
-      file: options.outputFile,
-      width: options.width,
-      height: options.height,
-    });
-  }
-
-  async stopScreencast(): Promise<void> {
-    await this._session.send('Page.stopVideoRecording');
   }
 
   async takeScreenshot(format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined): Promise<Buffer> {

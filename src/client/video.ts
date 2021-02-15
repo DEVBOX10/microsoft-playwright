@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-import * as path from 'path';
+import path from 'path';
 import { Page } from './page';
+import * as api from '../../types/types';
 
-export class Video {
+export class Video implements api.Video {
   private _page: Page;
   private _pathCallback: ((path: string) => void) | undefined;
   private _pathPromise: Promise<string>;

@@ -28,15 +28,14 @@ const cpAsync = util.promisify(ncp);
 const SCRIPT_NAME = path.basename(__filename);
 const ROOT_PATH = path.join(__dirname, '..');
 
-const PLAYWRIGHT_CORE_FILES = ['bin', 'lib', 'types', 'NOTICE', 'LICENSE'];
-const FFMPEG_FILES = ['third_party/ffmpeg'];
+const PLAYWRIGHT_CORE_FILES = ['bin/PrintDeps.exe', 'lib', 'types', 'NOTICE', 'LICENSE'];
 
 const PACKAGES = {
   'playwright': {
     description: 'A high-level API to automate web browsers',
-    browsers: ['chromium', 'firefox', 'webkit'],
+    browsers: ['chromium', 'firefox', 'webkit', 'ffmpeg'],
     // We copy README.md additionally for Playwright so that it looks nice on NPM.
-    files: [...PLAYWRIGHT_CORE_FILES, ...FFMPEG_FILES, 'README.md'],
+    files: [...PLAYWRIGHT_CORE_FILES, 'README.md'],
   },
   'playwright-core': {
     description: 'A high-level API to automate web browsers',
@@ -55,14 +54,20 @@ const PACKAGES = {
   },
   'playwright-chromium': {
     description: 'A high-level API to automate Chromium',
-    browsers: ['chromium'],
-    files: [...PLAYWRIGHT_CORE_FILES, ...FFMPEG_FILES],
+    browsers: ['chromium', 'ffmpeg'],
+    files: [...PLAYWRIGHT_CORE_FILES],
   },
   'playwright-electron': {
     version: '0.4.0', // Manually manage playwright-electron version.
     description: 'A high-level API to automate Electron',
-    browsers: [],
-    files: [...PLAYWRIGHT_CORE_FILES, ...FFMPEG_FILES, 'electron-types.d.ts'],
+    browsers: ['ffmpeg'],
+    files: [...PLAYWRIGHT_CORE_FILES],
+  },
+  'playwright-android': {
+    version: '0.0.8', // Manually manage playwright-android version.
+    description: 'A high-level API to automate Chrome for Android',
+    browsers: ['ffmpeg'],
+    files: [...PLAYWRIGHT_CORE_FILES, 'bin/android-driver.apk', 'bin/android-driver-target.apk'],
   },
 };
 
@@ -120,7 +125,7 @@ if (!args.some(arg => arg === '--no-cleanup')) {
   for (const file of package.files)
     await copyToPackage(path.join(ROOT_PATH, file), path.join(packagePath, file));
 
-  await copyToPackage(path.join(ROOT_PATH, 'docs/api.json'), path.join(packagePath, 'api.json'));
+  await copyToPackage(path.join(ROOT_PATH, 'api.json'), path.join(packagePath, 'api.json'));
   await copyToPackage(path.join(ROOT_PATH, 'src/protocol/protocol.yml'), path.join(packagePath, 'protocol.yml'));
 
   // 4. Generate package.json
@@ -133,6 +138,9 @@ if (!args.some(arg => arg === '--no-cleanup')) {
     engines: pwInternalJSON.engines,
     homepage: pwInternalJSON.homepage,
     main: 'index.js',
+    bin: {
+      playwright: './lib/cli/cli.js',
+    },
     exports: {
       // Root import: we have a wrapper ES Module to support the following syntax.
       // const { chromium } = require('playwright');
@@ -179,12 +187,10 @@ if (!args.some(arg => arg === '--no-cleanup')) {
 
 async function writeToPackage(fileName, content) {
   const toPath = path.join(packagePath, fileName);
-  console.error(`- generating: //${path.relative(ROOT_PATH, toPath)}`);
   await writeFileAsync(toPath, content);
 }
 
 async function copyToPackage(fromPath, toPath) {
-  console.error(`- copying: //${path.relative(ROOT_PATH, fromPath)} -> //${path.relative(ROOT_PATH, toPath)}`);
   try {
     fs.mkdirSync(path.dirname(toPath), { recursive: true });
   } catch (e) {

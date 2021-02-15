@@ -16,10 +16,10 @@
  */
 
 import { it, expect } from './fixtures';
+import { attachFrame } from './utils';
+import type { ElementHandle } from '..';
 
-it('exposeBinding should work', async ({browser}) => {
-  const context = await browser.newContext();
-  const page = await context.newPage();
+it('exposeBinding should work', async ({page}) => {
   let bindingSource;
   await page.exposeBinding('add', (source, a, b) => {
     bindingSource = source;
@@ -28,11 +28,10 @@ it('exposeBinding should work', async ({browser}) => {
   const result = await page.evaluate(async function() {
     return window['add'](5, 6);
   });
-  expect(bindingSource.context).toBe(context);
+  expect(bindingSource.context).toBe(page.context());
   expect(bindingSource.page).toBe(page);
   expect(bindingSource.frame).toBe(page.mainFrame());
   expect(result).toEqual(11);
-  await context.close();
 });
 
 it('should work', async ({page, server}) => {
@@ -221,4 +220,64 @@ it('exposeBindingHandle should throw for multiple arguments', async ({page}) => 
     return window['logme'](1, 2);
   }).catch(e => e);
   expect(error.message).toContain('exposeBindingHandle supports a single argument, 2 received');
+});
+
+it('should not result in unhandled rejection', async ({page}) => {
+  const closedPromise = page.waitForEvent('close');
+  await page.exposeFunction('foo', async () => {
+    await page.close();
+  });
+  await page.evaluate(() => {
+    setTimeout(() => (window as any).foo(), 0);
+    return undefined;
+  });
+  await closedPromise;
+  // Make a round-trip to be sure we did not throw immediately after closing.
+  expect(await page.evaluate('1 + 1').catch(e => e)).toBeInstanceOf(Error);
+});
+
+it('should work with internal bindings', (test, { mode, browserName }) => {
+  test.skip(mode !== 'default');
+  test.skip(browserName !== 'chromium');
+}, async ({page, toImpl, server}) => {
+  const implPage: import('../src/server/page').Page = toImpl(page);
+  let foo;
+  await implPage.exposeBinding('foo', false, ({}, arg) => {
+    foo = arg;
+  }, 'utility');
+  expect(await page.evaluate('!!window.foo')).toBe(false);
+  expect(await implPage.mainFrame()._evaluateExpression('!!window.foo', false, {}, 'utility')).toBe(true);
+  expect(foo).toBe(undefined);
+  await implPage.mainFrame()._evaluateExpression('window.foo(123)', false, {}, 'utility');
+  expect(foo).toBe(123);
+
+  // should work after reload
+  await page.goto(server.EMPTY_PAGE);
+  expect(await page.evaluate('!!window.foo')).toBe(false);
+  await implPage.mainFrame()._evaluateExpression('window.foo(456)', false, {}, 'utility');
+  expect(foo).toBe(456);
+
+  // should work inside frames
+  const frame = await attachFrame(page, 'myframe', server.CROSS_PROCESS_PREFIX + '/empty.html');
+  expect(await frame.evaluate('!!window.foo')).toBe(false);
+  const implFrame: import('../src/server/frames').Frame = toImpl(frame);
+  await implFrame._evaluateExpression('window.foo(789)', false, {}, 'utility');
+  expect(foo).toBe(789);
+});
+
+it('exposeBinding(handle) should work with element handles', async ({ page}) => {
+  let cb;
+  const promise = new Promise(f => cb = f);
+  await page.exposeBinding('clicked', async (source, element: ElementHandle) => {
+    cb(await element.innerText().catch(e => e));
+  }, { handle: true });
+  await page.goto('about:blank');
+  await page.setContent(`
+    <script>
+      document.addEventListener('click', event => window.clicked(event.target));
+    </script>
+    <div id="a1">Click me</div>
+  `);
+  await page.click('#a1');
+  expect(await promise).toBe('Click me');
 });

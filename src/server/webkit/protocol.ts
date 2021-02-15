@@ -865,6 +865,44 @@ export module Protocol {
        */
       sourceURL?: string;
     }
+    /**
+     * A representation of WebCore::Font. Conceptually this is backed by either a font file on disk or from the network.
+     */
+    export interface Font {
+      /**
+       * The display name defined by the font.
+       */
+      displayName: string;
+      /**
+       * The variation axes defined by the font.
+       */
+      variationAxes: FontVariationAxis[];
+    }
+    /**
+     * A single variation axis associated with a Font.
+     */
+    export interface FontVariationAxis {
+      /**
+       * The name, generally human-readable, of the variation axis. Some axes may not provide a human-readable name distiguishable from the tag. This field is ommited when there is no name, or the name matches the tag exactly.
+       */
+      name?: string;
+      /**
+       * The four character tag for the variation axis.
+       */
+      tag: string;
+      /**
+       * The minimum value that will affect the axis.
+       */
+      minimumValue: number;
+      /**
+       * The maximum value that will affect the axis.
+       */
+      maximumValue: number;
+      /**
+       * The value that is used for the axis when it is not otherwise controlled.
+       */
+      defaultValue: number;
+    }
     
     /**
      * Fires whenever a MediaQuery result changes (for example, after a browser window has been resized.) The current implementation considers only viewport-dependent media features.
@@ -964,6 +1002,18 @@ export module Protocol {
        * Computed style for the specified DOM node.
        */
       computedStyle: CSSComputedStyleProperty[];
+    }
+    /**
+     * Returns the primary font of the computed font cascade for a DOM node identified by <code>nodeId</code>.
+     */
+    export type getFontDataForNodeParameters = {
+      nodeId: DOM.NodeId;
+    }
+    export type getFontDataForNodeReturnValue = {
+      /**
+       * Computed primary font for the specified DOM node.
+       */
+      primaryFont: Font;
     }
     /**
      * Returns metainfo entries for all known stylesheets.
@@ -1415,7 +1465,7 @@ export module Protocol {
     /**
      * Channels for different types of log messages.
      */
-    export type ChannelSource = "xml"|"javascript"|"network"|"console-api"|"storage"|"appcache"|"rendering"|"css"|"security"|"content-blocker"|"media"|"mediasource"|"webrtc"|"itp-debug"|"private-click-measurement"|"other";
+    export type ChannelSource = "xml"|"javascript"|"network"|"console-api"|"storage"|"appcache"|"rendering"|"css"|"security"|"content-blocker"|"media"|"mediasource"|"webrtc"|"itp-debug"|"private-click-measurement"|"payment-request"|"other";
     /**
      * Level of logging.
      */
@@ -2757,6 +2807,52 @@ export module Protocol {
     export type highlightFrameReturnValue = {
     }
     /**
+     * Shows a grid overlay for a node that begins a 'grid' layout context. The command has no effect if <code>nodeId</code> is invalid or the associated node does not begin a 'grid' layout context. A node can only have one grid overlay at a time; subsequent calls with the same <code>nodeId</code> will override earlier calls.
+     */
+    export type showGridOverlayParameters = {
+      /**
+       * The node for which a grid overlay should be shown.
+       */
+      nodeId: NodeId;
+      /**
+       * The primary color to use for the grid overlay.
+       */
+      gridColor: RGBAColor;
+      /**
+       * Show labels for grid line names. If not specified, the default value is false.
+       */
+      showLineNames?: boolean;
+      /**
+       * Show labels for grid line numbers. If not specified, the default value is false.
+       */
+      showLineNumbers?: boolean;
+      /**
+       * Show grid lines that extend beyond the bounds of the grid. If not specified, the default value is false.
+       */
+      showExtendedGridlines?: boolean;
+      /**
+       * Show grid track size information. If not specified, the default value is false.
+       */
+      showTrackSizes?: boolean;
+      /**
+       * Show labels for grid area names. If not specified, the default value is false.
+       */
+      showAreaNames?: boolean;
+    }
+    export type showGridOverlayReturnValue = {
+    }
+    /**
+     * Hides a grid overlay for a node that begins a 'grid' layout context. The command has no effect if <code>nodeId</code> is specified and invalid, or if there is not currently an overlay set for the <code>nodeId</code>.
+     */
+    export type hideGridOverlayParameters = {
+      /**
+       * The node for which a grid overlay should be hidden. If a <code>nodeId</code> is not specified, all grid overlays will be hidden.
+       */
+      nodeId?: NodeId;
+    }
+    export type hideGridOverlayReturnValue = {
+    }
+    /**
      * Requests that the node is sent to the caller given its path.
      */
     export type pushNodeByPathToFrontendParameters = {
@@ -3275,6 +3371,10 @@ might return multiple quads for inline nodes.
        * A frontend-assigned identifier for this breakpoint action.
        */
       id?: BreakpointActionIdentifier;
+      /**
+       * Indicates whether this action should be executed with a user gesture or not. Defaults to <code>false<code>.
+       */
+      emulateUserGesture?: boolean;
     }
     /**
      * Extra options that modify breakpoint behavior.
@@ -8492,6 +8592,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.getMatchedStylesForNode": CSS.getMatchedStylesForNodeParameters;
     "CSS.getInlineStylesForNode": CSS.getInlineStylesForNodeParameters;
     "CSS.getComputedStyleForNode": CSS.getComputedStyleForNodeParameters;
+    "CSS.getFontDataForNode": CSS.getFontDataForNodeParameters;
     "CSS.getAllStyleSheets": CSS.getAllStyleSheetsParameters;
     "CSS.getStyleSheet": CSS.getStyleSheetParameters;
     "CSS.getStyleSheetText": CSS.getStyleSheetTextParameters;
@@ -8554,6 +8655,8 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.highlightNodeList": DOM.highlightNodeListParameters;
     "DOM.hideHighlight": DOM.hideHighlightParameters;
     "DOM.highlightFrame": DOM.highlightFrameParameters;
+    "DOM.showGridOverlay": DOM.showGridOverlayParameters;
+    "DOM.hideGridOverlay": DOM.hideGridOverlayParameters;
     "DOM.pushNodeByPathToFrontend": DOM.pushNodeByPathToFrontendParameters;
     "DOM.resolveNode": DOM.resolveNodeParameters;
     "DOM.getAttributes": DOM.getAttributesParameters;
@@ -8776,6 +8879,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.getMatchedStylesForNode": CSS.getMatchedStylesForNodeReturnValue;
     "CSS.getInlineStylesForNode": CSS.getInlineStylesForNodeReturnValue;
     "CSS.getComputedStyleForNode": CSS.getComputedStyleForNodeReturnValue;
+    "CSS.getFontDataForNode": CSS.getFontDataForNodeReturnValue;
     "CSS.getAllStyleSheets": CSS.getAllStyleSheetsReturnValue;
     "CSS.getStyleSheet": CSS.getStyleSheetReturnValue;
     "CSS.getStyleSheetText": CSS.getStyleSheetTextReturnValue;
@@ -8838,6 +8942,8 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.highlightNodeList": DOM.highlightNodeListReturnValue;
     "DOM.hideHighlight": DOM.hideHighlightReturnValue;
     "DOM.highlightFrame": DOM.highlightFrameReturnValue;
+    "DOM.showGridOverlay": DOM.showGridOverlayReturnValue;
+    "DOM.hideGridOverlay": DOM.hideGridOverlayReturnValue;
     "DOM.pushNodeByPathToFrontend": DOM.pushNodeByPathToFrontendReturnValue;
     "DOM.resolveNode": DOM.resolveNodeReturnValue;
     "DOM.getAttributes": DOM.getAttributesReturnValue;

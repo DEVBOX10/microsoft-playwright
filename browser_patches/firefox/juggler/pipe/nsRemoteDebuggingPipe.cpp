@@ -11,6 +11,7 @@
 #else
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/socket.h>
 #endif
 
 #include "mozilla/StaticPtr.h"
@@ -109,8 +110,8 @@ nsresult nsRemoteDebuggingPipe::Init(nsIRemoteDebuggingPipeClient* aClient) {
 #if defined(_WIN32)
   CHAR pipeReadStr[20];
   CHAR pipeWriteStr[20];
-  GetEnvironmentVariable("PW_PIPE_READ", pipeReadStr, 20);
-  GetEnvironmentVariable("PW_PIPE_WRITE", pipeWriteStr, 20);
+  GetEnvironmentVariableA("PW_PIPE_READ", pipeReadStr, 20);
+  GetEnvironmentVariableA("PW_PIPE_WRITE", pipeWriteStr, 20);
   readHandle = reinterpret_cast<HANDLE>(atoi(pipeReadStr));
   writeHandle = reinterpret_cast<HANDLE>(atoi(pipeWriteStr));
 #endif

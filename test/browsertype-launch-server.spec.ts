@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-import { it, expect, describe } from './fixtures';
+import { folio } from './remoteServer.fixture';
+const { it, expect, describe } = folio;
 
-describe('lauch server', (suite, { wire }) => {
-  suite.skip(wire);
+describe('launch server', (suite, { mode }) => {
+  suite.skip(mode !== 'default');
 }, () => {
   it('should work', async ({browserType, browserOptions}) => {
     const browserServer = await browserType.launchServer(browserOptions);
@@ -30,6 +31,13 @@ describe('lauch server', (suite, { wire }) => {
     const browserServer = await browserType.launchServer({ ...browserOptions, port: 8800 + testWorkerIndex });
     expect(browserServer.wsEndpoint()).toContain(String(8800 + testWorkerIndex));
     await browserServer.close();
+  });
+
+  it('should provide an error when ws endpoint is incorrect', async ({browserType, browserOptions}) => {
+    const browserServer = await browserType.launchServer(browserOptions);
+    const error = await browserType.connect({ wsEndpoint: browserServer.wsEndpoint() + '-foo' }).catch(e => e);
+    await browserServer.close();
+    expect(error.message).toContain('Most likely ws endpoint is incorrect');
   });
 
   it('should fire "close" event during kill', async ({browserType, browserOptions}) => {
@@ -79,5 +87,11 @@ describe('lauch server', (suite, { wire }) => {
 
     expect(logs.some(log => log.startsWith('protocol:verbose:SEND ►'))).toBe(true);
     expect(logs.some(log => log.startsWith('protocol:verbose:◀ RECV'))).toBe(true);
+  });
+
+  it('should work with cluster', async ({browserType, clusterRemoteServer}) => {
+    const browser = await browserType.connect({ wsEndpoint: clusterRemoteServer.wsEndpoint() });
+    const page = await browser.newPage();
+    expect(await page.evaluate('1 + 2')).toBe(3);
   });
 });

@@ -23,8 +23,10 @@ let success = {
 }[requireName];
 if (process.argv[3] === 'none')
   success = [];
-if (process.argv[3] === 'all')
+else if (process.argv[3] === 'all')
   success = ['chromium', 'firefox', 'webkit'];
+else if (process.argv[3])
+  success = process.argv.slice(3)
 
 const playwright = require(requireName);
 
@@ -42,7 +44,7 @@ const installer = require(requireName + '/lib/install/installer');
       await browser.close();
     } catch (e) {
       console.error(`Should be able to launch ${browserType} from ${requireName}`);
-      console.error(err);
+      console.error(e);
       process.exit(1);
     }
   }
@@ -54,6 +56,7 @@ const installer = require(requireName + '/lib/install/installer');
       process.exit(1);
     } catch (e) {
       // All good.
+      console.log(`Expected error while launching ${browserType}: ${e}`);
     }
   }
   console.log(`require SUCCESS`);

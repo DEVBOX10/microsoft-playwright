@@ -8,9 +8,13 @@
 
 # Include sources from lib, but not map files.
 !lib/**/*.js
+# Include web assets for recorder, trace viewer, etc.
+!lib/**/*.html
+!lib/**/*.png
+!lib/**/*.ttf
 # Exclude injected files. A preprocessed version of these is included via lib/generated.
 # See src/server/injected/README.md.
-lib/server/injected/
+lib/**/injected/
 # Include all binaries that we ship with the package.
 !bin/*
 # Include FFMPEG
@@ -18,8 +22,6 @@ lib/server/injected/
 # Include generated types and entrypoint.
 !types/*
 !index.d.ts
-# Include separate electron types.
-!electron-types.d.ts
 # Include main entrypoint.
 !index.js
 # Include main entrypoint for ES Modules.

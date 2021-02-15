@@ -103,6 +103,22 @@ it('should work with IP:PORT notion', async ({contextFactory, contextOptions, se
   await browser.close();
 });
 
+it('should throw for socks5 authentication', async ({contextFactory, contextOptions}) => {
+  const error = await contextFactory({
+    ...contextOptions,
+    proxy: { server: `socks5://localhost:1234`, username: 'user', password: 'secret' }
+  }).catch(e => e);
+  expect(error.message).toContain('Browser does not support socks5 proxy authentication');
+});
+
+it('should throw for socks4 authentication', async ({contextFactory, contextOptions}) => {
+  const error = await contextFactory({
+    ...contextOptions,
+    proxy: { server: `socks4://localhost:1234`, username: 'user', password: 'secret' }
+  }).catch(e => e);
+  expect(error.message).toContain('Socks4 proxy protocol does not support authentication');
+});
+
 it('should authenticate', async ({contextFactory, contextOptions, server}) => {
   server.setRoute('/target.html', async (req, res) => {
     const auth = req.headers['proxy-authorization'];
@@ -123,6 +139,65 @@ it('should authenticate', async ({contextFactory, contextOptions, server}) => {
   await page.goto('http://non-existent.com/target.html');
   expect(await page.title()).toBe('Basic ' + Buffer.from('user:secret').toString('base64'));
   await browser.close();
+});
+
+it('should authenticate with empty password', async ({contextFactory, contextOptions, server}) => {
+  server.setRoute('/target.html', async (req, res) => {
+    const auth = req.headers['proxy-authorization'];
+    if (!auth) {
+      res.writeHead(407, 'Proxy Authentication Required', {
+        'Proxy-Authenticate': 'Basic realm="Access to internal site"'
+      });
+      res.end();
+    } else {
+      res.end(`<html><title>${auth}</title></html>`);
+    }
+  });
+  const browser = await contextFactory({
+    ...contextOptions,
+    proxy: { server: `localhost:${server.PORT}`, username: 'user', password: '' }
+  });
+  const page = await browser.newPage();
+  await page.goto('http://non-existent.com/target.html');
+  expect(await page.title()).toBe('Basic ' + Buffer.from('user:').toString('base64'));
+  await browser.close();
+});
+
+
+it('should isolate proxy credentials between contexts', (test, { browserName }) => {
+  test.fixme(browserName === 'firefox', 'Credentials from the first context stick around');
+}, async ({contextFactory, contextOptions, server}) => {
+  server.setRoute('/target.html', async (req, res) => {
+    const auth = req.headers['proxy-authorization'];
+    if (!auth) {
+      res.writeHead(407, 'Proxy Authentication Required', {
+        'Proxy-Authenticate': 'Basic realm="Access to internal site"'
+      });
+      res.end();
+    } else {
+      res.end(`<html><title>${auth}</title></html>`);
+    }
+  });
+  {
+    const context = await contextFactory({
+      ...contextOptions,
+      proxy: { server: `localhost:${server.PORT}`, username: 'user1', password: 'secret1' }
+    });
+    const page = await context.newPage();
+    await page.goto('http://non-existent.com/target.html');
+    expect(await page.title()).toBe('Basic ' + Buffer.from('user1:secret1').toString('base64'));
+    await context.close();
+  }
+  {
+    const context = await contextFactory({
+      ...contextOptions,
+      proxy: { server: `localhost:${server.PORT}`, username: 'user2', password: 'secret2' }
+    });
+    const page = await context.newPage();
+    await page.goto('http://non-existent.com/target.html');
+    expect(await page.title()).toBe('Basic ' + Buffer.from('user2:secret2').toString('base64'));
+    await context.close();
+  }
 });
 
 it('should exclude patterns', (test, { browserName, headful }) => {
@@ -167,9 +242,7 @@ it('should exclude patterns', (test, { browserName, headful }) => {
   await browser.close();
 });
 
-it('should use socks proxy', (test, { browserName, platform }) => {
-  test.flaky(platform === 'darwin' && browserName === 'webkit', 'Intermittent page.goto: The network connection was lost error on bots');
-}, async ({ contextFactory, contextOptions, socksPort }) => {
+it('should use socks proxy', async ({ contextFactory, contextOptions, socksPort }) => {
   const browser = await contextFactory({
     ...contextOptions,
     proxy: { server: `socks5://localhost:${socksPort}` }
@@ -180,9 +253,7 @@ it('should use socks proxy', (test, { browserName, platform }) => {
   await browser.close();
 });
 
-it('should use socks proxy in second page', (test, { browserName, platform }) => {
-  test.flaky(platform === 'darwin' && browserName === 'webkit', 'Intermittent page.goto: The network connection was lost error on bots');
-}, async ({ contextFactory, contextOptions, socksPort }) => {
+it('should use socks proxy in second page', async ({ contextFactory, contextOptions, socksPort }) => {
   const browser = await contextFactory({
     ...contextOptions,
     proxy: { server: `socks5://localhost:${socksPort}` }

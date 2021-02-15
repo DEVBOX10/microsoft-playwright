@@ -16,25 +16,28 @@
  */
 
 import { assert } from '../utils/utils';
-import { debugLogger } from '../utils/debugLogger';
+import { Page } from './page';
+import { SdkObject } from './instrumentation';
 
 type OnHandle = (accept: boolean, promptText?: string) => Promise<void>;
 
 export type DialogType = 'alert' | 'beforeunload' | 'confirm' | 'prompt';
 
-export class Dialog {
+export class Dialog extends SdkObject {
+  private _page: Page;
   private _type: string;
   private _message: string;
   private _onHandle: OnHandle;
   private _handled = false;
   private _defaultValue: string;
 
-  constructor(type: string, message: string, onHandle: OnHandle, defaultValue?: string) {
+  constructor(page: Page, type: string, message: string, onHandle: OnHandle, defaultValue?: string) {
+    super(page);
+    this._page = page;
     this._type = type;
     this._message = message;
     this._onHandle = onHandle;
     this._defaultValue = defaultValue || '';
-    debugLogger.log('api', `  ${this._preview()} was shown`);
   }
 
   type(): string {
@@ -52,22 +55,14 @@ export class Dialog {
   async accept(promptText: string | undefined) {
     assert(!this._handled, 'Cannot accept dialog which is already handled!');
     this._handled = true;
-    debugLogger.log('api', `  ${this._preview()} was accepted`);
     await this._onHandle(true, promptText);
+    this._page.emit(Page.Events.InternalDialogClosed, this);
   }
 
   async dismiss() {
     assert(!this._handled, 'Cannot dismiss dialog which is already handled!');
     this._handled = true;
-    debugLogger.log('api', `  ${this._preview()} was dismissed`);
     await this._onHandle(false);
-  }
-
-  private _preview(): string {
-    if (!this._message)
-      return this._type;
-    if (this._message.length <= 50)
-      return `${this._type} "${this._message}"`;
-    return `${this._type} "${this._message.substring(0, 49) + '\u2026'}"`;
+    this._page.emit(Page.Events.InternalDialogClosed, this);
   }
 }

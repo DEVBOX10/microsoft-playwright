@@ -35,7 +35,7 @@ export class WKWorkers {
     this.clear();
     this._sessionListeners = [
       helper.addEventListener(session, 'Worker.workerCreated', (event: Protocol.Worker.workerCreatedPayload) => {
-        const worker = new Worker(event.url);
+        const worker = new Worker(this._page, event.url);
         const workerSession = new WKSession(session.connection, event.workerId, 'Most likely the worker has been closed.', (message: any) => {
           session.send('Worker.sendMessageToWorker', {
             workerId: event.workerId,
@@ -67,7 +67,7 @@ export class WKWorkers {
         const workerSession = this._workerSessions.get(event.workerId)!;
         if (!workerSession)
           return;
-        workerSession.dispose();
+        workerSession.dispose(false);
         this._workerSessions.delete(event.workerId);
         this._page._removeWorker(event.workerId);
       })

@@ -27,8 +27,8 @@ import { Protocol } from './protocol';
 import { kPageProxyMessageReceived, PageProxyMessageReceivedPayload, WKConnection, WKSession } from './wkConnection';
 import { WKPage } from './wkPage';
 
-const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15';
-const BROWSER_VERSION = '14.0';
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1 Safari/605.1.15';
+const BROWSER_VERSION = '14.1';
 
 export class WKBrowser extends Browser {
   private readonly _connection: WKConnection;
@@ -52,7 +52,7 @@ export class WKBrowser extends Browser {
 
   constructor(transport: ConnectionTransport, options: BrowserOptions) {
     super(options);
-    this._connection = new WKConnection(transport, this._onDisconnect.bind(this), options.protocolLogger);
+    this._connection = new WKConnection(transport, this._onDisconnect.bind(this), options.protocolLogger, options.browserLogsCollector);
     this._browserSession = this._connection.browserSession;
     this._eventListeners = [
       helper.addEventListener(this._browserSession, 'Playwright.pageProxyCreated', this._onPageProxyCreated.bind(this)),
@@ -69,12 +69,12 @@ export class WKBrowser extends Browser {
 
   _onDisconnect() {
     for (const wkPage of this._wkPages.values())
-      wkPage.dispose();
+      wkPage.dispose(true);
     this._didClose();
   }
 
-  async newContext(options: types.BrowserContextOptions = {}): Promise<BrowserContext> {
-    validateBrowserContextOptions(options, this._options);
+  async newContext(options: types.BrowserContextOptions): Promise<BrowserContext> {
+    validateBrowserContextOptions(options, this.options);
     const createOptions = options.proxy ? {
       proxyServer: options.proxy.server,
       proxyBypassList: options.proxy.bypass
@@ -162,7 +162,7 @@ export class WKBrowser extends Browser {
     if (!wkPage)
       return;
     wkPage.didClose();
-    wkPage.dispose();
+    wkPage.dispose(false);
     this._wkPages.delete(pageProxyId);
   }
 
@@ -208,10 +208,10 @@ export class WKBrowserContext extends BrowserContext {
     assert(!this._wkPages().length);
     const browserContextId = this._browserContextId;
     const promises: Promise<any>[] = [ super._initialize() ];
-    if (this._browser._options.downloadsPath) {
+    if (this._browser.options.downloadsPath) {
       promises.push(this._browser._browserSession.send('Playwright.setDownloadBehavior', {
         behavior: this._options.acceptDownloads ? 'allow' : 'deny',
-        downloadPath: this._browser._options.downloadsPath,
+        downloadPath: this._browser.options.downloadsPath,
         browserContextId
       }));
     }

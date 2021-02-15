@@ -31,7 +31,7 @@ export class Selectors {
   readonly _engines: Map<string, { source: string, contentScript: boolean }>;
 
   constructor() {
-    // Note: keep in sync with SelectorEvaluator class.
+    // Note: keep in sync with InjectedScript class.
     this._builtinEngines = new Set([
       'css', 'css:light',
       'xpath', 'xpath:light',
@@ -39,7 +39,7 @@ export class Selectors {
       'id', 'id:light',
       'data-testid', 'data-testid:light',
       'data-test-id', 'data-test-id:light',
-      'data-test', 'data-test:light'
+      'data-test', 'data-test:light',
     ]);
     this._engines = new Map();
   }
@@ -114,24 +114,18 @@ export class Selectors {
     return adopted;
   }
 
-  async _createSelector(name: string, handle: dom.ElementHandle<Element>): Promise<string | undefined> {
-    const mainContext = await handle._page.mainFrame()._mainContext();
-    const injectedScript = await mainContext.injectedScript();
-    return injectedScript.evaluate((injected, { target, name }) => {
-      return injected.engines.get(name)!.create(document.documentElement, target);
-    }, { target: handle, name });
-  }
-
   _parseSelector(selector: string): SelectorInfo {
     const parsed = parseSelector(selector);
-    for (const {name} of parsed.parts) {
-      if (!this._builtinEngines.has(name) && !this._engines.has(name))
-        throw new Error(`Unknown engine "${name}" while parsing selector ${selector}`);
+    let needsMainWorld = false;
+    for (const part of parsed.parts) {
+      if (!Array.isArray(part)) {
+        const custom = this._engines.get(part.name);
+        if (!custom && !this._builtinEngines.has(part.name))
+          throw new Error(`Unknown engine "${part.name}" while parsing selector ${selector}`);
+        if (custom && !custom.contentScript)
+          needsMainWorld = true;
+      }
     }
-    const needsMainWorld = parsed.parts.some(({name}) => {
-      const custom = this._engines.get(name);
-      return custom ? !custom.contentScript : false;
-    });
     return {
       parsed,
       selector,

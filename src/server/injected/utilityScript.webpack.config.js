@@ -17,13 +17,15 @@
 const path = require('path');
 const InlineSource = require('./webpack-inline-source-plugin.js');
 
+/** @type {import('webpack').Configuration} */
 module.exports = {
   entry: path.join(__dirname, 'utilityScript.ts'),
-  devtool: 'source-map',
+  mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+  devtool: false,
   module: {
     rules: [
       {
-        test: /\.tsx?$/,
+        test: /\.(j|t)sx?$/,
         loader: 'ts-loader',
         options: {
           transpileOnly: true
@@ -37,6 +39,8 @@ module.exports = {
   },
   output: {
     libraryTarget: 'var',
+    library: 'pwExport',
+    libraryExport: 'default',
     filename: 'utilityScriptSource.js',
     path: path.resolve(__dirname, '../../../lib/server/injected/packed')
   },

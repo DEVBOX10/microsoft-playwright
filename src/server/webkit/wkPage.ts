@@ -16,7 +16,7 @@
  */
 
 import * as jpeg from 'jpeg-js';
-import * as path from 'path';
+import path from 'path';
 import * as png from 'pngjs';
 import { assert, createGuid, debugAssert, headersArrayToObject, headersObjectToArray } from '../../utils/utils';
 import * as accessibility from '../accessibility';
@@ -119,7 +119,7 @@ export class WKPage implements PageDelegate {
       const size = this._browserContext._options.recordVideo.size || this._browserContext._options.viewport || { width: 1280, height: 720 };
       const outputFile = path.join(this._browserContext._options.recordVideo.dir, createGuid() + '.webm');
       promises.push(this._browserContext._ensureVideosPath().then(() => {
-        return this.startScreencast({
+        return this._startScreencast({
           ...size,
           outputFile,
         });
@@ -215,11 +215,11 @@ export class WKPage implements PageDelegate {
   private _onTargetDestroyed(event: Protocol.Target.targetDestroyedPayload) {
     const { targetId, crashed } = event;
     if (this._provisionalPage && this._provisionalPage._session.sessionId === targetId) {
-      this._provisionalPage._session.dispose();
+      this._provisionalPage._session.dispose(false);
       this._provisionalPage.dispose();
       this._provisionalPage = null;
     } else if (this._session.sessionId === targetId) {
-      this._session.dispose();
+      this._session.dispose(false);
       helper.removeEventListeners(this._sessionListeners);
       if (crashed) {
         this._session.markAsCrashed();
@@ -232,14 +232,14 @@ export class WKPage implements PageDelegate {
     this._page._didClose();
   }
 
-  dispose() {
-    this._pageProxySession.dispose();
+  dispose(disconnected: boolean) {
+    this._pageProxySession.dispose(disconnected);
     helper.removeEventListeners(this._sessionListeners);
     helper.removeEventListeners(this._eventListeners);
     if (this._session)
-      this._session.dispose();
+      this._session.dispose(disconnected);
     if (this._provisionalPage) {
-      this._provisionalPage._session.dispose();
+      this._provisionalPage._session.dispose(disconnected);
       this._provisionalPage.dispose();
       this._provisionalPage = null;
     }
@@ -454,11 +454,14 @@ export class WKPage implements PageDelegate {
     if (!frame)
       return;
     const delegate = new WKExecutionContext(this._session, contextPayload.id);
-    const context = new dom.FrameExecutionContext(delegate, frame);
+    let worldName: types.World|null = null;
     if (contextPayload.type === 'normal')
-      frame._contextCreated('main', context);
+      worldName = 'main';
     else if (contextPayload.type === 'user' && contextPayload.name === UTILITY_WORLD_NAME)
-      frame._contextCreated('utility', context);
+      worldName = 'utility';
+    const context = new dom.FrameExecutionContext(delegate, frame, worldName);
+    if (worldName)
+      frame._contextCreated(worldName, context);
     if (contextPayload.type === 'normal' && frame === this._page.mainFrame())
       this._mainFrameContextId = contextPayload.id;
     this._contextIdToContext.set(contextPayload.id, context);
@@ -546,6 +549,7 @@ export class WKPage implements PageDelegate {
 
   _onDialog(event: Protocol.Dialog.javascriptDialogOpeningPayload) {
     this._page.emit(Page.Events.Dialog, new dialog.Dialog(
+        this._page,
         event.type as dialog.DialogType,
         event.message,
         async (accept: boolean, promptText?: string) => {
@@ -555,9 +559,15 @@ export class WKPage implements PageDelegate {
   }
 
   private async _onFileChooserOpened(event: {frameId: Protocol.Network.FrameId, element: Protocol.Runtime.RemoteObject}) {
-    const context = await this._page._frameManager.frame(event.frameId)!._mainContext();
-    const handle = context.createHandle(event.element).asElement()!;
-    this._page._onFileChooserOpened(handle);
+    let handle;
+    try {
+      const context = await this._page._frameManager.frame(event.frameId)!._mainContext();
+      handle = context.createHandle(event.element).asElement()!;
+    } catch (e) {
+      // During async processing, frame/context may go away. We should not throw.
+      return;
+    }
+    await this._page._onFileChooserOpened(handle);
   }
 
   private static async _setEmulateMedia(session: WKSession, mediaType: types.MediaType | null, colorScheme: types.ColorScheme | null): Promise<void> {
@@ -679,11 +689,15 @@ export class WKPage implements PageDelegate {
   }
 
   async exposeBinding(binding: PageBinding): Promise<void> {
+    if (binding.world !== 'main')
+      throw new Error('Only main context bindings are supported in WebKit.');
     await this._updateBootstrapScript();
     await this._evaluateBindingScript(binding);
   }
 
   private async _evaluateBindingScript(binding: PageBinding): Promise<void> {
+    if (binding.world !== 'main')
+      throw new Error('Only main context bindings are supported in WebKit.');
     const script = this._bindingToScript(binding);
     await Promise.all(this._page.frames().map(frame => frame._evaluateExpression(script, false, {}).catch(e => {})));
   }
@@ -698,9 +712,7 @@ export class WKPage implements PageDelegate {
 
   private _calculateBootstrapScript(): string {
     const scripts: string[] = [];
-    for (const binding of this._browserContext._pageBindings.values())
-      scripts.push(this._bindingToScript(binding));
-    for (const binding of this._page._pageBindings.values())
+    for (const binding of this._page.allBindings())
       scripts.push(this._bindingToScript(binding));
     scripts.push(...this._browserContext._evaluateOnNewDocumentSources);
     scripts.push(...this._page._evaluateOnNewDocumentSources);
@@ -712,8 +724,7 @@ export class WKPage implements PageDelegate {
   }
 
   async closePage(runBeforeUnload: boolean): Promise<void> {
-    if (this._recordingVideoFile)
-      await this.stopScreencast();
+    await this._stopScreencast();
     await this._pageProxySession.sendMayFail('Target.close', {
       targetId: this._session.sessionId,
       runBeforeUnload
@@ -728,28 +739,22 @@ export class WKPage implements PageDelegate {
     await this._session.send('Page.setDefaultBackgroundColorOverride', { color });
   }
 
-  async startScreencast(options: types.PageScreencastOptions): Promise<void> {
-    if (this._recordingVideoFile)
-      throw new Error('Already recording');
+  async _startScreencast(options: types.PageScreencastOptions): Promise<void> {
+    assert(!this._recordingVideoFile);
+    const { screencastId } = await this._pageProxySession.send('Screencast.start', {
+      file: options.outputFile,
+      width: options.width,
+      height: options.height,
+    });
     this._recordingVideoFile = options.outputFile;
-    try {
-      const {screencastId} = await this._pageProxySession.send('Screencast.start', {
-        file: options.outputFile,
-        width: options.width,
-        height: options.height,
-      }) as any;
-      this._browserContext._browser._videoStarted(this._browserContext, screencastId, options.outputFile, this.pageOrError());
-    } catch (e) {
-      this._recordingVideoFile = null;
-      throw e;
-    }
+    this._browserContext._browser._videoStarted(this._browserContext, screencastId, options.outputFile, this.pageOrError());
   }
 
-  async stopScreencast(): Promise<void> {
+  async _stopScreencast(): Promise<void> {
     if (!this._recordingVideoFile)
-      throw new Error('No video recording in progress');
+      return;
+    await this._pageProxySession.sendMayFail('Screencast.stop');
     this._recordingVideoFile = null;
-    await this._pageProxySession.send('Screencast.stop');
   }
 
   async takeScreenshot(format: string, documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined): Promise<Buffer> {

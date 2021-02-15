@@ -21,6 +21,7 @@ if [[ $# == 0 ]]; then
   exit 1
 fi
 
+CURRENT_ARCH="$(uname -m)"
 CURRENT_HOST_OS="$(uname)"
 CURRENT_HOST_OS_VERSION=""
 if [[ "$CURRENT_HOST_OS" == "Darwin" ]]; then
@@ -36,6 +37,7 @@ BUILD_FLAVOR="$1"
 BUILD_BLOB_NAME=""
 EXPECTED_HOST_OS=""
 EXPECTED_HOST_OS_VERSION=""
+EXPECTED_ARCH="x86_64"
 if [[ "$BUILD_FLAVOR" == "winldd-win64" ]]; then
   BROWSER_NAME="winldd"
   EXPECTED_HOST_OS="MINGW"
@@ -64,40 +66,77 @@ elif [[ "$BUILD_FLAVOR" == "ffmpeg-cross-compile-win64" ]]; then
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="20.04"
   BUILD_BLOB_NAME="ffmpeg-win64.zip"
+elif [[ "$BUILD_FLAVOR" == "chromium-win32" ]]; then
+  BROWSER_NAME="chromium"
+  EXTRA_BUILD_ARGS="--compile-win32"
+  EXPECTED_HOST_OS="MINGW"
+  BUILD_BLOB_NAME="chromium-win32.zip"
+elif [[ "$BUILD_FLAVOR" == "chromium-win64" ]]; then
+  BROWSER_NAME="chromium"
+  EXTRA_BUILD_ARGS="--compile-win64"
+  EXPECTED_HOST_OS="MINGW"
+  BUILD_BLOB_NAME="chromium-win64.zip"
+elif [[ "$BUILD_FLAVOR" == "chromium-mac" ]]; then
+  BROWSER_NAME="chromium"
+  EXTRA_BUILD_ARGS="--compile-mac"
+  EXPECTED_HOST_OS="Darwin"
+  EXPECTED_HOST_OS_VERSION="10.15"
+  BUILD_BLOB_NAME="chromium-mac.zip"
+elif [[ "$BUILD_FLAVOR" == "chromium-mac-arm64" ]]; then
+  BROWSER_NAME="chromium"
+  EXTRA_BUILD_ARGS="--compile-mac-arm64"
+  EXPECTED_HOST_OS="Darwin"
+  EXPECTED_HOST_OS_VERSION="10.15"
+  BUILD_BLOB_NAME="chromium-mac-arm64.zip"
+elif [[ "$BUILD_FLAVOR" == "chromium-linux" ]]; then
+  BROWSER_NAME="chromium"
+  EXTRA_BUILD_ARGS="--compile-linux"
+  EXPECTED_HOST_OS="Ubuntu"
+  EXPECTED_HOST_OS_VERSION="18.04"
+  BUILD_BLOB_NAME="chromium-linux.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-linux-mirror-to-cdn" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--linux"
+  EXTRA_BUILD_ARGS="--mirror-linux"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="18.04"
   BUILD_BLOB_NAME="chromium-linux.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-mac-mirror-to-cdn" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--mac"
+  EXTRA_BUILD_ARGS="--mirror-mac"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="18.04"
   BUILD_BLOB_NAME="chromium-mac.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-win32-mirror-to-cdn" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--win32"
+  EXTRA_BUILD_ARGS="--mirror-win32"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="18.04"
   BUILD_BLOB_NAME="chromium-win32.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-win64-mirror-to-cdn" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--win64"
+  EXTRA_BUILD_ARGS="--mirror-win64"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="18.04"
   BUILD_BLOB_NAME="chromium-win64.zip"
 elif [[ "$BUILD_FLAVOR" == "firefox-ubuntu-18.04" ]]; then
   BROWSER_NAME="firefox"
+  EXTRA_BUILD_ARGS="--full"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="18.04"
   BUILD_BLOB_NAME="firefox-ubuntu-18.04.zip"
 elif [[ "$BUILD_FLAVOR" == "firefox-mac-10.14" ]]; then
   BROWSER_NAME="firefox"
+  EXTRA_BUILD_ARGS="--full"
   EXPECTED_HOST_OS="Darwin"
   EXPECTED_HOST_OS_VERSION="10.14"
   BUILD_BLOB_NAME="firefox-mac-10.14.zip"
+elif [[ "$BUILD_FLAVOR" == "firefox-mac-11.0-arm64" ]]; then
+  BROWSER_NAME="firefox"
+  EXTRA_BUILD_ARGS="--full"
+  EXPECTED_HOST_OS="Darwin"
+  EXPECTED_HOST_OS_VERSION="11.0"
+  EXPECTED_ARCH="arm64"
+  BUILD_BLOB_NAME="firefox-mac-11.0-arm64.zip"
 elif [[ "$BUILD_FLAVOR" == "firefox-win32" ]]; then
   BROWSER_NAME="firefox"
   EXPECTED_HOST_OS="MINGW"
@@ -138,8 +177,21 @@ elif [[ "$BUILD_FLAVOR" == "webkit-mac-11.0" ]]; then
   EXPECTED_HOST_OS="Darwin"
   EXPECTED_HOST_OS_VERSION="11.0"
   BUILD_BLOB_NAME="webkit-mac-11.0.zip"
+elif [[ "$BUILD_FLAVOR" == "webkit-mac-11.0-arm64" ]]; then
+  BROWSER_NAME="webkit"
+  EXPECTED_HOST_OS="Darwin"
+  EXPECTED_HOST_OS_VERSION="11.0"
+  EXPECTED_ARCH="arm64"
+  BUILD_BLOB_NAME="webkit-mac-11.0-arm64.zip"
 else
   echo ERROR: unknown build flavor - "$BUILD_FLAVOR"
+  exit 1
+fi
+
+if [[ "$CURRENT_ARCH" != "$EXPECTED_ARCH" ]]; then
+  echo "ERROR: cannot build $BUILD_FLAVOR"
+  echo "  -- expected arch: $EXPECTED_ARCH"
+  echo "  --  current arch: $CURRENT_ARCH"
   exit 1
 fi
 
@@ -181,11 +233,7 @@ if ! [[ ($2 == '-f') || ($2 == '--force') ]]; then
   if ./upload.sh "${BUILD_BLOB_PATH}" --check; then
     echo "Build is already uploaded - no changes."
     exit 0
-  elif ./upload.sh "${LOG_BLOB_PATH}" --check; then
-    echo "This build has already been attempted - skip building."
-    exit 0
   fi
-  echo "Build is missing and has not been attempted - rebuilding"
 else
   echo "Force-rebuilding the build."
 fi

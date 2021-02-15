@@ -155,6 +155,7 @@ class TargetRegistry {
         throw new Error(`Internal error: cannot find context for userContextId=${userContextId}`);
       const target = new PageTarget(this, window, tab, browserContext, openerTarget);
       target.updateUserAgent();
+      target.updateTouchOverride();
       if (!hasExplicitSize)
         target.updateViewportSize();
       if (browserContext.screencastOptions)
@@ -371,6 +372,10 @@ class PageTarget {
     return this._browserContext;
   }
 
+  updateTouchOverride() {
+    this._linkedBrowser.browsingContext.touchEventsOverride = this._browserContext.touchOverride ? 'enabled' : 'none';
+  }
+
   updateUserAgent() {
     this._linkedBrowser.browsingContext.customUserAgent = this._browserContext.defaultUserAgent;
   }
@@ -516,7 +521,14 @@ class PageTarget {
     this._browserContext.pages.delete(this);
     this._registry._browserToTarget.delete(this._linkedBrowser);
     this._registry._browserBrowsingContextToTarget.delete(this._linkedBrowser.browsingContext);
-    helper.removeListeners(this._eventListeners);
+    try {
+      helper.removeListeners(this._eventListeners);
+    } catch (e) {
+      // In some cases, removing listeners from this._linkedBrowser fails
+      // because it is already half-destroyed.
+      if (e)
+        dump(e.message + '\n' + e.stack + '\n');
+    }
     this._registry.emit(TargetRegistry.Events.TargetDestroyed, this);
   }
 }
@@ -552,6 +564,7 @@ class BrowserContext {
     this.downloadOptions = undefined;
     this.defaultViewportSize = undefined;
     this.defaultUserAgent = null;
+    this.touchOverride = false;
     this.screencastOptions = undefined;
     this.scriptsToEvaluateOnNewDocument = [];
     this.bindings = [];
@@ -580,6 +593,8 @@ class BrowserContext {
   }
 
   setProxy(proxy) {
+    // Clear AuthCache.
+    Services.obs.notifyObservers(null, "net:clear-active-logins");
     this._proxy = proxy;
   }
 
@@ -603,6 +618,12 @@ class BrowserContext {
     this.defaultUserAgent = userAgent;
     for (const page of this.pages)
       page.updateUserAgent();
+  }
+
+  setTouchOverride(touchOverride) {
+    this.touchOverride = touchOverride;
+    for (const page of this.pages)
+      page.updateTouchOverride();
   }
 
   async setDefaultViewport(viewport) {
@@ -754,9 +775,13 @@ class Dialog {
     const type = prompt.args.promptType;
     switch (type) {
       case 'alert':
+      case 'alertCheck':
+        return new Dialog(prompt, 'alert');
       case 'prompt':
+        return new Dialog(prompt, 'prompt');
       case 'confirm':
-        return new Dialog(prompt, type);
+      case 'confirmCheck':
+        return new Dialog(prompt, 'confirm');
       case 'confirmEx':
         return new Dialog(prompt, 'beforeunload');
       default:

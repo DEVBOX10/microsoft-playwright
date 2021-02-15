@@ -16,8 +16,8 @@
  */
 
 import { EventEmitter } from 'events';
-import * as removeFolder from 'rimraf';
-import * as util from 'util';
+import removeFolder from 'rimraf';
+import util from 'util';
 import * as types from './types';
 import { Progress } from './progress';
 import { debugLogger } from '../utils/debugLogger';
@@ -119,6 +119,12 @@ class Helper {
       if (debugLogger.isEnabled('protocol'))
         debugLogger.log('protocol', (direction === 'send' ? 'SEND ► ' : '◀ RECV ') + JSON.stringify(message));
     };
+  }
+
+  static formatBrowserLogs(logs: string[]) {
+    if (!logs.length)
+      return '';
+    return '\n' + '='.repeat(20) + ' Browser output: ' + '='.repeat(20) + '\n' + logs.join('\n');
   }
 }
 

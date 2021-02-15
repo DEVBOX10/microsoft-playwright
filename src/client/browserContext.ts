@@ -15,29 +15,37 @@
  * limitations under the License.
  */
 
-import { Page, BindingCall, FunctionWithSource } from './page';
+import { Page, BindingCall } from './page';
 import * as network from './network';
 import * as channels from '../protocol/channels';
+import * as util from 'util';
+import fs from 'fs';
 import { ChannelOwner } from './channelOwner';
 import { deprecate, evaluationScript, urlMatches } from './clientHelper';
 import { Browser } from './browser';
 import { Events } from './events';
 import { TimeoutSettings } from '../utils/timeoutSettings';
 import { Waiter } from './waiter';
-import { URLMatch, Headers, WaitForEventOptions, BrowserContextOptions, StorageState } from './types';
-import { isUnderTest, headersObjectToArray } from '../utils/utils';
+import { URLMatch, Headers, WaitForEventOptions, BrowserContextOptions, StorageState, LaunchOptions } from './types';
+import { isUnderTest, headersObjectToArray, mkdirIfNeeded } from '../utils/utils';
 import { isSafeCloseError } from '../utils/errors';
+import * as api from '../../types/types';
+import * as structs from '../../types/structs';
 
-export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel, channels.BrowserContextInitializer> {
+const fsWriteFileAsync = util.promisify(fs.writeFile.bind(fs));
+const fsReadFileAsync = util.promisify(fs.readFile.bind(fs));
+
+export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel, channels.BrowserContextInitializer> implements api.BrowserContext {
   _pages = new Set<Page>();
   private _routes: { url: URLMatch, handler: network.RouteHandler }[] = [];
   readonly _browser: Browser | null = null;
-  readonly _browserName: string;
-  readonly _bindings = new Map<string, FunctionWithSource>();
+  readonly _bindings = new Map<string, (source: structs.BindingSource, ...args: any[]) => any>();
   _timeoutSettings = new TimeoutSettings();
   _ownerPage: Page | undefined;
   private _closedPromise: Promise<void>;
-  _options: channels.BrowserNewContextParams = {};
+  _options: channels.BrowserNewContextParams = {
+    sdkLanguage: 'javascript'
+  };
 
   static from(context: channels.BrowserContextChannel): BrowserContext {
     return (context as any)._object;
@@ -47,11 +55,10 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
     return context ? BrowserContext.from(context) : null;
   }
 
-  constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.BrowserContextInitializer, browserName: string) {
+  constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.BrowserContextInitializer) {
     super(parent, type, guid, initializer);
     if (parent instanceof Browser)
       this._browser = parent;
-    this._browserName = browserName;
 
     this._channel.on('bindingCall', ({binding}) => this._onBinding(BindingCall.from(binding)));
     this._channel.on('close', () => this._onClose());
@@ -176,17 +183,17 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
     });
   }
 
-  async exposeBinding(name: string, playwrightBinding: FunctionWithSource, options: { handle?: boolean } = {}): Promise<void> {
+  async exposeBinding(name: string, callback: (source: structs.BindingSource, ...args: any[]) => any, options: { handle?: boolean } = {}): Promise<void> {
     return this._wrapApiCall('browserContext.exposeBinding', async () => {
       await this._channel.exposeBinding({ name, needsHandle: options.handle });
-      this._bindings.set(name, playwrightBinding);
+      this._bindings.set(name, callback);
     });
   }
 
-  async exposeFunction(name: string, playwrightFunction: Function): Promise<void> {
+  async exposeFunction(name: string, callback: Function): Promise<void> {
     return this._wrapApiCall('browserContext.exposeFunction', async () => {
       await this._channel.exposeBinding({ name });
-      const binding: FunctionWithSource = (source, ...args) => playwrightFunction(...args);
+      const binding = (source: structs.BindingSource, ...args: any[]) => callback(...args);
       this._bindings.set(name, binding);
     });
   }
@@ -210,7 +217,7 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
   async waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions = {}): Promise<any> {
     const timeout = this._timeoutSettings.timeout(typeof optionsOrPredicate === 'function'  ? {} : optionsOrPredicate);
     const predicate = typeof optionsOrPredicate === 'function'  ? optionsOrPredicate : optionsOrPredicate.predicate;
-    const waiter = new Waiter();
+    const waiter = Waiter.createForEvent(this, event);
     waiter.rejectOnTimeout(timeout, `Timeout while waiting for event "${event}"`);
     if (event !== Events.BrowserContext.Close)
       waiter.rejectOnEvent(this, Events.BrowserContext.Close, new Error('Context closed'));
@@ -219,16 +226,21 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
     return result;
   }
 
-  async storageState(): Promise<StorageState> {
+  async storageState(options: { path?: string } = {}): Promise<StorageState> {
     return await this._wrapApiCall('browserContext.storageState', async () => {
-      return await this._channel.storageState();
+      const state = await this._channel.storageState();
+      if (options.path) {
+        await mkdirIfNeeded(options.path);
+        await fsWriteFileAsync(options.path, JSON.stringify(state), 'utf8');
+      }
+      return state;
     });
   }
 
   async _onClose() {
     if (this._browser)
       this._browser._contexts.delete(this);
-    this.emit(Events.BrowserContext.Close);
+    this.emit(Events.BrowserContext.Close, this);
   }
 
   async close(): Promise<void> {
@@ -243,24 +255,44 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
       throw e;
     }
   }
+
+  async _pause() {
+    return this._wrapApiCall('browserContext.pause', async () => {
+      await this._channel.pause();
+    });
+  }
+
+  async _enableRecorder(params: {
+      language: string,
+      launchOptions?: LaunchOptions,
+      contextOptions?: BrowserContextOptions,
+      device?: string,
+      saveStorage?: string,
+      startRecording?: boolean,
+      outputFile?: string
+  }) {
+    await this._channel.recorderSupplementEnable(params);
+  }
 }
 
-export function validateBrowserContextOptions(options: BrowserContextOptions): channels.BrowserNewContextOptions {
+export async function prepareBrowserContextParams(options: BrowserContextOptions): Promise<channels.BrowserNewContextParams> {
   if (options.videoSize && !options.videosPath)
     throw new Error(`"videoSize" option requires "videosPath" to be specified`);
   if (options.extraHTTPHeaders)
     network.validateHeaders(options.extraHTTPHeaders);
-  const contextOptions: channels.BrowserNewContextParams = {
+  const contextParams: channels.BrowserNewContextParams = {
+    sdkLanguage: 'javascript',
     ...options,
     viewport: options.viewport === null ? undefined : options.viewport,
     noDefaultViewport: options.viewport === null,
     extraHTTPHeaders: options.extraHTTPHeaders ? headersObjectToArray(options.extraHTTPHeaders) : undefined,
+    storageState: typeof options.storageState === 'string' ? JSON.parse(await fsReadFileAsync(options.storageState, 'utf8')) : options.storageState,
   };
-  if (!contextOptions.recordVideo && options.videosPath) {
-    contextOptions.recordVideo = {
+  if (!contextParams.recordVideo && options.videosPath) {
+    contextParams.recordVideo = {
       dir: options.videosPath,
       size: options.videoSize
     };
   }
-  return contextOptions;
+  return contextParams;
 }

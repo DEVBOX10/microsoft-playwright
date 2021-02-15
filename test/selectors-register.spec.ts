@@ -21,9 +21,6 @@ import path from 'path';
 
 it('should work', async ({playwright, browser}) => {
   const createTagSelector = () => ({
-    create(root, target) {
-      return target.nodeName;
-    },
     query(root, selector) {
       return root.querySelector(selector);
     },
@@ -41,12 +38,10 @@ it('should work', async ({playwright, browser}) => {
   const page = await context.newPage();
   await page.setContent('<div><span></span></div><div></div>');
 
-  expect(await (await page.$('div') as any)._createSelectorForTest('tag')).toBe('DIV');
   expect(await page.$eval('tag=DIV', e => e.nodeName)).toBe('DIV');
   expect(await page.$eval('tag=SPAN', e => e.nodeName)).toBe('SPAN');
   expect(await page.$$eval('tag=DIV', es => es.length)).toBe(2);
 
-  expect(await (await page.$('div') as any)._createSelectorForTest('tag2')).toBe('DIV');
   expect(await page.$eval('tag2=DIV', e => e.nodeName)).toBe('DIV');
   expect(await page.$eval('tag2=SPAN', e => e.nodeName)).toBe('SPAN');
   expect(await page.$$eval('tag2=DIV', es => es.length)).toBe(2);
@@ -66,12 +61,11 @@ it('should work with path', async ({playwright, page}) => {
 
 it('should work in main and isolated world', async ({playwright, page}) => {
   const createDummySelector = () => ({
-    create(root, target) { },
     query(root, selector) {
       return window['__answer'];
     },
     queryAll(root, selector) {
-      return [document.body, document.documentElement, window['__answer']];
+      return window['__answer'] ? [window['__answer'], document.body, document.documentElement] : [];
     }
   });
   await playwright.selectors.register('main', createDummySelector);
@@ -101,9 +95,6 @@ it('should handle errors', async ({playwright, page}) => {
   expect(error.message).toContain('Unknown engine "neverregister" while parsing selector neverregister=ignored');
 
   const createDummySelector = () => ({
-    create(root, target) {
-      return target.nodeName;
-    },
     query(root, selector) {
       return root.querySelector('dummy');
     },
@@ -124,4 +115,19 @@ it('should handle errors', async ({playwright, page}) => {
 
   error = await playwright.selectors.register('css', createDummySelector).catch(e => e);
   expect(error.message).toBe('"css" is a predefined selector engine');
+});
+
+it('should not rely on engines working from the root', async ({ playwright, page }) => {
+  const createValueEngine = () => ({
+    query(root, selector) {
+      return root && root.value.includes(selector) ? root : undefined;
+    },
+    queryAll(root, selector) {
+      return root && root.value.includes(selector) ? [root] : [];
+    },
+  });
+
+  await playwright.selectors.register('__value', createValueEngine);
+  await page.setContent(`<input id=input1 value=value1><input id=input2 value=value2>`);
+  expect(await page.$eval('input >> __value=value2', e => e.id)).toBe('input2');
 });

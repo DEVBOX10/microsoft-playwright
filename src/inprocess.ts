@@ -15,19 +15,14 @@
  */
 
 import { DispatcherConnection } from './dispatchers/dispatcher';
-import type { Playwright as PlaywrightImpl } from './server/playwright';
+import { createPlaywright } from './server/playwright';
 import type { Playwright as PlaywrightAPI } from './client/playwright';
 import { PlaywrightDispatcher } from './dispatchers/playwrightDispatcher';
 import { Connection } from './client/connection';
 import { BrowserServerLauncherImpl } from './browserServerImpl';
-import { installDebugController } from './debug/debugController';
-import { installTracer } from './trace/tracer';
-import { installHarTracer } from './trace/harTracer';
 
-export function setupInProcess(playwright: PlaywrightImpl): PlaywrightAPI {
-  installDebugController();
-  installTracer();
-  installHarTracer();
+function setupInProcess(): PlaywrightAPI {
+  const playwright = createPlaywright();
 
   const clientConnection = new Connection();
   const dispatcherConnection = new DispatcherConnection();
@@ -50,3 +45,5 @@ export function setupInProcess(playwright: PlaywrightImpl): PlaywrightAPI {
   (playwrightAPI as any)._toImpl = (x: any) => dispatcherConnection._dispatchers.get(x._guid)!._object;
   return playwrightAPI;
 }
+
+module.exports = setupInProcess();

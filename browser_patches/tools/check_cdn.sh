@@ -41,6 +41,7 @@ WK_ARCHIVES=(
   "$HOST/webkit/%s/webkit-ubuntu-20.04.zip"
   "$HOST/webkit/%s/webkit-mac-10.14.zip"
   "$HOST/webkit/%s/webkit-mac-10.15.zip"
+  "$HOST/webkit/%s/webkit-mac-11.0-arm64.zip"
   "$HOST/webkit/%s/webkit-win64.zip"
 )
 WK_ALIASES=(
@@ -48,18 +49,21 @@ WK_ALIASES=(
   "WK-UBUNTU-20.04"
   "WK-MAC-10.14"
   "WK-MAC-10.15"
+  "WK-MAC-11.0-ARM64"
   "WK-WIN64"
 )
 
 CR_REVISION=$(head -1 ../chromium/BUILD_NUMBER)
 CR_ARCHIVES=(
   "$HOST/chromium/%s/chromium-mac.zip"
+  "$HOST/chromium/%s/chromium-mac-arm64.zip"
   "$HOST/chromium/%s/chromium-linux.zip"
   "$HOST/chromium/%s/chromium-win32.zip"
   "$HOST/chromium/%s/chromium-win64.zip"
 )
 CR_ALIASES=(
   "CR-MAC"
+  "CR-MAC-ARM64"
   "CR-LINUX"
   "CR-WIN32"
   "CR-WIN64"

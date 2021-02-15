@@ -33,8 +33,32 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     };
   };
 
+  scheme.StackFrame = tObject({
+    file: tString,
+    line: tOptional(tNumber),
+    column: tOptional(tNumber),
+    function: tOptional(tString),
+  });
   scheme.Metadata = tObject({
-    stack: tOptional(tString),
+    stack: tOptional(tArray(tType('StackFrame'))),
+  });
+  scheme.WaitForEventInfo = tObject({
+    waitId: tString,
+    phase: tEnum(['before', 'after', 'log']),
+    name: tOptional(tString),
+    stack: tOptional(tArray(tType('StackFrame'))),
+    message: tOptional(tString),
+    error: tOptional(tString),
+  });
+  scheme.Point = tObject({
+    x: tNumber,
+    y: tNumber,
+  });
+  scheme.Rect = tObject({
+    x: tNumber,
+    y: tNumber,
+    width: tNumber,
+    height: tNumber,
   });
   scheme.SerializedValue = tObject({
     n: tOptional(tNumber),
@@ -153,6 +177,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.BrowserTypeLaunchPersistentContextParams = tObject({
     userDataDir: tString,
+    sdkLanguage: tString,
     executablePath: tOptional(tString),
     args: tOptional(tArray(tString)),
     ignoreAllDefaultArgs: tOptional(tBoolean),
@@ -201,8 +226,8 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     hasTouch: tOptional(tBoolean),
     colorScheme: tOptional(tEnum(['light', 'dark', 'no-preference'])),
     acceptDownloads: tOptional(tBoolean),
-    _traceResourcesPath: tOptional(tString),
-    _tracePath: tOptional(tString),
+    _traceDir: tOptional(tString),
+    _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
       size: tOptional(tObject({
@@ -215,8 +240,15 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       path: tString,
     })),
   });
+  scheme.BrowserTypeConnectOverCDPParams = tObject({
+    sdkLanguage: tString,
+    wsEndpoint: tString,
+    slowMo: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
   scheme.BrowserCloseParams = tOptional(tObject({}));
   scheme.BrowserNewContextParams = tObject({
+    sdkLanguage: tString,
     noDefaultViewport: tOptional(tBoolean),
     viewport: tOptional(tObject({
       width: tNumber,
@@ -245,8 +277,8 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     hasTouch: tOptional(tBoolean),
     colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
     acceptDownloads: tOptional(tBoolean),
-    _traceResourcesPath: tOptional(tString),
-    _tracePath: tOptional(tString),
+    _traceDir: tOptional(tString),
+    _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
       size: tOptional(tObject({
@@ -327,6 +359,16 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     offline: tBoolean,
   });
   scheme.BrowserContextStorageStateParams = tOptional(tObject({}));
+  scheme.BrowserContextPauseParams = tOptional(tObject({}));
+  scheme.BrowserContextRecorderSupplementEnableParams = tObject({
+    language: tOptional(tString),
+    startRecording: tOptional(tBoolean),
+    launchOptions: tOptional(tAny),
+    contextOptions: tOptional(tAny),
+    device: tOptional(tString),
+    saveStorage: tOptional(tString),
+    outputFile: tOptional(tString),
+  });
   scheme.BrowserContextCrNewCDPSessionParams = tObject({
     page: tChannel('Page'),
   });
@@ -372,12 +414,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     quality: tOptional(tNumber),
     omitBackground: tOptional(tBoolean),
     fullPage: tOptional(tBoolean),
-    clip: tOptional(tObject({
-      width: tNumber,
-      height: tNumber,
-      x: tNumber,
-      y: tNumber,
-    })),
+    clip: tOptional(tType('Rect')),
   });
   scheme.PageSetExtraHTTPHeadersParams = tObject({
     headers: tArray(tType('NameValue')),
@@ -468,13 +505,13 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.FrameEvalOnSelectorParams = tObject({
     selector: tString,
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.FrameEvalOnSelectorAllParams = tObject({
     selector: tString,
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.FrameAddScriptTagParams = tObject({
@@ -497,10 +534,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     delay: tOptional(tNumber),
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     clickCount: tOptional(tNumber),
@@ -512,10 +546,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     delay: tOptional(tNumber),
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     timeout: tOptional(tNumber),
@@ -528,13 +559,13 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.FrameEvaluateExpressionParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
     world: tOptional(tEnum(['main', 'utility'])),
   });
   scheme.FrameEvaluateExpressionHandleParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
     world: tOptional(tEnum(['main', 'utility'])),
   });
@@ -564,10 +595,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     selector: tString,
     force: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
   });
   scheme.FrameInnerHTMLParams = tObject({
@@ -575,6 +603,30 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     timeout: tOptional(tNumber),
   });
   scheme.FrameInnerTextParams = tObject({
+    selector: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.FrameIsCheckedParams = tObject({
+    selector: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.FrameIsDisabledParams = tObject({
+    selector: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.FrameIsEnabledParams = tObject({
+    selector: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.FrameIsHiddenParams = tObject({
+    selector: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.FrameIsVisibleParams = tObject({
+    selector: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.FrameIsEditableParams = tObject({
     selector: tString,
     timeout: tOptional(tNumber),
   });
@@ -622,10 +674,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
   });
   scheme.FrameTextContentParams = tObject({
@@ -648,7 +697,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.FrameWaitForFunctionParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
     timeout: tOptional(tNumber),
     pollingInterval: tOptional(tNumber),
@@ -658,31 +707,27 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     timeout: tOptional(tNumber),
     state: tOptional(tEnum(['attached', 'detached', 'visible', 'hidden'])),
   });
-  scheme.FrameExtendInjectedScriptParams = tObject({
-    source: tString,
-    arg: tType('SerializedArgument'),
-  });
   scheme.WorkerEvaluateExpressionParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.WorkerEvaluateExpressionHandleParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.JSHandleDisposeParams = tOptional(tObject({}));
   scheme.ElementHandleDisposeParams = tType('JSHandleDisposeParams');
   scheme.JSHandleEvaluateExpressionParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.ElementHandleEvaluateExpressionParams = tType('JSHandleEvaluateExpressionParams');
   scheme.JSHandleEvaluateExpressionHandleParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.ElementHandleEvaluateExpressionHandleParams = tType('JSHandleEvaluateExpressionHandleParams');
@@ -697,13 +742,13 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.ElementHandleEvalOnSelectorParams = tObject({
     selector: tString,
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.ElementHandleEvalOnSelectorAllParams = tObject({
     selector: tString,
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.ElementHandleBoundingBoxParams = tOptional(tObject({}));
@@ -716,10 +761,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     delay: tOptional(tNumber),
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     clickCount: tOptional(tNumber),
@@ -730,10 +772,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     delay: tOptional(tNumber),
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     timeout: tOptional(tNumber),
@@ -754,14 +793,17 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.ElementHandleHoverParams = tObject({
     force: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
   });
   scheme.ElementHandleInnerHTMLParams = tOptional(tObject({}));
   scheme.ElementHandleInnerTextParams = tOptional(tObject({}));
+  scheme.ElementHandleIsCheckedParams = tOptional(tObject({}));
+  scheme.ElementHandleIsDisabledParams = tOptional(tObject({}));
+  scheme.ElementHandleIsEditableParams = tOptional(tObject({}));
+  scheme.ElementHandleIsEnabledParams = tOptional(tObject({}));
+  scheme.ElementHandleIsHiddenParams = tOptional(tObject({}));
+  scheme.ElementHandleIsVisibleParams = tOptional(tObject({}));
   scheme.ElementHandleOwnerFrameParams = tOptional(tObject({}));
   scheme.ElementHandlePressParams = tObject({
     key: tString,
@@ -810,10 +852,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
-    position: tOptional(tObject({
-      x: tNumber,
-      y: tNumber,
-    })),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
   });
   scheme.ElementHandleTextContentParams = tOptional(tObject({}));
@@ -829,16 +868,13 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     timeout: tOptional(tNumber),
   });
   scheme.ElementHandleWaitForElementStateParams = tObject({
-    state: tEnum(['visible', 'hidden', 'stable', 'enabled', 'disabled']),
+    state: tEnum(['visible', 'hidden', 'stable', 'enabled', 'disabled', 'editable']),
     timeout: tOptional(tNumber),
   });
   scheme.ElementHandleWaitForSelectorParams = tObject({
     selector: tString,
     timeout: tOptional(tNumber),
     state: tOptional(tEnum(['attached', 'detached', 'visible', 'hidden'])),
-  });
-  scheme.ElementHandleCreateSelectorForTestParams = tObject({
-    name: tString,
   });
   scheme.RequestResponseParams = tOptional(tObject({}));
   scheme.RouteAbortParams = tObject({
@@ -896,29 +932,226 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.CDPSessionDetachParams = tOptional(tObject({}));
   scheme.ElectronLaunchParams = tObject({
-    executablePath: tString,
+    sdkLanguage: tString,
+    executablePath: tOptional(tString),
     args: tOptional(tArray(tString)),
     cwd: tOptional(tString),
     env: tOptional(tArray(tType('NameValue'))),
-    handleSIGINT: tOptional(tBoolean),
-    handleSIGTERM: tOptional(tBoolean),
-    handleSIGHUP: tOptional(tBoolean),
     timeout: tOptional(tNumber),
-  });
-  scheme.ElectronApplicationNewBrowserWindowParams = tObject({
-    arg: tType('SerializedArgument'),
   });
   scheme.ElectronApplicationEvaluateExpressionParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.ElectronApplicationEvaluateExpressionHandleParams = tObject({
     expression: tString,
-    isFunction: tBoolean,
+    isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
   });
   scheme.ElectronApplicationCloseParams = tOptional(tObject({}));
+  scheme.AndroidDevicesParams = tOptional(tObject({}));
+  scheme.AndroidSetDefaultTimeoutNoReplyParams = tObject({
+    timeout: tNumber,
+  });
+  scheme.AndroidSocketWriteParams = tObject({
+    data: tBinary,
+  });
+  scheme.AndroidSocketCloseParams = tOptional(tObject({}));
+  scheme.AndroidDeviceWaitParams = tObject({
+    selector: tType('AndroidSelector'),
+    state: tOptional(tEnum(['gone'])),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceFillParams = tObject({
+    selector: tType('AndroidSelector'),
+    text: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceTapParams = tObject({
+    selector: tType('AndroidSelector'),
+    duration: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceDragParams = tObject({
+    selector: tType('AndroidSelector'),
+    dest: tType('Point'),
+    speed: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceFlingParams = tObject({
+    selector: tType('AndroidSelector'),
+    direction: tEnum(['up', 'down', 'left', 'right']),
+    speed: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceLongTapParams = tObject({
+    selector: tType('AndroidSelector'),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDevicePinchCloseParams = tObject({
+    selector: tType('AndroidSelector'),
+    percent: tNumber,
+    speed: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDevicePinchOpenParams = tObject({
+    selector: tType('AndroidSelector'),
+    percent: tNumber,
+    speed: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceScrollParams = tObject({
+    selector: tType('AndroidSelector'),
+    direction: tEnum(['up', 'down', 'left', 'right']),
+    percent: tNumber,
+    speed: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceSwipeParams = tObject({
+    selector: tType('AndroidSelector'),
+    direction: tEnum(['up', 'down', 'left', 'right']),
+    percent: tNumber,
+    speed: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceInfoParams = tObject({
+    selector: tType('AndroidSelector'),
+  });
+  scheme.AndroidDeviceScreenshotParams = tOptional(tObject({}));
+  scheme.AndroidDeviceInputTypeParams = tObject({
+    text: tString,
+  });
+  scheme.AndroidDeviceInputPressParams = tObject({
+    key: tString,
+  });
+  scheme.AndroidDeviceInputTapParams = tObject({
+    point: tType('Point'),
+  });
+  scheme.AndroidDeviceInputSwipeParams = tObject({
+    segments: tArray(tType('Point')),
+    steps: tNumber,
+  });
+  scheme.AndroidDeviceInputDragParams = tObject({
+    from: tType('Point'),
+    to: tType('Point'),
+    steps: tNumber,
+  });
+  scheme.AndroidDeviceLaunchBrowserParams = tObject({
+    sdkLanguage: tString,
+    pkg: tOptional(tString),
+    ignoreHTTPSErrors: tOptional(tBoolean),
+    javaScriptEnabled: tOptional(tBoolean),
+    bypassCSP: tOptional(tBoolean),
+    userAgent: tOptional(tString),
+    locale: tOptional(tString),
+    timezoneId: tOptional(tString),
+    geolocation: tOptional(tObject({
+      longitude: tNumber,
+      latitude: tNumber,
+      accuracy: tOptional(tNumber),
+    })),
+    permissions: tOptional(tArray(tString)),
+    extraHTTPHeaders: tOptional(tArray(tType('NameValue'))),
+    offline: tOptional(tBoolean),
+    httpCredentials: tOptional(tObject({
+      username: tString,
+      password: tString,
+    })),
+    deviceScaleFactor: tOptional(tNumber),
+    isMobile: tOptional(tBoolean),
+    hasTouch: tOptional(tBoolean),
+    colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
+    acceptDownloads: tOptional(tBoolean),
+    _traceDir: tOptional(tString),
+    _debugName: tOptional(tString),
+    recordVideo: tOptional(tObject({
+      dir: tString,
+      size: tOptional(tObject({
+        width: tNumber,
+        height: tNumber,
+      })),
+    })),
+    recordHar: tOptional(tObject({
+      omitContent: tOptional(tBoolean),
+      path: tString,
+    })),
+    proxy: tOptional(tObject({
+      server: tString,
+      bypass: tOptional(tString),
+      username: tOptional(tString),
+      password: tOptional(tString),
+    })),
+  });
+  scheme.AndroidDeviceOpenParams = tObject({
+    command: tString,
+  });
+  scheme.AndroidDeviceShellParams = tObject({
+    command: tString,
+  });
+  scheme.AndroidDeviceInstallApkParams = tObject({
+    file: tBinary,
+    args: tOptional(tArray(tString)),
+  });
+  scheme.AndroidDevicePushParams = tObject({
+    file: tBinary,
+    path: tString,
+    mode: tOptional(tNumber),
+  });
+  scheme.AndroidDeviceSetDefaultTimeoutNoReplyParams = tObject({
+    timeout: tNumber,
+  });
+  scheme.AndroidDeviceConnectToWebViewParams = tObject({
+    sdkLanguage: tString,
+    pid: tNumber,
+  });
+  scheme.AndroidDeviceCloseParams = tOptional(tObject({}));
+  scheme.AndroidWebView = tObject({
+    pid: tNumber,
+    pkg: tString,
+  });
+  scheme.AndroidSelector = tObject({
+    checkable: tOptional(tBoolean),
+    checked: tOptional(tBoolean),
+    clazz: tOptional(tString),
+    clickable: tOptional(tBoolean),
+    depth: tOptional(tNumber),
+    desc: tOptional(tString),
+    enabled: tOptional(tBoolean),
+    focusable: tOptional(tBoolean),
+    focused: tOptional(tBoolean),
+    hasChild: tOptional(tObject({
+      selector: tType('AndroidSelector'),
+    })),
+    hasDescendant: tOptional(tObject({
+      selector: tType('AndroidSelector'),
+      maxDepth: tOptional(tNumber),
+    })),
+    longClickable: tOptional(tBoolean),
+    pkg: tOptional(tString),
+    res: tOptional(tString),
+    scrollable: tOptional(tBoolean),
+    selected: tOptional(tBoolean),
+    text: tOptional(tString),
+  });
+  scheme.AndroidElementInfo = tObject({
+    children: tOptional(tArray(tType('AndroidElementInfo'))),
+    clazz: tString,
+    desc: tString,
+    res: tString,
+    pkg: tString,
+    text: tString,
+    bounds: tType('Rect'),
+    checkable: tBoolean,
+    checked: tBoolean,
+    clickable: tBoolean,
+    enabled: tBoolean,
+    focusable: tBoolean,
+    focused: tBoolean,
+    longClickable: tBoolean,
+    scrollable: tBoolean,
+    selected: tBoolean,
+  });
 
   return scheme;
 }

@@ -66,9 +66,7 @@ it('should support ignoreHTTPSErrors option', async ({httpsServer, launchPersist
   expect(response.ok()).toBe(true);
 });
 
-it('should support extraHTTPHeaders option', (test, { browserName, platform, headful }) => {
-  test.flaky(browserName === 'firefox' && headful && platform === 'linux', 'Intermittent timeout on bots');
-}, async ({server, launchPersistent}) => {
+it('should support extraHTTPHeaders option', async ({server, launchPersistent}) => {
   const {page} = await launchPersistent({extraHTTPHeaders: { foo: 'bar' }});
   const [request] = await Promise.all([
     server.waitForRequest('/empty.html'),
@@ -77,9 +75,7 @@ it('should support extraHTTPHeaders option', (test, { browserName, platform, hea
   expect(request.headers['foo']).toBe('bar');
 });
 
-it('should accept userDataDir', (test, { browserName }) => {
-  test.flaky(browserName === 'chromium');
-}, async ({createUserDataDir, browserType, browserOptions}) => {
+it('should accept userDataDir', async ({createUserDataDir, browserType, browserOptions}) => {
   const userDataDir = await createUserDataDir();
   const context = await browserType.launchPersistentContext(userDataDir, browserOptions);
   expect(fs.readdirSync(userDataDir).length).toBeGreaterThan(0);
@@ -113,7 +109,6 @@ it('should restore state from userDataDir', (test, { browserName }) => {
 
 it('should restore cookies from userDataDir', (test, { browserName }) => {
   test.slow();
-  test.flaky(browserName === 'chromium');
 }, async ({browserType, browserOptions,  server, createUserDataDir}) => {
   const userDataDir = await createUserDataDir();
   const browserContext = await browserType.launchPersistentContext(userDataDir, browserOptions);
@@ -154,8 +149,8 @@ it('should throw if page argument is passed', (test, { browserName }) => {
   expect(error.message).toContain('can not specify page');
 });
 
-it('should have passed URL when launching with ignoreDefaultArgs: true', (test, { wire }) => {
-  test.skip(wire);
+it('should have passed URL when launching with ignoreDefaultArgs: true', (test, { mode }) => {
+  test.skip(mode !== 'default');
 }, async ({browserType, browserOptions, server, createUserDataDir, toImpl}) => {
   const userDataDir = await createUserDataDir();
   const args = toImpl(browserType)._defaultArgs(browserOptions, 'persistent', userDataDir, 0).filter(a => a !== 'about:blank');
@@ -173,16 +168,16 @@ it('should have passed URL when launching with ignoreDefaultArgs: true', (test, 
   await browserContext.close();
 });
 
-it('should handle timeout', (test, { wire }) => {
-  test.skip(wire);
+it('should handle timeout', (test, { mode }) => {
+  test.skip(mode !== 'default');
 }, async ({browserType, browserOptions, createUserDataDir}) => {
   const options = { ...browserOptions, timeout: 5000, __testHookBeforeCreateBrowser: () => new Promise(f => setTimeout(f, 6000)) };
   const error = await browserType.launchPersistentContext(await createUserDataDir(), options).catch(e => e);
   expect(error.message).toContain(`browserType.launchPersistentContext: Timeout 5000ms exceeded.`);
 });
 
-it('should handle exception', (test, { wire }) => {
-  test.skip(wire);
+it('should handle exception', (test, { mode }) => {
+  test.skip(mode !== 'default');
 }, async ({browserType, browserOptions, createUserDataDir}) => {
   const e = new Error('Dummy');
   const options = { ...browserOptions, __testHookBeforeCreateBrowser: () => { throw e; } };
@@ -221,7 +216,6 @@ it('should respect selectors', async ({playwright, launchPersistent}) => {
   const {page} = await launchPersistent();
 
   const defaultContextCSS = () => ({
-    create(root, target) {},
     query(root, selector) {
       return root.querySelector(selector);
     },
