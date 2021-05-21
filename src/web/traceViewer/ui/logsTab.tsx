@@ -14,18 +14,18 @@
  * limitations under the License.
  */
 
-import { ActionEntry } from '../../../cli/traceViewer/traceModel';
 import * as React from 'react';
 import './logsTab.css';
+import { ActionTraceEvent } from '../../../server/trace/common/traceEvents';
 
 export const LogsTab: React.FunctionComponent<{
-  actionEntry: ActionEntry | undefined,
-}> = ({ actionEntry }) => {
+  action: ActionTraceEvent | undefined,
+}> = ({ action }) => {
   let logs: string[] = [];
-  if (actionEntry) {
-    logs = actionEntry.action.logs || [];
-    if (actionEntry.action.error)
-      logs = [actionEntry.action.error, ...logs];
+  if (action) {
+    logs = action.metadata.log || [];
+    if (action.metadata.error)
+      logs = [action.metadata.error, ...logs];
   }
   return <div className='logs-tab'>{
     logs.map((logLine, index) => {

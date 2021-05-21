@@ -4,17 +4,17 @@
 Playwright has **experimental** support for Android automation. You can access android namespace via:
 
 ```js
-const { _android } = require('playwright');
+const { _android: android } = require('playwright');
 ```
 
 An example of the Android automation script would be:
 
 ```js
-const { _android } = require('playwright');
+const { _android: android } = require('playwright');
 
 (async () => {
   // Connect to the device.
-  const [device] = await playwright._android.devices();
+  const [device] = await android.devices();
   console.log(`Model: ${device.model()}`);
   console.log(`Serial: ${device.serial()}`);
   // Take screenshot of the whole device.
@@ -35,7 +35,7 @@ const { _android } = require('playwright');
 
     // Work with WebView's page as usual.
     const page = await webview.page();
-    await page.page.waitForNavigation({ url: /.*microsoft\/playwright.*/ });
+    await page.waitForNavigation({ url: /.*microsoft\/playwright.*/ });
     console.log(await page.title());
   }
 
@@ -63,7 +63,7 @@ const { _android } = require('playwright');
 Note that since you don't need Playwright to install web browsers when testing Android, you can omit browser download via setting the following environment variable when installing Playwright:
 
 ```sh js
-$ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
 ```
 
 ## async method: Android.devices

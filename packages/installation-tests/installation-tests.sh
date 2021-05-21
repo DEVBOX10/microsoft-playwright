@@ -33,12 +33,17 @@ PLAYWRIGHT_ANDROID_TGZ="$(node ${PACKAGE_BUILDER} playwright-android ./playwrigh
 echo "playwright-android built"
 
 SCRIPTS_PATH="$(pwd -P)/.."
-TEST_ROOT="$(pwd -P)"
+TEST_ROOT="/tmp/playwright-installation-tests"
+rm -rf "${TEST_ROOT}"
+mkdir -p "${TEST_ROOT}"
 NODE_VERSION="$(node --version)"
 
 function copy_test_scripts {
+  cp "${SCRIPTS_PATH}/inspector-custom-executable.js" .
   cp "${SCRIPTS_PATH}/sanity.js" .
   cp "${SCRIPTS_PATH}/screencast.js" .
+  cp "${SCRIPTS_PATH}/validate-dependencies.js" .
+  cp "${SCRIPTS_PATH}/validate-dependencies-skip-executable-path.js" .
   cp "${SCRIPTS_PATH}/esm.mjs" .
   cp "${SCRIPTS_PATH}/esm-playwright.mjs" .
   cp "${SCRIPTS_PATH}/esm-playwright-chromium.mjs" .
@@ -52,14 +57,11 @@ function copy_test_scripts {
 function run_tests {
   test_screencast
   test_typescript_types
-  test_skip_browser_download
   test_playwright_global_installation_subsequent_installs
-  test_playwright_should_work
   test_playwright_should_work_with_relative_home_path
   test_playwright_should_work_with_relative_browsers_path
-  test_playwright_chromium_should_work
-  test_playwright_webkit_should_work
-  test_playwright_firefox_should_work
+  test_playwright_validate_dependencies
+  test_playwright_validate_dependencies_skip_executable_path
   test_playwright_global_installation
   test_playwright_global_installation_cross_package
   test_playwright_electron_should_work
@@ -69,6 +71,17 @@ function run_tests {
   test_playwright_cli_install_should_work
   test_playwright_cli_codegen_should_work
   test_playwright_driver_should_work
+  # npm v7 that comes with Node v16 swallows output from install scripts,
+  # so the following tests won't work.
+  # See discussion at https://github.com/npm/cli/issues/1651
+  if [[ "${NODE_VERSION}" != *"v16."* ]]; then
+    test_skip_browser_download
+    test_skip_browser_download_inspect_with_custom_executable
+    test_playwright_should_work
+    test_playwright_chromium_should_work
+    test_playwright_webkit_should_work
+    test_playwright_firefox_should_work
+  fi
 }
 
 function test_screencast {
@@ -108,7 +121,7 @@ function test_typescript_types {
                   "playwright-webkit"
   do
     echo "Checking types of ${PKG_NAME}"
-    echo "import { Page } from '${PKG_NAME}';" > "${PKG_NAME}.ts" && tsc "${PKG_NAME}.ts"
+    echo "import { Page } from '${PKG_NAME}';" > "${PKG_NAME}.ts" && npx -p typescript@3.7.5 tsc "${PKG_NAME}.ts"
   done;
 
   echo "${FUNCNAME[0]} success"
@@ -186,6 +199,32 @@ function test_skip_browser_download {
 
   if [[ -d ./node_modules/playwright/.local-browsers ]]; then
     echo "local browsers folder should be empty"
+    exit 1
+  fi
+
+  echo "${FUNCNAME[0]} success"
+}
+
+function test_skip_browser_download_inspect_with_custom_executable {
+  initialize_test "${FUNCNAME[0]}"
+  copy_test_scripts
+
+  OUTPUT=$(PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install ${PLAYWRIGHT_TGZ})
+  if [[ "${OUTPUT}" != *"Skipping browsers download because"* ]]; then
+    echo "missing log message that browsers download is skipped"
+    exit 1
+  fi
+
+  if [[ "$(uname)" != "Linux" ]]; then
+    echo
+    echo "Skipping test on non-Linux platform"
+    echo
+    return
+  fi
+
+  OUTPUT=$(PWDEBUG=1 node inspector-custom-executable.js)
+  if [[ "${OUTPUT}" != *"SUCCESS"* ]]; then
+    echo "missing log message that launch succeeded: ${OUTPUT}"
     exit 1
   fi
 
@@ -329,6 +368,36 @@ function test_playwright_firefox_should_work {
   echo "${FUNCNAME[0]} success"
 }
 
+function test_playwright_validate_dependencies {
+  initialize_test "${FUNCNAME[0]}"
+
+  npm install ${PLAYWRIGHT_TGZ}
+  copy_test_scripts
+
+  OUTPUT="$(node validate-dependencies.js)"
+  if [[ "${OUTPUT}" != *"PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS"* ]]; then
+    echo "ERROR: validateDependencies was not called"
+    exit 1
+  fi
+
+  echo "${FUNCNAME[0]} success"
+}
+
+function test_playwright_validate_dependencies_skip_executable_path {
+  initialize_test "${FUNCNAME[0]}"
+
+  npm install ${PLAYWRIGHT_TGZ}
+  copy_test_scripts
+
+  OUTPUT="$(node validate-dependencies-skip-executable-path.js)"
+  if [[ "${OUTPUT}" == *"PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS"* ]]; then
+    echo "ERROR: validateDependencies was called"
+    exit 1
+  fi
+
+  echo "${FUNCNAME[0]} success"
+}
+
 function test_playwright_electron_should_work {
   initialize_test "${FUNCNAME[0]}"
 
@@ -351,7 +420,7 @@ function test_electron_types {
   echo "import { Page, electron, ElectronApplication, Electron } from 'playwright-electron';" > "test.ts"
 
   echo "Running tsc"
-  npx tsc "test.ts"
+  npx -p typescript@3.7.5 tsc "test.ts"
 
   echo "${FUNCNAME[0]} success"
 }
@@ -365,7 +434,7 @@ function test_android_types {
   echo "import { AndroidDevice, android, AndroidWebView, Page } from 'playwright-android';" > "test.ts"
 
   echo "Running tsc"
-  npx tsc "test.ts"
+  npx -p typescript@3.7.5 tsc "test.ts"
 
   echo "${FUNCNAME[0]} success"
 }
@@ -405,6 +474,10 @@ function test_playwright_cli_install_should_work {
     echo "ERROR: should download chromium"
     exit 1
   fi
+  if [[ "${OUTPUT}" != *"ffmpeg"* ]]; then
+    echo "ERROR: should download ffmpeg"
+    exit 1
+  fi
   if [[ "${OUTPUT}" == *"webkit"* ]]; then
     echo "ERROR: should not download webkit"
     exit 1
@@ -418,6 +491,10 @@ function test_playwright_cli_install_should_work {
   OUTPUT=$(PLAYWRIGHT_BROWSERS_PATH=${BROWSERS} npx playwright install)
   if [[ "${OUTPUT}" == *"chromium"* ]]; then
     echo "ERROR: should not download chromium"
+    exit 1
+  fi
+  if [[ "${OUTPUT}" == *"ffmpeg"* ]]; then
+    echo "ERROR: should not download ffmpeg"
     exit 1
   fi
   if [[ "${OUTPUT}" != *"webkit"* ]]; then
@@ -443,7 +520,7 @@ function test_playwright_cli_codegen_should_work {
   npm install ${PLAYWRIGHT_TGZ}
 
   echo "Running playwright codegen"
-  OUTPUT=$(PWCLI_EXIT_FOR_TEST=1 xvfb-run --auto-servernum -- bash -c "npx playwright codegen")
+  OUTPUT=$(PWTEST_CLI_EXIT=1 xvfb-run --auto-servernum -- bash -c "npx playwright codegen")
   if [[ "${OUTPUT}" != *"chromium.launch"* ]]; then
     echo "ERROR: missing chromium.launch in the output"
     exit 1
@@ -454,7 +531,7 @@ function test_playwright_cli_codegen_should_work {
   fi
 
   echo "Running playwright codegen --target=python"
-  OUTPUT=$(PWCLI_EXIT_FOR_TEST=1 xvfb-run --auto-servernum -- bash -c "npx playwright codegen --target=python")
+  OUTPUT=$(PWTEST_CLI_EXIT=1 xvfb-run --auto-servernum -- bash -c "npx playwright codegen --target=python")
   if [[ "${OUTPUT}" != *"chromium.launch"* ]]; then
     echo "ERROR: missing chromium.launch in the output"
     exit 1

@@ -43,15 +43,16 @@ export interface Backend {
 export interface DeviceBackend {
   serial: string;
   status: string;
-  close(): Promise<void>;
+  close(): void;
   init(): Promise<void>;
   runCommand(command: string): Promise<Buffer>;
   open(command: string): Promise<SocketBackend>;
 }
 
 export interface SocketBackend extends EventEmitter {
+  guid: string;
   write(data: Buffer): Promise<void>;
-  close(): Promise<void>;
+  close(): void;
 }
 
 export class Android extends SdkObject {
@@ -61,7 +62,7 @@ export class Android extends SdkObject {
   readonly _playwrightOptions: PlaywrightOptions;
 
   constructor(backend: Backend, playwrightOptions: PlaywrightOptions) {
-    super(playwrightOptions.rootSdkObject);
+    super(playwrightOptions.rootSdkObject, 'android');
     this._backend = backend;
     this._playwrightOptions = playwrightOptions;
     this._timeoutSettings = new TimeoutSettings();
@@ -115,7 +116,7 @@ export class AndroidDevice extends SdkObject {
   private _isClosed = false;
 
   constructor(android: Android, backend: DeviceBackend, model: string) {
-    super(android);
+    super(android, 'android-device');
     this._android = android;
     this._backend = backend;
     this.model = model;
@@ -176,7 +177,7 @@ export class AndroidDevice extends SdkObject {
       await this.installApk(await readFileAsync(require.resolve(`../../../bin/${file}`)));
 
     debug('pw:android')('Starting the new driver');
-    this.shell('am instrument -w com.microsoft.playwright.androiddriver.test/androidx.test.runner.AndroidJUnitRunner');
+    this.shell('am instrument -w com.microsoft.playwright.androiddriver.test/androidx.test.runner.AndroidJUnitRunner').catch(e => debug('pw:android')(e));
     const socket = await this._waitForLocalAbstract('playwright_android_driver_socket');
     const transport = new Transport(socket, socket, socket, 'be');
     transport.onmessage = message => {
@@ -301,7 +302,7 @@ export class AndroidDevice extends SdkObject {
     await installSocket.write(content);
     const success = await new Promise(f => installSocket.on('data', f));
     debug('pw:android')('Written driver bytes: ' + success);
-    await installSocket.close();
+    installSocket.close();
   }
 
   async push(content: Buffer, path: string, mode = 0o644): Promise<void> {
@@ -325,7 +326,7 @@ export class AndroidDevice extends SdkObject {
     const code = result.slice(0, 4).toString();
     if (code !== 'OKAY')
       throw new Error('Could not push: ' + code);
-    await socket.close();
+    socket.close();
   }
 
   private async _refreshWebViews() {
@@ -420,7 +421,7 @@ Sec-WebSocket-Version: 13\r
   }
 
   async close() {
-    await this._socket!.close();
+    this._socket!.close();
   }
 }
 

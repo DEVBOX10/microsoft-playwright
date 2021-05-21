@@ -33,10 +33,11 @@ class TestServer {
   /**
    * @param {string} dirPath
    * @param {number} port
+   * @param {string=} loopback
    * @return {!Promise<TestServer>}
    */
-  static async create(dirPath, port) {
-    const server = new TestServer(dirPath, port);
+  static async create(dirPath, port, loopback) {
+    const server = new TestServer(dirPath, port, loopback);
     await new Promise(x => server._server.once('listening', x));
     return server;
   }
@@ -44,10 +45,11 @@ class TestServer {
   /**
    * @param {string} dirPath
    * @param {number} port
+   * @param {string=} loopback
    * @return {!Promise<TestServer>}
    */
-  static async createHTTPS(dirPath, port) {
-    const server = new TestServer(dirPath, port, {
+  static async createHTTPS(dirPath, port, loopback) {
+    const server = new TestServer(dirPath, port, loopback, {
       key: fs.readFileSync(path.join(__dirname, 'key.pem')),
       cert: fs.readFileSync(path.join(__dirname, 'cert.pem')),
       passphrase: 'aaaa',
@@ -59,9 +61,10 @@ class TestServer {
   /**
    * @param {string} dirPath
    * @param {number} port
+   * @param {string=} loopback
    * @param {!Object=} sslOptions
    */
-  constructor(dirPath, port, sslOptions) {
+  constructor(dirPath, port, loopback, sslOptions) {
     if (sslOptions)
       this._server = https.createServer(sslOptions, this._onRequest.bind(this));
     else
@@ -89,11 +92,13 @@ class TestServer {
     /** @type {!Map<string, !Promise>} */
     this._requestSubscribers = new Map();
 
+    const cross_origin = loopback || '127.0.0.1';
+    const same_origin = loopback || 'localhost';
     const protocol = sslOptions ? 'https' : 'http';
     this.PORT = port;
-    this.PREFIX = `${protocol}://localhost:${port}`;
-    this.CROSS_PROCESS_PREFIX = `${protocol}://127.0.0.1:${port}`;
-    this.EMPTY_PAGE = `${protocol}://localhost:${port}/empty.html`;
+    this.PREFIX = `${protocol}://${same_origin}:${port}`;
+    this.CROSS_PROCESS_PREFIX = `${protocol}://${cross_origin}:${port}`;
+    this.EMPTY_PAGE = `${protocol}://${same_origin}:${port}/empty.html`;
   }
 
   _onSocket(socket) {
@@ -286,6 +291,12 @@ class TestServer {
     } else {
       response.end(data);
     }
+  }
+
+  waitForWebSocketConnectionRequest() {
+    return new Promise(fullfil => {
+      this._wsServer.once('connection', (ws, req) => fullfil(req));
+    });
   }
 
   _onWebSocketConnection(ws) {

@@ -15,7 +15,7 @@ Playwright enables fast, reliable and capable automation across all modern brows
 
 * **Test for mobile**. Use [device emulation](./emulation.md) to test your responsive web apps in mobile web browsers.
 
-* **Headless and headful**. Playwright supports headless (without browser UI) and headful (with browser UI) modes for all browsers and all platforms. Headful is great for debugging, and headless is faster and suited for CI/cloud executions.
+* **Headless and headed**. Playwright supports headless (without browser UI) and headed (with browser UI) modes for all browsers and all platforms. Headed is great for debugging, and headless is faster and suited for CI/cloud executions.
 
 ## Fast and reliable execution
 * **Auto-wait APIs**. Playwright interactions [auto-wait for elements](./actionability.md) to be ready. This improves reliability and simplifies test authoring.
@@ -33,16 +33,16 @@ Playwright enables fast, reliable and capable automation across all modern brows
 
 * **Modern web features**. Playwright supports web components through [shadow-piercing selectors](./selectors.md), [geolocation, permissions](./emulation.md), web workers and other modern web APIs.
 
-* **Capabilities to cover all scenarios**. Support for [file downloads](./network.md) and [uploads](./input.md), out-of-process iframes, native [input events](./input.md), and even [dark mode](./emulation.md).
+* **Capabilities to cover all scenarios**. Support for [file downloads](./downloads.md) and [uploads](./input.md), out-of-process iframes, native [input events](./input.md), and even [dark mode](./emulation.md).
 
 ## Integrates with your workflow
 * **One-line installation**. Installing Playwright auto-downloads browser dependencies for your team to be onboarded quickly.
   ```sh js
-  $ npm i playwright
+  npm i playwright
   ```
   ```sh python
-  $ pip install playwright
-  $ python -m playwright install
+  pip install playwright
+  playwright install
   ```
 
 * **TypeScript support**. Playwright ships with built-in types for auto-completion and other benefits.

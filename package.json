@@ -1,34 +1,33 @@
 {
   "name": "playwright-internal",
   "private": true,
-  "version": "1.9.0-next",
+  "version": "1.12.0-next",
   "description": "A high-level API to automate web browsers",
   "repository": "github:Microsoft/playwright",
   "homepage": "https://playwright.dev",
   "engines": {
-    "node": ">=10.17.0"
+    "node": ">=12"
   },
   "scripts": {
-    "ctest": "cross-env BROWSER=chromium folio test/",
-    "ftest": "cross-env BROWSER=firefox folio test/",
-    "wtest": "cross-env BROWSER=webkit folio test/",
-    "atest": "cross-env BROWSER=chromium PW_ANDROID_TESTS=1 npx folio test/android --workers=1 --reporter=list",
-    "test": "folio test/",
+    "ctest": "folio --config=tests/config/default.config.ts --project=chromium",
+    "ftest": "folio --config=tests/config/default.config.ts --project=firefox",
+    "wtest": "folio --config=tests/config/default.config.ts --project=webkit",
+    "atest": "folio --config=tests/config/android.config.ts",
+    "etest": "folio --config=tests/config/electron.config.ts",
+    "test": "folio --config=tests/config/default.config.ts",
     "eslint": "[ \"$CI\" = true ] && eslint --quiet -f codeframe --ext js,ts . || eslint --ext js,ts .",
     "tsc": "tsc -p .",
     "tsc-installer": "tsc -p ./src/install/tsconfig.json",
     "doc": "node utils/doclint/cli.js",
-    "lint": "npm run eslint && npm run tsc && npm run doc && npm run check-deps && node utils/generate_channels.js && node utils/generate_types/ --check-clean && npm run test-types && folio utils/doclint/test/",
+    "lint": "npm run eslint && npm run tsc && npm run doc && npm run check-deps && node utils/generate_channels.js && node utils/generate_types/ --check-clean && npm run test-types",
     "clean": "rimraf lib",
     "prepare": "node install-from-github.js",
     "build": "node utils/build/build.js",
     "watch": "node utils/build/build.js --watch",
-    "test-types": "node utils/generate_types/ && npx -p typescript@3.7.5 tsc -p utils/generate_types/test/tsconfig.json && tsc -p ./test/",
-    "roll-browser": "node utils/roll_browser.js",
+    "test-types": "node utils/generate_types/ && npx -p typescript@3.7.5 tsc -p utils/generate_types/test/tsconfig.json && tsc -p ./tests/",
+    "roll": "node utils/roll_browser.js",
     "check-deps": "node utils/check_deps.js",
-    "build-android-driver": "./utils/build_android_driver.sh",
-    "storybook": "start-storybook -p 6006 -s public",
-    "build-storybook": "build-storybook -s public"
+    "build-android-driver": "./utils/build_android_driver.sh"
   },
   "author": {
     "name": "Microsoft Corporation"
@@ -50,7 +49,8 @@
     "proxy-from-env": "^1.1.0",
     "rimraf": "^3.0.2",
     "stack-utils": "^2.0.3",
-    "ws": "^7.3.1"
+    "ws": "^7.3.1",
+    "yazl": "^2.5.1"
   },
   "devDependencies": {
     "@types/debug": "^4.1.5",
@@ -67,6 +67,7 @@
     "@types/rimraf": "^3.0.0",
     "@types/webpack": "^4.41.25",
     "@types/ws": "7.2.6",
+    "@types/yazl": "^2.4.2",
     "@typescript-eslint/eslint-plugin": "^3.10.1",
     "@typescript-eslint/parser": "^3.10.1",
     "chokidar": "^3.5.0",
@@ -79,7 +80,7 @@
     "eslint-plugin-notice": "^0.9.10",
     "eslint-plugin-react-hooks": "^4.2.0",
     "file-loader": "^6.1.0",
-    "folio": "=0.3.17",
+    "folio": "=0.4.0-alpha16",
     "formidable": "^1.2.2",
     "html-webpack-plugin": "^4.4.1",
     "ncp": "^2.0.0",
@@ -87,11 +88,6 @@
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
     "socksv5": "0.0.6",
-    "@storybook/addon-actions": "^6.1.14",
-    "@storybook/addon-essentials": "^6.1.14",
-    "@storybook/addon-links": "^6.1.14",
-    "@storybook/node-logger": "^6.1.14",
-    "@storybook/react": "^6.1.14",
     "style-loader": "^1.2.1",
     "ts-loader": "^8.0.3",
     "typescript": "^4.0.2",

@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-set +x
+set -x
 
 trap "cd $(pwd -P)" EXIT
 cd "$(dirname $0)"
@@ -15,6 +15,8 @@ if [[ ! -d ./electron-build-tools ]]; then
 fi
 
 cd electron-build-tools/third_party/goma
+
+export GOMA_START_COMPILER_PROXY=true
 
 if [[ $1 == "--help" ]]; then
   echo "$(basename $0) [login|start|stop|--help]"

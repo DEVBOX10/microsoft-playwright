@@ -36,8 +36,18 @@ export function rewriteErrorMessage(e: Error, newMessage: string): Error {
   return e;
 }
 
+const PW_LIB_DIRS = [
+  'playwright',
+  'playwright-chromium',
+  'playwright-firefox',
+  'playwright-webkit',
+].map(packageName => path.sep + path.join(packageName, 'lib'));
+
 export function captureStackTrace(): { stack: string, frames: StackFrame[] } {
+  const stackTraceLimit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 30;
   const stack = new Error().stack!;
+  Error.stackTraceLimit = stackTraceLimit;
   const frames: StackFrame[] = [];
   for (const line of stack.split('\n')) {
     const frame = stackUtils.parseLine(line);
@@ -46,12 +56,12 @@ export function captureStackTrace(): { stack: string, frames: StackFrame[] } {
     if (frame.file.startsWith('internal'))
       continue;
     const fileName = path.resolve(process.cwd(), frame.file);
-    if (fileName.includes(path.join('playwright', 'lib')))
+    if (PW_LIB_DIRS.some(libDir => fileName.includes(libDir)))
       continue;
     // for tests.
-    if (fileName.includes(path.join('playwright', 'src')))
+    if (isUnderTest() && fileName.includes(path.join('playwright', 'src')))
       continue;
-    if (isUnderTest() && fileName.includes(path.join('playwright', 'test', 'coverage.js')))
+    if (isUnderTest() && fileName.includes(path.join('playwright', 'tests', 'config', 'coverage.js')))
       continue;
     frames.push({
       file: fileName,
@@ -61,4 +71,12 @@ export function captureStackTrace(): { stack: string, frames: StackFrame[] } {
     });
   }
   return { stack, frames };
+}
+
+export function splitErrorMessage(message: string): { name: string, message: string } {
+  const separationIdx = message.indexOf(':');
+  return {
+    name: separationIdx !== -1 ? message.slice(0, separationIdx) : '',
+    message: separationIdx !== -1 && separationIdx + 2 <= message.length ? message.substring(separationIdx + 2) : message,
+  };
 }

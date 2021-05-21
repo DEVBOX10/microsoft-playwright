@@ -41,12 +41,12 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.Metadata = tObject({
     stack: tOptional(tArray(tType('StackFrame'))),
+    apiName: tOptional(tString),
   });
   scheme.WaitForEventInfo = tObject({
     waitId: tString,
     phase: tEnum(['before', 'after', 'log']),
-    name: tOptional(tString),
-    stack: tOptional(tArray(tType('StackFrame'))),
+    apiName: tOptional(tString),
     message: tOptional(tString),
     error: tOptional(tString),
   });
@@ -153,6 +153,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     contentScript: tOptional(tBoolean),
   });
   scheme.BrowserTypeLaunchParams = tObject({
+    channel: tOptional(tEnum(['chrome', 'chrome-beta', 'chrome-dev', 'chrome-canary', 'msedge', 'msedge-beta', 'msedge-dev', 'msedge-canary', 'firefox-stable'])),
     executablePath: tOptional(tString),
     args: tOptional(tArray(tString)),
     ignoreAllDefaultArgs: tOptional(tBoolean),
@@ -171,13 +172,13 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       password: tOptional(tString),
     })),
     downloadsPath: tOptional(tString),
-    firefoxUserPrefs: tOptional(tAny),
+    traceDir: tOptional(tString),
     chromiumSandbox: tOptional(tBoolean),
+    firefoxUserPrefs: tOptional(tAny),
     slowMo: tOptional(tNumber),
   });
   scheme.BrowserTypeLaunchPersistentContextParams = tObject({
-    userDataDir: tString,
-    sdkLanguage: tString,
+    channel: tOptional(tEnum(['chrome', 'chrome-beta', 'chrome-dev', 'chrome-canary', 'msedge', 'msedge-beta', 'msedge-dev', 'msedge-canary', 'firefox-stable'])),
     executablePath: tOptional(tString),
     args: tOptional(tArray(tString)),
     ignoreAllDefaultArgs: tOptional(tBoolean),
@@ -196,61 +197,15 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       password: tOptional(tString),
     })),
     downloadsPath: tOptional(tString),
+    traceDir: tOptional(tString),
     chromiumSandbox: tOptional(tBoolean),
-    slowMo: tOptional(tNumber),
+    sdkLanguage: tString,
     noDefaultViewport: tOptional(tBoolean),
     viewport: tOptional(tObject({
       width: tNumber,
       height: tNumber,
     })),
-    ignoreHTTPSErrors: tOptional(tBoolean),
-    javaScriptEnabled: tOptional(tBoolean),
-    bypassCSP: tOptional(tBoolean),
-    userAgent: tOptional(tString),
-    locale: tOptional(tString),
-    timezoneId: tOptional(tString),
-    geolocation: tOptional(tObject({
-      longitude: tNumber,
-      latitude: tNumber,
-      accuracy: tOptional(tNumber),
-    })),
-    permissions: tOptional(tArray(tString)),
-    extraHTTPHeaders: tOptional(tArray(tType('NameValue'))),
-    offline: tOptional(tBoolean),
-    httpCredentials: tOptional(tObject({
-      username: tString,
-      password: tString,
-    })),
-    deviceScaleFactor: tOptional(tNumber),
-    isMobile: tOptional(tBoolean),
-    hasTouch: tOptional(tBoolean),
-    colorScheme: tOptional(tEnum(['light', 'dark', 'no-preference'])),
-    acceptDownloads: tOptional(tBoolean),
-    _traceDir: tOptional(tString),
-    _debugName: tOptional(tString),
-    recordVideo: tOptional(tObject({
-      dir: tString,
-      size: tOptional(tObject({
-        width: tNumber,
-        height: tNumber,
-      })),
-    })),
-    recordHar: tOptional(tObject({
-      omitContent: tOptional(tBoolean),
-      path: tString,
-    })),
-  });
-  scheme.BrowserTypeConnectOverCDPParams = tObject({
-    sdkLanguage: tString,
-    wsEndpoint: tString,
-    slowMo: tOptional(tNumber),
-    timeout: tOptional(tNumber),
-  });
-  scheme.BrowserCloseParams = tOptional(tObject({}));
-  scheme.BrowserNewContextParams = tObject({
-    sdkLanguage: tString,
-    noDefaultViewport: tOptional(tBoolean),
-    viewport: tOptional(tObject({
+    screen: tOptional(tObject({
       width: tNumber,
       height: tNumber,
     })),
@@ -277,7 +232,64 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     hasTouch: tOptional(tBoolean),
     colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
     acceptDownloads: tOptional(tBoolean),
-    _traceDir: tOptional(tString),
+    _debugName: tOptional(tString),
+    recordVideo: tOptional(tObject({
+      dir: tString,
+      size: tOptional(tObject({
+        width: tNumber,
+        height: tNumber,
+      })),
+    })),
+    recordHar: tOptional(tObject({
+      omitContent: tOptional(tBoolean),
+      path: tString,
+    })),
+    userDataDir: tString,
+    slowMo: tOptional(tNumber),
+  });
+  scheme.BrowserTypeConnectOverCDPParams = tObject({
+    sdkLanguage: tString,
+    endpointURL: tString,
+    headers: tOptional(tArray(tType('NameValue'))),
+    slowMo: tOptional(tNumber),
+    timeout: tOptional(tNumber),
+  });
+  scheme.BrowserCloseParams = tOptional(tObject({}));
+  scheme.BrowserKillForTestsParams = tOptional(tObject({}));
+  scheme.BrowserNewContextParams = tObject({
+    sdkLanguage: tString,
+    noDefaultViewport: tOptional(tBoolean),
+    viewport: tOptional(tObject({
+      width: tNumber,
+      height: tNumber,
+    })),
+    screen: tOptional(tObject({
+      width: tNumber,
+      height: tNumber,
+    })),
+    ignoreHTTPSErrors: tOptional(tBoolean),
+    javaScriptEnabled: tOptional(tBoolean),
+    bypassCSP: tOptional(tBoolean),
+    userAgent: tOptional(tString),
+    locale: tOptional(tString),
+    timezoneId: tOptional(tString),
+    geolocation: tOptional(tObject({
+      longitude: tNumber,
+      latitude: tNumber,
+      accuracy: tOptional(tNumber),
+    })),
+    permissions: tOptional(tArray(tString)),
+    extraHTTPHeaders: tOptional(tArray(tType('NameValue'))),
+    offline: tOptional(tBoolean),
+    httpCredentials: tOptional(tObject({
+      username: tString,
+      password: tString,
+    })),
+    deviceScaleFactor: tOptional(tNumber),
+    isMobile: tOptional(tBoolean),
+    hasTouch: tOptional(tBoolean),
+    colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
+    acceptDownloads: tOptional(tBoolean),
     _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
@@ -301,14 +313,14 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       origins: tOptional(tArray(tType('OriginStorage'))),
     })),
   });
-  scheme.BrowserCrNewBrowserCDPSessionParams = tOptional(tObject({}));
-  scheme.BrowserCrStartTracingParams = tObject({
+  scheme.BrowserNewBrowserCDPSessionParams = tOptional(tObject({}));
+  scheme.BrowserStartTracingParams = tObject({
     page: tOptional(tChannel('Page')),
     path: tOptional(tString),
     screenshots: tOptional(tBoolean),
     categories: tOptional(tArray(tString)),
   });
-  scheme.BrowserCrStopTracingParams = tOptional(tObject({}));
+  scheme.BrowserStopTracingParams = tOptional(tObject({}));
   scheme.BrowserContextAddCookiesParams = tObject({
     cookies: tArray(tType('SetNetworkCookie')),
   });
@@ -363,15 +375,23 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.BrowserContextRecorderSupplementEnableParams = tObject({
     language: tOptional(tString),
     startRecording: tOptional(tBoolean),
+    pauseOnNextStatement: tOptional(tBoolean),
     launchOptions: tOptional(tAny),
     contextOptions: tOptional(tAny),
     device: tOptional(tString),
     saveStorage: tOptional(tString),
     outputFile: tOptional(tString),
   });
-  scheme.BrowserContextCrNewCDPSessionParams = tObject({
+  scheme.BrowserContextNewCDPSessionParams = tObject({
     page: tChannel('Page'),
   });
+  scheme.BrowserContextTracingStartParams = tObject({
+    name: tOptional(tString),
+    snapshots: tOptional(tBoolean),
+    screenshots: tOptional(tBoolean),
+  });
+  scheme.BrowserContextTracingStopParams = tOptional(tObject({}));
+  scheme.BrowserContextTracingExportParams = tOptional(tObject({}));
   scheme.PageSetDefaultNavigationTimeoutNoReplyParams = tObject({
     timeout: tNumber,
   });
@@ -403,7 +423,6 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     timeout: tOptional(tNumber),
     waitUntil: tOptional(tEnum(['load', 'domcontentloaded', 'networkidle'])),
   });
-  scheme.PageOpenerParams = tOptional(tObject({}));
   scheme.PageReloadParams = tObject({
     timeout: tOptional(tNumber),
     waitUntil: tOptional(tEnum(['load', 'domcontentloaded', 'networkidle'])),
@@ -492,15 +511,15 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       right: tOptional(tString),
     })),
   });
-  scheme.PageCrStartJSCoverageParams = tObject({
+  scheme.PageStartJSCoverageParams = tObject({
     resetOnNavigation: tOptional(tBoolean),
     reportAnonymousScripts: tOptional(tBoolean),
   });
-  scheme.PageCrStopJSCoverageParams = tOptional(tObject({}));
-  scheme.PageCrStartCSSCoverageParams = tObject({
+  scheme.PageStopJSCoverageParams = tOptional(tObject({}));
+  scheme.PageStartCSSCoverageParams = tObject({
     resetOnNavigation: tOptional(tBoolean),
   });
-  scheme.PageCrStopCSSCoverageParams = tOptional(tObject({}));
+  scheme.PageStopCSSCoverageParams = tOptional(tObject({}));
   scheme.PageBringToFrontParams = tOptional(tObject({}));
   scheme.FrameEvalOnSelectorParams = tObject({
     selector: tString,
@@ -527,7 +546,9 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     selector: tString,
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.FrameClickParams = tObject({
     selector: tString,
@@ -539,6 +560,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     clickCount: tOptional(tNumber),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.FrameContentParams = tOptional(tObject({}));
   scheme.FrameDblclickParams = tObject({
@@ -550,6 +572,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     delay: tOptional(tNumber),
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.FrameDispatchEventParams = tObject({
     selector: tString,
@@ -597,6 +620,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
     position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.FrameInnerHTMLParams = tObject({
     selector: tString,
@@ -663,7 +687,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     selector: tString,
     files: tArray(tObject({
       name: tString,
-      mimeType: tString,
+      mimeType: tOptional(tString),
       buffer: tBinary,
     })),
     timeout: tOptional(tNumber),
@@ -676,6 +700,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
     position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.FrameTextContentParams = tObject({
     selector: tString,
@@ -693,7 +718,9 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     selector: tString,
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.FrameWaitForFunctionParams = tObject({
     expression: tString,
@@ -755,7 +782,9 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.ElementHandleCheckParams = tObject({
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.ElementHandleClickParams = tObject({
     force: tOptional(tBoolean),
@@ -766,6 +795,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     clickCount: tOptional(tNumber),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.ElementHandleContentFrameParams = tOptional(tObject({}));
   scheme.ElementHandleDblclickParams = tObject({
@@ -776,6 +806,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     delay: tOptional(tNumber),
     button: tOptional(tEnum(['left', 'right', 'middle'])),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.ElementHandleDispatchEventParams = tObject({
     type: tString,
@@ -795,6 +826,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
     position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.ElementHandleInnerHTMLParams = tOptional(tObject({}));
   scheme.ElementHandleInnerTextParams = tOptional(tObject({}));
@@ -842,7 +874,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.ElementHandleSetInputFilesParams = tObject({
     files: tArray(tObject({
       name: tString,
-      mimeType: tString,
+      mimeType: tOptional(tString),
       buffer: tBinary,
     })),
     timeout: tOptional(tNumber),
@@ -854,6 +886,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     modifiers: tOptional(tArray(tEnum(['Alt', 'Control', 'Meta', 'Shift']))),
     position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.ElementHandleTextContentParams = tOptional(tObject({}));
   scheme.ElementHandleTypeParams = tObject({
@@ -865,7 +898,9 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.ElementHandleUncheckParams = tObject({
     force: tOptional(tBoolean),
     noWaitAfter: tOptional(tBoolean),
+    position: tOptional(tType('Point')),
     timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
   });
   scheme.ElementHandleWaitForElementStateParams = tObject({
     state: tEnum(['visible', 'hidden', 'stable', 'enabled', 'disabled', 'editable']),
@@ -914,14 +949,14 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     promptText: tOptional(tString),
   });
   scheme.DialogDismissParams = tOptional(tObject({}));
-  scheme.DownloadPathParams = tOptional(tObject({}));
-  scheme.DownloadSaveAsParams = tObject({
+  scheme.ArtifactPathAfterFinishedParams = tOptional(tObject({}));
+  scheme.ArtifactSaveAsParams = tObject({
     path: tString,
   });
-  scheme.DownloadSaveAsStreamParams = tOptional(tObject({}));
-  scheme.DownloadFailureParams = tOptional(tObject({}));
-  scheme.DownloadStreamParams = tOptional(tObject({}));
-  scheme.DownloadDeleteParams = tOptional(tObject({}));
+  scheme.ArtifactSaveAsStreamParams = tOptional(tObject({}));
+  scheme.ArtifactFailureParams = tOptional(tObject({}));
+  scheme.ArtifactStreamParams = tOptional(tObject({}));
+  scheme.ArtifactDeleteParams = tOptional(tObject({}));
   scheme.StreamReadParams = tObject({
     size: tOptional(tNumber),
   });
@@ -938,6 +973,37 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     cwd: tOptional(tString),
     env: tOptional(tArray(tType('NameValue'))),
     timeout: tOptional(tNumber),
+    acceptDownloads: tOptional(tBoolean),
+    bypassCSP: tOptional(tBoolean),
+    colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
+    extraHTTPHeaders: tOptional(tArray(tType('NameValue'))),
+    geolocation: tOptional(tObject({
+      longitude: tNumber,
+      latitude: tNumber,
+      accuracy: tOptional(tNumber),
+    })),
+    httpCredentials: tOptional(tObject({
+      username: tString,
+      password: tString,
+    })),
+    ignoreHTTPSErrors: tOptional(tBoolean),
+    locale: tOptional(tString),
+    offline: tOptional(tBoolean),
+    recordHar: tOptional(tObject({
+      omitContent: tOptional(tBoolean),
+      path: tString,
+    })),
+    recordVideo: tOptional(tObject({
+      dir: tString,
+      size: tOptional(tObject({
+        width: tNumber,
+        height: tNumber,
+      })),
+    })),
+    timezoneId: tOptional(tString),
+  });
+  scheme.ElectronApplicationBrowserWindowParams = tObject({
+    page: tChannel('Page'),
   });
   scheme.ElectronApplicationEvaluateExpressionParams = tObject({
     expression: tString,
@@ -1063,7 +1129,6 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     hasTouch: tOptional(tBoolean),
     colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
     acceptDownloads: tOptional(tBoolean),
-    _traceDir: tOptional(tString),
     _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,

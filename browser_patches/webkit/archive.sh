@@ -120,6 +120,7 @@ createZipForMac() {
   ditto {./WebKitBuild/Release,$tmpdir}/com.apple.WebKit.Plugin.64.xpc
   ditto {./WebKitBuild/Release,$tmpdir}/com.apple.WebKit.WebContent.xpc
   ditto {./WebKitBuild/Release,$tmpdir}/JavaScriptCore.framework
+  ditto {./WebKitBuild/Release,$tmpdir}/libANGLE-shared.dylib
   ditto {./WebKitBuild/Release,$tmpdir}/libwebrtc.dylib
   ditto {./WebKitBuild/Release,$tmpdir}/Playwright.app
   ditto {./WebKitBuild/Release,$tmpdir}/PluginProcessShim.dylib
@@ -130,6 +131,9 @@ createZipForMac() {
   ditto {$SCRIPTS_DIR,$tmpdir}/pw_run.sh
   # copy protocol
   node $SCRIPTS_DIR/concat_protocol.js > $tmpdir/protocol.json
+
+  # Remove all broken symlinks. @see https://github.com/microsoft/playwright/issues/5472
+  find "${tmpdir}" -type l ! -exec test -e {} \; -print | xargs rm
 
   # zip resulting directory and cleanup TMP.
   ditto -c -k $tmpdir $ZIP_PATH

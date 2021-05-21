@@ -18,6 +18,7 @@ import { TimeoutError } from '../utils/errors';
 import { assert, monotonicTime } from '../utils/utils';
 import { LogName } from '../utils/debugLogger';
 import { CallMetadata, Instrumentation, SdkObject } from './instrumentation';
+import { ElementHandle } from './dom';
 
 export interface Progress {
   log(message: string): void;
@@ -25,8 +26,7 @@ export interface Progress {
   isRunning(): boolean;
   cleanupWhenAborted(cleanup: () => any): void;
   throwIfAborted(): void;
-  beforeInputAction(): Promise<void>;
-  afterInputAction(): Promise<void>;
+  beforeInputAction(element: ElementHandle): Promise<void>;
   metadata: CallMetadata;
 }
 
@@ -70,10 +70,10 @@ export class ProgressController {
 
     const progress: Progress = {
       log: message => {
-        if (this._state === 'running') {
+        if (this._state === 'running')
           this.metadata.log.push(message);
-          this.instrumentation.onCallLog(this._logName, message, this.sdkObject, this.metadata);
-        }
+        // Note: we might be sending logs after progress has finished, for example browser logs.
+        this.instrumentation.onCallLog(this._logName, message, this.sdkObject, this.metadata);
       },
       timeUntilDeadline: () => this._deadline ? this._deadline - monotonicTime() : 2147483647, // 2^31-1 safe setTimeout in Node.
       isRunning: () => this._state === 'running',
@@ -87,11 +87,8 @@ export class ProgressController {
         if (this._state === 'aborted')
           throw new AbortedError();
       },
-      beforeInputAction: async () => {
-        await this.instrumentation.onBeforeInputAction(this.sdkObject, this.metadata);
-      },
-      afterInputAction: async () => {
-        await this.instrumentation.onAfterInputAction(this.sdkObject, this.metadata);
+      beforeInputAction: async (element: ElementHandle) => {
+        await this.instrumentation.onBeforeInputAction(this.sdkObject, this.metadata, element);
       },
       metadata: this.metadata
     };
@@ -105,16 +102,11 @@ export class ProgressController {
       return result;
     } catch (e) {
       this._state = 'aborted';
-      await Promise.all(this._cleanups.splice(0).map(cleanup => runCleanup(cleanup)));
+      await Promise.all(this._cleanups.splice(0).map(runCleanup));
       throw e;
     } finally {
       clearTimeout(timer);
-      this.metadata.endTime = monotonicTime();
     }
-  }
-
-  abort(error: Error) {
-    this._forceAbort(error);
   }
 }
 

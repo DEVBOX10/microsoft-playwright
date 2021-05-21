@@ -15,157 +15,137 @@
   limitations under the License.
 */
 
-import { ContextEntry, InterestingPageEvent, ActionEntry, trace } from '../../../cli/traceViewer/traceModel';
+import { ActionTraceEvent } from '../../../server/trace/common/traceEvents';
+import { ContextEntry } from '../../../server/trace/viewer/traceModel';
 import './timeline.css';
 import { Boundaries } from '../geometry';
 import * as React from 'react';
-import { msToString, useMeasure } from './helpers';
+import { useMeasure } from './helpers';
+import { msToString } from '../../uiUtils';
+import { FilmStrip } from './filmStrip';
 
 type TimelineBar = {
-  entry?: ActionEntry;
-  event?: InterestingPageEvent;
+  action?: ActionTraceEvent;
+  event?: ActionTraceEvent;
   leftPosition: number;
   rightPosition: number;
   leftTime: number;
   rightTime: number;
   type: string;
   label: string;
-  priority: number;
+  className: string;
 };
 
 export const Timeline: React.FunctionComponent<{
   context: ContextEntry,
   boundaries: Boundaries,
-  selectedAction: ActionEntry | undefined,
-  highlightedAction: ActionEntry | undefined,
-  onSelected: (action: ActionEntry) => void,
-  onTimeSelected: (time: number | undefined) => void,
-}> = ({ context, boundaries, selectedAction, highlightedAction, onSelected, onTimeSelected }) => {
+  selectedAction: ActionTraceEvent | undefined,
+  highlightedAction: ActionTraceEvent | undefined,
+  onSelected: (action: ActionTraceEvent) => void,
+  onHighlighted: (action: ActionTraceEvent | undefined) => void,
+}> = ({ context, boundaries, selectedAction, highlightedAction, onSelected, onHighlighted }) => {
   const [measure, ref] = useMeasure<HTMLDivElement>();
-  const [previewX, setPreviewX] = React.useState<number | undefined>();
-  const [hoveredBar, setHoveredBar] = React.useState<TimelineBar | undefined>();
+  const [previewPoint, setPreviewPoint] = React.useState<{ x: number, clientY: number } | undefined>();
+  const [hoveredBarIndex, setHoveredBarIndex] = React.useState<number | undefined>();
 
   const offsets = React.useMemo(() => {
     return calculateDividerOffsets(measure.width, boundaries);
   }, [measure.width, boundaries]);
 
-  let targetBar: TimelineBar | undefined = hoveredBar;
   const bars = React.useMemo(() => {
     const bars: TimelineBar[] = [];
     for (const page of context.pages) {
       for (const entry of page.actions) {
-        let detail = entry.action.params.selector || '';
-        if (entry.action.method === 'goto')
-          detail = entry.action.params.url || '';
+        if (!entry.metadata.params)
+          console.log(entry);
+        let detail = entry.metadata.params.selector || '';
+        if (entry.metadata.method === 'goto')
+          detail = entry.metadata.params.url || '';
         bars.push({
-          entry,
-          leftTime: entry.action.startTime,
-          rightTime: entry.action.endTime,
-          leftPosition: timeToPosition(measure.width, boundaries, entry.action.startTime),
-          rightPosition: timeToPosition(measure.width, boundaries, entry.action.endTime),
-          label: entry.action.method + ' ' + detail,
-          type: entry.action.method,
-          priority: 0,
+          action: entry,
+          leftTime: entry.metadata.startTime,
+          rightTime: entry.metadata.endTime,
+          leftPosition: timeToPosition(measure.width, boundaries, entry.metadata.startTime),
+          rightPosition: timeToPosition(measure.width, boundaries, entry.metadata.endTime),
+          label: entry.metadata.apiName + ' ' + detail,
+          type: entry.metadata.type + '.' + entry.metadata.method,
+          className: `${entry.metadata.type}_${entry.metadata.method}`.toLowerCase()
         });
-        if (entry === (highlightedAction || selectedAction))
-          targetBar = bars[bars.length - 1];
       }
-      let lastDialogOpened: trace.DialogOpenedEvent | undefined;
-      for (const event of page.interestingEvents) {
-        if (event.type === 'dialog-opened') {
-          lastDialogOpened = event;
-          continue;
-        }
-        if (event.type === 'dialog-closed' && lastDialogOpened) {
-          bars.push({
-            event,
-            leftTime: lastDialogOpened.timestamp,
-            rightTime: event.timestamp,
-            leftPosition: timeToPosition(measure.width, boundaries, lastDialogOpened.timestamp),
-            rightPosition: timeToPosition(measure.width, boundaries, event.timestamp),
-            label: lastDialogOpened.message ? `${event.dialogType} "${lastDialogOpened.message}"` : event.dialogType,
-            type: 'dialog',
-            priority: -1,
-          });
-        } else if (event.type === 'navigation') {
-          bars.push({
-            event,
-            leftTime: event.timestamp,
-            rightTime: event.timestamp,
-            leftPosition: timeToPosition(measure.width, boundaries, event.timestamp),
-            rightPosition: timeToPosition(measure.width, boundaries, event.timestamp),
-            label: `navigated to ${event.url}`,
-            type: event.type,
-            priority: 1,
-          });
-        } else if (event.type === 'load') {
-          bars.push({
-            event,
-            leftTime: event.timestamp,
-            rightTime: event.timestamp,
-            leftPosition: timeToPosition(measure.width, boundaries, event.timestamp),
-            rightPosition: timeToPosition(measure.width, boundaries, event.timestamp),
-            label: `load`,
-            type: event.type,
-            priority: 1,
-          });
-        }
+
+      for (const event of page.events) {
+        const startTime = event.metadata.startTime;
+        bars.push({
+          event,
+          leftTime: startTime,
+          rightTime: startTime,
+          leftPosition: timeToPosition(measure.width, boundaries, startTime),
+          rightPosition: timeToPosition(measure.width, boundaries, startTime),
+          label: event.metadata.method,
+          type: event.metadata.type + '.' + event.metadata.method,
+          className: `${event.metadata.type}_${event.metadata.method}`.toLowerCase()
+        });
       }
     }
-    bars.sort((a, b) => a.priority - b.priority);
     return bars;
   }, [context, boundaries, measure.width]);
 
-  const findHoveredBar = (x: number) => {
+  const hoveredBar = hoveredBarIndex !== undefined ? bars[hoveredBarIndex] : undefined;
+  let targetBar: TimelineBar | undefined = bars.find(bar => bar.action === (highlightedAction || selectedAction));
+  targetBar = hoveredBar || targetBar;
+
+  const findHoveredBarIndex = (x: number) => {
     const time = positionToTime(measure.width, boundaries, x);
     const time1 = positionToTime(measure.width, boundaries, x - 5);
     const time2 = positionToTime(measure.width, boundaries, x + 5);
-    let bar: TimelineBar | undefined;
+    let index: number | undefined;
     let distance: number | undefined;
-    for (const b of bars) {
-      const left = Math.max(b.leftTime, time1);
-      const right = Math.min(b.rightTime, time2);
-      const middle = (b.leftTime + b.rightTime) / 2;
+    for (let i = 0; i < bars.length; i++) {
+      const bar = bars[i];
+      const left = Math.max(bar.leftTime, time1);
+      const right = Math.min(bar.rightTime, time2);
+      const middle = (bar.leftTime + bar.rightTime) / 2;
       const d = Math.abs(time - middle);
-      if (left <= right && (!bar || d < distance!)) {
-        bar = b;
+      if (left <= right && (index === undefined || d < distance!)) {
+        index = i;
         distance = d;
       }
     }
-    return bar;
+    return index;
   };
 
   const onMouseMove = (event: React.MouseEvent) => {
-    if (ref.current) {
-      const x = event.clientX - ref.current.getBoundingClientRect().left;
-      setPreviewX(x);
-      onTimeSelected(positionToTime(measure.width, boundaries, x));
-      setHoveredBar(findHoveredBar(x));
-    }
-  };
-  const onMouseLeave = () => {
-    setPreviewX(undefined);
-    onTimeSelected(undefined);
-  };
-  const onActionClick = (event: React.MouseEvent) => {
-    if (ref.current) {
-      const x = event.clientX - ref.current.getBoundingClientRect().left;
-      const bar = findHoveredBar(x);
-      if (bar && bar.entry)
-        onSelected(bar.entry);
-      event.stopPropagation();
-    }
-  };
-  const onTimeClick = (event: React.MouseEvent) => {
-    if (ref.current) {
-      const x = event.clientX - ref.current.getBoundingClientRect().left;
-      const time = positionToTime(measure.width, boundaries, x);
-      onTimeSelected(time);
-      event.stopPropagation();
-    }
+    if (!ref.current)
+      return;
+    const bounds = ref.current.getBoundingClientRect();
+    const x = event.clientX - bounds.left;
+    const index = findHoveredBarIndex(x);
+    setPreviewPoint({ x, clientY: event.clientY });
+    setHoveredBarIndex(index);
+    if (typeof index === 'number')
+      onHighlighted(bars[index].action);
   };
 
-  return <div ref={ref} className='timeline-view' onMouseMove={onMouseMove} onMouseOver={onMouseMove} onMouseLeave={onMouseLeave} onClick={onTimeClick}>
+  const onMouseLeave = () => {
+    setPreviewPoint(undefined);
+    setHoveredBarIndex(undefined);
+    onHighlighted(undefined);
+  };
+
+  const onClick = (event: React.MouseEvent) => {
+    setPreviewPoint(undefined);
+    if (!ref.current)
+      return;
+    const x = event.clientX - ref.current.getBoundingClientRect().left;
+    const index = findHoveredBarIndex(x);
+    if (index === undefined)
+      return;
+    const entry = bars[index].action;
+    if (entry)
+      onSelected(entry);
+  };
+
+  return <div ref={ref} className='timeline-view' onMouseMove={onMouseMove} onMouseOver={onMouseMove} onMouseLeave={onMouseLeave} onClick={onClick}>
     <div className='timeline-grid'>{
       offsets.map((offset, index) => {
         return <div key={index} className='timeline-divider' style={{ left: offset.position + 'px' }}>
@@ -176,7 +156,7 @@ export const Timeline: React.FunctionComponent<{
     <div className='timeline-lane timeline-labels'>{
       bars.map((bar, index) => {
         return <div key={index}
-          className={'timeline-label ' + bar.type + (targetBar === bar ? ' selected' : '')}
+          className={'timeline-label ' + bar.className + (targetBar === bar ? ' selected' : '')}
           style={{
             left: bar.leftPosition + 'px',
             width: Math.max(1, bar.rightPosition - bar.leftPosition) + 'px',
@@ -186,10 +166,10 @@ export const Timeline: React.FunctionComponent<{
         </div>;
       })
     }</div>
-    <div className='timeline-lane timeline-bars' onClick={onActionClick}>{
+    <div className='timeline-lane timeline-bars'>{
       bars.map((bar, index) => {
         return <div key={index}
-          className={'timeline-bar ' + bar.type + (targetBar === bar ? ' selected' : '')}
+          className={'timeline-bar ' + (bar.action ? 'action ' : '') + (bar.event ? 'event ' : '') + bar.className + (targetBar === bar ? ' selected' : '')}
           style={{
             left: bar.leftPosition + 'px',
             width: Math.max(1, bar.rightPosition - bar.leftPosition) + 'px',
@@ -197,9 +177,10 @@ export const Timeline: React.FunctionComponent<{
         ></div>;
       })
     }</div>
+    <FilmStrip context={context} boundaries={boundaries} previewPoint={previewPoint} />
     <div className='timeline-marker timeline-marker-hover' style={{
-      display: (previewX !== undefined) ? 'block' : 'none',
-      left: (previewX || 0) + 'px',
+      display: (previewPoint !== undefined) ? 'block' : 'none',
+      left: (previewPoint?.x || 0) + 'px',
     }}></div>
   </div>;
 };

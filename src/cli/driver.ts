@@ -18,10 +18,14 @@
 
 import fs from 'fs';
 import path from 'path';
+import * as playwright from '../..';
+import { BrowserType } from '../client/browserType';
+import { LaunchServerOptions } from '../client/types';
 import { DispatcherConnection } from '../dispatchers/dispatcher';
 import { PlaywrightDispatcher } from '../dispatchers/playwrightDispatcher';
 import { installBrowsersWithProgressBar } from '../install/installer';
 import { Transport } from '../protocol/transport';
+import { PlaywrightServer } from '../remote/playwrightServer';
 import { createPlaywright } from '../server/playwright';
 import { gracefullyCloseAll } from '../server/processLauncher';
 import { BrowserName } from '../utils/registry';
@@ -34,7 +38,7 @@ export function printProtocol() {
   console.log(fs.readFileSync(path.join(__dirname, '..', '..', 'protocol.yml'), 'utf8'));
 }
 
-export function runServer() {
+export function runDriver() {
   const dispatcherConnection = new DispatcherConnection();
   const transport = new Transport(process.stdout, process.stdin);
   transport.onmessage = message => dispatcherConnection.dispatch(JSON.parse(message));
@@ -51,6 +55,20 @@ export function runServer() {
 
   const playwright = createPlaywright();
   new PlaywrightDispatcher(dispatcherConnection.rootDispatcher(), playwright);
+}
+
+export async function runServer(port: number | undefined) {
+  const wsEndpoint = await PlaywrightServer.startDefault(port);
+  console.log('Listening on ' + wsEndpoint);  // eslint-disable-line no-console
+}
+
+export async function launchBrowserServer(browserName: string, configFile?: string) {
+  let options: LaunchServerOptions = {};
+  if (configFile)
+    options = JSON.parse(fs.readFileSync(configFile).toString());
+  const browserType = (playwright as any)[browserName] as BrowserType;
+  const server = await browserType.launchServer(options);
+  console.log(server.wsEndpoint());
 }
 
 export async function installBrowsers(browserNames?: BrowserName[]) {

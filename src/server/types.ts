@@ -35,6 +35,7 @@ export type NavigatingActionWaitOptions = TimeoutOptions & {
 
 export type PointerActionWaitOptions = TimeoutOptions & {
   force?: boolean,
+  trial?: boolean;
 };
 
 export type ElementScreenshotOptions = TimeoutOptions & {
@@ -214,9 +215,12 @@ export type SetNetworkCookieParam = {
   sameSite?: 'Strict' | 'Lax' | 'None'
 };
 
+export type EmulatedSize = { viewport: Size, screen: Size };
+
 export type BrowserContextOptions = {
   sdkLanguage: string,
   viewport?: Size,
+  screen?: Size,
   noDefaultViewport?: boolean,
   ignoreHTTPSErrors?: boolean,
   javaScriptEnabled?: boolean,
@@ -243,13 +247,15 @@ export type BrowserContextOptions = {
     path: string
   },
   proxy?: ProxySettings,
-  _traceDir?: string,
   _debugName?: string,
 };
 
 export type EnvArray = { name: string, value: string }[];
 
+export type BrowserChannel = 'chrome' | 'chrome-beta' | 'chrome-dev' | 'chrome-canary' | 'msedge' | 'msedge-beta' | 'msedge-dev' | 'msedge-canary' | 'firefox-stable';
+
 type LaunchOptionsBase = {
+  channel?: BrowserChannel,
   executablePath?: string,
   args?: string[],
   ignoreDefaultArgs?: string[],
@@ -266,6 +272,7 @@ type LaunchOptionsBase = {
   chromiumSandbox?: boolean,
   slowMo?: number,
   useWebSocket?: boolean,
+  traceDir?: string,
 };
 export type LaunchOptions = LaunchOptionsBase & {
   firefoxUserPrefs?: { [key: string]: string | number | boolean },
