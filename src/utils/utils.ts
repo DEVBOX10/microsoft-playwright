@@ -177,3 +177,15 @@ export function canAccessFile(file: string) {
     return false;
   }
 }
+
+const localIpAddresses = [
+  'localhost',
+  '127.0.0.1',
+  '::ffff:127.0.0.1',
+  '::1',
+  '0000:0000:0000:0000:0000:0000:0000:0001', // WebKit (Windows)
+];
+
+export function isLocalIpAddress(ipAdress: string): boolean {
+  return localIpAddresses.includes(ipAdress);
+}

@@ -366,6 +366,13 @@ Credentials for [HTTP authentication](https://developer.mozilla.org/en-US/docs/W
 Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. See
 [`method: Page.emulateMedia`] for more details. Defaults to `'light'`.
 
+## context-option-reducedMotion
+* langs: js, python, java
+- `reducedMotion` <[ReducedMotion]<"reduce"|"no-preference">>
+
+Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Defaults
+to `'no-preference'`.
+
 ## context-option-logger
 * langs: js
 - `logger` <[Logger]>
@@ -480,7 +487,7 @@ is considered matching if all specified properties match.
 A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation.
 
 ## wait-for-event-event
-* langs: js, java, python
+* langs: js, python, java
 - `event` <[string]>
 
 Event name, same one typically passed into `*.on(event)`.
@@ -578,6 +585,7 @@ using the [`method: AndroidDevice.setDefaultTimeout`] method.
 - %%-context-option-offline-%%
 - %%-context-option-httpcredentials-%%
 - %%-context-option-colorscheme-%%
+- %%-context-option-reducedMotion-%%
 - %%-context-option-logger-%%
 - %%-context-option-videospath-%%
 - %%-context-option-videosize-%%
@@ -595,7 +603,9 @@ Additional arguments to pass to the browser instance. The list of Chromium flags
 [here](http://peter.sh/experiments/chromium-command-line-switches/).
 
 ## browser-option-channel
-- `channel` <[BrowserChannel]<"chrome"|"chrome-beta"|"chrome-dev"|"chrome-canary"|"msedge"|"msedge-beta"|"msedge-dev"|"msedge-canary">>
+- `channel` <[string]>
+
+Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", "msedge-canary".
 
 Browser distribution channel. Read more about using [Google Chrome and Microsoft Edge](./browsers.md#google-chrome--microsoft-edge).
 

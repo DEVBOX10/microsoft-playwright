@@ -514,7 +514,9 @@ export interface Page {
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#pageonrequestfinished) event and
-   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed).
+   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed). A request will only
+   * be considered failed when the client cannot get an HTTP response from the server, e.g. due to network error
+   * net::ERR_FAILED.
    */
   on(event: 'requestfailed', listener: (request: Request) => void): this;
 
@@ -688,7 +690,9 @@ export interface Page {
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#pageonrequestfinished) event and
-   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed).
+   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed). A request will only
+   * be considered failed when the client cannot get an HTTP response from the server, e.g. due to network error
+   * net::ERR_FAILED.
    */
   once(event: 'requestfailed', listener: (request: Request) => void): this;
 
@@ -862,7 +866,9 @@ export interface Page {
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#pageonrequestfinished) event and
-   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed).
+   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed). A request will only
+   * be considered failed when the client cannot get an HTTP response from the server, e.g. due to network error
+   * net::ERR_FAILED.
    */
   addListener(event: 'requestfailed', listener: (request: Request) => void): this;
 
@@ -1036,7 +1042,9 @@ export interface Page {
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#pageonrequestfinished) event and
-   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed).
+   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed). A request will only
+   * be considered failed when the client cannot get an HTTP response from the server, e.g. due to network error
+   * net::ERR_FAILED.
    */
   removeListener(event: 'requestfailed', listener: (request: Request) => void): this;
 
@@ -1210,7 +1218,9 @@ export interface Page {
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#pageonrequestfinished) event and
-   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed).
+   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed). A request will only
+   * be considered failed when the client cannot get an HTTP response from the server, e.g. due to network error
+   * net::ERR_FAILED.
    */
   off(event: 'requestfailed', listener: (request: Request) => void): this;
 
@@ -1679,6 +1689,12 @@ export interface Page {
      * disables CSS media emulation.
      */
     media?: null|"screen"|"print";
+
+    /**
+     * Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. Passing `null`
+     * disables reduced motion emulation.
+     */
+    reducedMotion?: null|"reduce"|"no-preference";
   }): Promise<void>;
 
   /**
@@ -3016,7 +3032,9 @@ export interface Page {
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#pageonrequestfinished) event and
-   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed).
+   * not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#pageonrequestfailed). A request will only
+   * be considered failed when the client cannot get an HTTP response from the server, e.g. due to network error
+   * net::ERR_FAILED.
    */
   waitForEvent(event: 'requestfailed', optionsOrPredicate?: { predicate?: (request: Request) => boolean | Promise<boolean>, timeout?: number } | ((request: Request) => boolean | Promise<boolean>)): Promise<Request>;
 
@@ -6951,10 +6969,13 @@ export interface BrowserType<Unused = {}> {
     bypassCSP?: boolean;
 
     /**
+     * Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev",
+     * "msedge-canary".
+     *
      * Browser distribution channel. Read more about using
      * [Google Chrome and Microsoft Edge](https://playwright.dev/docs/browsers#google-chrome--microsoft-edge).
      */
-    channel?: "chrome"|"chrome-beta"|"chrome-dev"|"chrome-canary"|"msedge"|"msedge-beta"|"msedge-dev"|"msedge-canary";
+    channel?: string;
 
     /**
      * Enable Chromium sandboxing. Defaults to `false`.
@@ -7175,6 +7196,13 @@ export interface BrowserType<Unused = {}> {
     };
 
     /**
+     * Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See
+     * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#pageemulatemediaoptions) for more details.
+     * Defaults to `'no-preference'`.
+     */
+    reducedMotion?: "reduce"|"no-preference";
+
+    /**
      * Emulates consistent window screen size available inside web page via `window.screen`. Is only used when the `viewport`
      * is set.
      */
@@ -7285,10 +7313,13 @@ export interface BrowserType<Unused = {}> {
     args?: Array<string>;
 
     /**
+     * Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev",
+     * "msedge-canary".
+     *
      * Browser distribution channel. Read more about using
      * [Google Chrome and Microsoft Edge](https://playwright.dev/docs/browsers#google-chrome--microsoft-edge).
      */
-    channel?: "chrome"|"chrome-beta"|"chrome-dev"|"chrome-canary"|"msedge"|"msedge-beta"|"msedge-dev"|"msedge-canary";
+    channel?: string;
 
     /**
      * Enable Chromium sandboxing. Defaults to `false`.
@@ -8198,6 +8229,13 @@ export interface AndroidDevice {
     };
 
     /**
+     * Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See
+     * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#pageemulatemediaoptions) for more details.
+     * Defaults to `'no-preference'`.
+     */
+    reducedMotion?: "reduce"|"no-preference";
+
+    /**
      * Emulates consistent window screen size available inside web page via `window.screen`. Is only used when the `viewport`
      * is set.
      */
@@ -8973,6 +9011,13 @@ export interface Browser extends EventEmitter {
         height: number;
       };
     };
+
+    /**
+     * Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See
+     * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#pageemulatemediaoptions) for more details.
+     * Defaults to `'no-preference'`.
+     */
+    reducedMotion?: "reduce"|"no-preference";
 
     /**
      * Emulates consistent window screen size available inside web page via `window.screen`. Is only used when the `viewport`
@@ -11020,6 +11065,13 @@ export interface BrowserContextOptions {
   };
 
   /**
+   * Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See
+   * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#pageemulatemediaoptions) for more details.
+   * Defaults to `'no-preference'`.
+   */
+  reducedMotion?: "reduce"|"no-preference";
+
+  /**
    * Emulates consistent window screen size available inside web page via `window.screen`. Is only used when the `viewport`
    * is set.
    */
@@ -11183,10 +11235,13 @@ export interface LaunchOptions {
   args?: Array<string>;
 
   /**
+   * Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev",
+   * "msedge-canary".
+   *
    * Browser distribution channel. Read more about using
    * [Google Chrome and Microsoft Edge](https://playwright.dev/docs/browsers#google-chrome--microsoft-edge).
    */
-  channel?: "chrome"|"chrome-beta"|"chrome-dev"|"chrome-canary"|"msedge"|"msedge-beta"|"msedge-dev"|"msedge-canary";
+  channel?: string;
 
   /**
    * Enable Chromium sandboxing. Defaults to `false`.

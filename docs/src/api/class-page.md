@@ -422,7 +422,8 @@ Emitted when a request fails, for example by timing out.
 
 :::note
 HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will complete
-with [`event: Page.requestFinished`] event and not with [`event: Page.requestFailed`].
+with [`event: Page.requestFinished`] event and not with [`event: Page.requestFailed`]. A request will only be considered
+failed when the client cannot get an HTTP response from the server, e.g. due to network error net::ERR_FAILED.
 :::
 
 ## event: Page.requestFinished
@@ -959,16 +960,38 @@ await page.EvaluateAsync("matchMedia('(prefers-color-scheme: no-preference)').ma
 ```
 
 ### option: Page.emulateMedia.media
+* langs: js, python, java
 - `media` <null|[Media]<"screen"|"print">>
 
 Changes the CSS media type of the page. The only allowed values are `'screen'`, `'print'` and `null`.
 Passing `null` disables CSS media emulation.
 
+### option: Page.emulateMedia.media
+* langs: csharp
+- `media` <[Media]<"screen"|"print"|"null">>
+
+Changes the CSS media type of the page. The only allowed values are `'Screen'`, `'Print'` and `'Null'`.
+Passing `'Null'` disables CSS media emulation.
+
 ### option: Page.emulateMedia.colorScheme
+* langs: js, python, java
 - `colorScheme` <null|[ColorScheme]<"light"|"dark"|"no-preference">>
 
 Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. Passing
 `null` disables color scheme emulation.
+
+### option: Page.emulateMedia.colorScheme
+* langs: csharp
+- `colorScheme` <[ColorScheme]<"light"|"dark"|"no-preference"|"null">>
+
+Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. Passing
+`'Null'` disables color scheme emulation.
+
+### option: Page.emulateMedia.reducedMotion
+* langs: js, python, java
+- `reducedMotion` <null|[ReducedMotion]<"reduce"|"no-preference">>
+
+Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. Passing `null` disables reduced motion emulation.
 
 ## async method: Page.evalOnSelector
 * langs:
@@ -1401,26 +1424,26 @@ using System.Threading.Tasks;
 
 class PageExamples
 {
-  public static async Task Main()
-  {
-      using var playwright = await Playwright.CreateAsync();
-      await using var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions
-      {
-          Headless: false
-      });
-      var page = await browser.NewPageAsync();
+    public static async Task Main()
+    {
+        using var playwright = await Playwright.CreateAsync();
+        await using var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions
+        {
+            Headless: false
+        });
+        var page = await browser.NewPageAsync();
 
-      await page.ExposeBindingAsync("pageUrl", (source) => source.Page.Url);
-      await page.SetContentAsync("<script>\n" +
-      "  async function onClick() {\n" +
-      "    document.querySelector('div').textContent = await window.pageURL();\n" +
-      "  }\n" +
-      "</script>\n" +
-      "<button onclick=\"onClick()\">Click me</button>\n" +
-      "<div></div>");
+        await page.ExposeBindingAsync("pageUrl", (source) => source.Page.Url);
+        await page.SetContentAsync("<script>\n" +
+        "  async function onClick() {\n" +
+        "    document.querySelector('div').textContent = await window.pageURL();\n" +
+        "  }\n" +
+        "</script>\n" +
+        "<button onclick=\"onClick()\">Click me</button>\n" +
+        "<div></div>");
 
-      await page.ClickAsync("button");
-  }
+        await page.ClickAsync("button");
+    }
 }
 ```
 
@@ -1659,34 +1682,34 @@ using System.Threading.Tasks;
 
 class PageExamples
 {
-  public static async Task Main()
-  {
-      using var playwright = await Playwright.CreateAsync();
-      await using var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions
-      {
-          Headless: false
-      }); 
-      var page = await browser.NewPageAsync();
+    public static async Task Main()
+    {
+        using var playwright = await Playwright.CreateAsync();
+        await using var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions
+        {
+            Headless: false
+        });
+        var page = await browser.NewPageAsync();
 
-      // NOTE: md5 is inherently insecure, and we strongly discourage using
-      // this in production in any shape or form
-      await page.ExposeFunctionAsync("sha1", (string input) =>
-      {
-          return Convert.ToBase64String(
-              MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(input)));
-      });
+        // NOTE: md5 is inherently insecure, and we strongly discourage using
+        // this in production in any shape or form
+        await page.ExposeFunctionAsync("sha1", (string input) =>
+        {
+            return Convert.ToBase64String(
+                MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(input)));
+        });
 
-      await page.SetContentAsync("<script>\n" +
-      "  async function onClick() {\n" +
-      "    document.querySelector('div').textContent = await window.sha1('PLAYWRIGHT');\n" +
-      "  }\n" +
-      "</script>\n" +
-      "<button onclick=\"onClick()\">Click me</button>\n" +
-      "<div></div>");
+        await page.SetContentAsync("<script>\n" +
+        "  async function onClick() {\n" +
+        "    document.querySelector('div').textContent = await window.sha1('PLAYWRIGHT');\n" +
+        "  }\n" +
+        "</script>\n" +
+        "<button onclick=\"onClick()\">Click me</button>\n" +
+        "<div></div>");
 
-      await page.ClickAsync("button");
-      Console.WriteLine(await page.TextContentAsync("div"));
-  }
+        await page.ClickAsync("button");
+        Console.WriteLine(await page.TextContentAsync("div"));
+    }
 }
 ```
 

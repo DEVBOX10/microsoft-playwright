@@ -179,7 +179,19 @@ export type PlaywrightInitializer = {
   preLaunchedBrowser?: BrowserChannel,
 };
 export interface PlaywrightChannel extends Channel {
+  on(event: 'incomingSocksSocket', callback: (params: PlaywrightIncomingSocksSocketEvent) => void): this;
+  enablePortForwarding(params: PlaywrightEnablePortForwardingParams, metadata?: Metadata): Promise<PlaywrightEnablePortForwardingResult>;
 }
+export type PlaywrightIncomingSocksSocketEvent = {
+  socket: SocksSocketChannel,
+};
+export type PlaywrightEnablePortForwardingParams = {
+  ports: number[],
+};
+export type PlaywrightEnablePortForwardingOptions = {
+
+};
+export type PlaywrightEnablePortForwardingResult = void;
 
 // ----------- Selectors -----------
 export type SelectorsInitializer = {};
@@ -207,7 +219,7 @@ export interface BrowserTypeChannel extends Channel {
   connectOverCDP(params: BrowserTypeConnectOverCDPParams, metadata?: Metadata): Promise<BrowserTypeConnectOverCDPResult>;
 }
 export type BrowserTypeLaunchParams = {
-  channel?: 'chrome' | 'chrome-beta' | 'chrome-dev' | 'chrome-canary' | 'msedge' | 'msedge-beta' | 'msedge-dev' | 'msedge-canary' | 'firefox-stable',
+  channel?: string,
   executablePath?: string,
   args?: string[],
   ignoreAllDefaultArgs?: boolean,
@@ -232,7 +244,7 @@ export type BrowserTypeLaunchParams = {
   slowMo?: number,
 };
 export type BrowserTypeLaunchOptions = {
-  channel?: 'chrome' | 'chrome-beta' | 'chrome-dev' | 'chrome-canary' | 'msedge' | 'msedge-beta' | 'msedge-dev' | 'msedge-canary' | 'firefox-stable',
+  channel?: string,
   executablePath?: string,
   args?: string[],
   ignoreAllDefaultArgs?: boolean,
@@ -260,7 +272,7 @@ export type BrowserTypeLaunchResult = {
   browser: BrowserChannel,
 };
 export type BrowserTypeLaunchPersistentContextParams = {
-  channel?: 'chrome' | 'chrome-beta' | 'chrome-dev' | 'chrome-canary' | 'msedge' | 'msedge-beta' | 'msedge-dev' | 'msedge-canary' | 'firefox-stable',
+  channel?: string,
   executablePath?: string,
   args?: string[],
   ignoreAllDefaultArgs?: boolean,
@@ -313,6 +325,7 @@ export type BrowserTypeLaunchPersistentContextParams = {
   isMobile?: boolean,
   hasTouch?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference',
+  reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
   _debugName?: string,
   recordVideo?: {
@@ -330,7 +343,7 @@ export type BrowserTypeLaunchPersistentContextParams = {
   slowMo?: number,
 };
 export type BrowserTypeLaunchPersistentContextOptions = {
-  channel?: 'chrome' | 'chrome-beta' | 'chrome-dev' | 'chrome-canary' | 'msedge' | 'msedge-beta' | 'msedge-dev' | 'msedge-canary' | 'firefox-stable',
+  channel?: string,
   executablePath?: string,
   args?: string[],
   ignoreAllDefaultArgs?: boolean,
@@ -382,6 +395,7 @@ export type BrowserTypeLaunchPersistentContextOptions = {
   isMobile?: boolean,
   hasTouch?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference',
+  reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
   _debugName?: string,
   recordVideo?: {
@@ -471,6 +485,7 @@ export type BrowserNewContextParams = {
   isMobile?: boolean,
   hasTouch?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference',
+  reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
   _debugName?: string,
   recordVideo?: {
@@ -527,6 +542,7 @@ export type BrowserNewContextOptions = {
   isMobile?: boolean,
   hasTouch?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference',
+  reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
   _debugName?: string,
   recordVideo?: {
@@ -973,10 +989,12 @@ export type PageCloseResult = void;
 export type PageEmulateMediaParams = {
   media?: 'screen' | 'print' | 'null',
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'null',
+  reducedMotion?: 'reduce' | 'no-preference' | 'null',
 };
 export type PageEmulateMediaOptions = {
   media?: 'screen' | 'print' | 'null',
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'null',
+  reducedMotion?: 'reduce' | 'no-preference' | 'null',
 };
 export type PageEmulateMediaResult = void;
 export type PageExposeBindingParams = {
@@ -2934,6 +2952,7 @@ export type AndroidDeviceLaunchBrowserParams = {
   isMobile?: boolean,
   hasTouch?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference',
+  reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
   _debugName?: string,
   recordVideo?: {
@@ -2978,6 +2997,7 @@ export type AndroidDeviceLaunchBrowserOptions = {
   isMobile?: boolean,
   hasTouch?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference',
+  reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
   _debugName?: string,
   recordVideo?: {
@@ -3105,3 +3125,41 @@ export type AndroidElementInfo = {
   scrollable: boolean,
   selected: boolean,
 };
+
+// ----------- SocksSocket -----------
+export type SocksSocketInitializer = {
+  dstAddr: string,
+  dstPort: number,
+};
+export interface SocksSocketChannel extends Channel {
+  on(event: 'data', callback: (params: SocksSocketDataEvent) => void): this;
+  on(event: 'close', callback: (params: SocksSocketCloseEvent) => void): this;
+  write(params: SocksSocketWriteParams, metadata?: Metadata): Promise<SocksSocketWriteResult>;
+  error(params: SocksSocketErrorParams, metadata?: Metadata): Promise<SocksSocketErrorResult>;
+  connected(params?: SocksSocketConnectedParams, metadata?: Metadata): Promise<SocksSocketConnectedResult>;
+  end(params?: SocksSocketEndParams, metadata?: Metadata): Promise<SocksSocketEndResult>;
+}
+export type SocksSocketDataEvent = {
+  data: Binary,
+};
+export type SocksSocketCloseEvent = {};
+export type SocksSocketWriteParams = {
+  data: Binary,
+};
+export type SocksSocketWriteOptions = {
+
+};
+export type SocksSocketWriteResult = void;
+export type SocksSocketErrorParams = {
+  error: string,
+};
+export type SocksSocketErrorOptions = {
+
+};
+export type SocksSocketErrorResult = void;
+export type SocksSocketConnectedParams = {};
+export type SocksSocketConnectedOptions = {};
+export type SocksSocketConnectedResult = void;
+export type SocksSocketEndParams = {};
+export type SocksSocketEndOptions = {};
+export type SocksSocketEndResult = void;

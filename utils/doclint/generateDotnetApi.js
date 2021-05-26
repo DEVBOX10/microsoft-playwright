@@ -44,13 +44,14 @@ const customTypeNames = new Map([
   ['File', 'FilePayload'],
 ]);
 
-const typesDir = process.argv[2] || path.join(__dirname, 'generate_types', 'csharp');
-const modelsDir = path.join(typesDir, 'Models');
-const enumsDir = path.join(typesDir, 'Enums');
-const optionsDir = path.join(typesDir, 'Options');
-const baseDir = path.join(typesDir, 'Base');
+const outputDir = process.argv[2] || path.join(__dirname, 'generate_types', 'csharp');
+const apiDir = path.join(outputDir, 'API', 'Generated');
+const optionsDir = path.join(outputDir, 'API', 'Generated', 'Options');
+const enumsDir = path.join(outputDir, 'API', 'Generated', 'Enums');
+const typesDir = path.join(outputDir, 'API', 'Generated', 'Types');
+const adaptersDir = path.join(outputDir, 'Generated', 'Adapters');
 
-for (const dir of [typesDir, modelsDir, enumsDir, optionsDir, baseDir])
+for (const dir of [apiDir, optionsDir, enumsDir, typesDir, adaptersDir])
   fs.mkdirSync(dir, { recursive: true });
 
 const documentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'api'));
@@ -70,11 +71,7 @@ documentation.setLinkRenderer(item => {
 });
 
 // get the template for a class
-const template = fs.readFileSync(path.join(__dirname, 'templates', 'interface.cs'), 'utf-8')
-  .replace('[PW_TOOL_VERSION]', `${__filename.substring(path.join(__dirname, '..', '..').length).split(path.sep).join(path.posix.sep)}`);
-
-// we have some "predefined" types, like the mixed state enum, that we can map in advance
-enumTypes.set("MixedState", ["On", "Off", "Mixed"]);
+const template = fs.readFileSync(path.join(__dirname, 'templates', 'interface.cs'), 'utf-8');
 
 // map the name to a C# friendly one (we prepend an I to denote an interface)
 const classNameMap = new Map(documentation.classesArray.map(x => [x.name, `I${toTitleCase(x.name)}`]));
@@ -128,7 +125,7 @@ function writeFile(kind, name, spec, body, folder, extendsName = null) {
   out.push('}');
 
   let content = template.replace('[CONTENT]', out.join(EOL));
-  fs.writeFileSync(path.join(folder, name + '.generated.cs'), content);
+  fs.writeFileSync(path.join(folder, name + '.cs'), content);
 }
 
 /**
@@ -148,7 +145,7 @@ function renderClass(clazz) {
       name,
       clazz.spec,
       body,
-      typesDir,
+      apiDir,
       clazz.extends ? `I${toTitleCase(clazz.extends)}` : null);
 }
 
@@ -180,7 +177,7 @@ function renderBaseClass(clazz) {
       name,
       [],
       body,
-      baseDir,
+      adaptersDir,
       null);
 }
 
@@ -208,7 +205,7 @@ function renderModelType(name, type) {
     console.log(type);
     throw new Error(`Not sure what to do in this case.`);
   }
-  writeFile('public partial class', name, null, body, modelsDir);
+  writeFile('public partial class', name, null, body, typesDir);
 }
 
 /**
@@ -217,7 +214,6 @@ function renderModelType(name, type) {
  */
 function renderEnum(name, literals) {
   const body = [];
-  body.push('Undefined = 0,');
   for (let literal of literals) {
     // strip out the quotes
     literal = literal.replace(/[\"]/g, ``)
@@ -250,18 +246,18 @@ for (const element of documentation.classesArray) {
   renderBaseClass(element);
 }
 
+for (let [name, type] of optionTypes)
+  renderOptionType(name, type);
+
 for (let [name, type] of modelTypes)
   renderModelType(name, type);
 
 for (let [name, literals] of enumTypes)
   renderEnum(name, literals);
 
-for (let [name, type] of optionTypes)
-  renderOptionType(name, type);
-
 if (process.argv[3] !== "--skip-format") {
   // run the formatting tool for .net, to ensure the files are prepped
-  execSync(`dotnet format -f "${typesDir}" --include-generated --fix-whitespace`);
+  execSync(`dotnet format -f "${outputDir}" --include-generated --fix-whitespace`);
 }
 
 /**
@@ -438,7 +434,7 @@ function generateNameDefault(member, name, t, parent) {
           attemptedName = `${names.pop()}${attemptedName}`;
           continue;
         } else {
-          modelTypes.set(attemptedName, t);
+          registerModelType(attemptedName, t);
         }
         break;
       }
@@ -533,7 +529,7 @@ function renderMethod(member, parent, name, options, out) {
       if (!type)
         type = resolveType(innerType);
       if (isArray)
-        type = `IReadOnlyCollection<${type}>`;
+        type = `IReadOnlyList<${type}>`;
     }
   }
 
@@ -768,8 +764,6 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
   // a few special cases we can fix automatically
   if (type.expression === '[null]|[Error]')
     return 'void';
-  else if (type.expression === '[boolean]|"mixed"')
-    return 'MixedState';
 
   if (type.union) {
     if (type.union[0].name === 'null' && type.union.length === 2)
@@ -789,6 +783,7 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
     // Regular primitive enums are named in the markdown.
     if (type.name) {
       enumTypes.set(type.name, type.union.map(t => t.name));
+      nullableTypes.push(type.name);
       return optional ? type.name + '?' : type.name;
     }
     return null;
@@ -809,6 +804,8 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
       // get the inner types of both templates, and if they're strings, it's a keyvaluepair string, string,
       let keyType = translateType(type.templates[0], parent, generateNameCallback);
       let valueType = translateType(type.templates[1], parent, generateNameCallback);
+      if (parent.name === 'Request' || parent.name === 'Response')
+        return `Dictionary<${keyType}, ${valueType}>`;
       return `IEnumerable<KeyValuePair<${keyType}, ${valueType}>>`;
     }
 
@@ -882,6 +879,8 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
  */
 function registerModelType(typeName, type) {
   if (['object', 'string', 'int'].includes(typeName))
+    return;
+  if (typeName.endsWith('Option'))
     return;
 
   let potentialType = modelTypes.get(typeName);
