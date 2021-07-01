@@ -199,7 +199,6 @@ export class WKBrowser extends Browser {
 
 export class WKBrowserContext extends BrowserContext {
   readonly _browser: WKBrowser;
-  readonly _browserContextId: string | undefined;
   readonly _evaluateOnNewDocumentSources: string[];
 
   constructor(browser: WKBrowser, browserContextId: string | undefined, options: types.BrowserContextOptions) {
@@ -213,13 +212,11 @@ export class WKBrowserContext extends BrowserContext {
     assert(!this._wkPages().length);
     const browserContextId = this._browserContextId;
     const promises: Promise<any>[] = [ super._initialize() ];
-    if (this._browser.options.downloadsPath) {
-      promises.push(this._browser._browserSession.send('Playwright.setDownloadBehavior', {
-        behavior: this._options.acceptDownloads ? 'allow' : 'deny',
-        downloadPath: this._browser.options.downloadsPath,
-        browserContextId
-      }));
-    }
+    promises.push(this._browser._browserSession.send('Playwright.setDownloadBehavior', {
+      behavior: this._options.acceptDownloads ? 'allow' : 'deny',
+      downloadPath: this._browser.options.downloadsPath,
+      browserContextId
+    }));
     if (this._options.ignoreHTTPSErrors)
       promises.push(this._browser._browserSession.send('Playwright.setIgnoreCertificateErrors', { browserContextId, ignore: true }));
     if (this._options.locale)
@@ -321,11 +318,16 @@ export class WKBrowserContext extends BrowserContext {
       await (page._delegate as WKPage).updateRequestInterception();
   }
 
-  async _onClosePersistent() {}
+  _onClosePersistent() {}
 
   async _doClose() {
     assert(this._browserContextId);
     await this._browser._browserSession.send('Playwright.deleteContext', { browserContextId: this._browserContextId });
     this._browser._contexts.delete(this._browserContextId);
+  }
+
+  async _doCancelDownload(uuid: string) {
+    // TODO: Have this implemented
+    throw new Error('Download cancellation not yet implemented in WebKit');
   }
 }

@@ -15,7 +15,7 @@
  */
 
 import { TestServer } from '../../utils/testserver';
-import * as folio from 'folio';
+import { Fixtures, _baseTest } from './test-runner';
 import * as path from 'path';
 import * as fs from 'fs';
 import socks from 'socksv5';
@@ -74,7 +74,7 @@ class ServiceMode {
       });
     });
     this._serviceProcess.on('exit', this._onExit);
-    this._client = await PlaywrightClient.connect(`ws://localhost:${port}/ws`);
+    this._client = await PlaywrightClient.connect({wsEndpoint: `ws://localhost:${port}/ws`});
     this._playwrightObejct = this._client.playwright();
     return this._playwrightObejct;
   }
@@ -101,7 +101,7 @@ class DefaultMode {
   }
 }
 
-const baseFixtures: folio.Fixtures<{ __baseSetup: void }, BaseOptions & BaseFixtures> = {
+const baseFixtures: Fixtures<{}, BaseOptions & BaseFixtures> = {
   mode: [ 'default', { scope: 'worker' } ],
   browserName: [ 'chromium' , { scope: 'worker' } ],
   channel: [ undefined, { scope: 'worker' } ],
@@ -123,10 +123,6 @@ const baseFixtures: folio.Fixtures<{ __baseSetup: void }, BaseOptions & BaseFixt
   isWindows: [ process.platform === 'win32', { scope: 'worker' } ],
   isMac: [ process.platform === 'darwin', { scope: 'worker' } ],
   isLinux: [ process.platform === 'linux', { scope: 'worker' } ],
-  __baseSetup: [ async ({ browserName }, run, testInfo) => {
-    testInfo.snapshotPathSegment = browserName;
-    await run();
-  }, { auto: true } ],
 };
 
 type ServerOptions = {
@@ -139,8 +135,8 @@ type ServerFixtures = {
   asset: (p: string) => string;
 };
 
-type ServersInternal = ServerFixtures & { socksServer: any };
-const serverFixtures: folio.Fixtures<ServerFixtures, ServerOptions & { __servers: ServersInternal }> = {
+type ServersInternal = ServerFixtures & { socksServer: socks.SocksServer };
+const serverFixtures: Fixtures<ServerFixtures, ServerOptions & { __servers: ServersInternal }> = {
   loopback: [ undefined, { scope: 'worker' } ],
   __servers: [ async ({ loopback }, run, workerInfo) => {
     const assetsPath = path.join(__dirname, '..', 'assets');
@@ -155,8 +151,8 @@ const serverFixtures: folio.Fixtures<ServerFixtures, ServerOptions & { __servers
     httpsServer.enableHTTPCache(cachedPath);
 
     const socksServer = socks.createServer((info, accept, deny) => {
-      let socket;
-      if ((socket = accept(true))) {
+      const socket = accept(true);
+      if (socket) {
         // Catch and ignore ECONNRESET errors.
         socket.on('error', () => {});
         const body = '<html><title>Served by the SOCKS proxy</title></html>';
@@ -212,7 +208,7 @@ type CoverageOptions = {
   coverageName?: string;
 };
 
-const coverageFixtures: folio.Fixtures<{}, CoverageOptions & { __collectCoverage: void }> = {
+const coverageFixtures: Fixtures<{}, CoverageOptions & { __collectCoverage: void }> = {
   coverageName: [ undefined, { scope: 'worker' } ],
 
   __collectCoverage: [ async ({ coverageName }, run, workerInfo) => {
@@ -234,4 +230,4 @@ const coverageFixtures: folio.Fixtures<{}, CoverageOptions & { __collectCoverage
 export type CommonOptions = BaseOptions & ServerOptions & CoverageOptions;
 export type CommonWorkerFixtures = CommonOptions & BaseFixtures;
 
-export const baseTest = folio.test.extend<{}, CoverageOptions>(coverageFixtures).extend<ServerFixtures>(serverFixtures).extend<{}, BaseOptions & BaseFixtures>(baseFixtures);
+export const baseTest = _baseTest.extend<{}, CoverageOptions>(coverageFixtures).extend<ServerFixtures>(serverFixtures).extend<{}, BaseOptions & BaseFixtures>(baseFixtures);

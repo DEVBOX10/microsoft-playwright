@@ -25,6 +25,7 @@ async function pageWithHar(contextFactory: (options?: BrowserContextOptions) => 
   const page = await context.newPage();
   return {
     page,
+    context,
     getLog: async () => {
       await context.close();
       return JSON.parse(fs.readFileSync(harPath).toString())['log'];
@@ -280,4 +281,107 @@ it('should have popup requests', async ({ contextFactory, server }, testInfo) =>
   expect(entries[0].response.status).toBe(200);
   expect(entries[1].request.url).toBe(server.PREFIX + '/one-style.css');
   expect(entries[1].response.status).toBe(200);
+});
+
+it('should not contain internal pages', async ({ browserName, contextFactory, server }, testInfo) => {
+  it.fixme(true, 'https://github.com/microsoft/playwright/issues/6743');
+  server.setRoute('/empty.html', (req, res) => {
+    res.setHeader('Set-Cookie', 'name=value');
+    res.end();
+  });
+
+  const { page, context, getLog } = await pageWithHar(contextFactory, testInfo);
+  await page.goto(server.EMPTY_PAGE);
+
+  const cookies = await context.cookies();
+  expect(cookies.length).toBe(1);
+  // Get storage state, this create internal page.
+  await context.storageState();
+
+  const log = await getLog();
+  expect(log.pages.length).toBe(1);
+});
+
+it('should have connection details', async ({ contextFactory, server, browserName, platform }, testInfo) => {
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  await page.goto(server.EMPTY_PAGE);
+  const log = await getLog();
+  const { serverIPAddress, _serverPort: port, _securityDetails: securityDetails } = log.entries[0];
+  expect(serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
+  expect(port).toBe(server.PORT);
+  expect(securityDetails).toEqual({});
+});
+
+it('should have security details', async ({ contextFactory, httpsServer, browserName, platform }, testInfo) => {
+  it.fail(browserName === 'webkit' && platform === 'linux', 'https://github.com/microsoft/playwright/issues/6759');
+
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  await page.goto(httpsServer.EMPTY_PAGE);
+  const log = await getLog();
+  const { serverIPAddress, _serverPort: port, _securityDetails: securityDetails } = log.entries[0];
+  expect(serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
+  expect(port).toBe(httpsServer.PORT);
+  if (browserName === 'webkit' && platform === 'win32')
+    expect(securityDetails).toEqual({subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: -1});
+  else if (browserName === 'webkit')
+    expect(securityDetails).toEqual({protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
+  else
+    expect(securityDetails).toEqual({issuer: 'puppeteer-tests', protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
+});
+
+it('should have connection details for redirects', async ({ contextFactory, server, browserName }, testInfo) => {
+  server.setRedirect('/foo.html', '/empty.html');
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  await page.goto(server.PREFIX + '/foo.html');
+  const log = await getLog();
+  expect(log.entries.length).toBe(2);
+
+  const detailsFoo = log.entries[0];
+
+  if (browserName === 'webkit') {
+    expect(detailsFoo.serverIPAddress).toBeUndefined();
+    expect(detailsFoo._serverPort).toBeUndefined();
+  } else {
+    expect(detailsFoo.serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
+    expect(detailsFoo._serverPort).toBe(server.PORT);
+  }
+
+  const detailsEmpty = log.entries[1];
+  expect(detailsEmpty.serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
+  expect(detailsEmpty._serverPort).toBe(server.PORT);
+});
+
+it('should have connection details for failed requests', async ({ contextFactory, server, browserName, platform }, testInfo) => {
+  server.setRoute('/one-style.css', (_, res) => {
+    res.setHeader('Content-Type', 'text/css');
+    res.connection.destroy();
+  });
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  await page.goto(server.PREFIX + '/one-style.html');
+  const log = await getLog();
+  const { serverIPAddress, _serverPort: port } = log.entries[0];
+  expect(serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
+  expect(port).toBe(server.PORT);
+});
+
+it('should return server address directly from response', async ({ page, server }) => {
+  const response = await page.goto(server.EMPTY_PAGE);
+  const { ipAddress, port } = await response.serverAddr();
+  expect(ipAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
+  expect(port).toBe(server.PORT);
+});
+
+it('should return security details directly from response', async ({ contextFactory, httpsServer, browserName, platform }) => {
+  it.fail(browserName === 'webkit' && platform === 'linux', 'https://github.com/microsoft/playwright/issues/6759');
+
+  const context = await contextFactory({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  const response = await page.goto(httpsServer.EMPTY_PAGE);
+  const securityDetails = await response.securityDetails();
+  if (browserName === 'webkit' && platform === 'win32')
+    expect(securityDetails).toEqual({subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: -1});
+  else if (browserName === 'webkit')
+    expect(securityDetails).toEqual({protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
+  else
+    expect(securityDetails).toEqual({issuer: 'puppeteer-tests', protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
 });

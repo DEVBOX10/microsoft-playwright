@@ -16,6 +16,12 @@ for browser automation.
 <img width="712" alt="Playwright Inspector" src="https://user-images.githubusercontent.com/883973/108614092-8c478a80-73ac-11eb-9597-67dfce110e00.png"></img>
 
 
+## Playwright Trace Viewer
+
+[Playwright Trace Viewer](./trace-viewer.md) is a GUI tool that helps troubleshooting test runs in a post-mortem manner.
+
+<img width="1212" alt="Playwright Trace Viewer" src="https://user-images.githubusercontent.com/883973/120585896-6a1bca80-c3e7-11eb-951a-bd84002480f5.png"></img>
+
 ## Run in headed mode
 
 Playwright runs browsers in headless mode by default. To change this behavior,
@@ -105,7 +111,7 @@ Using `PWDEBUG=console` will configure the browser for debugging in Developer to
 [Playwright selectors](./selectors.md). This can be used to verify text or
 composite selectors.
 
-```sh js
+```bash js
 # Linux/macOS
 PWDEBUG=console npm run test
 
@@ -118,7 +124,7 @@ $env:PWDEBUG="console"
 npm run test
 ```
 
-```sh java
+```bash java
 # Linux/macOS
 PWDEBUG=console mvn test
 
@@ -131,7 +137,7 @@ $env:PWDEBUG="console"
 mvn test
 ```
 
-```sh python
+```bash python
 # Linux/macOS
 PWDEBUG=console pytest -s
 
@@ -184,7 +190,7 @@ breakpoints.
 
 Playwright supports verbose logging with the `DEBUG` environment variable.
 
-```sh js
+```bash js
 # Linux/macOS
 DEBUG=pw:api npm run test
 
@@ -197,7 +203,7 @@ $env:DEBUG="pw:api"
 npm run test
 ```
 
-```sh java
+```bash java
 # Linux/macOS
 DEBUG=pw:api mvn test
 
@@ -210,7 +216,7 @@ $env:DEBUG="pw:api"
 mvn test
 ```
 
-```sh python
+```bash python
 # Linux/macOS
 DEBUG=pw:api pytest -s
 
@@ -223,7 +229,7 @@ $env:DEBUG="pw:api"
 pytest -s
 ```
 
-```sh csharp
+```bash csharp
 # Linux/macOS
 DEBUG=pw:api dotnet run
 

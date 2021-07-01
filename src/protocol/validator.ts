@@ -43,13 +43,6 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     stack: tOptional(tArray(tType('StackFrame'))),
     apiName: tOptional(tString),
   });
-  scheme.WaitForEventInfo = tObject({
-    waitId: tString,
-    phase: tEnum(['before', 'after', 'log']),
-    apiName: tOptional(tString),
-    message: tOptional(tString),
-    error: tOptional(tString),
-  });
   scheme.Point = tObject({
     x: tNumber,
     y: tNumber,
@@ -147,7 +140,16 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     })),
     value: tOptional(tType('SerializedValue')),
   });
-  scheme.PlaywrightEnablePortForwardingParams = tObject({
+  scheme.InterceptedResponse = tObject({
+    request: tChannel('Request'),
+    status: tNumber,
+    statusText: tString,
+    headers: tArray(tObject({
+      name: tString,
+      value: tString,
+    })),
+  });
+  scheme.PlaywrightSetForwardedPortsParams = tObject({
     ports: tArray(tNumber),
   });
   scheme.SelectorsRegisterParams = tObject({
@@ -175,7 +177,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       password: tOptional(tString),
     })),
     downloadsPath: tOptional(tString),
-    traceDir: tOptional(tString),
+    tracesDir: tOptional(tString),
     chromiumSandbox: tOptional(tBoolean),
     firefoxUserPrefs: tOptional(tAny),
     slowMo: tOptional(tNumber),
@@ -200,7 +202,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       password: tOptional(tString),
     })),
     downloadsPath: tOptional(tString),
-    traceDir: tOptional(tString),
+    tracesDir: tOptional(tString),
     chromiumSandbox: tOptional(tBoolean),
     sdkLanguage: tString,
     noDefaultViewport: tOptional(tBoolean),
@@ -326,6 +328,20 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     categories: tOptional(tArray(tString)),
   });
   scheme.BrowserStopTracingParams = tOptional(tObject({}));
+  scheme.EventTargetWaitForEventInfoParams = tObject({
+    info: tObject({
+      waitId: tString,
+      phase: tEnum(['before', 'after', 'log']),
+      event: tOptional(tString),
+      message: tOptional(tString),
+      error: tOptional(tString),
+    }),
+  });
+  scheme.BrowserContextWaitForEventInfoParams = tType('EventTargetWaitForEventInfoParams');
+  scheme.PageWaitForEventInfoParams = tType('EventTargetWaitForEventInfoParams');
+  scheme.WebSocketWaitForEventInfoParams = tType('EventTargetWaitForEventInfoParams');
+  scheme.ElectronApplicationWaitForEventInfoParams = tType('EventTargetWaitForEventInfoParams');
+  scheme.AndroidDeviceWaitForEventInfoParams = tType('EventTargetWaitForEventInfoParams');
   scheme.BrowserContextAddCookiesParams = tObject({
     cookies: tArray(tType('SetNetworkCookie')),
   });
@@ -590,17 +606,16 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     expression: tString,
     isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
-    world: tOptional(tEnum(['main', 'utility'])),
   });
   scheme.FrameEvaluateExpressionHandleParams = tObject({
     expression: tString,
     isFunction: tOptional(tBoolean),
     arg: tType('SerializedArgument'),
-    world: tOptional(tEnum(['main', 'utility'])),
   });
   scheme.FrameFillParams = tObject({
     selector: tString,
     value: tString,
+    force: tOptional(tBoolean),
     timeout: tOptional(tNumber),
     noWaitAfter: tOptional(tBoolean),
   });
@@ -633,6 +648,10 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     timeout: tOptional(tNumber),
   });
   scheme.FrameInnerTextParams = tObject({
+    selector: tString,
+    timeout: tOptional(tNumber),
+  });
+  scheme.FrameInputValueParams = tObject({
     selector: tString,
     timeout: tOptional(tNumber),
   });
@@ -681,6 +700,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       label: tOptional(tString),
       index: tOptional(tNumber),
     }))),
+    force: tOptional(tBoolean),
     timeout: tOptional(tNumber),
     noWaitAfter: tOptional(tBoolean),
   });
@@ -820,6 +840,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.ElementHandleFillParams = tObject({
     value: tString,
+    force: tOptional(tBoolean),
     timeout: tOptional(tNumber),
     noWaitAfter: tOptional(tBoolean),
   });
@@ -836,6 +857,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.ElementHandleInnerHTMLParams = tOptional(tObject({}));
   scheme.ElementHandleInnerTextParams = tOptional(tObject({}));
+  scheme.ElementHandleInputValueParams = tOptional(tObject({}));
   scheme.ElementHandleIsCheckedParams = tOptional(tObject({}));
   scheme.ElementHandleIsDisabledParams = tOptional(tObject({}));
   scheme.ElementHandleIsEditableParams = tOptional(tObject({}));
@@ -871,10 +893,12 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       label: tOptional(tString),
       index: tOptional(tNumber),
     }))),
+    force: tOptional(tBoolean),
     timeout: tOptional(tNumber),
     noWaitAfter: tOptional(tBoolean),
   });
   scheme.ElementHandleSelectTextParams = tObject({
+    force: tOptional(tBoolean),
     timeout: tOptional(tNumber),
   });
   scheme.ElementHandleSetInputFilesParams = tObject({
@@ -926,6 +950,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     method: tOptional(tString),
     headers: tOptional(tArray(tType('NameValue'))),
     postData: tOptional(tBinary),
+    interceptResponse: tOptional(tBoolean),
   });
   scheme.RouteFulfillParams = tObject({
     status: tOptional(tNumber),
@@ -933,6 +958,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     body: tOptional(tString),
     isBase64: tOptional(tBoolean),
   });
+  scheme.RouteResponseBodyParams = tOptional(tObject({}));
   scheme.ResourceTiming = tObject({
     startTime: tNumber,
     domainLookupStart: tNumber,
@@ -945,6 +971,19 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.ResponseBodyParams = tOptional(tObject({}));
   scheme.ResponseFinishedParams = tOptional(tObject({}));
+  scheme.ResponseSecurityDetailsParams = tOptional(tObject({}));
+  scheme.ResponseServerAddrParams = tOptional(tObject({}));
+  scheme.SecurityDetails = tObject({
+    issuer: tOptional(tString),
+    protocol: tOptional(tString),
+    subjectName: tOptional(tString),
+    validFrom: tOptional(tNumber),
+    validTo: tOptional(tNumber),
+  });
+  scheme.RemoteAddr = tObject({
+    ipAddress: tString,
+    port: tNumber,
+  });
   scheme.BindingCallRejectParams = tObject({
     error: tType('SerializedError'),
   });
@@ -962,6 +1001,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.ArtifactSaveAsStreamParams = tOptional(tObject({}));
   scheme.ArtifactFailureParams = tOptional(tObject({}));
   scheme.ArtifactStreamParams = tOptional(tObject({}));
+  scheme.ArtifactCancelParams = tOptional(tObject({}));
   scheme.ArtifactDeleteParams = tOptional(tObject({}));
   scheme.StreamReadParams = tObject({
     size: tOptional(tNumber),

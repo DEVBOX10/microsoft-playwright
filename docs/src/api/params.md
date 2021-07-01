@@ -367,7 +367,6 @@ Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`
 [`method: Page.emulateMedia`] for more details. Defaults to `'light'`.
 
 ## context-option-reducedMotion
-* langs: js, python, java
 - `reducedMotion` <[ReducedMotion]<"reduce"|"no-preference">>
 
 Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Defaults
@@ -492,12 +491,6 @@ A glob pattern, regex pattern or predicate receiving [URL] to match while waitin
 
 Event name, same one typically passed into `*.on(event)`.
 
-## csharp-wait-for-event-event
-* langs: csharp
-- `playwrightEvent` <[PlaywrightEvent<T>]>
-
-Event type, same one typically passed into `WaitForEventAsync`.
-
 ## wait-for-load-state-state
 - `state` <[LoadState]<"load"|"domcontentloaded"|"networkidle">>
 
@@ -517,6 +510,12 @@ Specify screenshot type, defaults to `png`.
 - `callback` <[Runnable]>
 
 Callback that performs the action triggering the event.
+
+## csharp-wait-for-event-action
+* langs: csharp
+- `action` <[Func<Task>]>
+
+Action that triggers the event.
 
 ## python-select-options-element
 * langs: python
@@ -605,9 +604,7 @@ Additional arguments to pass to the browser instance. The list of Chromium flags
 ## browser-option-channel
 - `channel` <[string]>
 
-Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", "msedge-canary".
-
-Browser distribution channel. Read more about using [Google Chrome and Microsoft Edge](./browsers.md#google-chrome--microsoft-edge).
+Browser distribution channel.  Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", "msedge-canary". Read more about using [Google Chrome and Microsoft Edge](./browsers.md#google-chrome--microsoft-edge).
 
 ## browser-option-chromiumsandbox
 - `chromiumSandbox` <[boolean]>
@@ -677,9 +674,8 @@ Logger sink for Playwright logging.
 Maximum time in milliseconds to wait for the browser instance to start. Defaults to `30000` (30 seconds). Pass `0` to
 disable timeout.
 
-## browser-option-tracedir
-* langs: js, python, java
-- `traceDir` <[path]>
+## browser-option-tracesdir
+- `tracesDir` <[path]>
 
 If specified, traces are saved into this directory.
 
@@ -710,4 +706,4 @@ Slows down Playwright operations by the specified amount of milliseconds. Useful
 - %%-browser-option-ignoredefaultargs-%%
 - %%-browser-option-proxy-%%
 - %%-browser-option-timeout-%%
-- %%-browser-option-tracedir-%%
+- %%-browser-option-tracesdir-%%

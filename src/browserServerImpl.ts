@@ -15,7 +15,6 @@
  */
 
 import { LaunchServerOptions, Logger } from './client/types';
-import { BrowserType } from './server/browserType';
 import { Browser } from './server/browser';
 import { EventEmitter } from 'ws';
 import { Dispatcher, DispatcherScope } from './dispatchers/dispatcher';
@@ -28,35 +27,31 @@ import { SelectorsDispatcher } from './dispatchers/selectorsDispatcher';
 import { Selectors } from './server/selectors';
 import { ProtocolLogger } from './server/types';
 import { CallMetadata, internalCallMetadata } from './server/instrumentation';
-import { Playwright } from './server/playwright';
+import { createPlaywright, Playwright } from './server/playwright';
 import { PlaywrightDispatcher } from './dispatchers/playwrightDispatcher';
 import { PlaywrightServer, PlaywrightServerDelegate } from './remote/playwrightServer';
 import { BrowserContext } from './server/browserContext';
 import { CRBrowser } from './server/chromium/crBrowser';
 import { CDPSessionDispatcher } from './dispatchers/cdpSessionDispatcher';
 import { PageDispatcher } from './dispatchers/pageDispatcher';
-import { BrowserServerPortForwardingServer } from './server/socksSocket';
-import { SocksSocketDispatcher } from './dispatchers/socksSocketDispatcher';
-import { SocksInterceptedSocketHandler } from './server/socksServer';
 
 export class BrowserServerLauncherImpl implements BrowserServerLauncher {
-  private _playwright: Playwright;
-  private _browserType: BrowserType;
+  private _browserName: 'chromium' | 'firefox' | 'webkit';
 
-  constructor(playwright: Playwright, browserType: BrowserType) {
-    this._playwright = playwright;
-    this._browserType = browserType;
+  constructor(browserName: 'chromium' | 'firefox' | 'webkit') {
+    this._browserName = browserName;
   }
 
   async launchServer(options: LaunchServerOptions = {}): Promise<BrowserServer> {
-    const portForwardingServer = new BrowserServerPortForwardingServer(this._playwright, !!options._acceptForwardedPorts);
+    const playwright = createPlaywright();
+    if (options._acceptForwardedPorts)
+      await playwright._enablePortForwarding();
     // 1. Pre-launch the browser
-    const browser = await this._browserType.launch(internalCallMetadata(), {
+    const browser = await playwright[this._browserName].launch(internalCallMetadata(), {
       ...options,
       ignoreDefaultArgs: Array.isArray(options.ignoreDefaultArgs) ? options.ignoreDefaultArgs : undefined,
       ignoreAllDefaultArgs: !!options.ignoreDefaultArgs && !Array.isArray(options.ignoreDefaultArgs),
       env: options.env ? envObjectToArray(options.env) : undefined,
-      ...portForwardingServer.browserLaunchOptions(),
     }, toProtocolLogger(options.logger));
 
     // 2. Start the server
@@ -64,9 +59,9 @@ export class BrowserServerLauncherImpl implements BrowserServerLauncher {
       path: '/' + createGuid(),
       allowMultipleClients: options._acceptForwardedPorts ? false : true,
       onClose: () => {
-        portForwardingServer.stop();
+        playwright._disablePortForwarding();
       },
-      onConnect: this._onConnect.bind(this, browser, portForwardingServer),
+      onConnect: this._onConnect.bind(this, playwright, browser),
     };
     const server = new PlaywrightServer(delegate);
     const wsEndpoint = await server.listen(options.port);
@@ -85,7 +80,7 @@ export class BrowserServerLauncherImpl implements BrowserServerLauncher {
     return browserServer;
   }
 
-  private _onConnect(browser: Browser, portForwardingServer: BrowserServerPortForwardingServer, scope: DispatcherScope, forceDisconnect: () => void) {
+  private async _onConnect(playwright: Playwright, browser: Browser, scope: DispatcherScope, forceDisconnect: () => void) {
     const selectors = new Selectors();
     const selectorsDispatcher = new SelectorsDispatcher(scope, selectors);
     const browserDispatcher = new ConnectedBrowserDispatcher(scope, browser, selectors);
@@ -93,16 +88,8 @@ export class BrowserServerLauncherImpl implements BrowserServerLauncher {
       // Underlying browser did close for some reason - force disconnect the client.
       forceDisconnect();
     });
-    const playwrightDispatcher = new PlaywrightDispatcher(scope, this._playwright, selectorsDispatcher, browserDispatcher, (ports: number[]) => {
-      portForwardingServer.enablePortForwarding(ports);
-    });
-    const incomingSocksSocketHandler = (socket: SocksInterceptedSocketHandler) => {
-      playwrightDispatcher._dispatchEvent('incomingSocksSocket', { socket: new SocksSocketDispatcher(playwrightDispatcher, socket) });
-    };
-    portForwardingServer.on('incomingSocksSocket', incomingSocksSocketHandler);
-
+    new PlaywrightDispatcher(scope, playwright, selectorsDispatcher, browserDispatcher);
     return () => {
-      portForwardingServer.off('incomingSocksSocket', incomingSocksSocketHandler);
       // Cleanup contexts upon disconnect.
       browserDispatcher.cleanupContexts().catch(e => {});
     };
@@ -120,10 +107,8 @@ class ConnectedBrowserDispatcher extends Dispatcher<Browser, channels.BrowserIni
   }
 
   async newContext(params: channels.BrowserNewContextParams, metadata: CallMetadata): Promise<channels.BrowserNewContextResult> {
-    if (params.recordVideo) {
-      // TODO: we should create a separate temp directory or accept a launchServer parameter.
-      params.recordVideo.dir = this._object.options.downloadsPath!;
-    }
+    if (params.recordVideo)
+      params.recordVideo.dir = this._object.options.artifactsDir;
     const context = await this._object.newContext(params);
     this._contexts.add(context);
     context._setSelectors(this._selectors);

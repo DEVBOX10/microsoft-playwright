@@ -19,6 +19,7 @@ import { contextTest as it, expect } from './config/browserTest';
 import { Server as WebSocketServer } from 'ws';
 
 it('should work', async ({ page, server }) => {
+  server.sendOnWebSocketConnection('incoming');
   const value = await page.evaluate(port => {
     let cb;
     const result = new Promise(f => cb = f);
@@ -49,6 +50,7 @@ it('should emit close events', async ({ page, server }) => {
 });
 
 it('should emit frame events', async ({ page, server }) => {
+  server.sendOnWebSocketConnection('incoming');
   let socketClosed;
   const socketClosePromise = new Promise(f => socketClosed = f);
   const log = [];
@@ -60,6 +62,29 @@ it('should emit frame events', async ({ page, server }) => {
   });
   await page.evaluate(port => {
     const ws = new WebSocket('ws://localhost:' + port + '/ws');
+    ws.addEventListener('open', () => ws.send('outgoing'));
+    ws.addEventListener('message', () => { ws.close(); });
+  }, server.PORT);
+  await socketClosePromise;
+  expect(log[0]).toBe('open');
+  expect(log[3]).toBe('close');
+  log.sort();
+  expect(log.join(':')).toBe('close:open:received<incoming>:sent<outgoing>');
+});
+
+it('should filter out the close events when the server closes with a message', async ({ page, server }) => {
+  server.sendOnWebSocketConnection('incoming');
+  let socketClosed;
+  const socketClosePromise = new Promise(f => socketClosed = f);
+  const log = [];
+  page.on('websocket', ws => {
+    log.push('open');
+    ws.on('framesent', d => log.push('sent<' + d.payload + '>'));
+    ws.on('framereceived', d => log.push('received<' + d.payload + '>'));
+    ws.on('close', () => { log.push('close'); socketClosed(); });
+  });
+  await page.evaluate(port => {
+    const ws = new WebSocket('ws://localhost:' + port + '/ws-emit-and-close');
     ws.addEventListener('open', () => ws.send('outgoing'));
     ws.addEventListener('message', () => { ws.close(); });
   }, server.PORT);
@@ -126,6 +151,7 @@ it('should emit error', async ({page, server, browserName}) => {
 });
 
 it('should not have stray error events', async ({page, server}) => {
+  server.sendOnWebSocketConnection('incoming');
   let error;
   page.on('websocket', ws => ws.on('socketerror', e => error = e));
   await Promise.all([
@@ -142,6 +168,7 @@ it('should not have stray error events', async ({page, server}) => {
 });
 
 it('should reject waitForEvent on socket close', async ({page, server}) => {
+  server.sendOnWebSocketConnection('incoming');
   const [ws] = await Promise.all([
     page.waitForEvent('websocket').then(async ws => {
       await ws.waitForEvent('framereceived');
@@ -157,6 +184,7 @@ it('should reject waitForEvent on socket close', async ({page, server}) => {
 });
 
 it('should reject waitForEvent on page close', async ({page, server}) => {
+  server.sendOnWebSocketConnection('incoming');
   const [ws] = await Promise.all([
     page.waitForEvent('websocket').then(async ws => {
       await ws.waitForEvent('framereceived');

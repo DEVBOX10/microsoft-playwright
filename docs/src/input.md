@@ -17,7 +17,7 @@ await page.fill('#name', 'Peter');
 await page.fill('#date', '2020-02-02');
 
 // Time input
-await page.fill('#time', '13-15');
+await page.fill('#time', '13:15');
 
 // Local datetime input
 await page.fill('#local', '2020-03-02T05:15');
@@ -51,7 +51,7 @@ await page.fill('#name', 'Peter')
 await page.fill('#date', '2020-02-02')
 
 # Time input
-await page.fill('#time', '13-15')
+await page.fill('#time', '13:15')
 
 # Local datetime input
 await page.fill('#local', '2020-03-02T05:15')
@@ -68,7 +68,7 @@ page.fill('#name', 'Peter')
 page.fill('#date', '2020-02-02')
 
 # Time input
-page.fill('#time', '13-15')
+page.fill('#time', '13:15')
 
 # Local datetime input
 page.fill('#local', '2020-03-02T05:15')
@@ -713,7 +713,7 @@ await page.SetInputFilesAsync("input#upload", new FilePayload
 {
     Name = "file.txt",
     MimeType = "text/plain",
-    Buffer = "this is a test".getBytes(StandardCharsets.UTF_8),
+    Buffer = System.Text.Encoding.UTF8.GetBytes("this is a test"),
 });
 ```
 
@@ -750,7 +750,7 @@ file_chooser.set_files("myfile.pdf")
 ```
 
 ```csharp
-var fileChooser = page.RunAndWaitForAsync(PageEvent.FileChooser, async () =>
+var fileChooser = page.RunAndWaitForFileChooserAsync(async () =>
 {
     await page.ClickAsync("upload");
 });

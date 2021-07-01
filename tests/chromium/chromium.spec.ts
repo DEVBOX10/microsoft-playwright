@@ -18,6 +18,7 @@
 import { contextTest as test, expect } from '../config/browserTest';
 import { playwrightTest } from '../config/browserTest';
 import http from 'http';
+import { getUserAgent } from '../../lib/utils/utils';
 
 test('should create a worker from a service worker', async ({page, server}) => {
   const [worker] = await Promise.all([
@@ -200,7 +201,7 @@ playwrightTest('should connect over a ws endpoint', async ({browserType, browser
     const cdpBrowser2 = await browserType.connectOverCDP({
       wsEndpoint: JSON.parse(json).webSocketDebuggerUrl,
     });
-    const contexts2 = cdpBrowser.contexts();
+    const contexts2 = cdpBrowser2.contexts();
     expect(contexts2.length).toBe(1);
     await cdpBrowser2.close();
   } finally {
@@ -217,7 +218,8 @@ playwrightTest('should send extra headers with connect request', async ({browser
         headers: {
           'User-Agent': 'Playwright',
           'foo': 'bar',
-        }
+        },
+        timeout: 100,
       }).catch(() => {})
     ]);
     expect(request.headers['user-agent']).toBe('Playwright');
@@ -231,10 +233,28 @@ playwrightTest('should send extra headers with connect request', async ({browser
         headers: {
           'User-Agent': 'Playwright',
           'foo': 'bar',
-        }
+        },
+        timeout: 100,
       }).catch(() => {})
     ]);
     expect(request.headers['user-agent']).toBe('Playwright');
+    expect(request.headers['foo']).toBe('bar');
+  }
+});
+
+playwrightTest('should send default User-Agent header with connect request', async ({browserType, browserOptions, server}, testInfo) => {
+  {
+    const [request] = await Promise.all([
+      server.waitForWebSocketConnectionRequest(),
+      browserType.connectOverCDP({
+        wsEndpoint: `ws://localhost:${server.PORT}/ws`,
+        headers: {
+          'foo': 'bar',
+        },
+        timeout: 100,
+      }).catch(() => {})
+    ]);
+    expect(request.headers['user-agent']).toBe(getUserAgent());
     expect(request.headers['foo']).toBe('bar');
   }
 });
@@ -264,4 +284,50 @@ playwrightTest('should report all pages in an existing browser', async ({ browse
   } finally {
     await browserServer.close();
   }
+});
+
+playwrightTest('should return valid browser from context.browser()', async ({ browserType, browserOptions }, testInfo) => {
+  const port = 9339 + testInfo.workerIndex;
+  const browserServer = await browserType.launch({
+    ...browserOptions,
+    args: ['--remote-debugging-port=' + port]
+  });
+  try {
+    const cdpBrowser = await browserType.connectOverCDP({
+      endpointURL: `http://localhost:${port}/`,
+    });
+    const contexts = cdpBrowser.contexts();
+    expect(contexts.length).toBe(1);
+    expect(contexts[0].browser()).toBe(cdpBrowser);
+
+    const context2 = await cdpBrowser.newContext();
+    expect(context2.browser()).toBe(cdpBrowser);
+
+    await cdpBrowser.close();
+  } finally {
+    await browserServer.close();
+  }
+});
+
+test('should report an expected error when the endpointURL returns a non-expected status code', async ({ browserType, server }) => {
+  server.setRoute('/json/version/', (req, resp) => {
+    resp.statusCode = 404;
+    resp.end(JSON.stringify({
+      webSocketDebuggerUrl: 'dont-use-me',
+    }));
+  });
+  await expect(browserType.connectOverCDP({
+    endpointURL: server.PREFIX,
+  })).rejects.toThrowError(`browserType.connectOverCDP: Unexpected status 404 when connecting to ${server.PREFIX}/json/version/`);
+});
+
+test('should report an expected error when the endpoint URL JSON webSocketDebuggerUrl is undefined', async ({ browserType, server }) => {
+  server.setRoute('/json/version/', (req, resp) => {
+    resp.end(JSON.stringify({
+      webSocketDebuggerUrl: undefined,
+    }));
+  });
+  await expect(browserType.connectOverCDP({
+    endpointURL: server.PREFIX,
+  })).rejects.toThrowError('browserType.connectOverCDP: Invalid URL');
 });

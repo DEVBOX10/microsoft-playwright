@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+import extract from 'extract-zip';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import rimraf from 'rimraf';
 import { createPlaywright } from '../../playwright';
-import * as util from 'util';
 import { PersistentSnapshotStorage, TraceModel } from './traceModel';
 import { TraceEvent } from '../common/traceEvents';
 import { ServerRouteHandler, HttpServer } from '../../../utils/httpServer';
@@ -26,16 +28,15 @@ import * as consoleApiSource from '../../../generated/consoleApiSource';
 import { isUnderTest } from '../../../utils/utils';
 import { internalCallMetadata } from '../../instrumentation';
 import { ProgressController } from '../../progress';
-
-const fsReadFileAsync = util.promisify(fs.readFile.bind(fs));
+import { BrowserContext } from '../../browserContext';
 
 export class TraceViewer {
   private _server: HttpServer;
   private _browserName: string;
 
-  constructor(traceDir: string, browserName: string) {
+  constructor(tracesDir: string, browserName: string) {
     this._browserName = browserName;
-    const resourcesDir = path.join(traceDir, 'resources');
+    const resourcesDir = path.join(tracesDir, 'resources');
 
     // Served by TraceServer
     // - "/tracemodel" - json with trace model.
@@ -51,9 +52,9 @@ export class TraceViewer {
     // - "/snapshot/pageId/..." - actual snapshot html.
     // - "/snapshot/service-worker.js" - service worker that intercepts snapshot resources
     //   and translates them into "/resources/<resourceId>".
-    const actionTraces = fs.readdirSync(traceDir).filter(name => name.endsWith('.trace'));
+    const actionTraces = fs.readdirSync(tracesDir).filter(name => name.endsWith('.trace'));
     const debugNames = actionTraces.map(name => {
-      const tracePrefix = path.join(traceDir, name.substring(0, name.indexOf('.trace')));
+      const tracePrefix = path.join(tracesDir, name.substring(0, name.indexOf('.trace')));
       return path.basename(tracePrefix);
     });
 
@@ -71,12 +72,12 @@ export class TraceViewer {
 
     const traceModelHandler: ServerRouteHandler = (request, response) => {
       const debugName = request.url!.substring('/context/'.length);
-      const tracePrefix = path.join(traceDir, debugName);
+      const tracePrefix = path.join(tracesDir, debugName);
       snapshotStorage.clear();
       response.statusCode = 200;
       response.setHeader('Content-Type', 'application/json');
       (async () => {
-        const traceContent = await fsReadFileAsync(tracePrefix + '.trace', 'utf8');
+        const traceContent = await fs.promises.readFile(tracePrefix + '.trace', 'utf8');
         const events = traceContent.split('\n').map(line => line.trim()).filter(line => !!line).map(line => JSON.parse(line)) as TraceEvent[];
         const model = new TraceModel(snapshotStorage);
         model.appendEvents(events, snapshotStorage);
@@ -115,7 +116,7 @@ export class TraceViewer {
     this._server.routePrefix('/sha1/', sha1Handler);
   }
 
-  async show() {
+  async show(headless: boolean): Promise<BrowserContext> {
     const urlPrefix = await this._server.start();
 
     const traceViewerPlaywright = createPlaywright(true);
@@ -130,7 +131,7 @@ export class TraceViewer {
       sdkLanguage: 'javascript',
       args,
       noDefaultViewport: true,
-      headless: !!process.env.PWTEST_CLI_HEADLESS,
+      headless,
       useWebSocket: isUnderTest()
     });
 
@@ -140,7 +141,38 @@ export class TraceViewer {
     });
     await context.extendInjectedScript('main', consoleApiSource.source);
     const [page] = context.pages();
-    page.on('close', () => process.exit(0));
+    if (isUnderTest())
+      page.on('close', () => context.close(internalCallMetadata()).catch(() => {}));
+    else
+      page.on('close', () => process.exit());
     await page.mainFrame().goto(internalCallMetadata(), urlPrefix + '/traceviewer/traceViewer/index.html');
+    return context;
   }
+}
+
+export async function showTraceViewer(tracePath: string, browserName: string, headless = false): Promise<BrowserContext | undefined> {
+  let stat;
+  try {
+    stat = fs.statSync(tracePath);
+  } catch (e) {
+    console.log(`No such file or directory: ${tracePath}`);  // eslint-disable-line no-console
+    return;
+  }
+
+  if (stat.isDirectory()) {
+    const traceViewer = new TraceViewer(tracePath, browserName);
+    return await traceViewer.show(headless);
+  }
+
+  const zipFile = tracePath;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `playwright-trace`));
+  process.on('exit', () => rimraf.sync(dir));
+  try {
+    await extract(zipFile, { dir });
+  } catch (e) {
+    console.log(`Invalid trace file: ${zipFile}`);  // eslint-disable-line no-console
+    return;
+  }
+  const traceViewer = new TraceViewer(dir, browserName);
+  return await traceViewer.show(headless);
 }

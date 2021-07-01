@@ -699,8 +699,8 @@ To send fine-grained keyboard events, use [`method: Frame.type`].
 
 Value to fill for the `<input>`, `<textarea>` or `[contenteditable]` element.
 
+### option: Frame.fill.force = %%-input-force-%%
 ### option: Frame.fill.noWaitAfter = %%-input-no-wait-after-%%
-
 ### option: Frame.fill.timeout = %%-input-timeout-%%
 
 ## async method: Frame.focus
@@ -853,6 +853,14 @@ Returns `element.innerText`.
 ### param: Frame.innerText.selector = %%-input-selector-%%
 
 ### option: Frame.innerText.timeout = %%-input-timeout-%%
+
+## async method: Frame.inputValue
+- returns: <[string]>
+
+Returns `input.value` for the selected `<input>` or `<textarea>` element. Throws for non-input elements.
+
+### param: Frame.inputValue.selector = %%-input-selector-%%
+### option: Frame.inputValue.timeout = %%-input-timeout-%%
 
 ## async method: Frame.isChecked
 - returns: <[boolean]>
@@ -1057,11 +1065,9 @@ await frame.SelectOptionAsync("select#colors", new[] { "red", "green", "blue" })
 ```
 
 ### param: Frame.selectOption.selector = %%-query-selector-%%
-
 ### param: Frame.selectOption.values = %%-select-options-values-%%
-
+### option: Frame.selectOption.force = %%-input-force-%%
 ### option: Frame.selectOption.noWaitAfter = %%-input-no-wait-after-%%
-
 ### option: Frame.selectOption.timeout = %%-input-timeout-%%
 
 ## async method: Frame.setContent
@@ -1387,6 +1393,7 @@ await frame.WaitForLoadStateAsync(); // Defaults to LoadState.Load
 ## async method: Frame.waitForNavigation
 * langs:
   * alias-python: expect_navigation
+  * alias-csharp: RunAndWaitForNavigation
 - returns: <[null]|[Response]>
 
 Waits for the frame navigation and returns the main resource response. In case of multiple redirects, the navigation
@@ -1424,10 +1431,12 @@ with frame.expect_navigation():
 ```
 
 ```csharp
-await Task.WhenAll(
-    frame.WaitForNavigationAsync(),
-    // clicking the link will indirectly cause a navigation
-    frame.ClickAsync("a.delayed-navigation"));
+await frame.RunAndWaitForNavigationAsync(async () =>
+{
+    // Clicking the link will indirectly cause a navigation.
+    await frame.ClickAsync("a.delayed-navigation");
+});
+
 // Resolves after navigation has finished
 ```
 

@@ -49,7 +49,7 @@ path = download.path()
 ```
 
 ```csharp
-var download = await page.RunAndWaitForEventAsync(PageEvent.Download, async () =>
+var download = await page.RunAndWaitForDownloadAsync(async () =>
 {
     await page.ClickAsync("#downloadButton");
 });
@@ -78,7 +78,6 @@ Deletes the downloaded file. Will wait for the download to finish if necessary.
 Returns download error if any. Will wait for the download to finish if necessary.
 
 ## method: Download.page
-* langs: js, python, java
 - returns: <[Page]>
 
 Get the page that the download belongs to.

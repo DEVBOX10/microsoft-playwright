@@ -17,9 +17,7 @@
 import { browserTest as it, expect } from './config/browserTest';
 import fs from 'fs';
 import path from 'path';
-import util from 'util';
 import crypto from 'crypto';
-import { chromiumVersionLessThan } from './config/utils';
 
 it.describe('download event', () => {
   it.beforeEach(async ({server}) => {
@@ -32,6 +30,14 @@ it.describe('download event', () => {
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', 'attachment; filename=file.txt');
       res.end(`Hello world`);
+    });
+    server.setRoute('/downloadWithDelay', (req, res) => {
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename=file.txt');
+      // Chromium requires a large enough payload to trigger the download event soon enough
+      res.write('a'.repeat(4096));
+      res.write('foo');
+      res.uncork();
     });
   });
 
@@ -152,9 +158,9 @@ it.describe('download event', () => {
     const dir = testInfo.outputPath('downloads');
     const userPath = path.join(dir, 'download.txt');
     await download.saveAs(userPath);
-    expect((await util.promisify(fs.readdir)(dir)).length).toBe(1);
+    expect((await fs.promises.readdir(dir)).length).toBe(1);
     await download.saveAs(userPath);
-    expect((await util.promisify(fs.readdir)(dir)).length).toBe(1);
+    expect((await fs.promises.readdir(dir)).length).toBe(1);
     expect(fs.existsSync(userPath)).toBeTruthy();
     expect(fs.readFileSync(userPath).toString()).toBe('Hello world');
     await page.close();
@@ -273,12 +279,7 @@ it.describe('download event', () => {
     await page.close();
   });
 
-  it('should report new window downloads', async ({browser, server, browserName, headless}) => {
-    it.fixme(browserName === 'chromium' && !headless);
-
-    // TODO: - the test fails in headed Chromium as the popup page gets closed along
-    // with the session before download completed event arrives.
-    // - WebKit doesn't close the popup page
+  it('should report new window downloads', async ({browser, server}) => {
     const page = await browser.newPage({ acceptDownloads: true });
     await page.setContent(`<a target=_blank href="${server.PREFIX}/download">download</a>`);
     const [ download ] = await Promise.all([
@@ -361,7 +362,7 @@ it.describe('download event', () => {
     expect(fs.existsSync(path.join(path1, '..'))).toBeFalsy();
   });
 
-  it('should close the context without awaiting the failed download', async ({browser, server, httpsServer, browserName, browserVersion}, testInfo) => {
+  it('should close the context without awaiting the failed download', async ({browser, server, httpsServer, browserName, headless}, testInfo) => {
     it.skip(browserName !== 'chromium', 'Only Chromium downloads on alt-click');
 
     const page = await browser.newPage({ acceptDownloads: true });
@@ -379,10 +380,7 @@ it.describe('download event', () => {
       page.context().close(),
     ]);
     expect(downloadPath).toBe(null);
-    if (chromiumVersionLessThan(browserVersion, '91.0.4472.0'))
-      expect(saveError.message).toContain('File deleted upon browser context closure.');
-    else
-      expect(saveError.message).toContain('File not found on disk. Check download.failure() for details.');
+    expect(saveError.message).toContain('File not found on disk. Check download.failure() for details.');
   });
 
   it('should close the context without awaiting the download', async ({browser, server, browserName, platform}, testInfo) => {
@@ -409,7 +407,12 @@ it.describe('download event', () => {
       page.context().close(),
     ]);
     expect(downloadPath).toBe(null);
-    expect(saveError.message).toContain('File deleted upon browser context closure.');
+    // The exact error message is racy, because sometimes browser is fast enough
+    // to cancel the download.
+    expect([
+      'download.saveAs: canceled',
+      'download.saveAs: File deleted upon browser context closure.',
+    ]).toContain(saveError.message);
   });
 
   it('should throw if browser dies', async ({ server, browserType, browserName, browserOptions, platform}, testInfo) => {
@@ -468,6 +471,41 @@ it.describe('download event', () => {
     await page.close();
   });
 
+  it('should be able to cancel pending downloads', async ({browser, server, browserName, browserVersion}) => {
+    // The exact upstream change is in b449b5c, which still does not appear in the first few 91.* tags until 91.0.4437.0.
+    it.fixme(browserName === 'chromium' && Number(browserVersion.split('.')[0]) < 91, 'The upstream Browser.cancelDownload command is not available before Chrome 91');
+    it.fixme(browserName !== 'chromium', 'Download cancellation currently implemented for only Chromium');
+    const page = await browser.newPage({ acceptDownloads: true });
+    await page.setContent(`<a href="${server.PREFIX}/downloadWithDelay">download</a>`);
+    const [ download ] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('a')
+    ]);
+    await (download as any)._cancel();
+    const failure = await download.failure();
+    expect(failure).toBe('canceled');
+    await page.close();
+  });
+
+  it('should not fail explicitly to cancel a download even if that is already finished', async ({browser, server, browserName, browserVersion}) => {
+    // The exact upstream change is in b449b5c, which still does not appear in the first few 91.* tags until 91.0.4437.0.
+    it.fixme(browserName === 'chromium' && Number(browserVersion.split('.')[0]) < 91, 'The upstream Browser.cancelDownload command is not available before Chrome 91');
+    it.fixme(browserName !== 'chromium', 'Download cancellation currently implemented for only Chromium');
+    const page = await browser.newPage({ acceptDownloads: true });
+    await page.setContent(`<a href="${server.PREFIX}/download">download</a>`);
+    const [ download ] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('a')
+    ]);
+    const path = await download.path();
+    expect(fs.existsSync(path)).toBeTruthy();
+    expect(fs.readFileSync(path).toString()).toBe('Hello world');
+    await (download as any)._cancel();
+    const failure = await download.failure();
+    expect(failure).toBe(null);
+    await page.close();
+  });
+
   it('should report downloads with interception', async ({browser, server}) => {
     const page = await browser.newPage({ acceptDownloads: true });
     await page.route(/.*/, r => r.continue());
@@ -481,5 +519,4 @@ it.describe('download event', () => {
     expect(fs.readFileSync(path).toString()).toBe('Hello world');
     await page.close();
   });
-
 });

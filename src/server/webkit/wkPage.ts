@@ -26,7 +26,7 @@ import * as dialog from '../dialog';
 import * as dom from '../dom';
 import * as frames from '../frames';
 import { helper, RegisteredListener } from '../helper';
-import { JSHandle } from '../javascript';
+import { JSHandle, kSwappedOutErrorMessage } from '../javascript';
 import * as network from '../network';
 import { Page, PageBinding, PageDelegate } from '../page';
 import { Progress } from '../progress';
@@ -69,6 +69,8 @@ export class WKPage implements PageDelegate {
   _firstNonInitialNavigationCommittedReject = (e: Error) => {};
   private _lastConsoleMessage: { derivedType: string, text: string, handles: JSHandle[]; count: number, location: types.ConsoleMessageLocation; } | null = null;
 
+  private readonly _requestIdToResponseReceivedPayloadEvent = new Map<string, Protocol.Network.responseReceivedPayload>();
+  _needsResponseInterception: boolean = false;
   // Holds window features for the next popup being opened via window.open,
   // until the popup page proxy arrives.
   private _nextWindowOpenPopupFeatures?: string[];
@@ -175,6 +177,8 @@ export class WKPage implements PageDelegate {
     if (this._page._needsRequestInterception()) {
       promises.push(session.send('Network.setInterceptionEnabled', { enabled: true }));
       promises.push(session.send('Network.addInterception', { url: '.*', stage: 'request', isRegex: true }));
+      if (this._needsResponseInterception)
+        promises.push(session.send('Network.addInterception', { url: '.*', stage: 'response', isRegex: true }));
     }
 
     const contextOptions = this._browserContext._options;
@@ -213,7 +217,7 @@ export class WKPage implements PageDelegate {
     assert(this._provisionalPage);
     assert(this._provisionalPage._session.sessionId === newTargetId, 'Unknown new target: ' + newTargetId);
     assert(this._session.sessionId === oldTargetId, 'Unknown old target: ' + oldTargetId);
-    this._session.errorText = 'Target was swapped out.';
+    this._session.errorText = kSwappedOutErrorMessage;
     const newSession = this._provisionalPage._session;
     this._provisionalPage.commit();
     this._provisionalPage.dispose();
@@ -366,7 +370,8 @@ export class WKPage implements PageDelegate {
       helper.addEventListener(this._pageProxySession, 'Dialog.javascriptDialogOpening', event => this._onDialog(event)),
       helper.addEventListener(this._session, 'Page.fileChooserOpened', event => this._onFileChooserOpened(event)),
       helper.addEventListener(this._session, 'Network.requestWillBeSent', e => this._onRequestWillBeSent(this._session, e)),
-      helper.addEventListener(this._session, 'Network.requestIntercepted', e => this._onRequestIntercepted(e)),
+      helper.addEventListener(this._session, 'Network.requestIntercepted', e => this._onRequestIntercepted(this._session, e)),
+      helper.addEventListener(this._session, 'Network.responseIntercepted', e => this._onResponseIntercepted(this._session, e)),
       helper.addEventListener(this._session, 'Network.responseReceived', e => this._onResponseReceived(e)),
       helper.addEventListener(this._session, 'Network.loadingFinished', e => this._onLoadingFinished(e)),
       helper.addEventListener(this._session, 'Network.loadingFailed', e => this._onLoadingFailed(e)),
@@ -379,7 +384,6 @@ export class WKPage implements PageDelegate {
       helper.addEventListener(this._session, 'Network.webSocketFrameError', e => this._page._frameManager.webSocketError(e.requestId, e.errorMessage)),
     ];
   }
-
   private async _updateState<T extends keyof Protocol.CommandParameters>(
     method: T,
     params?: Protocol.CommandParameters[T]
@@ -655,12 +659,22 @@ export class WKPage implements PageDelegate {
     await Promise.all(promises);
   }
 
+  async _ensureResponseInterceptionEnabled() {
+    if (this._needsResponseInterception)
+      return;
+    this._needsResponseInterception = true;
+    await this.updateRequestInterception();
+  }
+
   async updateRequestInterception(): Promise<void> {
     const enabled = this._page._needsRequestInterception();
-    await Promise.all([
+    const promises = [
       this._updateState('Network.setInterceptionEnabled', { enabled }),
-      this._updateState('Network.addInterception', { url: '.*', stage: 'request', isRegex: true })
-    ]);
+      this._updateState('Network.addInterception', { url: '.*', stage: 'request', isRegex: true }),
+    ];
+    if (this._needsResponseInterception)
+      this._updateState('Network.addInterception', { url: '.*', stage: 'response', isRegex: true });
+    await Promise.all(promises);
   }
 
   async updateOffline() {
@@ -896,7 +910,7 @@ export class WKPage implements PageDelegate {
       executionContextId: (to._delegate as WKExecutionContext)._contextId
     });
     if (!result || result.object.subtype === 'null')
-      throw new Error('Unable to adopt element handle from a different document');
+      throw new Error(dom.kUnableToAdoptErrorMessage);
     return to.createHandle(result.object) as dom.ElementHandle<T>;
   }
 
@@ -953,25 +967,36 @@ export class WKPage implements PageDelegate {
 
   private _handleRequestRedirect(request: WKInterceptableRequest, responsePayload: Protocol.Network.Response, timestamp: number) {
     const response = request.createResponse(responsePayload);
+    response._securityDetailsFinished();
+    response._serverAddrFinished();
     response._requestFinished(responsePayload.timing ? helper.secondsToRoundishMillis(timestamp - request._timestamp) : -1, 'Response body is unavailable for redirect responses');
     this._requestIdToRequest.delete(request._requestId);
     this._page._frameManager.requestReceivedResponse(response);
     this._page._frameManager.requestFinished(request.request);
   }
 
-  _onRequestIntercepted(event: Protocol.Network.requestInterceptedPayload) {
+  _onRequestIntercepted(session: WKSession, event: Protocol.Network.requestInterceptedPayload) {
     const request = this._requestIdToRequest.get(event.requestId);
     if (!request) {
-      this._session.sendMayFail('Network.interceptRequestWithError', {errorType: 'Cancellation', requestId: event.requestId});
+      session.sendMayFail('Network.interceptRequestWithError', {errorType: 'Cancellation', requestId: event.requestId});
       return;
     }
     if (!request._allowInterception) {
       // Intercepted, although we do not intend to allow interception.
       // Just continue.
-      this._session.sendMayFail('Network.interceptWithRequest', { requestId: request._requestId });
+      session.sendMayFail('Network.interceptWithRequest', { requestId: request._requestId });
     } else {
       request._interceptedCallback();
     }
+  }
+
+  _onResponseIntercepted(session: WKSession, event: Protocol.Network.responseInterceptedPayload) {
+    const request = this._requestIdToRequest.get(event.requestId);
+    if (!request || !request._responseInterceptedCallback) {
+      session.sendMayFail('Network.interceptContinue', { requestId: event.requestId, stage: 'response' });
+      return;
+    }
+    request._responseInterceptedCallback(event.response);
   }
 
   _onResponseReceived(event: Protocol.Network.responseReceivedPayload) {
@@ -979,6 +1004,7 @@ export class WKPage implements PageDelegate {
     // FileUpload sends a response without a matching request.
     if (!request)
       return;
+    this._requestIdToResponseReceivedPayloadEvent.set(request._requestId, event);
     const response = request.createResponse(event.response);
     if (event.response.requestHeaders && Object.keys(event.response.requestHeaders).length)
       request.request.updateWithRawHeaders(headersObjectToArray(event.response.requestHeaders));
@@ -1003,8 +1029,19 @@ export class WKPage implements PageDelegate {
     // Under certain conditions we never get the Network.responseReceived
     // event from protocol. @see https://crbug.com/883475
     const response = request.request._existingResponse();
-    if (response)
+    if (response) {
+      const responseReceivedPayload = this._requestIdToResponseReceivedPayloadEvent.get(request._requestId);
+      response._serverAddrFinished(parseRemoteAddress(event?.metrics?.remoteAddress));
+      response._securityDetailsFinished({
+        protocol: isLoadedSecurely(response.url(), response.timing()) ? event.metrics?.securityConnection?.protocol : undefined,
+        subjectName: responseReceivedPayload?.response.security?.certificate?.subject,
+        validFrom: responseReceivedPayload?.response.security?.certificate?.validFrom,
+        validTo: responseReceivedPayload?.response.security?.certificate?.validUntil,
+      });
       response._requestFinished(helper.secondsToRoundishMillis(event.timestamp - request._timestamp));
+    }
+
+    this._requestIdToResponseReceivedPayloadEvent.delete(request._requestId);
     this._requestIdToRequest.delete(request._requestId);
     this._page._frameManager.requestFinished(request.request);
   }
@@ -1016,8 +1053,11 @@ export class WKPage implements PageDelegate {
     if (!request)
       return;
     const response = request.request._existingResponse();
-    if (response)
+    if (response) {
+      response._serverAddrFinished();
+      response._securityDetailsFinished();
       response._requestFinished(helper.secondsToRoundishMillis(event.timestamp - request._timestamp));
+    }
     this._requestIdToRequest.delete(request._requestId);
     request.request._setFailureText(event.errorText);
     this._page._frameManager.requestFailed(request.request, event.errorText.includes('cancelled'));
@@ -1046,4 +1086,64 @@ function webkitWorldName(world: types.World) {
     case 'main': return undefined;
     case 'utility': return UTILITY_WORLD_NAME;
   }
+}
+
+/**
+ * WebKit Remote Addresses look like:
+ *
+ * macOS:
+ * ::1.8911
+ * 2606:2800:220:1:248:1893:25c8:1946.443
+ * 127.0.0.1:8000
+ *
+ * ubuntu:
+ * ::1:8907
+ * 127.0.0.1:8000
+ *
+ * NB: They look IPv4 and IPv6's with ports but use an alternative notation.
+ */
+function parseRemoteAddress(value?: string) {
+  if (!value)
+    return;
+
+  try {
+    const colon = value.lastIndexOf(':');
+    const dot = value.lastIndexOf('.');
+    if (dot < 0) { // IPv6ish:port
+      return {
+        ipAddress: `[${value.slice(0, colon)}]`,
+        port: +value.slice(colon + 1)
+      };
+    }
+
+    if (colon > dot) { // IPv4:port
+      const [address, port] = value.split(':');
+      return {
+        ipAddress: address,
+        port: +port,
+      };
+    } else { // IPv6ish.port
+      const [address, port] = value.split('.');
+      return {
+        ipAddress: `[${address}]`,
+        port: +port,
+      };
+    }
+  } catch (_) {}
+}
+
+
+/**
+ * Adapted from Source/WebInspectorUI/UserInterface/Models/Resource.js in
+ * WebKit codebase.
+ */
+function isLoadedSecurely(url: string, timing: network.ResourceTiming) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'wss:' && u.protocol !== 'sftp:')
+      return false;
+    if (timing.secureConnectionStart === -1 && timing.connectStart !== -1)
+      return false;
+    return true;
+  } catch (_) {}
 }

@@ -158,15 +158,13 @@ export class FFBrowserContext extends BrowserContext {
     assert(!this._ffPages().length);
     const browserContextId = this._browserContextId;
     const promises: Promise<any>[] = [ super._initialize() ];
-    if (this._browser.options.downloadsPath) {
-      promises.push(this._browser._connection.send('Browser.setDownloadOptions', {
-        browserContextId,
-        downloadOptions: {
-          behavior: this._options.acceptDownloads ? 'saveToDisk' : 'cancel',
-          downloadsDir: this._browser.options.downloadsPath,
-        },
-      }));
-    }
+    promises.push(this._browser._connection.send('Browser.setDownloadOptions', {
+      browserContextId,
+      downloadOptions: {
+        behavior: this._options.acceptDownloads ? 'saveToDisk' : 'cancel',
+        downloadsDir: this._browser.options.downloadsPath,
+      },
+    }));
     if (this._options.viewport) {
       const viewport = {
         viewportSize: { width: this._options.viewport.width, height: this._options.viewport.height },
@@ -325,12 +323,17 @@ export class FFBrowserContext extends BrowserContext {
     await this._browser._connection.send('Browser.setRequestInterception', { browserContextId: this._browserContextId, enabled: !!this._requestInterceptor });
   }
 
-  async _onClosePersistent() {}
+  _onClosePersistent() {}
 
   async _doClose() {
     assert(this._browserContextId);
     await this._browser._connection.send('Browser.removeBrowserContext', { browserContextId: this._browserContextId });
     this._browser._contexts.delete(this._browserContextId);
+  }
+
+  async _doCancelDownload(uuid: string) {
+    // TODO: Have this implemented
+    throw new Error('Download cancellation not yet implemented in Firefox');
   }
 }
 

@@ -75,6 +75,34 @@ it.describe('snapshots', () => {
     expect(distillSnapshot(snapshot2)).toBe('<style>button { color: blue; }</style><BUTTON>Hello</BUTTON>');
   });
 
+  it('should respect node removal', async ({ page, toImpl, snapshotter }) => {
+    page.on('console', console.log);
+    await page.setContent('<div><button id="button1"></button><button id="button2"></button></div>');
+    const snapshot1 = await snapshotter.captureSnapshot(toImpl(page), 'snapshot1');
+    expect(distillSnapshot(snapshot1)).toBe('<DIV><BUTTON id=\"button1\"></BUTTON><BUTTON id=\"button2\"></BUTTON></DIV>');
+    await page.evaluate(() => document.getElementById('button2').remove());
+    const snapshot2 = await snapshotter.captureSnapshot(toImpl(page), 'snapshot2');
+    expect(distillSnapshot(snapshot2)).toBe('<DIV><BUTTON id=\"button1\"></BUTTON></DIV>');
+  });
+
+  it('should respect attr removal', async ({ page, toImpl, snapshotter }) => {
+    page.on('console', console.log);
+    await page.setContent('<div id="div" attr1="1" attr2="2"></div>');
+    const snapshot1 = await snapshotter.captureSnapshot(toImpl(page), 'snapshot1');
+    expect(distillSnapshot(snapshot1)).toBe('<DIV id=\"div\" attr1=\"1\" attr2=\"2\"></DIV>');
+    await page.evaluate(() => document.getElementById('div').removeAttribute('attr2'));
+    const snapshot2 = await snapshotter.captureSnapshot(toImpl(page), 'snapshot2');
+    expect(distillSnapshot(snapshot2)).toBe('<DIV id=\"div\" attr1=\"1\"></DIV>');
+  });
+
+  it('should have a custom doctype', async ({page, server, toImpl, snapshotter}) => {
+    await page.goto(server.EMPTY_PAGE);
+    await page.setContent('<!DOCTYPE foo><body>hi</body>');
+
+    const snapshot = await snapshotter.captureSnapshot(toImpl(page), 'snapshot');
+    expect(distillSnapshot(snapshot)).toBe('<!DOCTYPE foo>hi');
+  });
+
   it('should respect subresource CSSOM change', async ({ page, server, toImpl, snapshotter }) => {
     await page.goto(server.EMPTY_PAGE);
     await page.route('**/style.css', route => {
@@ -165,6 +193,88 @@ it.describe('snapshots', () => {
       const snapshot = await snapshotter.captureSnapshot(toImpl(page), 'snapshot2');
       expect(distillSnapshot(snapshot)).toBe('<BUTTON data="two">Hello</BUTTON>');
     }
+  });
+
+  it('should contain adopted style sheets', async ({ page, toImpl, contextFactory, snapshotPort, snapshotter, browserName }) => {
+    it.skip(browserName !== 'chromium', 'Constructed stylesheets are only in Chromium.');
+    await page.setContent('<button>Hello</button>');
+    await page.evaluate(() => {
+      const sheet = new CSSStyleSheet();
+      sheet.addRule('button', 'color: red');
+      (document as any).adoptedStyleSheets = [sheet];
+
+      const div = document.createElement('div');
+      const root = div.attachShadow({
+        mode: 'open'
+      });
+      root.append('foo');
+      const sheet2 = new CSSStyleSheet();
+      sheet2.addRule(':host', 'color: blue');
+      (root as any).adoptedStyleSheets = [sheet2];
+      document.body.appendChild(div);
+    });
+    const snapshot1 = await snapshotter.captureSnapshot(toImpl(page), 'snapshot1');
+
+    const previewContext = await contextFactory();
+    const previewPage = await previewContext.newPage();
+    previewPage.on('console', console.log);
+    await previewPage.goto(`http://localhost:${snapshotPort}/snapshot/`);
+    await previewPage.evaluate(snapshotId => {
+      (window as any).showSnapshot(snapshotId);
+    }, `${snapshot1.snapshot().pageId}?name=snapshot1`);
+    // wait for the render frame to load
+    while (previewPage.frames().length < 2)
+      await new Promise(f => previewPage.once('frameattached', f));
+    // wait for it to render
+    await previewPage.frames()[1].waitForSelector('button');
+    const buttonColor = await previewPage.frames()[1].$eval('button', button => {
+      return window.getComputedStyle(button).color;
+    });
+    expect(buttonColor).toBe('rgb(255, 0, 0)');
+    const divColor = await previewPage.frames()[1].$eval('div', div => {
+      return window.getComputedStyle(div).color;
+    });
+    expect(divColor).toBe('rgb(0, 0, 255)');
+    await previewContext.close();
+  });
+
+  it('should restore scroll positions', async ({ page, contextFactory, toImpl, snapshotter, snapshotPort, browserName }) => {
+    it.skip(browserName === 'firefox');
+
+    await page.setContent(`
+      <style>
+        li { height: 20px; margin: 0; padding: 0; }
+        div { height: 60px; overflow-x: hidden; overflow-y: scroll; background: green; padding: 0; margin: 0; }
+      </style>
+      <div>
+        <ul>
+          <li>Item 1</li>
+          <li>Item 2</li>
+          <li>Item 3</li>
+          <li>Item 4</li>
+          <li>Item 5</li>
+          <li>Item 6</li>
+          <li>Item 7</li>
+          <li>Item 8</li>
+          <li>Item 9</li>
+          <li>Item 10</li>
+        </ul>
+      </div>
+    `);
+
+    await (await page.$('text=Item 8')).scrollIntoViewIfNeeded();
+    const snapshot = await snapshotter.captureSnapshot(toImpl(page), 'scrolled');
+
+    // Render snapshot, check expectations.
+    const previewContext = await contextFactory();
+    const previewPage = await previewContext.newPage();
+    await previewPage.goto(`http://localhost:${snapshotPort}/snapshot/`);
+    await previewPage.evaluate(snapshotId => {
+      (window as any).showSnapshot(snapshotId);
+    }, `${snapshot.snapshot().pageId}?name=scrolled`);
+    const div = await previewPage.frames()[1].waitForSelector('div');
+    await previewPage.frames()[1].waitForLoadState();
+    expect(await div.evaluate(div => div.scrollTop)).toBe(136);
   });
 });
 

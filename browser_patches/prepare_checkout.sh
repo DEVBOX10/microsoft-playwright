@@ -10,7 +10,7 @@ REMOTE_BROWSER_UPSTREAM="browser_upstream"
 BUILD_BRANCH="playwright-build"
 
 if [[ ($1 == '--help') || ($1 == '-h') ]]; then
-  echo "usage: $(basename $0) [firefox|firefox-stable|webkit] [custom_checkout_path]"
+  echo "usage: $(basename $0) [firefox|firefox-beta|webkit] [custom_checkout_path]"
   echo
   echo "Prepares browser checkout. The checkout is a GIT repository that:"
   echo "- has a '$REMOTE_BROWSER_UPSTREAM' remote pointing to a REMOTE_URL from UPSTREAM_CONFIG.sh"
@@ -93,32 +93,23 @@ elif [[ ("$1" == "firefox") || ("$1" == "firefox/") || ("$1" == "ff") ]]; then
     CHECKOUT_PATH="${FF_CHECKOUT_PATH}"
     FRIENDLY_CHECKOUT_PATH="<FF_CHECKOUT_PATH>"
   fi
-elif [[ ("$1" == "firefox-stable") || ("$1" == "ff-stable") ]]; then
-  # NOTE: firefox-stable re-uses firefox checkout.
+elif [[ ("$1" == "firefox-beta") || ("$1" == "ff-beta") ]]; then
+  # NOTE: firefox-beta re-uses firefox checkout.
   FRIENDLY_CHECKOUT_PATH="//browser_patches/firefox/checkout";
   CHECKOUT_PATH="$PWD/firefox/checkout"
 
-  PATCHES_PATH="$PWD/firefox-stable/patches"
-  FIREFOX_EXTRA_FOLDER_PATH="$PWD/firefox-stable/juggler"
-  BUILD_NUMBER=$(head -1 "$PWD/firefox-stable/BUILD_NUMBER")
-  source "./firefox-stable/UPSTREAM_CONFIG.sh"
+  PATCHES_PATH="$PWD/firefox-beta/patches"
+  FIREFOX_EXTRA_FOLDER_PATH="$PWD/firefox-beta/juggler"
+  BUILD_NUMBER=$(head -1 "$PWD/firefox-beta/BUILD_NUMBER")
+  source "./firefox-beta/UPSTREAM_CONFIG.sh"
   if [[ ! -z "${FF_CHECKOUT_PATH}" ]]; then
     echo "WARNING: using checkout path from FF_CHECKOUT_PATH env: ${FF_CHECKOUT_PATH}"
     CHECKOUT_PATH="${FF_CHECKOUT_PATH}"
     FRIENDLY_CHECKOUT_PATH="<FF_CHECKOUT_PATH>"
   fi
 elif [[ ("$1" == "deprecated-webkit-mac-10.14") ]]; then
-  FRIENDLY_CHECKOUT_PATH="//browser_patches/deprecated-webkit-mac-10.14/checkout";
-  CHECKOUT_PATH="$PWD/deprecated-webkit-mac-10.14/checkout"
-  PATCHES_PATH="$PWD/deprecated-webkit-mac-10.14/patches"
-  WEBKIT_EXTRA_FOLDER_PATH="$PWD/deprecated-webkit-mac-10.14/embedder/Playwright"
-  BUILD_NUMBER=$(head -1 "$PWD/deprecated-webkit-mac-10.14/BUILD_NUMBER")
-  source "./deprecated-webkit-mac-10.14/UPSTREAM_CONFIG.sh"
-  if [[ ! -z "${WK_CHECKOUT_PATH}" ]]; then
-    echo "WARNING: using checkout path from WK_CHECKOUT_PATH env: ${WK_CHECKOUT_PATH}"
-    CHECKOUT_PATH="${WK_CHECKOUT_PATH}"
-    FRIENDLY_CHECKOUT_PATH="<WK_CHECKOUT_PATH>"
-  fi
+  echo "FYI: deprecated-webkit-mac-10.14 has no checkout anymore"
+  exit 0
 elif [[ ("$1" == "webkit") || ("$1" == "webkit/") || ("$1" == "wk") ]]; then
   FRIENDLY_CHECKOUT_PATH="//browser_patches/webkit/checkout";
   CHECKOUT_PATH="$PWD/webkit/checkout"
@@ -182,6 +173,7 @@ if git remote get-url $REMOTE_BROWSER_UPSTREAM >/dev/null; then
 else
   echo "-- adding |$REMOTE_BROWSER_UPSTREAM| remote to $REMOTE_URL"
   git remote add $REMOTE_BROWSER_UPSTREAM $REMOTE_URL
+  git fetch --depth 1 $REMOTE_BROWSER_UPSTREAM $BASE_BRANCH
 fi
 
 # Check if our checkout contains BASE_REVISION.

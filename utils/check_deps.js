@@ -112,7 +112,7 @@ DEPS['src/protocol/'] = ['src/utils/'];
 DEPS['src/install/'] = ['src/utils/'];
 
 // Client depends on chromium protocol for types.
-DEPS['src/client/'] = ['src/common/', 'src/utils/', 'src/protocol/', 'src/server/chromium/protocol.ts'];
+DEPS['src/client/'] = ['src/common/', 'src/utils/', 'src/protocol/', 'src/server/chromium/protocol.d.ts'];
 DEPS['src/outofprocess.ts'] = ['src/client/', 'src/protocol/'];
 
 DEPS['src/dispatchers/'] = ['src/common/', 'src/utils/', 'src/protocol/', 'src/server/**'];
@@ -162,6 +162,8 @@ DEPS['src/utils/'] = ['src/common/'];
 DEPS['src/server/trace/common/'] = ['src/server/snapshot/', ...DEPS['src/server/']];
 DEPS['src/server/trace/recorder/'] = ['src/server/trace/common/', ...DEPS['src/server/trace/common/']];
 DEPS['src/server/trace/viewer/'] = ['src/server/trace/common/', ...DEPS['src/server/trace/common/']];
+
+DEPS['src/test/'] = ['src/test/**', 'src/utils/utils.ts'];
 
 checkDeps().catch(e => {
   console.error(e && e.stack ? e.stack : e);

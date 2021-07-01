@@ -77,7 +77,7 @@ export class Dispatcher<Type extends { guid: string }, Initializer> extends Even
 
     (object as any)[dispatcherSymbol] = this;
     if (this._parent)
-      this._connection.sendMessageToClient(this._parent._guid, type, '__create__', { type, initializer, guid });
+      this._connection.sendMessageToClient(this._parent._guid, type, '__create__', { type, initializer, guid }, this._parent._object);
   }
 
   _dispatchEvent(method: string, params: Dispatcher<any, any> | any = {}) {
@@ -142,8 +142,8 @@ export class DispatcherConnection {
       const eventMetadata: CallMetadata = {
         id: `event@${++lastEventId}`,
         objectId: sdkObject?.guid,
-        pageId: sdkObject?.attribution.page?.guid,
-        frameId: sdkObject?.attribution.frame?.guid,
+        pageId: sdkObject?.attribution?.page?.guid,
+        frameId: sdkObject?.attribution?.frame?.guid,
         startTime: monotonicTime(),
         endTime: 0,
         type,
@@ -152,7 +152,7 @@ export class DispatcherConnection {
         log: [],
         snapshots: []
       };
-      sdkObject.instrumentation.onEvent(sdkObject, eventMetadata);
+      sdkObject.instrumentation?.onEvent(sdkObject, eventMetadata);
     }
     this.onmessage({ guid, method, params });
   }
@@ -176,8 +176,6 @@ export class DispatcherConnection {
     };
     const scheme = createScheme(tChannel);
     this._validateParams = (type: string, method: string, params: any): any => {
-      if (method === 'waitForEventInfo')
-        return tOptional(scheme['WaitForEventInfo'])(params.info, '');
       const name = type + method[0].toUpperCase() + method.substring(1) + 'Params';
       if (!scheme[name])
         throw new ValidationError(`Unknown scheme for ${type}.${method}`);
@@ -221,8 +219,8 @@ export class DispatcherConnection {
       id: `call@${id}`,
       ...validMetadata,
       objectId: sdkObject?.guid,
-      pageId: sdkObject?.attribution.page?.guid,
-      frameId: sdkObject?.attribution.frame?.guid,
+      pageId: sdkObject?.attribution?.page?.guid,
+      frameId: sdkObject?.attribution?.frame?.guid,
       startTime: monotonicTime(),
       endTime: 0,
       type: dispatcher._type,
@@ -237,7 +235,6 @@ export class DispatcherConnection {
       const info = params.info;
       switch (info.phase) {
         case 'before': {
-          callMetadata.apiName = info.apiName;
           this._waitOperations.set(info.waitId, callMetadata);
           await sdkObject.instrumentation.onBeforeCall(sdkObject, callMetadata);
           return;
@@ -267,7 +264,7 @@ export class DispatcherConnection {
       // Dispatching error
       callMetadata.error = e.message;
       if (callMetadata.log.length)
-        rewriteErrorMessage(e, e.message + formatLogRecording(callMetadata.log) + kLoggingNote);
+        rewriteErrorMessage(e, e.message + formatLogRecording(callMetadata.log));
       error = serializeError(e);
     } finally {
       callMetadata.endTime = monotonicTime();
@@ -296,8 +293,6 @@ export class DispatcherConnection {
     return payload;
   }
 }
-
-const kLoggingNote = `\nNote: use DEBUG=pw:api environment variable to capture Playwright logs.`;
 
 function formatLogRecording(log: string[]): string {
   if (!log.length)

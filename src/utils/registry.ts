@@ -15,15 +15,14 @@
  * limitations under the License.
  */
 
-import { execSync } from 'child_process';
 import * as os from 'os';
 import path from 'path';
 import * as util from 'util';
 import { getUbuntuVersionSync } from './ubuntuVersion';
 import { assert, getFromENV } from './utils';
 
-export type BrowserName = 'chromium'|'webkit'|'firefox'|'firefox-stable'|'ffmpeg'|'webkit-technology-preview';
-export const allBrowserNames: BrowserName[] = ['chromium', 'webkit', 'firefox', 'ffmpeg', 'webkit-technology-preview', 'firefox-stable'];
+export type BrowserName = 'chromium'|'chromium-with-symbols'|'webkit'|'firefox'|'firefox-beta'|'ffmpeg';
+export const allBrowserNames: Set<BrowserName> = new Set(['chromium', 'chromium-with-symbols', 'webkit', 'firefox', 'ffmpeg', 'firefox-beta']);
 
 const PACKAGE_PATH = path.join(__dirname, '..', '..');
 
@@ -47,6 +46,17 @@ const EXECUTABLE_PATHS = {
     'win32': ['chrome-win', 'chrome.exe'],
     'win64': ['chrome-win', 'chrome.exe'],
   },
+  'chromium-with-symbols': {
+    'ubuntu18.04': ['chrome-linux', 'chrome'],
+    'ubuntu20.04': ['chrome-linux', 'chrome'],
+    'mac10.13': ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+    'mac10.14': ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+    'mac10.15': ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+    'mac11': ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+    'mac11-arm64': ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+    'win32': ['chrome-win', 'chrome.exe'],
+    'win64': ['chrome-win', 'chrome.exe'],
+  },
   'firefox': {
     'ubuntu18.04': ['firefox', 'firefox'],
     'ubuntu20.04': ['firefox', 'firefox'],
@@ -58,7 +68,7 @@ const EXECUTABLE_PATHS = {
     'win32': ['firefox', 'firefox.exe'],
     'win64': ['firefox', 'firefox.exe'],
   },
-  'firefox-stable': {
+  'firefox-beta': {
     'ubuntu18.04': ['firefox', 'firefox'],
     'ubuntu20.04': ['firefox', 'firefox'],
     'mac10.13': ['firefox', 'Nightly.app', 'Contents', 'MacOS', 'firefox'],
@@ -70,17 +80,6 @@ const EXECUTABLE_PATHS = {
     'win64': ['firefox', 'firefox.exe'],
   },
   'webkit': {
-    'ubuntu18.04': ['pw_run.sh'],
-    'ubuntu20.04': ['pw_run.sh'],
-    'mac10.13': undefined,
-    'mac10.14': ['pw_run.sh'],
-    'mac10.15': ['pw_run.sh'],
-    'mac11': ['pw_run.sh'],
-    'mac11-arm64': ['pw_run.sh'],
-    'win32': ['Playwright.exe'],
-    'win64': ['Playwright.exe'],
-  },
-  'webkit-technology-preview': {
     'ubuntu18.04': ['pw_run.sh'],
     'ubuntu20.04': ['pw_run.sh'],
     'mac10.13': undefined,
@@ -116,6 +115,17 @@ const DOWNLOAD_URLS = {
     'win32': '%s/builds/chromium/%s/chromium-win32.zip',
     'win64': '%s/builds/chromium/%s/chromium-win64.zip',
   },
+  'chromium-with-symbols': {
+    'ubuntu18.04': '%s/builds/chromium/%s/chromium-with-symbols-linux.zip',
+    'ubuntu20.04': '%s/builds/chromium/%s/chromium-with-symbols-linux.zip',
+    'mac10.13': '%s/builds/chromium/%s/chromium-with-symbols-mac.zip',
+    'mac10.14': '%s/builds/chromium/%s/chromium-with-symbols-mac.zip',
+    'mac10.15': '%s/builds/chromium/%s/chromium-with-symbols-mac.zip',
+    'mac11': '%s/builds/chromium/%s/chromium-with-symbols-mac.zip',
+    'mac11-arm64': '%s/builds/chromium/%s/chromium-with-symbols-mac-arm64.zip',
+    'win32': '%s/builds/chromium/%s/chromium-with-symbols-win32.zip',
+    'win64': '%s/builds/chromium/%s/chromium-with-symbols-win64.zip',
+  },
   'firefox': {
     'ubuntu18.04': '%s/builds/firefox/%s/firefox-ubuntu-18.04.zip',
     'ubuntu20.04': '%s/builds/firefox/%s/firefox-ubuntu-20.04.zip',
@@ -127,33 +137,22 @@ const DOWNLOAD_URLS = {
     'win32': '%s/builds/firefox/%s/firefox-win32.zip',
     'win64': '%s/builds/firefox/%s/firefox-win64.zip',
   },
-  'firefox-stable': {
-    'ubuntu18.04': '%s/builds/firefox-stable/%s/firefox-stable-ubuntu-18.04.zip',
-    'ubuntu20.04': '%s/builds/firefox-stable/%s/firefox-stable-ubuntu-20.04.zip',
-    'mac10.13': '%s/builds/firefox-stable/%s/firefox-stable-mac-10.14.zip',
-    'mac10.14': '%s/builds/firefox-stable/%s/firefox-stable-mac-10.14.zip',
-    'mac10.15': '%s/builds/firefox-stable/%s/firefox-stable-mac-10.14.zip',
-    'mac11': '%s/builds/firefox-stable/%s/firefox-stable-mac-10.14.zip',
-    'mac11-arm64': '%s/builds/firefox-stable/%s/firefox-stable-mac-11.0-arm64.zip',
-    'win32': '%s/builds/firefox-stable/%s/firefox-stable-win32.zip',
-    'win64': '%s/builds/firefox-stable/%s/firefox-stable-win64.zip',
+  'firefox-beta': {
+    'ubuntu18.04': '%s/builds/firefox-beta/%s/firefox-beta-ubuntu-18.04.zip',
+    'ubuntu20.04': '%s/builds/firefox-beta/%s/firefox-beta-ubuntu-20.04.zip',
+    'mac10.13': '%s/builds/firefox-beta/%s/firefox-beta-mac-10.14.zip',
+    'mac10.14': '%s/builds/firefox-beta/%s/firefox-beta-mac-10.14.zip',
+    'mac10.15': '%s/builds/firefox-beta/%s/firefox-beta-mac-10.14.zip',
+    'mac11': '%s/builds/firefox-beta/%s/firefox-beta-mac-10.14.zip',
+    'mac11-arm64': '%s/builds/firefox-beta/%s/firefox-beta-mac-11.0-arm64.zip',
+    'win32': '%s/builds/firefox-beta/%s/firefox-beta-win32.zip',
+    'win64': '%s/builds/firefox-beta/%s/firefox-beta-win64.zip',
   },
   'webkit': {
     'ubuntu18.04': '%s/builds/webkit/%s/webkit-ubuntu-18.04.zip',
     'ubuntu20.04': '%s/builds/webkit/%s/webkit-ubuntu-20.04.zip',
     'mac10.13': undefined,
     'mac10.14': '%s/builds/deprecated-webkit-mac-10.14/%s/deprecated-webkit-mac-10.14.zip',
-    'mac10.15': '%s/builds/webkit/%s/webkit-mac-10.15.zip',
-    'mac11': '%s/builds/webkit/%s/webkit-mac-10.15.zip',
-    'mac11-arm64': '%s/builds/webkit/%s/webkit-mac-11.0-arm64.zip',
-    'win32': '%s/builds/webkit/%s/webkit-win64.zip',
-    'win64': '%s/builds/webkit/%s/webkit-win64.zip',
-  },
-  'webkit-technology-preview': {
-    'ubuntu18.04': '%s/builds/webkit/%s/webkit-ubuntu-18.04.zip',
-    'ubuntu20.04': '%s/builds/webkit/%s/webkit-ubuntu-20.04.zip',
-    'mac10.13': undefined,
-    'mac10.14': undefined,
     'mac10.15': '%s/builds/webkit/%s/webkit-mac-10.15.zip',
     'mac11': '%s/builds/webkit/%s/webkit-mac-10.15.zip',
     'mac11-arm64': '%s/builds/webkit/%s/webkit-mac-11.0-arm64.zip',
@@ -176,21 +175,25 @@ const DOWNLOAD_URLS = {
 export const hostPlatform = ((): BrowserPlatform => {
   const platform = os.platform();
   if (platform === 'darwin') {
-    const [major, minor] = execSync('sw_vers -productVersion', {
-      stdio: ['ignore', 'pipe', 'ignore']
-    }).toString('utf8').trim().split('.').map(x => parseInt(x, 10));
-    let arm64 = false;
-    // BigSur is the first version that might run on Apple Silicon.
-    if (major >= 11) {
-      arm64 = execSync('/usr/sbin/sysctl -in hw.optional.arm64', {
-        stdio: ['ignore', 'pipe', 'ignore']
-      }).toString().trim() === '1';
+    const ver = os.release().split('.').map((a: string) => parseInt(a, 10));
+    let macVersion = '';
+    if (ver[0] < 18) {
+      // Everything before 10.14 is considered 10.13.
+      macVersion = 'mac10.13';
+    } else if (ver[0] === 18) {
+      macVersion = 'mac10.14';
+    } else if (ver[0] === 19) {
+      macVersion = 'mac10.15';
+    } else {
+      // ver[0] >= 20
+      const LAST_STABLE_MAC_MAJOR_VERSION = 11;
+      // Best-effort support for MacOS beta versions.
+      macVersion = 'mac' + Math.min(ver[0] - 9, LAST_STABLE_MAC_MAJOR_VERSION);
+      // BigSur is the first version that might run on Apple Silicon.
+      if (os.cpus().some(cpu => cpu.model.includes('Apple')))
+        macVersion += '-arm64';
     }
-    // We do not want to differentiate between minor big sur releases
-    // since they don't change core APIs so far.
-    const macVersion = major === 10 ? `${major}.${minor}` : `${major}`;
-    const archSuffix = arm64 ? '-arm64' : '';
-    return `mac${macVersion}${archSuffix}` as BrowserPlatform;
+    return macVersion as BrowserPlatform;
   }
   if (platform === 'linux') {
     const ubuntuVersion = getUbuntuVersionSync();
@@ -294,9 +297,9 @@ export class Registry {
     const browserDirectory = this.browserDirectory(browserName);
     switch (browserName) {
       case 'chromium':
+      case 'chromium-with-symbols':
         return [path.join(browserDirectory, 'chrome-linux')];
       case 'webkit':
-      case 'webkit-technology-preview':
         return [
           path.join(browserDirectory, 'minibrowser-gtk'),
           path.join(browserDirectory, 'minibrowser-gtk', 'bin'),
@@ -306,7 +309,7 @@ export class Registry {
           path.join(browserDirectory, 'minibrowser-wpe', 'lib'),
         ];
       case 'firefox':
-      case 'firefox-stable':
+      case 'firefox-beta':
         return [path.join(browserDirectory, 'firefox')];
       default:
         return [];
@@ -315,9 +318,9 @@ export class Registry {
 
   windowsExeAndDllDirectories(browserName: BrowserName): string[] {
     const browserDirectory = this.browserDirectory(browserName);
-    if (browserName === 'chromium')
+    if (browserName === 'chromium' || browserName === 'chromium-with-symbols')
       return [path.join(browserDirectory, 'chrome-win')];
-    if (browserName === 'firefox')
+    if (browserName === 'firefox' || browserName === 'firefox-beta')
       return [path.join(browserDirectory, 'firefox')];
     if (browserName === 'webkit')
       return [browserDirectory];
@@ -335,10 +338,10 @@ export class Registry {
     assert(browser, `ERROR: Playwright does not support ${browserName}`);
     const envDownloadHost: { [key: string]: string } = {
       'chromium': 'PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST',
+      'chromium-with-symbols': 'PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST',
       'firefox': 'PLAYWRIGHT_FIREFOX_DOWNLOAD_HOST',
-      'firefox-stable': 'PLAYWRIGHT_FIREFOX_DOWNLOAD_HOST',
+      'firefox-beta': 'PLAYWRIGHT_FIREFOX_DOWNLOAD_HOST',
       'webkit': 'PLAYWRIGHT_WEBKIT_DOWNLOAD_HOST',
-      'webkit-technology-preview': 'PLAYWRIGHT_WEBKIT_DOWNLOAD_HOST',
       'ffmpeg': 'PLAYWRIGHT_FFMPEG_DOWNLOAD_HOST',
     };
     const downloadHost = getFromENV(envDownloadHost[browserName]) ||

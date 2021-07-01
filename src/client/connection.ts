@@ -34,10 +34,9 @@ import * as channels from '../protocol/channels';
 import { Stream } from './stream';
 import { debugLogger } from '../utils/debugLogger';
 import { SelectorsOwner } from './selectors';
-import { isUnderTest } from '../utils/utils';
 import { Android, AndroidSocket, AndroidDevice } from './android';
 import { SocksSocket } from './socksSocket';
-import { captureStackTrace } from '../utils/stackTrace';
+import { ParsedStackTrace } from '../utils/stackTrace';
 import { Artifact } from './artifact';
 import { EventEmitter } from 'events';
 
@@ -52,7 +51,7 @@ export class Connection extends EventEmitter {
   private _waitingForObject = new Map<string, any>();
   onmessage = (message: object): void => {};
   private _lastId = 0;
-  private _callbacks = new Map<number, { resolve: (a: any) => void, reject: (a: Error) => void }>();
+  private _callbacks = new Map<number, { resolve: (a: any) => void, reject: (a: Error) => void, metadata: channels.Metadata }>();
   private _rootObject: ChannelOwner;
   private _disconnectedErrorMessage: string | undefined;
   private _onClose?: () => void;
@@ -69,26 +68,28 @@ export class Connection extends EventEmitter {
     return new Promise(f => this._waitingForObject.set(guid, f));
   }
 
+  pendingProtocolCalls(): channels.Metadata[] {
+    return Array.from(this._callbacks.values()).map(callback => callback.metadata);
+  }
+
   getObjectWithKnownName(guid: string): any {
     return this._objects.get(guid)!;
   }
 
-  async sendMessageToServer(guid: string, method: string, params: any, apiName: string | undefined): Promise<any> {
-    const { stack, frames } = captureStackTrace();
+  async sendMessageToServer(object: ChannelOwner, method: string, params: any, stackTrace: ParsedStackTrace | null): Promise<any> {
+    const guid = object._guid;
+    const { frames, apiName }: ParsedStackTrace = stackTrace || { frameTexts: [], frames: [], apiName: '' };
+
     const id = ++this._lastId;
     const converted = { id, guid, method, params };
     // Do not include metadata in debug logs to avoid noise.
     debugLogger.log('channel:command', converted);
-    this.onmessage({ ...converted, metadata: { stack: frames, apiName } });
-    try {
-      if (this._disconnectedErrorMessage)
-        throw new Error(this._disconnectedErrorMessage);
-      return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject }));
-    } catch (e) {
-      const innerStack = ((process.env.PWDEBUGIMPL || isUnderTest()) && e.stack) ? e.stack.substring(e.stack.indexOf(e.message) + e.message.length) : '';
-      e.stack = e.message + innerStack + '\n' + stack;
-      throw e;
-    }
+    const metadata: channels.Metadata = { stack: frames, apiName };
+    this.onmessage({ ...converted, metadata });
+
+    if (this._disconnectedErrorMessage)
+      throw new Error(this._disconnectedErrorMessage);
+    return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject, metadata }));
   }
 
   _debugScopeState(): any {

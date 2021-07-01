@@ -38,6 +38,8 @@ export const Workbench: React.FunctionComponent<{
   const [highlightedAction, setHighlightedAction] = React.useState<ActionTraceEvent | undefined>();
 
   let context = useAsyncMemo(async () => {
+    if (!debugName)
+      return emptyContext;
     return (await fetch(`/context/${debugName}`).then(response => response.json())) as ContextEntry;
   }, [debugName], emptyContext);
 
@@ -51,6 +53,9 @@ export const Workbench: React.FunctionComponent<{
 
   const snapshotSize = context.options.viewport || { width: 1280, height: 720 };
   const boundaries = { minimum: context.startTime, maximum: context.endTime };
+
+  // Leave some nice free space on the right hand side.
+  boundaries.maximum += (boundaries.maximum - boundaries.minimum) / 20;
 
   return <div className='vbox workbench'>
     <div className='hbox header'>

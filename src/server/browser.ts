@@ -24,6 +24,7 @@ import { RecentLogsCollector } from '../utils/debugLogger';
 import * as registry from '../utils/registry';
 import { SdkObject } from './instrumentation';
 import { Artifact } from './artifact';
+import { Selectors } from './selectors';
 
 export interface BrowserProcess {
   onclose?: ((exitCode: number | null, signal: string | null) => void);
@@ -35,14 +36,17 @@ export interface BrowserProcess {
 export type PlaywrightOptions = {
   registry: registry.Registry,
   rootSdkObject: SdkObject,
+  selectors: Selectors,
+  loopbackProxyOverride?: () => string,
 };
 
 export type BrowserOptions = PlaywrightOptions & {
   name: string,
   isChromium: boolean,
   channel?: string,
-  downloadsPath?: string,
-  traceDir?: string,
+  artifactsDir: string;
+  downloadsPath: string,
+  tracesDir: string,
   headful?: boolean,
   persistent?: types.BrowserContextOptions,  // Undefined means no persistent context.
   browserProcess: BrowserProcess,

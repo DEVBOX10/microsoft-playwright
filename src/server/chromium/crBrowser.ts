@@ -81,6 +81,8 @@ export class CRBrowser extends Browser {
     this._connection.on(ConnectionEvents.Disconnected, () => this._didClose());
     this._session.on('Target.attachedToTarget', this._onAttachedToTarget.bind(this));
     this._session.on('Target.detachedFromTarget', this._onDetachedFromTarget.bind(this));
+    this._session.on('Browser.downloadWillBegin', this._onDownloadWillBegin.bind(this));
+    this._session.on('Browser.downloadProgress', this._onDownloadProgress.bind(this));
   }
 
   async newContext(options: types.BrowserContextOptions): Promise<BrowserContext> {
@@ -188,6 +190,36 @@ export class CRBrowser extends Browser {
     }
   }
 
+  private _findOwningPage(frameId: string) {
+    for (const crPage of this._crPages.values()) {
+      const frame = crPage._page._frameManager.frame(frameId);
+      if (frame)
+        return crPage;
+    }
+    return null;
+  }
+
+  _onDownloadWillBegin(payload: Protocol.Browser.downloadWillBeginPayload) {
+    const page = this._findOwningPage(payload.frameId);
+    assert(page, 'Download started in unknown page: ' + JSON.stringify(payload));
+    page.willBeginDownload();
+
+    let originPage = page._initializedPage;
+    // If it's a new window download, report it on the opener page.
+    if (!originPage && page._opener)
+      originPage = page._opener._initializedPage;
+    if (!originPage)
+      return;
+    this._downloadCreated(originPage, payload.guid, payload.url, payload.suggestedFilename);
+  }
+
+  _onDownloadProgress(payload: any) {
+    if (payload.state === 'completed')
+      this._downloadFinished(payload.guid, '');
+    if (payload.state === 'canceled')
+      this._downloadFinished(payload.guid, 'canceled');
+  }
+
   async _closePage(crPage: CRPage) {
     await this._session.send('Target.closeTarget', { targetId: crPage._targetId });
   }
@@ -279,11 +311,12 @@ export class CRBrowserContext extends BrowserContext {
   async _initialize() {
     assert(!Array.from(this._browser._crPages.values()).some(page => page._browserContext === this));
     const promises: Promise<any>[] = [ super._initialize() ];
-    if (this._browser.options.downloadsPath) {
+    if (this._browser.options.name !== 'electron' && this._browser.options.name !== 'clank') {
       promises.push(this._browser._session.send('Browser.setDownloadBehavior', {
         behavior: this._options.acceptDownloads ? 'allowAndName' : 'deny',
         browserContextId: this._browserContextId,
-        downloadPath: this._browser.options.downloadsPath
+        downloadPath: this._browser.options.downloadsPath,
+        eventsEnabled: true,
       }));
     }
     if (this._options.permissions)
@@ -437,13 +470,25 @@ export class CRBrowserContext extends BrowserContext {
     }
   }
 
-  async _onClosePersistent() {
+  _onClosePersistent() {
+    // When persistent context is closed, we do not necessary get Target.detachedFromTarget
+    // for all the background pages.
     for (const [targetId, backgroundPage] of this._browser._backgroundPages.entries()) {
       if (backgroundPage._browserContext === this && backgroundPage._initializedPage) {
         backgroundPage.didClose();
         this._browser._backgroundPages.delete(targetId);
       }
     }
+  }
+
+  async _doCancelDownload(guid: string) {
+    // The upstream CDP method is implemented in a way that no explicit error would be given
+    // regarding the requested `guid`, even if the download is in a state not suitable for
+    // cancellation (finished, cancelled, etc.) or the guid is invalid at all.
+    await this._browser._session.send('Browser.cancelDownload', {
+      guid: guid,
+      browserContextId: this._browserContextId,
+    });
   }
 
   backgroundPages(): Page[] {

@@ -30,7 +30,7 @@ function usage() {
 usage: ${SCRIPT_NAME} <browser> <revision>
 
 Roll the <browser> to a specific <revision> and generate new protocol.
-Supported browsers: chromium, firefox, webkit, ffmpeg, firefox-stable, webkit-technology-preview.
+Supported browsers: chromium, firefox, webkit, ffmpeg, firefox-beta.
 
 Example:
   ${SCRIPT_NAME} chromium 123456
@@ -66,6 +66,8 @@ Example:
   // 2. Update browsers.json.
   console.log('\nUpdating browsers.json...');
   descriptor.revision = String(revision);
+  if (browserName === 'chromium')
+    browsersJSON.browsers.find(b => b.name === 'chromium-with-symbols').revision = String(revision);
   fs.writeFileSync(path.join(ROOT_PATH, 'browsers.json'), JSON.stringify(browsersJSON, null, 2) + '\n');
 
   if (descriptor.installByDefault) {

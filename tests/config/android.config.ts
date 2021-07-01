@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import * as folio from 'folio';
+import type { Config } from '../config/test-runner';
 import * as path from 'path';
 import { test as pageTest } from '../page/pageTest';
 import { androidFixtures } from '../android/androidTest';
@@ -23,18 +23,18 @@ import { CommonOptions } from './baseTest';
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
-const config: folio.Config<CommonOptions & PlaywrightOptions> = {
+const config: Config<CommonOptions & PlaywrightOptions> = {
   testDir,
-  snapshotDir: '__snapshots__',
   outputDir,
   timeout: 120000,
   globalTimeout: 7200000,
   workers: 1,
   forbidOnly: !!process.env.CI,
+  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [
-    'dot',
-    { name: 'json', outputFile: path.join(outputDir, 'report.json') },
+    [ 'dot' ],
+    [ 'json', { outputFile: path.join(outputDir, 'report.json') } ],
   ] : 'line',
   projects: [],
 };

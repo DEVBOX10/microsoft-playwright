@@ -89,6 +89,21 @@ export class FFNetworkManager {
       responseStart: this._relativeTiming(event.timing.responseStart),
     };
     const response = new network.Response(request.request, event.status, event.statusText, event.headers, timing, getResponseBody);
+    if (event?.remoteIPAddress && typeof event?.remotePort === 'number') {
+      response._serverAddrFinished({
+        ipAddress: event.remoteIPAddress,
+        port: event.remotePort,
+      });
+    } else {
+      response._serverAddrFinished();
+    }
+    response._securityDetailsFinished({
+      protocol: event?.securityDetails?.protocol,
+      subjectName: event?.securityDetails?.subjectName,
+      issuer: event?.securityDetails?.issuer,
+      validFrom: event?.securityDetails?.validFrom,
+      validTo: event?.securityDetails?.validTo,
+    });
     this._page._frameManager.requestReceivedResponse(response);
   }
 
@@ -172,7 +187,11 @@ class InterceptableRequest implements network.RouteDelegate {
         payload.url, internalCauseToResourceType[payload.internalCause] || causeToResourceType[payload.cause] || 'other', payload.method, postDataBuffer, payload.headers);
   }
 
-  async continue(overrides: types.NormalizedContinueOverrides) {
+  responseBody(): Promise<Buffer> {
+    throw new Error('Method not implemented.');
+  }
+
+  async continue(overrides: types.NormalizedContinueOverrides): Promise<network.InterceptedResponse|null> {
     await this._session.sendMayFail('Network.resumeInterceptedRequest', {
       requestId: this._id,
       url: overrides.url,
@@ -180,6 +199,9 @@ class InterceptableRequest implements network.RouteDelegate {
       headers: overrides.headers,
       postData: overrides.postData ? Buffer.from(overrides.postData).toString('base64') : undefined
     });
+    if (overrides.interceptResponse)
+      throw new Error('Response interception not implemented');
+    return null;
   }
 
   async fulfill(response: types.NormalizedFulfillResponse) {

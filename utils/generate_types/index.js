@@ -17,6 +17,7 @@
 //@ts-check
 const path = require('path');
 const os = require('os');
+const toKebabCase = require('lodash/kebabCase')
 const devices = require('../../src/server/deviceDescriptors');
 const Documentation = require('../doclint/documentation');
 const PROJECT_DIR = path.join(__dirname, '..', '..');
@@ -35,13 +36,19 @@ let hadChanges = false;
   const typesDir = path.join(PROJECT_DIR, 'types');
   if (!fs.existsSync(typesDir))
     fs.mkdirSync(typesDir)
-  writeFile(path.join(typesDir, 'protocol.d.ts'), fs.readFileSync(path.join(PROJECT_DIR, 'src', 'server', 'chromium', 'protocol.ts'), 'utf8'));
+  writeFile(path.join(typesDir, 'protocol.d.ts'), fs.readFileSync(path.join(PROJECT_DIR, 'src', 'server', 'chromium', 'protocol.d.ts'), 'utf8'));
   documentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'api'));
   documentation.filterForLanguage('js');
   documentation.copyDocsFromSuperclasses([]);
-  const createMemberLink = (clazz, text) => {
-    const anchor = text.toLowerCase().split(',').map(c => c.replace(/[^a-z]/g, '')).join('-');
-    return `[${text}](https://playwright.dev/docs/api/class-${clazz.name.toLowerCase()}#${anchor})`;
+  const createMarkdownLink = (member, text) => {
+    const className = toKebabCase(member.clazz.name);
+    const memberName = toKebabCase(member.name);
+    let hash = null
+    if (member.kind === 'property' || member.kind === 'method')
+      hash = `${className}-${memberName}`.toLowerCase();
+    else if (member.kind === 'event')
+      hash = `${className}-event-${memberName}`.toLowerCase();
+    return `[${text}](https://playwright.dev/docs/api/class-${member.clazz.name.toLowerCase()}#${hash})`;
   };
   documentation.setLinkRenderer(item => {
     const { clazz, member, param, option } = item;
@@ -52,11 +59,11 @@ let hadChanges = false;
     if (clazz)
       return `[${clazz.name}]`;
     if (member.kind === 'method')
-      return createMemberLink(member.clazz, `${member.clazz.varName}.${member.alias}(${renderJSSignature(member.argsArray)})`);
+      return createMarkdownLink(member, `${member.clazz.varName}.${member.alias}(${renderJSSignature(member.argsArray)})`);
     if (member.kind === 'event')
-      return createMemberLink(member.clazz, `${member.clazz.varName}.on('${member.alias.toLowerCase()}')`);
+      return createMarkdownLink(member, `${member.clazz.varName}.on('${member.alias.toLowerCase()}')`);
     if (member.kind === 'property')
-      return createMemberLink(member.clazz, `${member.clazz.varName}.${member.alias}`);
+      return createMarkdownLink(member, `${member.clazz.varName}.${member.alias}`);
     throw new Error('Unknown member kind ' + member.kind);
   });
   documentation.generateSourceCodeComments();
@@ -283,7 +290,7 @@ function writeComment(comment, indent = '') {
     const match = line.match(/```(\w+)/);
     if (match) {
       const lang = match[1];
-      skipExample = !["html", "yml", "sh", "js"].includes(lang);
+      skipExample = !["html", "yml", "bash", "js"].includes(lang);
     } else if (skipExample && line.trim().startsWith('```')) {
       skipExample = false;
       continue;

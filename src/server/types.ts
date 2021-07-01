@@ -33,8 +33,11 @@ export type NavigatingActionWaitOptions = TimeoutOptions & {
   noWaitAfter?: boolean,
 };
 
-export type PointerActionWaitOptions = TimeoutOptions & {
+export type ForceOptions = {
   force?: boolean,
+};
+
+export type PointerActionWaitOptions = TimeoutOptions & ForceOptions & {
   trial?: boolean;
 };
 
@@ -193,6 +196,15 @@ export type NormalizedContinueOverrides = {
   method?: string,
   headers?: HeadersArray,
   postData?: Buffer,
+  interceptResponse?: boolean,
+};
+
+export type NormalizedResponseContinueOverrides = {
+  status?: number,
+  statusText?: string,
+  headers?: HeadersArray,
+  body?: string,
+  isBase64?: boolean,
 };
 
 export type NetworkCookie = {
@@ -274,7 +286,7 @@ type LaunchOptionsBase = {
   chromiumSandbox?: boolean,
   slowMo?: number,
   useWebSocket?: boolean,
-  traceDir?: string,
+  tracesDir?: string,
 };
 export type LaunchOptions = LaunchOptionsBase & {
   firefoxUserPrefs?: { [key: string]: string | number | boolean },

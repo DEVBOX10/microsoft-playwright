@@ -25,7 +25,7 @@ import { Events } from './events';
 import { TimeoutSettings } from '../utils/timeoutSettings';
 import { ChildProcess } from 'child_process';
 import { envObjectToArray } from './clientHelper';
-import { assert, headersObjectToArray, makeWaitForNextTask } from '../utils/utils';
+import { assert, headersObjectToArray, makeWaitForNextTask, getUserAgent } from '../utils/utils';
 import { kBrowserClosedError } from '../utils/errors';
 import * as api from '../../types/types';
 import type { Playwright } from './playwright';
@@ -66,7 +66,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
 
   async launch(options: LaunchOptions = {}): Promise<Browser> {
     const logger = options.logger;
-    return this._wrapApiCall('browserType.launch', async (channel: channels.BrowserTypeChannel) => {
+    return this._wrapApiCall(async (channel: channels.BrowserTypeChannel) => {
       assert(!(options as any).userDataDir, 'userDataDir option is not supported in `browserType.launch`. Use `browserType.launchPersistentContext` instead');
       assert(!(options as any).port, 'Cannot specify a port without launching as a server.');
       const launchOptions: channels.BrowserTypeLaunchParams = {
@@ -88,7 +88,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
   }
 
   async launchPersistentContext(userDataDir: string, options: LaunchPersistentContextOptions = {}): Promise<BrowserContext> {
-    return this._wrapApiCall('browserType.launchPersistentContext', async (channel: channels.BrowserTypeChannel) => {
+    return this._wrapApiCall(async (channel: channels.BrowserTypeChannel) => {
       assert(!(options as any).port, 'Cannot specify a port without launching as a server.');
       const contextParams = await prepareBrowserContextParams(options);
       const persistentParams: channels.BrowserTypeLaunchPersistentContextParams = {
@@ -109,12 +109,13 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
 
   async connect(params: ConnectOptions): Promise<Browser> {
     const logger = params.logger;
-    return this._wrapApiCall('browserType.connect', async () => {
+    const paramsHeaders = Object.assign({'User-Agent': getUserAgent()}, params.headers);
+    return this._wrapApiCall(async () => {
       const ws = new WebSocket(params.wsEndpoint, [], {
         perMessageDeflate: false,
         maxPayload: 256 * 1024 * 1024, // 256Mb,
         handshakeTimeout: this._timeoutSettings.timeout(params),
-        headers: params.headers,
+        headers: paramsHeaders,
       });
       const connection = new Connection(() => ws.close());
 
@@ -143,7 +144,12 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
           }
         });
       });
-      return await new Promise<Browser>(async (fulfill, reject) => {
+
+      let timeoutCallback = (e: Error) => {};
+      const timeoutPromise = new Promise<Browser>((f, r) => timeoutCallback = r);
+      const timer = params.timeout ? setTimeout(() => timeoutCallback(new Error(`Timeout ${params.timeout}ms exceeded.`)), params.timeout) : undefined;
+
+      const successPromise = new Promise<Browser>(async (fulfill, reject) => {
         if ((params as any).__testHookBeforeCreateBrowser) {
           try {
             await (params as any).__testHookBeforeCreateBrowser();
@@ -186,10 +192,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
           });
           if (params._forwardPorts) {
             try {
-              await playwright._channel.enablePortForwarding({
-                ports: params._forwardPorts,
-              });
-              playwright._forwardPorts = params._forwardPorts;
+              await playwright._enablePortForwarding(params._forwardPorts);
             } catch (err) {
               reject(err);
               return;
@@ -202,6 +205,13 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
           reject(new Error(event.message + '. Most likely ws endpoint is incorrect'));
         });
       });
+
+      try {
+        return await Promise.race([successPromise, timeoutPromise]);
+      } finally {
+        if (timer)
+          clearTimeout(timer);
+      }
     }, logger);
   }
 
@@ -211,8 +221,9 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel, chann
     if (this.name() !== 'chromium')
       throw new Error('Connecting over CDP is only supported in Chromium.');
     const logger = params.logger;
-    return this._wrapApiCall('browserType.connectOverCDP', async (channel: channels.BrowserTypeChannel) => {
-      const headers = params.headers ? headersObjectToArray(params.headers) : undefined;
+    return this._wrapApiCall(async (channel: channels.BrowserTypeChannel) => {
+      const paramsHeaders = Object.assign({'User-Agent': getUserAgent()}, params.headers);
+      const headers = paramsHeaders ? headersObjectToArray(paramsHeaders) : undefined;
       const result = await channel.connectOverCDP({
         sdkLanguage: 'javascript',
         endpointURL: 'endpointURL' in params ? params.endpointURL : params.wsEndpoint,

@@ -102,6 +102,8 @@ export class FFPage implements PageDelegate {
     });
     this._session.once('Page.ready', async () => {
       await this._page.initOpener(this._opener);
+      if (this._initializationFailed)
+        return;
       // Note: it is important to call |reportAsNew| before resolving pageOrError promise,
       // so that anyone who awaits pageOrError got a ready and reported page.
       this._initializedPage = this._page;
@@ -528,7 +530,7 @@ export class FFPage implements PageDelegate {
       executionContextId: (to._delegate as FFExecutionContext)._executionContextId
     });
     if (!result.remoteObject)
-      throw new Error('Unable to adopt element handle from a different document');
+      throw new Error(dom.kUnableToAdoptErrorMessage);
     return to.createHandle(result.remoteObject) as dom.ElementHandle<T>;
   }
 

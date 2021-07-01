@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import * as folio from 'folio';
+import type { Config } from './test-runner';
 import * as path from 'path';
 import { PlaywrightOptions, playwrightFixtures } from './browserTest';
 import { test as pageTest } from '../page/pageTest';
@@ -38,25 +38,25 @@ const pageFixtures = {
   isElectron: false,
 };
 
-const mode = (folio.registerCLIOption('mode', 'Transport mode: default, driver or service').value || 'default') as ('default' | 'driver' | 'service');
-const headed = folio.registerCLIOption('headed', 'Run tests in headed mode (default: headless)', { type: 'boolean' }).value || !!process.env.HEADFUL;
-const channel = folio.registerCLIOption('channel', 'Browser channel (default: no channel)').value as any;
-const video = !!folio.registerCLIOption('video', 'Record videos for all tests', { type: 'boolean' }).value;
+const mode = (process.env.PWTEST_MODE || 'default') as ('default' | 'driver' | 'service');
+const headed = !!process.env.HEADFUL;
+const channel = process.env.PWTEST_CHANNEL as any;
+const video = !!process.env.PWTEST_VIDEO;
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
-const config: folio.Config<CommonOptions & PlaywrightOptions> = {
+const config: Config<CommonOptions & PlaywrightOptions> = {
   testDir,
-  snapshotDir: '__snapshots__',
   outputDir,
   timeout: video || process.env.PWTRACE ? 60000 : 30000,
   globalTimeout: 5400000,
   workers: process.env.CI ? 1 : undefined,
   forbidOnly: !!process.env.CI,
+  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 3 : 0,
   reporter: process.env.CI ? [
-    'dot',
-    { name: 'json', outputFile: path.join(outputDir, 'report.json') },
+    [ 'dot' ],
+    [ 'json', { outputFile: path.join(outputDir, 'report.json') } ],
   ] : 'line',
   projects: [],
 };
@@ -64,10 +64,10 @@ const config: folio.Config<CommonOptions & PlaywrightOptions> = {
 const browserNames = ['chromium', 'webkit', 'firefox'] as BrowserName[];
 for (const browserName of browserNames) {
   const executablePath = getExecutablePath(browserName);
-  if (executablePath && !process.env.FOLIO_WORKER_INDEX)
+  if (executablePath && !process.env.TEST_WORKER_INDEX)
     console.error(`Using executable at ${executablePath}`);
   const testIgnore: RegExp[] = browserNames.filter(b => b !== browserName).map(b => new RegExp(b));
-  testIgnore.push(/android/, /electron/);
+  testIgnore.push(/android/, /electron/, /playwright-test/);
   config.projects.push({
     name: browserName,
     testDir,
@@ -79,12 +79,13 @@ for (const browserName of browserNames) {
       channel,
       video,
       executablePath,
-      traceDir: process.env.PWTRACE ? path.join(outputDir, 'trace') : undefined,
+      tracesDir: process.env.PWTRACE ? path.join(outputDir, 'trace') : undefined,
       coverageName: browserName,
     },
     define: { test: pageTest, fixtures: pageFixtures },
     metadata: {
       platform: process.platform,
+      docker: !!process.env.INSIDE_DOCKER,
       headful: !!headed,
       browserName,
       channel,

@@ -37,7 +37,6 @@ const documentedResults = new Map(); // will hold documentation for new types
 const enumTypes = new Map();
 /** @type {Map<string, Documentation.Type>} */
 const optionTypes = new Map();
-const nullableTypes = ['int', 'bool', 'decimal', 'float'];
 const customTypeNames = new Map([
   ['domcontentloaded', 'DOMContentLoaded'],
   ['networkidle', 'NetworkIdle'],
@@ -58,10 +57,11 @@ const documentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'api'));
 documentation.filterForLanguage('csharp');
 
 documentation.setLinkRenderer(item => {
+  const asyncSuffix = item.member && item.member.async ? 'Async' : '';
   if (item.clazz)
     return `<see cref="I${toTitleCase(item.clazz.name)}"/>`;
   else if (item.member)
-    return `<see cref="I${toTitleCase(item.member.clazz.name)}.${toMemberName(item.member)}"/>`;
+    return `<see cref="I${toTitleCase(item.member.clazz.name)}.${toMemberName(item.member)}${asyncSuffix}"/>`;
   else if (item.option)
     return `<paramref name="${item.option}"/>`;
   else if (item.param)
@@ -98,7 +98,7 @@ classNameMap.set('Readable', 'Stream');
  * @param {string} folder
  * @param {string} extendsName
  */
-function writeFile(kind, name, spec, body, folder, extendsName = null) {
+function writeFile(kind, name, spec, body, folder, extendsName = null, namespace = "Microsoft.Playwright") {
   const out = [];
   // console.log(`Generating ${name}`);
 
@@ -124,7 +124,7 @@ function writeFile(kind, name, spec, body, folder, extendsName = null) {
   out.push(...body);
   out.push('}');
 
-  let content = template.replace('[CONTENT]', out.join(EOL));
+  let content = template.replace('[NAMESPACE]', namespace).replace('[CONTENT]', out.join(EOL));
   fs.writeFileSync(path.join(folder, name + '.cs'), content);
 }
 
@@ -137,8 +137,11 @@ function renderClass(clazz) {
     return;
 
   const body = [];
-  for (const member of clazz.membersArray)
+  for (const member of clazz.membersArray) {
+    if (member.alias.startsWith('RunAnd'))
+      renderMember(member, clazz, { trimRunAndPrefix: true }, body);
     renderMember(member, clazz, {}, body);
+  }
 
   writeFile(
       'public partial interface',
@@ -169,8 +172,11 @@ function renderBaseClass(clazz) {
     return;
 
   const body = [];
-  for (const member of methodsWithOptions)
+  for (const member of methodsWithOptions) {
+    if (member.alias.startsWith('RunAnd'))
+      renderMethod(member, clazz, toMemberName(member), { mode: 'base', nodocs: true, public: true, trimRunAndPrefix: true }, body);
     renderMethod(member, clazz, toMemberName(member), { mode: 'base', nodocs: true, public: true }, body);
+  }
 
   writeFile(
       'internal partial class',
@@ -178,7 +184,8 @@ function renderBaseClass(clazz) {
       [],
       body,
       adaptersDir,
-      null);
+      null,
+      'Microsoft.Playwright.Core');
 }
 
 /**
@@ -269,16 +276,14 @@ function toArgumentName(name) {
 
  /**
  * @param {Documentation.Member} member
- * @param {{ omitAsync?: boolean; }=} options
  */
-function toMemberName(member, options) {
+function toMemberName(member, makeAsync = false) {
   const assumedName = toTitleCase(member.alias || member.name);
   if (member.kind === 'interface')
     return `I${assumedName}`;
-  const omitAsync = options && options.omitAsync;
-  if (!omitAsync && member.kind === 'method' && member.async && !assumedName.endsWith('Async'))
-    return `${assumedName}Async`;
-  if (omitAsync && assumedName.endsWith('Async'))
+  if (makeAsync && member.async)
+    return assumedName + 'Async';
+  if (!makeAsync && assumedName.endsWith('Async'))
     return assumedName.substring(0, assumedName.length - 'Async'.length);
   return assumedName;
 }
@@ -317,13 +322,13 @@ function renderConstructors(name, type, out) {
  *
  * @param {Documentation.Member} member
  * @param {Documentation.Class|Documentation.Type} parent
- * @param {{nojson?: boolean}} options
+ * @param {{nojson?: boolean, trimRunAndPrefix?: boolean}} options
  * @param {string[]} out
  */
 function renderMember(member, parent, options, out) {
   let name = toMemberName(member);
   if (member.kind === 'method') {
-    renderMethod(member, parent, name, { mode: 'options' }, out);
+    renderMethod(member, parent, name, { mode: 'options', trimRunAndPrefix: options.trimRunAndPrefix }, out);
     return;
   }
 
@@ -350,13 +355,14 @@ function renderMember(member, parent, options, out) {
       if (member.spec)
         out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
       if (!member.clazz)
-        out.push(`[JsonPropertyName("${jsonName}")]`)
-      if (!type.endsWith('?') && !member.required && nullableTypes.includes(type))
+        out.push(`${member.required ? '[Required]\n' : ''}[JsonPropertyName("${jsonName}")]`)
+      if (!type.endsWith('?') && !member.required)
         type = `${type}?`;
+      const requiredSuffix = type.endsWith('?') ? '' : ' = default!;';
       if (member.clazz)
         out.push(`public ${type} ${name} { get; }`);
       else
-        out.push(`public ${type} ${name} { get; set; }`);
+        out.push(`public ${type} ${name} { get; set; }${requiredSuffix}`);
     }
     return;
   }
@@ -477,14 +483,15 @@ function generateEnumNameIfApplicable(type) {
  *   nodocs?: boolean,
  *   abstract?: boolean,
  *   public?: boolean,
+ *   trimRunAndPrefix?: boolean,
  * }} options
  * @param {string[]} out
  */
 function renderMethod(member, parent, name, options, out) {
-  // These are hard-coded in C#.
-  if (name.includes('WaitForEventAsync'))
-    return;
   out.push('');
+
+  if (options.trimRunAndPrefix)
+    name = name.substring('RunAnd'.length);
 
   /**
    * @param {Documentation.Type} type 
@@ -492,8 +499,8 @@ function renderMethod(member, parent, name, options, out) {
    */
   function resolveType(type) {
     return translateType(type, parent, (t) => {
-      let newName = `${parent.name}${toMemberName(member, { omitAsync: true })}Result`;
-      documentedResults.set(newName, `Result of calling <see cref="I${toTitleCase(parent.name)}.${toMemberName(member)}"/>.`);
+      let newName = `${parent.name}${toMemberName(member)}Result`;
+      documentedResults.set(newName, `Result of calling <see cref="I${toTitleCase(parent.name)}.${toMemberName(member, true)}"/>.`);
       return newName;
     });
   }
@@ -580,8 +587,7 @@ function renderMethod(member, parent, name, options, out) {
   function pushArg(innerArgType, innerArgName, argument, isExploded = false) {
     if (innerArgType === 'null')
       return;
-    const isNullable = nullableTypes.includes(innerArgType);
-    const requiredPrefix = (argument.required || isExploded) ? "" : isNullable ? "?" : "";
+    const requiredPrefix = (argument.required || isExploded) ? "" : "?";
     const requiredSuffix = (argument.required || isExploded) ? "" : " = default";
     var push = `${innerArgType}${requiredPrefix} ${innerArgName}${requiredSuffix}`;
     if (isExploded)
@@ -595,12 +601,15 @@ function renderMethod(member, parent, name, options, out) {
    * @param {Documentation.Member} arg
    */
   function processArg(arg) {
+    if (options.trimRunAndPrefix && arg.name === 'action')
+      return;
+
     if (arg.name === 'options') {
       if (options.mode === 'options' || options.mode === 'base') {
-        const optionsType = member.clazz.name + toMemberName(member, { omitAsync: true }) + 'Options';
+        const optionsType = member.clazz.name + name + 'Options';
         optionTypes.set(optionsType, arg.type);
-        args.push(`${optionsType} options = default`);
-        argTypeMap.set(`${optionsType} options = default`, 'options');
+        args.push(`${optionsType}? options = default`);
+        argTypeMap.set(`${optionsType}? options = default`, 'options');
         addParamsDoc('options', ['Call options']);
       } else {
         arg.type.properties.forEach(processArg);
@@ -610,8 +619,8 @@ function renderMethod(member, parent, name, options, out) {
 
     if (arg.type.expression === '[string]|[path]') {
       let argName = toArgumentName(arg.name);
-      pushArg("string", `${argName} = null`, arg);
-      pushArg("string", `${argName}Path = null`, arg);
+      pushArg("string?", `${argName} = default`, arg);
+      pushArg("string?", `${argName}Path = default`, arg);
       if (arg.spec) {
         addParamsDoc(argName, XmlDoc.renderTextOnly(arg.spec, maxDocumentationColumnWidth));
         addParamsDoc(`${argName}Path`, [`Instead of specifying <paramref name="${argName}"/>, gives the file name to load from.`]);
@@ -661,6 +670,12 @@ function renderMethod(member, parent, name, options, out) {
     pushArg(argType, argName, arg);
   }
 
+  let modifiers = '';
+  if (options.abstract)
+    modifiers = 'protected abstract ';
+  if (options.public)
+    modifiers = 'public ';
+
   member.argsArray
     .sort((a, b) => b.alias === 'options' ? -1 : 0) //move options to the back to the arguments list
     .forEach(processArg);
@@ -670,6 +685,8 @@ function renderMethod(member, parent, name, options, out) {
     // Generate options -> named transition.
     const tokens = [];
     for (const arg of member.argsArray) {
+      if (arg.name === 'action' && options.trimRunAndPrefix)
+        continue;
       if (arg.name !== 'options') {
         tokens.push(toArgumentName(arg.name));
         continue;
@@ -689,23 +706,17 @@ function renderMethod(member, parent, name, options, out) {
     }
     body = `
 {
-    options ??= new ${member.clazz.name}${toMemberName(member, { omitAsync: true })}Options();
-    return ${name}(${tokens.join(', ')});
+    options ??= new ${member.clazz.name}${name}Options();
+    return ${toAsync(name, member.async)}(${tokens.join(', ')});
 }`;
   }
-
-  let modifiers = '';
-  if (options.abstract)
-    modifiers = 'protected abstract ';
-  if (options.public)
-    modifiers = 'public ';
 
   if (!explodedArgs.length) {
     if (!options.nodocs) {
       out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
       paramDocs.forEach((value, i) => printArgDoc(i, value, out));
     }
-    out.push(`${modifiers}${type} ${name}(${args.join(', ')})${body}`);
+    out.push(`${modifiers}${type} ${toAsync(name, member.async)}(${args.join(', ')})${body}`);
   } else {
     let containsOptionalExplodedArgs = false;
     explodedArgs.forEach((explodedArg, argIndex) => {
@@ -727,7 +738,7 @@ function renderMethod(member, parent, name, options, out) {
           overloadedArgs.push(arg);
         }
       }
-      out.push(`${modifiers}${type} ${name}(${overloadedArgs.join(', ')})${body}`);
+      out.push(`${modifiers}${type} ${toAsync(name, member.async)}(${overloadedArgs.join(', ')})${body}`);
       if (argIndex < explodedArgs.length - 1)
         out.push(''); // output a special blank line
     });
@@ -783,7 +794,6 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
     // Regular primitive enums are named in the markdown.
     if (type.name) {
       enumTypes.set(type.name, type.union.map(t => t.name));
-      nullableTypes.push(type.name);
       return optional ? type.name + '?' : type.name;
     }
     return null;
@@ -821,7 +831,7 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
     } else if (type.name === 'Object') {
       registerModelType(objectName, type);
     }
-    return objectName;
+    return `${objectName}${optional ? '?' : ''}`;
   }
 
   if (type.name === 'Map') {
@@ -870,7 +880,7 @@ function translateType(type, parent, generateNameCallback = t => t.name, optiona
   // there's a chance this is a name we've already seen before, so check
   // this is also where we map known types, like boolean -> bool, etc.
   let name = classNameMap.get(type.name) || type.name;
-  return `${name}`;
+  return `${name}${optional ? '?' : ''}`;
 }
 
 /**
@@ -913,4 +923,16 @@ function printArgDoc(name, value, out) {
  */
 function toOverloadSuffix(typeName) {
   return toTitleCase(typeName.replace(/[<].*[>]/, '').replace(/[^a-zA-Z]/g, ''));
+}
+
+/**
+ * @param {string} name
+ * @param {boolean} convert
+ */
+function toAsync(name, convert) {
+  if (!convert)
+    return name;
+  if (name.includes('<'))
+    return name.replace('<', 'Async<');
+  return name + 'Async';
 }

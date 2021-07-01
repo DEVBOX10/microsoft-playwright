@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import * as folio from 'folio';
+import type { Config } from './test-runner';
 import * as path from 'path';
 import { electronFixtures } from '../electron/electronTest';
 import { test as pageTest } from '../page/pageTest';
@@ -23,18 +23,18 @@ import { CommonOptions } from './baseTest';
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
-const config: folio.Config<CommonOptions & PlaywrightOptions> = {
+const config: Config<CommonOptions & PlaywrightOptions> = {
   testDir,
-  snapshotDir: '__snapshots__',
   outputDir,
   timeout: 30000,
   globalTimeout: 5400000,
   workers: process.env.CI ? 1 : undefined,
   forbidOnly: !!process.env.CI,
+  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 3 : 0,
   reporter: process.env.CI ? [
-    'dot',
-    { name: 'json', outputFile: path.join(outputDir, 'report.json') },
+    [ 'dot' ],
+    [ 'json', { outputFile: path.join(outputDir, 'report.json') } ],
   ] : 'line',
   projects: [],
 };
@@ -49,7 +49,7 @@ const metadata = {
 };
 
 config.projects.push({
-  name: 'electron',
+  name: 'chromium',  // We use 'chromium' here to share screenshots with chromium.
   use: {
     mode: 'default',
     browserName: 'chromium',
@@ -60,7 +60,7 @@ config.projects.push({
 });
 
 config.projects.push({
-  name: 'electron',
+  name: 'chromium',  // We use 'chromium' here to share screenshots with chromium.
   use: {
     mode: 'default',
     browserName: 'chromium',

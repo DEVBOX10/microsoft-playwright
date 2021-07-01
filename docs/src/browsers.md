@@ -3,16 +3,16 @@ id: browsers
 title: "Browsers"
 ---
 
-Each version of Playwright needs specific versions of browser binaries to operate. By default Playwright downloads Chromium, WebKit and Firefox browser versions that it supports. With every release, Playwright updates the versions
-of the browsers it supports, so that the latest Playwright would support the latest browsers at any moment.
+Each version of Playwright needs specific versions of browser binaries to operate. Depending on the language you use, Playwright will either download these browsers at package install time for you or will require you to use [Playwright CLI](./cli.md) to install the browsers. Please refer to the [getting started](./intro.md) to see what your platform port does.
+
+With every release, Playwright updates the versions of the browsers it supports, so that the latest Playwright would support the latest browsers at any moment. It means that every time you update playwright, you might need to re-run the `install` CLI command.
 
 <!-- TOC -->
 
 ## Chromium
 
 For Google Chrome, Microsoft Edge and other Chromium-based browsers, by default, Playwright uses open source Chromium builds.
-These builds match the current [Chrome Dev Channel](https://support.google.com/chrome/a/answer/9027636?hl=en) at the time
-of each Playwright release, i.e. it is new with every Playwright update. Since Chromium project is ahead of the branded browsers,
+ Since Chromium project is ahead of the branded browsers,
 when the world is on Google Chrome 89, Playwright already supports Chromium 91 that will hit Google Chrome and Microsoft Edge
 if a few weeks.
 
@@ -21,14 +21,13 @@ on when to opt into stable channels, refer to the [Google Chrome & Microsoft Edg
 
 ## Firefox
 
-Playwright's Firefox version matches the recent [Firefox Beta](https://www.mozilla.org/en-US/firefox/channel/desktop/)
+Playwright's Firefox version matches the recent [Firefox Stable](https://www.mozilla.org/en-US/firefox/new/)
 build.
 
 ## WebKit
 
 Playwright's WebKit version matches the recent WebKit trunk build, before it is used in Apple Safari and
-other WebKit-based browsers. This gives a lot of lead time to react on the potential browser update issues. We are
-also working on a dedicated support for builds that would match Apple Safari Technology Preview.
+other WebKit-based browsers. This gives a lot of lead time to react on the potential browser update issues.
 
 ## Google Chrome & Microsoft Edge
 
