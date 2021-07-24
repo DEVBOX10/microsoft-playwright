@@ -22,7 +22,7 @@ import { calculateSha1, createGuid, mkdirIfNeeded, monotonicTime } from '../../.
 import { Artifact } from '../../artifact';
 import { BrowserContext } from '../../browserContext';
 import { ElementHandle } from '../../dom';
-import { helper, RegisteredListener } from '../../helper';
+import { eventsHelper, RegisteredListener } from '../../../utils/eventsHelper';
 import { CallMetadata, InstrumentationListener, SdkObject } from '../../instrumentation';
 import { Page } from '../../page';
 import * as trace from '../common/traceEvents';
@@ -34,6 +34,8 @@ export type TracerOptions = {
   snapshots?: boolean;
   screenshots?: boolean;
 };
+
+export const VERSION = 1;
 
 export class Tracing implements InstrumentationListener {
   private _appendEventChain = Promise.resolve();
@@ -63,6 +65,7 @@ export class Tracing implements InstrumentationListener {
 
     this._appendEventChain = mkdirIfNeeded(this._traceFile);
     const event: trace.ContextCreatedTraceEvent = {
+      version: VERSION,
       type: 'context-options',
       browserName: this._context._browser.options.name,
       options: this._context._options
@@ -71,7 +74,7 @@ export class Tracing implements InstrumentationListener {
     for (const page of this._context.pages())
       this._onPage(options.screenshots, page);
     this._eventListeners.push(
-        helper.addEventListener(this._context, BrowserContext.Events.Page, this._onPage.bind(this, options.screenshots)),
+        eventsHelper.addEventListener(this._context, BrowserContext.Events.Page, this._onPage.bind(this, options.screenshots)),
     );
 
     // context + page must be the first events added, no awaits above this line.
@@ -86,11 +89,11 @@ export class Tracing implements InstrumentationListener {
     if (!this._eventListeners.length)
       return;
     this._context.instrumentation.removeListener(this);
-    helper.removeEventListeners(this._eventListeners);
+    eventsHelper.removeEventListeners(this._eventListeners);
     for (const { sdkObject, metadata, beforeSnapshot, actionSnapshot, afterSnapshot } of this._pendingCalls.values()) {
       await Promise.all([beforeSnapshot, actionSnapshot, afterSnapshot]);
       if (!afterSnapshot)
-        metadata.error = 'Action was interrupted';
+        metadata.error = { error: { name: 'Error', message: 'Action was interrupted' } };
       await this.onAfterCall(sdkObject, metadata);
     }
     for (const page of this._context.pages())
@@ -179,7 +182,7 @@ export class Tracing implements InstrumentationListener {
       page.setScreencastOptions({ width: 800, height: 600, quality: 90 });
 
     this._eventListeners.push(
-        helper.addEventListener(page, Page.Events.ScreencastFrame, params => {
+        eventsHelper.addEventListener(page, Page.Events.ScreencastFrame, params => {
           const sha1 = calculateSha1(createGuid()); // no need to compute sha1 for screenshots
           const event: trace.ScreencastFrameTraceEvent = {
             type: 'screencast-frame',
@@ -227,6 +230,6 @@ export class Tracing implements InstrumentationListener {
   }
 }
 
-function shouldCaptureSnapshot(metadata: CallMetadata): boolean {
+export function shouldCaptureSnapshot(metadata: CallMetadata): boolean {
   return commandsWithTracingSnapshots.has(metadata.type + '.' + metadata.method);
 }

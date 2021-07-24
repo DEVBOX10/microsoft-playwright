@@ -27,6 +27,7 @@ import { ConsoleMessage } from './consoleMessage';
 import { Dialog } from './dialog';
 import { Download } from './download';
 import { ElementHandle, determineScreenshotType } from './elementHandle';
+import { Locator } from './locator';
 import { Worker } from './worker';
 import { Frame, verifyLoadState, WaitForNavigationOptions } from './frame';
 import { Keyboard, Mouse, Touchscreen } from './input';
@@ -161,7 +162,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
 
   private _onRoute(route: Route, request: Request) {
     for (const {url, handler} of this._routes) {
-      if (urlMatches(request.url(), url)) {
+      if (urlMatches(this._browserContext._options.baseURL, request.url(), url)) {
         handler(route, request);
         return;
       }
@@ -216,7 +217,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
     return this.frames().find(f => {
       if (name)
         return f.name() === name;
-      return urlMatches(f.url(), url);
+      return urlMatches(this._browserContext._options.baseURL, f.url(), url);
     }) || null;
   }
 
@@ -351,7 +352,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
     return this._wrapApiCall(async (channel: channels.PageChannel) => {
       const predicate = (request: Request) => {
         if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
-          return urlMatches(request.url(), urlOrPredicate);
+          return urlMatches(this._browserContext._options.baseURL, request.url(), urlOrPredicate);
         return urlOrPredicate(request);
       };
       const trimmedUrl = trimUrl(urlOrPredicate);
@@ -364,7 +365,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
     return this._wrapApiCall(async (channel: channels.PageChannel) => {
       const predicate = (response: Response) => {
         if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
-          return urlMatches(response.url(), urlOrPredicate);
+          return urlMatches(this._browserContext._options.baseURL, response.url(), urlOrPredicate);
         return urlOrPredicate(response);
       };
       const trimmedUrl = trimUrl(urlOrPredicate);
@@ -444,7 +445,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
 
   async route(url: URLMatch, handler: RouteHandler): Promise<void> {
     return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      this._routes.push({ url, handler });
+      this._routes.unshift({ url, handler });
       if (this._routes.length === 1)
         await channel.setNetworkInterceptionEnabled({ enabled: true });
     });
@@ -505,6 +506,10 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
     return this._mainFrame.click(selector, options);
   }
 
+  async dragAndDrop(source: string, target: string, options?: channels.FrameDragAndDropOptions) {
+    return this._mainFrame.dragAndDrop(source, target, options);
+  }
+
   async dblclick(selector: string, options?: channels.FrameDblclickOptions) {
     return this._mainFrame.dblclick(selector, options);
   }
@@ -515,6 +520,10 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
 
   async fill(selector: string, value: string, options?: channels.FrameFillOptions) {
     return this._mainFrame.fill(selector, value, options);
+  }
+
+  locator(selector: string): Locator {
+    return this.mainFrame().locator(selector);
   }
 
   async focus(selector: string, options?: channels.FrameFocusOptions) {

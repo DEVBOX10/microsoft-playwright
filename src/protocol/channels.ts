@@ -329,6 +329,7 @@ export type BrowserTypeLaunchPersistentContextParams = {
   colorScheme?: 'dark' | 'light' | 'no-preference',
   reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
+  baseURL?: string,
   _debugName?: string,
   recordVideo?: {
     dir: string,
@@ -399,6 +400,7 @@ export type BrowserTypeLaunchPersistentContextOptions = {
   colorScheme?: 'dark' | 'light' | 'no-preference',
   reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
+  baseURL?: string,
   _debugName?: string,
   recordVideo?: {
     dir: string,
@@ -489,6 +491,7 @@ export type BrowserNewContextParams = {
   colorScheme?: 'dark' | 'light' | 'no-preference',
   reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
+  baseURL?: string,
   _debugName?: string,
   recordVideo?: {
     dir: string,
@@ -546,6 +549,7 @@ export type BrowserNewContextOptions = {
   colorScheme?: 'dark' | 'light' | 'no-preference',
   reducedMotion?: 'reduce' | 'no-preference',
   acceptDownloads?: boolean,
+  baseURL?: string,
   _debugName?: string,
   recordVideo?: {
     dir: string,
@@ -1306,6 +1310,7 @@ export interface FrameChannel extends Channel {
   check(params: FrameCheckParams, metadata?: Metadata): Promise<FrameCheckResult>;
   click(params: FrameClickParams, metadata?: Metadata): Promise<FrameClickResult>;
   content(params?: FrameContentParams, metadata?: Metadata): Promise<FrameContentResult>;
+  dragAndDrop(params: FrameDragAndDropParams, metadata?: Metadata): Promise<FrameDragAndDropResult>;
   dblclick(params: FrameDblclickParams, metadata?: Metadata): Promise<FrameDblclickResult>;
   dispatchEvent(params: FrameDispatchEventParams, metadata?: Metadata): Promise<FrameDispatchEventResult>;
   evaluateExpression(params: FrameEvaluateExpressionParams, metadata?: Metadata): Promise<FrameEvaluateExpressionResult>;
@@ -1444,6 +1449,21 @@ export type FrameContentOptions = {};
 export type FrameContentResult = {
   value: string,
 };
+export type FrameDragAndDropParams = {
+  source: string,
+  target: string,
+  force?: boolean,
+  noWaitAfter?: boolean,
+  timeout?: number,
+  trial?: boolean,
+};
+export type FrameDragAndDropOptions = {
+  force?: boolean,
+  noWaitAfter?: boolean,
+  timeout?: number,
+  trial?: boolean,
+};
+export type FrameDragAndDropResult = void;
 export type FrameDblclickParams = {
   selector: string,
   force?: boolean,

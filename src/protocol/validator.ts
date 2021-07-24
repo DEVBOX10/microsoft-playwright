@@ -238,6 +238,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
     reducedMotion: tOptional(tEnum(['reduce', 'no-preference'])),
     acceptDownloads: tOptional(tBoolean),
+    baseURL: tOptional(tString),
     _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
@@ -297,6 +298,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference'])),
     reducedMotion: tOptional(tEnum(['reduce', 'no-preference'])),
     acceptDownloads: tOptional(tBoolean),
+    baseURL: tOptional(tString),
     _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
@@ -585,6 +587,14 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     trial: tOptional(tBoolean),
   });
   scheme.FrameContentParams = tOptional(tObject({}));
+  scheme.FrameDragAndDropParams = tObject({
+    source: tString,
+    target: tString,
+    force: tOptional(tBoolean),
+    noWaitAfter: tOptional(tBoolean),
+    timeout: tOptional(tNumber),
+    trial: tOptional(tBoolean),
+  });
   scheme.FrameDblclickParams = tObject({
     selector: tString,
     force: tOptional(tBoolean),

@@ -22,7 +22,6 @@ import { assert, debugAssert, isUnderTest, monotonicTime } from '../utils/utils'
 import { tOptional } from '../protocol/validatorPrimitives';
 import { kBrowserOrContextClosedError } from '../utils/errors';
 import { CallMetadata, SdkObject } from '../server/instrumentation';
-import { StackFrame } from '../common/types';
 import { rewriteErrorMessage } from '../utils/stackTrace';
 
 export const dispatcherSymbol = Symbol('dispatcher');
@@ -133,7 +132,7 @@ export class DispatcherConnection {
   private _rootDispatcher: Root;
   onmessage = (message: object) => {};
   private _validateParams: (type: string, method: string, params: any) => any;
-  private _validateMetadata: (metadata: any) => { stack?: StackFrame[] };
+  private _validateMetadata: (metadata: any) => { stack?: channels.StackFrame[] };
   private _waitOperations = new Map<string, CallMetadata>();
 
   sendMessageToClient(guid: string, type: string, method: string, params: any, sdkObject?: SdkObject) {
@@ -246,7 +245,7 @@ export class DispatcherConnection {
         } case 'after': {
           const originalMetadata = this._waitOperations.get(info.waitId)!;
           originalMetadata.endTime = monotonicTime();
-          originalMetadata.error = info.error;
+          originalMetadata.error = info.error ? { error: { name: 'Error', message: info.error } } : undefined;
           this._waitOperations.delete(info.waitId);
           await sdkObject.instrumentation.onAfterCall(sdkObject, originalMetadata);
           return;
@@ -255,14 +254,15 @@ export class DispatcherConnection {
     }
 
 
-    let result: any;
     let error: any;
     await sdkObject?.instrumentation.onBeforeCall(sdkObject, callMetadata);
     try {
-      result = await (dispatcher as any)[method](validParams, callMetadata);
+      const result = await (dispatcher as any)[method](validParams, callMetadata);
+      callMetadata.result = this._replaceDispatchersWithGuids(result);
     } catch (e) {
       // Dispatching error
-      callMetadata.error = e.message;
+      // We want original, unmodified error in metadata.
+      callMetadata.error = serializeError(e);
       if (callMetadata.log.length)
         rewriteErrorMessage(e, e.message + formatLogRecording(callMetadata.log));
       error = serializeError(e);
@@ -271,10 +271,10 @@ export class DispatcherConnection {
       await sdkObject?.instrumentation.onAfterCall(sdkObject, callMetadata);
     }
 
-    if (error)
-      this.onmessage({ id, error });
+    if (callMetadata.error)
+      this.onmessage({ id, error: error });
     else
-      this.onmessage({ id, result: this._replaceDispatchersWithGuids(result) });
+      this.onmessage({ id, result: callMetadata.result });
   }
 
   private _replaceDispatchersWithGuids(payload: any): any {
