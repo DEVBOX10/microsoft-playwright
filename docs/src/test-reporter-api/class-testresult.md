@@ -35,7 +35,7 @@ Learn more about [test retries](./test-retries.md).
 Start time of this particular test run.
 
 ## property: TestResult.status
-- type: <[void]|[TestStatus]<"passed"|"failed"|"timedOut"|"skipped">>
+- type: <[TestStatus]<"passed"|"failed"|"timedOut"|"skipped">>
 
 The status of this test result. See also [`property: TestCase.expectedStatus`].
 
@@ -48,6 +48,11 @@ Anything written to the standard error during the test run.
 - type: <[Array]<[string]|[Buffer]>>
 
 Anything written to the standard output during the test run.
+
+## property: TestResult.steps
+- type: <[Array]<[TestStep]>>
+
+List of steps inside this test run.
 
 ## property: TestResult.workerIndex
 - type: <[int]>

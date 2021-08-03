@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+import type { Expect } from './types';
 import util from 'util';
 import path from 'path';
 import type { TestError, Location } from './types';
 import { default as minimatch } from 'minimatch';
+import { errors } from '../..';
 
 export class DeadlineRunner<T> {
   private _timer: NodeJS.Timer | undefined;
@@ -68,6 +70,44 @@ export class DeadlineRunner<T> {
 export async function raceAgainstDeadline<T>(promise: Promise<T>, deadline: number | undefined): Promise<{ result?: T, timedOut?: boolean }> {
   return (new DeadlineRunner(promise, deadline)).result;
 }
+
+export async function pollUntilDeadline(state: ReturnType<Expect['getState']>, func: (remainingTime: number) => Promise<boolean>, pollTime: number | undefined, pollInterval: number, deadlinePromise: Promise<void>): Promise<void> {
+  const playwrightActionTimeout = (state as any).playwrightActionTimeout;
+  pollTime = pollTime === 0 ? 0 : pollTime || playwrightActionTimeout;
+  const deadline = pollTime ? monotonicTime() + pollTime : 0;
+
+  let aborted = false;
+  const abortedPromise = deadlinePromise.then(() => {
+    aborted = true;
+    return true;
+  });
+
+  while (!aborted) {
+    const remainingTime = deadline ? deadline - monotonicTime() : 1000 * 3600 * 24;
+    if (remainingTime <= 0)
+      break;
+
+    try {
+      // Either aborted, or func() returned truthy.
+      const result = await Promise.race([
+        func(remainingTime),
+        abortedPromise,
+      ]);
+      if (result)
+        return;
+    } catch (e) {
+      if (e instanceof errors.TimeoutError)
+        return;
+      throw e;
+    }
+
+    let timer: NodeJS.Timer;
+    const timeoutPromise = new Promise(f => timer = setTimeout(f, pollInterval));
+    await Promise.race([abortedPromise, timeoutPromise]);
+    clearTimeout(timer!);
+  }
+}
+
 
 export function serializeError(error: Error | any): TestError {
   if (error instanceof Error) {
@@ -165,4 +205,9 @@ export function errorWithFile(file: string, message: string) {
 
 export function errorWithLocation(location: Location, message: string) {
   return new Error(`${formatLocation(location)}: ${message}`);
+}
+
+export function expectType(receiver: any, type: string, matcherName: string) {
+  if (typeof receiver !== 'object' || receiver.constructor.name !== type)
+    throw new Error(`${matcherName} can be only used with ${type} object`);
 }

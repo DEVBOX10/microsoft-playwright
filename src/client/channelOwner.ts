@@ -21,7 +21,7 @@ import { debugLogger } from '../utils/debugLogger';
 import { captureStackTrace, ParsedStackTrace } from '../utils/stackTrace';
 import { isUnderTest } from '../utils/utils';
 import type { Connection } from './connection';
-import type { Logger } from './types';
+import type { ClientSideInstrumentation, Logger } from './types';
 
 export abstract class ChannelOwner<T extends channels.Channel = channels.Channel, Initializer = {}> extends EventEmitter {
   protected _connection: Connection;
@@ -33,6 +33,7 @@ export abstract class ChannelOwner<T extends channels.Channel = channels.Channel
   readonly _channel: T;
   readonly _initializer: Initializer;
   _logger: Logger | undefined;
+  _csi: ClientSideInstrumentation | undefined;
 
   constructor(parent: ChannelOwner | Connection, type: string, guid: string, initializer: Initializer) {
     super();
@@ -46,6 +47,7 @@ export abstract class ChannelOwner<T extends channels.Channel = channels.Channel
     if (this._parent) {
       this._parent._objects.set(guid, this);
       this._logger = this._parent._logger;
+      this._csi = this._parent._csi;
     }
 
     this._channel = this._createChannel(new EventEmitter(), null);
@@ -93,15 +95,19 @@ export abstract class ChannelOwner<T extends channels.Channel = channels.Channel
     const stackTrace = captureStackTrace();
     const { apiName, frameTexts } = stackTrace;
     const channel = this._createChannel({}, stackTrace);
+    let csiCallback: ((e?: Error) => void) | undefined;
     try {
       logApiCall(logger, `=> ${apiName} started`);
+      csiCallback = this._csi?.onApiCall(apiName);
       const result = await func(channel as any, stackTrace);
+      csiCallback?.();
       logApiCall(logger, `<= ${apiName} succeeded`);
       return result;
     } catch (e) {
       const innerError = ((process.env.PWDEBUGIMPL || isUnderTest()) && e.stack) ? '\n<inner error>\n' + e.stack : '';
       e.message = apiName + ': ' + e.message;
       e.stack = e.message + '\n' + frameTexts.join('\n') + innerError;
+      csiCallback?.(e);
       logApiCall(logger, `<= ${apiName} failed`);
       throw e;
     }

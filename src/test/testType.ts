@@ -19,7 +19,7 @@ import { currentlyLoadingFileSuite, currentTestInfo, setCurrentlyLoadingFileSuit
 import { TestCase, Suite } from './test';
 import { wrapFunctionWithLocation } from './transform';
 import { Fixtures, FixturesWithLocation, Location, TestType } from './types';
-import { errorWithLocation } from './util';
+import { errorWithLocation, serializeError } from './util';
 
 const countByFile = new Map<string, number>();
 
@@ -49,13 +49,14 @@ export class TestTypeImpl {
     test.fail = wrapFunctionWithLocation(this._modifier.bind(this, 'fail'));
     test.slow = wrapFunctionWithLocation(this._modifier.bind(this, 'slow'));
     test.setTimeout = wrapFunctionWithLocation(this._setTimeout.bind(this));
+    test.step = wrapFunctionWithLocation(this._step.bind(this));
     test.use = wrapFunctionWithLocation(this._use.bind(this));
     test.extend = wrapFunctionWithLocation(this._extend.bind(this));
     test.declare = wrapFunctionWithLocation(this._declare.bind(this));
     this.test = test;
   }
 
-  private _createTest(type: 'default' | 'only', location: Location, title: string, fn: Function) {
+  private _createTest(type: 'default' | 'only' | 'skip', location: Location, title: string, fn: Function) {
     throwIfRunningInsideJest();
     const suite = currentlyLoadingFileSuite();
     if (!suite)
@@ -70,6 +71,8 @@ export class TestTypeImpl {
 
     if (type === 'only')
       test._only = true;
+    if (type === 'skip')
+      test.expectedStatus = 'skipped';
   }
 
   private _describe(type: 'default' | 'only', location: Location, title: string, fn: Function) {
@@ -110,6 +113,12 @@ export class TestTypeImpl {
   private _modifier(type: 'skip' | 'fail' | 'fixme' | 'slow', location: Location, ...modifierArgs: [arg?: any | Function, description?: string]) {
     const suite = currentlyLoadingFileSuite();
     if (suite) {
+      if (typeof modifierArgs[0] === 'string' && typeof modifierArgs[1] === 'function') {
+        // Support for test.skip('title', () => {})
+        this._createTest('skip', location, modifierArgs[0], modifierArgs[1]);
+        return;
+      }
+
       if (typeof modifierArgs[0] === 'function') {
         suite._modifiers.push({ type, fn: modifierArgs[0], location, description: modifierArgs[1] });
       } else {
@@ -138,7 +147,7 @@ export class TestTypeImpl {
 
     const testInfo = currentTestInfo();
     if (!testInfo)
-      throw errorWithLocation(location, `test.setTimeout() can only be called from a test file`);
+      throw errorWithLocation(location, `test.setTimeout() can only be called from a test`);
     testInfo.setTimeout(timeout);
   }
 
@@ -147,6 +156,20 @@ export class TestTypeImpl {
     if (!suite)
       throw errorWithLocation(location, `test.use() can only be called in a test file`);
     suite._fixtureOverrides = { ...suite._fixtureOverrides, ...fixtures };
+  }
+
+  private async _step(location: Location, title: string, body: () => Promise<void>): Promise<void> {
+    const testInfo = currentTestInfo();
+    if (!testInfo)
+      throw errorWithLocation(location, `test.step() can only be called from a test`);
+    const complete = testInfo._addStep('test.step', title);
+    try {
+      await body();
+      complete();
+    } catch (e) {
+      complete(serializeError(e));
+      throw e;
+    }
   }
 
   private _extend(location: Location, fixtures: Fixtures) {

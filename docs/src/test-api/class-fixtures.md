@@ -115,6 +115,13 @@ const config: PlaywrightTestConfig = {
 export default config;
 ```
 
+## property: Fixtures.actionTimeout
+- type: <[int]>
+
+Timeout for each action and expect in milliseconds. Defaults to 0 (no timeout).
+
+This is a default timeout for all Playwright actions, same as configured via [`method: Page.setDefaultTimeout`].
+
 ## property: Fixtures.bypassCSP = %%-context-option-bypasscsp-%%
 
 ## property: Fixtures.channel = %%-browser-option-channel-%%
@@ -129,6 +136,66 @@ Isolated [BrowserContext] instance, created for each test. Since contexts are is
 Learn how to [configure context](./test-configuration.md) through other fixtures and options.
 
 The [`property: Fixtures.page`] belongs to this context.
+
+## property: Fixtures.createContext
+- type: <[function]\([BrowserContextOptions]|[void]\):[BrowserContext]>
+
+A function that creates a new context, taking into account all options set
+through [configuration file](./test-configuration.md) or [`method: Test.use`] calls. All contexts created by this function are similar to the default [`property: Fixtures.context`].
+
+This function is useful for multi-context scenarios, for example testing
+two users talking over the chat application.
+
+A single `options` argument will be merged with all the default options from [configuration file](./test-configuration.md) or [`method: Test.use`] calls and passed to [`method: Browser.newContext`]. If you'd like to undo some of these options, override them with some value or `undefined`. For example:
+
+```js js-flavor=ts
+// example.spec.ts
+
+import { test } from '@playwright/test';
+
+// All contexts will use this storage state.
+test.use({ storageState: 'state.json' });
+
+test('my test', async ({ createContext }) => {
+  // An isolated context
+  const context1 = await createContext();
+
+  // Another isolated context with custom options
+  const context2 = await createContext({
+    // Undo 'state.json' from above
+    storageState: undefined,
+    // Set custom locale
+    locale: 'en-US',
+  });
+
+  // ...
+});
+```
+
+```js js-flavor=js
+// example.spec.js
+// @ts-check
+
+const { test } = require('@playwright/test');
+
+// All contexts will use this storage state.
+test.use({ storageState: 'state.json' });
+
+test('my test', async ({ createContext }) => {
+  // An isolated context
+  const context1 = await createContext();
+
+  // Another isolated context with custom options
+  const context2 = await createContext({
+    // Undo 'state.json' from above
+    storageState: undefined,
+    // Set custom locale
+    locale: 'en-US',
+  });
+
+  // ...
+});
+```
 
 ## property: Fixtures.contextOptions
 - type: <[Object]>
@@ -159,6 +226,13 @@ Options used to create the context, as passed to [`method: Browser.newContext`].
 Options used to launch the browser, as passed to [`method: BrowserType.launch`]. Specific options [`property: Fixtures.headless`] and [`property: Fixtures.channel`] take priority over this.
 
 ## property: Fixtures.locale = %%-context-option-locale-%%
+
+## property: Fixtures.navigationTimeout
+- type: <[int]>
+
+Timeout for each navigation action in milliseconds. Defaults to 0 (no timeout).
+
+This is a default navigation timeout, same as configured via [`method: Page.setDefaultNavigationTimeout`].
 
 ## property: Fixtures.offline = %%-context-option-offline-%%
 

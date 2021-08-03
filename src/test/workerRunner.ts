@@ -20,11 +20,11 @@ import rimraf from 'rimraf';
 import util from 'util';
 import { EventEmitter } from 'events';
 import { monotonicTime, DeadlineRunner, raceAgainstDeadline, serializeError } from './util';
-import { TestBeginPayload, TestEndPayload, RunPayload, TestEntry, DonePayload, WorkerInitParams } from './ipc';
+import { TestBeginPayload, TestEndPayload, RunPayload, TestEntry, DonePayload, WorkerInitParams, StepBeginPayload, StepEndPayload } from './ipc';
 import { setCurrentTestInfo } from './globals';
 import { Loader } from './loader';
 import { Modifier, Suite, TestCase } from './test';
-import { Annotations, TestError, TestInfo, WorkerInfo } from './types';
+import { Annotations, CompleteStepCallback, TestError, TestInfo, TestInfoImpl, WorkerInfo } from './types';
 import { ProjectImpl } from './project';
 import { FixturePool, FixtureRunner } from './fixtures';
 
@@ -42,8 +42,8 @@ export class WorkerRunner extends EventEmitter {
   private _failedTestId: string | undefined;
   private _fatalError: TestError | undefined;
   private _entries = new Map<string, TestEntry>();
-  private _isStopped: any;
-  _currentTest: { testId: string, testInfo: TestInfo } | null = null;
+  private _isStopped = false;
+  _currentTest: { testId: string, testInfo: TestInfoImpl, testFinishedCallback: () => void } | null = null;
 
   constructor(params: WorkerInitParams) {
     super();
@@ -52,8 +52,12 @@ export class WorkerRunner extends EventEmitter {
   }
 
   stop() {
+    // TODO: mark test as 'interrupted' instead.
+    if (this._currentTest && this._currentTest.testInfo.status === 'passed') {
+      this._currentTest.testInfo.status = 'skipped';
+      this._currentTest.testFinishedCallback();
+    }
     this._isStopped = true;
-    this._setCurrentTest(null);
   }
 
   async cleanup() {
@@ -216,7 +220,9 @@ export class WorkerRunner extends EventEmitter {
       return path.join(this._project.config.outputDir, testOutputDir);
     })();
 
-    const testInfo: TestInfo = {
+    let testFinishedCallback = () => {};
+    let lastStepId = 0;
+    const testInfo: TestInfoImpl = {
       ...this._workerInfo,
       title: test.title,
       file: test.location.file,
@@ -225,7 +231,7 @@ export class WorkerRunner extends EventEmitter {
       fn: test.fn,
       repeatEachIndex: this._params.repeatEachIndex,
       retry: entry.retry,
-      expectedStatus: 'passed',
+      expectedStatus: test.expectedStatus,
       annotations: [],
       attachments: [],
       duration: 0,
@@ -261,6 +267,29 @@ export class WorkerRunner extends EventEmitter {
         if (deadlineRunner)
           deadlineRunner.setDeadline(deadline());
       },
+      _testFinished: new Promise(f => testFinishedCallback = f),
+      _addStep: (category: string, title: string) => {
+        const stepId = `${category}@${++lastStepId}`;
+        const payload: StepBeginPayload = {
+          testId,
+          stepId,
+          category,
+          title,
+          wallTime: Date.now()
+        };
+        this.emit('stepBegin', payload);
+        return (error?: Error | TestError) => {
+          if (error instanceof Error)
+            error = serializeError(error);
+          const payload: StepEndPayload = {
+            testId,
+            stepId,
+            wallTime: Date.now(),
+            error
+          };
+          this.emit('stepEnd', payload);
+        };
+      },
     };
 
     // Inherit test.setTimeout() from parent suites.
@@ -289,7 +318,7 @@ export class WorkerRunner extends EventEmitter {
       }
     }
 
-    this._setCurrentTest({ testInfo, testId });
+    this._setCurrentTest({ testInfo, testId, testFinishedCallback });
     const deadline = () => {
       return testInfo.timeout ? startTime + testInfo.timeout : undefined;
     };
@@ -310,25 +339,25 @@ export class WorkerRunner extends EventEmitter {
     // Do not overwrite test failure upon hook timeout.
     if (result.timedOut && testInfo.status === 'passed')
       testInfo.status = 'timedOut';
-    if (this._isStopped)
-      return;
 
-    if (!result.timedOut) {
-      deadlineRunner = new DeadlineRunner(this._runAfterHooks(test, testInfo), deadline());
-      deadlineRunner.setDeadline(deadline());
-      const hooksResult = await deadlineRunner.result;
-      // Do not overwrite test failure upon hook timeout.
-      if (hooksResult.timedOut && testInfo.status === 'passed')
-        testInfo.status = 'timedOut';
-    } else {
-      // A timed-out test gets a full additional timeout to run after hooks.
-      const newDeadline = this._deadline();
-      deadlineRunner = new DeadlineRunner(this._runAfterHooks(test, testInfo), newDeadline);
-      await deadlineRunner.result;
+    if (!this._isStopped) {
+      // When stopped during the test run (usually either a user interruption or an unhandled error),
+      // we do not run cleanup because the worker will cleanup() anyway.
+      testFinishedCallback();
+      if (!result.timedOut) {
+        deadlineRunner = new DeadlineRunner(this._runAfterHooks(test, testInfo), deadline());
+        deadlineRunner.setDeadline(deadline());
+        const hooksResult = await deadlineRunner.result;
+        // Do not overwrite test failure upon hook timeout.
+        if (hooksResult.timedOut && testInfo.status === 'passed')
+          testInfo.status = 'timedOut';
+      } else {
+        // A timed-out test gets a full additional timeout to run after hooks.
+        const newDeadline = this._deadline();
+        deadlineRunner = new DeadlineRunner(this._runAfterHooks(test, testInfo), newDeadline);
+        await deadlineRunner.result;
+      }
     }
-
-    if (this._isStopped)
-      return;
 
     testInfo.duration = monotonicTime() - startTime;
     this.emit('testEnd', buildTestEndPayload(testId, testInfo));
@@ -339,19 +368,23 @@ export class WorkerRunner extends EventEmitter {
     if (!preserveOutput)
       await removeFolderAsync(testInfo.outputDir).catch(e => {});
 
+    this._setCurrentTest(null);
+
+    if (this._isStopped)
+      return;
     if (testInfo.status !== 'passed' && testInfo.status !== 'skipped') {
       this._failedTestId = testId;
       this._reportDoneAndStop();
     }
-    this._setCurrentTest(null);
   }
 
-  private _setCurrentTest(currentTest: { testId: string, testInfo: TestInfo} | null) {
+  private _setCurrentTest(currentTest: { testId: string, testInfo: TestInfoImpl, testFinishedCallback: () => void } | null) {
     this._currentTest = currentTest;
     setCurrentTestInfo(currentTest ? currentTest.testInfo : null);
   }
 
-  private async _runTestWithBeforeHooks(test: TestCase, testInfo: TestInfo) {
+  private async _runTestWithBeforeHooks(test: TestCase, testInfo: TestInfoImpl) {
+    let completeStep: CompleteStepCallback | undefined;
     try {
       const beforeEachModifiers: Modifier[] = [];
       for (let s = test.parent; s; s = s.parent) {
@@ -365,6 +398,7 @@ export class WorkerRunner extends EventEmitter {
         const result = await this._fixtureRunner.resolveParametersAndRunHookOrTest(modifier.fn, 'test', testInfo);
         testInfo[modifier.type](!!result, modifier.description!);
       }
+      completeStep = testInfo._addStep('hook', 'Before Hooks');
       await this._runHooks(test.parent!, 'beforeEach', testInfo);
     } catch (error) {
       if (error instanceof SkipError) {
@@ -376,6 +410,7 @@ export class WorkerRunner extends EventEmitter {
       }
       // Continue running afterEach hooks even after the failure.
     }
+    completeStep?.(testInfo.error);
 
     // Do not run the test when beforeEach hook fails.
     if (this._isStopped || testInfo.status === 'failed' || testInfo.status === 'skipped')
@@ -399,8 +434,11 @@ export class WorkerRunner extends EventEmitter {
     }
   }
 
-  private async _runAfterHooks(test: TestCase, testInfo: TestInfo) {
+  private async _runAfterHooks(test: TestCase, testInfo: TestInfoImpl) {
+    let completeStep: CompleteStepCallback | undefined;
+    let teardownError: TestError | undefined;
     try {
+      completeStep = testInfo._addStep('hook', 'After Hooks');
       await this._runHooks(test.parent!, 'afterEach', testInfo);
     } catch (error) {
       if (!(error instanceof SkipError)) {
@@ -418,9 +456,12 @@ export class WorkerRunner extends EventEmitter {
       if (testInfo.status === 'passed')
         testInfo.status = 'failed';
       // Do not overwrite test failure error.
-      if (!('error' in  testInfo))
+      if (!('error' in  testInfo)) {
         testInfo.error = serializeError(error);
+        teardownError = testInfo.error;
+      }
     }
+    completeStep?.(teardownError);
   }
 
   private async _runHooks(suite: Suite, type: 'beforeEach' | 'afterEach', testInfo: TestInfo) {
@@ -489,6 +530,16 @@ function buildTestEndPayload(testId: string, testInfo: TestInfo): TestEndPayload
 }
 
 function modifier(testInfo: TestInfo, type: 'skip' | 'fail' | 'fixme' | 'slow', modifierArgs: [arg?: any, description?: string]) {
+  if (typeof modifierArgs[1] === 'function') {
+    throw new Error([
+      'It looks like you are calling test.skip() inside the test and pass a callback.',
+      'Pass a condition instead and optional description instead:',
+      `test('my test', async ({ page, isMobile }) => {`,
+      `  test.skip(isMobile, 'This test is not applicable on mobile');`,
+      `});`,
+    ].join('\n'));
+  }
+
   if (modifierArgs.length >= 1 && !modifierArgs[0])
     return;
 
