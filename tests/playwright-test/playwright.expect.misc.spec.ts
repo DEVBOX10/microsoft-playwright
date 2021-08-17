@@ -32,7 +32,7 @@ test('should support toHaveCount', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(0);
 });
 
-test('should support toHaveProp', async ({ runInlineTest }) => {
+test('should support toHaveJSProperty', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.ts': `
       const { test } = pwt;
@@ -41,14 +41,14 @@ test('should support toHaveProp', async ({ runInlineTest }) => {
         await page.setContent('<div></div>');
         await page.$eval('div', e => e.foo = { a: 1, b: 'string', c: new Date(1627503992000) });
         const locator = page.locator('div');
-        await expect(locator).toHaveProp('foo', { a: 1, b: 'string', c: new Date(1627503992000) });
+        await expect(locator).toHaveJSProperty('foo', { a: 1, b: 'string', c: new Date(1627503992000) });
       });
 
       test('fail', async ({ page }) => {
         await page.setContent('<div></div>');
         await page.$eval('div', e => e.foo = { a: 1, b: 'string', c: new Date(1627503992000) });
         const locator = page.locator('div');
-        await expect(locator).toHaveProp('foo', { a: 1, b: 'string', c: new Date(1627503992001) }, { timeout: 1000 });
+        await expect(locator).toHaveJSProperty('foo', { a: 1, b: 'string', c: new Date(1627503992001) }, { timeout: 1000 });
       });
       `,
   }, { workers: 1 });
@@ -159,9 +159,9 @@ test('should support toHaveURL', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
 });
 
-test('should support respect actionTimeout', async ({ runInlineTest }) => {
+test('should support respect expect.timeout', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.js': `module.exports = { use: { actionTimeout: 1000 } }`,
+    'playwright.config.js': `module.exports = { expect: { timeout: 1000 } }`,
     'a.test.ts': `
       const { test } = pwt;
 

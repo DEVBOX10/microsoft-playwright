@@ -16,6 +16,7 @@
  */
 
 import { Page, BindingCall } from './page';
+import { Frame } from './frame';
 import * as network from './network';
 import * as channels from '../protocol/channels';
 import fs from 'fs';
@@ -33,11 +34,13 @@ import * as api from '../../types/types';
 import * as structs from '../../types/structs';
 import { CDPSession } from './cdpSession';
 import { Tracing } from './tracing';
+import type { BrowserType } from './browserType';
 
 export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel, channels.BrowserContextInitializer> implements api.BrowserContext {
   _pages = new Set<Page>();
   private _routes: { url: URLMatch, handler: network.RouteHandler }[] = [];
   readonly _browser: Browser | null = null;
+  private _browserType: BrowserType | undefined;
   readonly _bindings = new Map<string, (source: structs.BindingSource, ...args: any[]) => any>();
   _timeoutSettings = new TimeoutSettings();
   _ownerPage: Page | undefined;
@@ -87,6 +90,11 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
     this._channel.on('requestFinished', ({ request, responseEndTiming, page }) => this._onRequestFinished(network.Request.from(request), responseEndTiming, Page.fromNullable(page)));
     this._channel.on('response', ({ response, page }) => this._onResponse(network.Response.from(response), Page.fromNullable(page)));
     this._closedPromise = new Promise(f => this.once(Events.BrowserContext.Close, f));
+  }
+
+  _setBrowserType(browserType: BrowserType) {
+    this._browserType = browserType;
+    browserType._contexts.add(this);
   }
 
   private _onPage(page: Page): void {
@@ -301,9 +309,12 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
     return [...this._serviceWorkers];
   }
 
-  async newCDPSession(page: Page): Promise<api.CDPSession> {
+  async newCDPSession(page: Page | Frame): Promise<api.CDPSession> {
+    // channelOwner.ts's validation messages don't handle the pseudo-union type, so we're explicit here
+    if (!(page instanceof Page) && !(page instanceof Frame))
+      throw new Error('page: expected Page or Frame');
     return this._wrapApiCall(async (channel: channels.BrowserContextChannel) => {
-      const result = await channel.newCDPSession({ page: page._channel });
+      const result = await channel.newCDPSession(page instanceof Page ? { page: page._channel } : { frame: page._channel });
       return CDPSession.from(result.session);
     });
   }
@@ -311,12 +322,14 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
   _onClose() {
     if (this._browser)
       this._browser._contexts.delete(this);
+    this._browserType?._contexts?.delete(this);
     this.emit(Events.BrowserContext.Close, this);
   }
 
   async close(): Promise<void> {
     try {
       await this._wrapApiCall(async (channel: channels.BrowserContextChannel) => {
+        await this._browserType?._onWillCloseContext?.(this);
         await channel.close();
         await this._closedPromise;
       });

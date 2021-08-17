@@ -16,6 +16,8 @@
 
 import { SelectorEngine, SelectorRoot } from './selectorEngine';
 import { XPathEngine } from './xpathSelectorEngine';
+import { ReactEngine } from './reactSelectorEngine';
+import { VueEngine } from './vueSelectorEngine';
 import { ParsedSelector, ParsedSelectorPart, parseSelector } from '../common/selectorParser';
 import { FatalDOMError } from '../common/domErrors';
 import { SelectorEvaluatorImpl, isVisible, parentElementOrShadowHost, elementMatchesText, TextMatcher, createRegexTextMatcher, createStrictTextMatcher, createLaxTextMatcher } from './selectorEvaluator';
@@ -62,6 +64,8 @@ export class InjectedScript {
     this._engines = new Map();
     this._engines.set('xpath', XPathEngine);
     this._engines.set('xpath:light', XPathEngine);
+    this._engines.set('_react', ReactEngine);
+    this._engines.set('_vue', VueEngine);
     this._engines.set('text', this._createTextEngine(true));
     this._engines.set('text:light', this._createTextEngine(false));
     this._engines.set('id', this._createAttributeEngine('id', true));
@@ -73,9 +77,8 @@ export class InjectedScript {
     this._engines.set('data-test', this._createAttributeEngine('data-test', true));
     this._engines.set('data-test:light', this._createAttributeEngine('data-test', false));
     this._engines.set('css', this._createCSSEngine());
-    this._engines.set('_first', { queryAll: () => [] });
-    this._engines.set('_visible', { queryAll: () => [] });
-    this._engines.set('_nth', { queryAll: () => [] });
+    this._engines.set('nth', { queryAll: () => [] });
+    this._engines.set('visible', { queryAll: () => [] });
 
     for (const { name, engine } of customEngines)
       this._engines.set(name, engine);
@@ -112,11 +115,11 @@ export class InjectedScript {
       return roots;
 
     const part = selector.parts[index];
-    if (part.name === '_nth') {
+    if (part.name === 'nth') {
       let filtered: ElementMatch[] = [];
-      if (part.body === 'first') {
+      if (part.body === '0') {
         filtered = roots.slice(0, 1);
-      } else if (part.body === 'last') {
+      } else if (part.body === '-1') {
         if (roots.length)
           filtered = roots.slice(roots.length - 1);
       } else {
@@ -133,7 +136,7 @@ export class InjectedScript {
       return this._querySelectorRecursively(filtered, selector, index + 1, queryCache);
     }
 
-    if (part.name === '_visible') {
+    if (part.name === 'visible') {
       const visible = Boolean(part.body);
       return roots.filter(match => visible === isVisible(match.element));
     }

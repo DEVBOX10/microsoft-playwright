@@ -36,6 +36,8 @@ export type UpdateSnapshots = 'all' | 'none' | 'missing';
 type FixtureDefine<TestArgs extends KeyValue = {}, WorkerArgs extends KeyValue = {}> = { test: TestType<TestArgs, WorkerArgs>, fixtures: Fixtures<{}, {}, TestArgs, WorkerArgs> };
 
 type ExpectSettings = {
+  // Default timeout for async expect matchers in milliseconds, defaults to 5000ms.
+  timeout?: number;
   toMatchSnapshot?: {
     // Pixel match threshold.
     threshold?: number
@@ -62,24 +64,26 @@ export interface Project<TestArgs = {}, WorkerArgs = {}> extends TestProject {
 
 export type FullProject<TestArgs = {}, WorkerArgs = {}> = Required<Project<TestArgs, WorkerArgs>>;
 
-export type LaunchConfig = {
+export type WebServerConfig = {
   /**
    * Shell command to start. For example `npm run start`.
    */
   command: string,
   /**
-   * The port that your http server is expected to appear on. If specified it does wait until it accepts connections.
+   * The port that your http server is expected to appear on. It does wait until it accepts connections.
    */
-  waitForPort?: number,
+  port: number,
   /**
    * How long to wait for the process to start up and be available in milliseconds. Defaults to 60000.
    */
-  waitForPortTimeout?: number,
+  timeout?: number,
   /**
-   * If true it will verify that the given port via `waitForPort` is available and throw otherwise.
-   * This should commonly set to !!process.env.CI to allow the local dev server when running tests locally.
+   * If true, it will re-use an existing server on the port when available. If no server is running
+   * on that port, it will run the command to start a new server.
+   * If false, it will throw if an existing process is listening on the port.
+   * This should commonly set to !process.env.CI to allow the local dev server when running tests locally.
    */
-  strict?: boolean
+  reuseExistingServer?: boolean
   /**
    * Environment variables, process.env by default
    */
@@ -107,7 +111,7 @@ interface TestConfig {
   reportSlowTests?: ReportSlowTests;
   shard?: Shard;
   updateSnapshots?: UpdateSnapshots;
-  _launch?: LaunchConfig | LaunchConfig[];
+  webServer?: WebServerConfig;
   workers?: number;
 
   expect?: ExpectSettings;
@@ -145,7 +149,7 @@ export interface FullConfig {
   shard: Shard;
   updateSnapshots: UpdateSnapshots;
   workers: number;
-  _launch: LaunchConfig[];
+  webServer: WebServerConfig | null;
 }
 
 export type TestStatus = 'passed' | 'failed' | 'timedOut' | 'skipped';
@@ -219,6 +223,9 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
   only: TestFunction<TestArgs & WorkerArgs>;
   describe: SuiteFunction & {
     only: SuiteFunction;
+    serial: SuiteFunction & {
+      only: SuiteFunction;
+    };
   };
   skip(): void;
   skip(condition: boolean): void;
@@ -243,8 +250,8 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
   setTimeout(timeout: number): void;
   beforeEach(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   afterEach(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
-  beforeAll(inner: (args: WorkerArgs, workerInfo: WorkerInfo) => Promise<any> | any): void;
-  afterAll(inner: (args: WorkerArgs, workerInfo: WorkerInfo) => Promise<any> | any): void;
+  beforeAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
+  afterAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   use(fixtures: Fixtures<{}, {}, TestArgs, WorkerArgs>): void;
   step(title: string, body: () => Promise<any>): Promise<any>;
   expect: Expect;
@@ -258,9 +265,9 @@ export type WorkerFixture<R, Args extends KeyValue> = (args: Args, use: (r: R) =
 type TestFixtureValue<R, Args> = R | TestFixture<R, Args>;
 type WorkerFixtureValue<R, Args> = R | WorkerFixture<R, Args>;
 export type Fixtures<T extends KeyValue = {}, W extends KeyValue = {}, PT extends KeyValue = {}, PW extends KeyValue = {}> = {
-  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW>;
+  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW> | [WorkerFixtureValue<PW[K], W & PW>, { scope: 'worker' }];
 } & {
-  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW>;
+  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW> | [TestFixtureValue<PT[K], T & W & PT & PW>, { scope: 'test' }];
 } & {
   [K in keyof W]?: [WorkerFixtureValue<W[K], W & PW>, { scope: 'worker', auto?: boolean }];
 } & {
@@ -280,14 +287,14 @@ export interface PlaywrightWorkerOptions {
   headless: boolean | undefined;
   channel: BrowserChannel | undefined;
   launchOptions: LaunchOptions;
+  screenshot: 'off' | 'on' | 'only-on-failure';
+  trace: 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | /** deprecated */ 'retry-with-trace';
+  video: VideoMode | { mode: VideoMode, size: ViewportSize };
 }
 
 export type VideoMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | /** deprecated */ 'retry-with-video';
 
 export interface PlaywrightTestOptions {
-  screenshot: 'off' | 'on' | 'only-on-failure';
-  trace: 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | /** deprecated */ 'retry-with-trace';
-  video: VideoMode | { mode: VideoMode, size: ViewportSize };
   acceptDownloads: boolean | undefined;
   bypassCSP: boolean | undefined;
   colorScheme: ColorScheme | undefined;

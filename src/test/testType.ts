@@ -40,6 +40,8 @@ export class TestTypeImpl {
     test.only = wrapFunctionWithLocation(this._createTest.bind(this, 'only'));
     test.describe = wrapFunctionWithLocation(this._describe.bind(this, 'default'));
     test.describe.only = wrapFunctionWithLocation(this._describe.bind(this, 'only'));
+    test.describe.serial = wrapFunctionWithLocation(this._describe.bind(this, 'serial'));
+    test.describe.serial.only = wrapFunctionWithLocation(this._describe.bind(this, 'serial.only'));
     test.beforeEach = wrapFunctionWithLocation(this._hook.bind(this, 'beforeEach'));
     test.afterEach = wrapFunctionWithLocation(this._hook.bind(this, 'afterEach'));
     test.beforeAll = wrapFunctionWithLocation(this._hook.bind(this, 'beforeAll'));
@@ -65,7 +67,7 @@ export class TestTypeImpl {
     const ordinalInFile = countByFile.get(suite._requireFile) || 0;
     countByFile.set(suite._requireFile, ordinalInFile + 1);
 
-    const test = new TestCase(title, fn, ordinalInFile, this, location);
+    const test = new TestCase('test', title, fn, ordinalInFile, this, location);
     test._requireFile = suite._requireFile;
     suite._addTest(test);
 
@@ -75,7 +77,7 @@ export class TestTypeImpl {
       test.expectedStatus = 'skipped';
   }
 
-  private _describe(type: 'default' | 'only', location: Location, title: string, fn: Function) {
+  private _describe(type: 'default' | 'only' | 'serial' | 'serial.only', location: Location, title: string, fn: Function) {
     throwIfRunningInsideJest();
     const suite = currentlyLoadingFileSuite();
     if (!suite)
@@ -92,11 +94,14 @@ export class TestTypeImpl {
 
     const child = new Suite(title);
     child._requireFile = suite._requireFile;
+    child._isDescribe = true;
     child.location = location;
     suite._addSuite(child);
 
-    if (type === 'only')
+    if (type === 'only' || type === 'serial.only')
       child._only = true;
+    if (type === 'serial' || type === 'serial.only')
+      child._serial =  true;
 
     setCurrentlyLoadingFileSuite(child);
     fn();
@@ -107,7 +112,13 @@ export class TestTypeImpl {
     const suite = currentlyLoadingFileSuite();
     if (!suite)
       throw errorWithLocation(location, `${name} hook can only be called in a test file`);
-    suite._hooks.push({ type: name, fn, location });
+    if (name === 'beforeAll' || name === 'afterAll') {
+      const hook = new TestCase(name, name, fn, 0, this, location);
+      hook._requireFile = suite._requireFile;
+      suite._addAllHook(hook);
+    } else {
+      suite._eachHooks.push({ type: name, fn, location });
+    }
   }
 
   private _modifier(type: 'skip' | 'fail' | 'fixme' | 'slow', location: Location, ...modifierArgs: [arg?: any | Function, description?: string]) {
@@ -155,7 +166,7 @@ export class TestTypeImpl {
     const suite = currentlyLoadingFileSuite();
     if (!suite)
       throw errorWithLocation(location, `test.use() can only be called in a test file`);
-    suite._fixtureOverrides = { ...suite._fixtureOverrides, ...fixtures };
+    suite._use.push({ fixtures, location });
   }
 
   private async _step(location: Location, title: string, body: () => Promise<void>): Promise<void> {

@@ -44,11 +44,11 @@ export async function toBeTruthy<T>(
   let pass = false;
 
   // TODO: interrupt on timeout for nice message.
-  await pollUntilDeadline(this, async remainingTime => {
+  await pollUntilDeadline(testInfo, async remainingTime => {
     received = await query(remainingTime);
     pass = !!received;
     return pass === !matcherOptions.isNot;
-  }, options.timeout, 100, testInfo._testFinished);
+  }, options.timeout, testInfo._testFinished);
 
   const message = () => {
     return matcherHint(matcherName, undefined, '', matcherOptions);

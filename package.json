@@ -1,7 +1,7 @@
 {
   "name": "playwright-internal",
   "private": true,
-  "version": "1.14.0-next",
+  "version": "1.15.0-next",
   "description": "A high-level API to automate web browsers",
   "repository": "github:Microsoft/playwright",
   "homepage": "https://playwright.dev",
@@ -106,6 +106,7 @@
     "@types/yazl": "^2.4.2",
     "@typescript-eslint/eslint-plugin": "^4.28.4",
     "@typescript-eslint/parser": "^4.28.4",
+    "ansi-to-html": "^0.7.1",
     "babel-loader": "^8.2.2",
     "chokidar": "^3.5.0",
     "commonmark": "^0.29.1",

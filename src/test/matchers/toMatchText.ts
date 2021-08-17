@@ -21,12 +21,11 @@ import {
 
 import {
   EXPECTED_COLOR,
-  getLabelPrinter,
   matcherErrorMessage,
   matcherHint, MatcherHintOptions,
   printExpected,
-  printReceived,
   printWithType,
+  printDiffOrStringify,
 } from 'jest-matcher-utils';
 import { currentTestInfo } from '../globals';
 import type { Expect } from '../types';
@@ -70,7 +69,7 @@ export async function toMatchText(
   let pass = false;
 
   // TODO: interrupt on timeout for nice message.
-  await pollUntilDeadline(this, async remainingTime => {
+  await pollUntilDeadline(testInfo, async remainingTime => {
     received = await query(remainingTime);
     if (options.matchSubstring)
       pass = received.includes(expected as string);
@@ -80,7 +79,7 @@ export async function toMatchText(
       pass = expected.test(received);
 
     return pass === !matcherOptions.isNot;
-  }, options.timeout, 100, testInfo._testFinished);
+  }, options.timeout, testInfo._testFinished);
 
   const stringSubstring = options.matchSubstring ? 'substring' : 'string';
   const message = pass
@@ -107,14 +106,17 @@ export async function toMatchText(
       const labelExpected = `Expected ${typeof expected === 'string' ? stringSubstring : 'pattern'
       }`;
       const labelReceived = 'Received string';
-      const printLabel = getLabelPrinter(labelExpected, labelReceived);
 
       return (
         matcherHint(matcherName, undefined, undefined, matcherOptions) +
         '\n\n' +
-        `${printLabel(labelExpected)}${printExpected(expected)}\n` +
-        `${printLabel(labelReceived)}${printReceived(received)}`
-      );
+        printDiffOrStringify(
+            expected,
+            received,
+            labelExpected,
+            labelReceived,
+            this.expand !== false,
+        ));
     };
 
   return { message, pass };

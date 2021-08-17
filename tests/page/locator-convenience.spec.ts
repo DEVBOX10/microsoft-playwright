@@ -88,50 +88,6 @@ it('textContent should work', async ({ page, server }) => {
   expect(await page.textContent('#inner')).toBe('Text,\nmore text');
 });
 
-it('textContent should be atomic', async ({ playwright, page }) => {
-  const createDummySelector = () => ({
-    query(root, selector) {
-      const result = root.querySelector(selector);
-      if (result)
-        Promise.resolve().then(() => result.textContent = 'modified');
-      return result;
-    },
-    queryAll(root: HTMLElement, selector: string) {
-      const result = Array.from(root.querySelectorAll(selector));
-      for (const e of result)
-        Promise.resolve().then(() => e.textContent = 'modified');
-      return result;
-    }
-  });
-  await playwright.selectors.register('textContent', createDummySelector);
-  await page.setContent(`<div>Hello</div>`);
-  const tc = await page.textContent('textContent=div');
-  expect(tc).toBe('Hello');
-  expect(await page.evaluate(() => document.querySelector('div').textContent)).toBe('modified');
-});
-
-it('innerText should be atomic', async ({ playwright, page }) => {
-  const createDummySelector = () => ({
-    query(root: HTMLElement, selector: string) {
-      const result = root.querySelector(selector);
-      if (result)
-        Promise.resolve().then(() => result.textContent = 'modified');
-      return result;
-    },
-    queryAll(root: HTMLElement, selector: string) {
-      const result = Array.from(root.querySelectorAll(selector));
-      for (const e of result)
-        Promise.resolve().then(() => e.textContent = 'modified');
-      return result;
-    }
-  });
-  await playwright.selectors.register('innerText', createDummySelector);
-  await page.setContent(`<div>Hello</div>`);
-  const tc = await page.innerText('innerText=div');
-  expect(tc).toBe('Hello');
-  expect(await page.evaluate(() => document.querySelector('div').innerText)).toBe('modified');
-});
-
 it('isVisible and isHidden should work', async ({ page }) => {
   await page.setContent(`<div>Hi</div><span></span>`);
 
@@ -200,12 +156,12 @@ it('isChecked should work', async ({page}) => {
   expect(error.message).toContain('Not a checkbox or radio button');
 });
 
-it('addTextContents should work', async ({page}) => {
+it('allTextContents should work', async ({page}) => {
   await page.setContent(`<div>A</div><div>B</div><div>C</div>`);
   expect(await page.locator('div').allTextContents()).toEqual(['A', 'B', 'C']);
 });
 
-it('addInnerTexts should work', async ({page}) => {
+it('allInnerTexts should work', async ({page}) => {
   await page.setContent(`<div>A</div><div>B</div><div>C</div>`);
   expect(await page.locator('div').allInnerTexts()).toEqual(['A', 'B', 'C']);
 });

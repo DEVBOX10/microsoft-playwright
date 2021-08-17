@@ -37,6 +37,8 @@ export type UpdateSnapshots = 'all' | 'none' | 'missing';
 type FixtureDefine<TestArgs extends KeyValue = {}, WorkerArgs extends KeyValue = {}> = { test: TestType<TestArgs, WorkerArgs>, fixtures: Fixtures<{}, {}, TestArgs, WorkerArgs> };
 
 type ExpectSettings = {
+  // Default timeout for async expect matchers in milliseconds, defaults to 5000ms.
+  timeout?: number;
   toMatchSnapshot?: {
     // Pixel match threshold.
     threshold?: number
@@ -479,24 +481,26 @@ export interface Project<TestArgs = {}, WorkerArgs = {}> extends TestProject {
 
 export type FullProject<TestArgs = {}, WorkerArgs = {}> = Required<Project<TestArgs, WorkerArgs>>;
 
-export type LaunchConfig = {
+export type WebServerConfig = {
   /**
    * Shell command to start. For example `npm run start`.
    */
   command: string,
   /**
-   * The port that your http server is expected to appear on. If specified it does wait until it accepts connections.
+   * The port that your http server is expected to appear on. It does wait until it accepts connections.
    */
-  waitForPort?: number,
+  port: number,
   /**
    * How long to wait for the process to start up and be available in milliseconds. Defaults to 60000.
    */
-  waitForPortTimeout?: number,
+  timeout?: number,
   /**
-   * If true it will verify that the given port via `waitForPort` is available and throw otherwise.
-   * This should commonly set to !!process.env.CI to allow the local dev server when running tests locally.
+   * If true, it will re-use an existing server on the port when available. If no server is running
+   * on that port, it will run the command to start a new server.
+   * If false, it will throw if an existing process is listening on the port.
+   * This should commonly set to !process.env.CI to allow the local dev server when running tests locally.
    */
-  strict?: boolean
+  reuseExistingServer?: boolean
   /**
    * Environment variables, process.env by default
    */
@@ -690,7 +694,7 @@ interface TestConfig {
    * Learn more about [snapshots](https://playwright.dev/docs/test-snapshots).
    */
   updateSnapshots?: UpdateSnapshots;
-  _launch?: LaunchConfig | LaunchConfig[];
+  webServer?: WebServerConfig;
   /**
    * The maximum number of concurrent worker processes to use for parallelizing tests.
    *
@@ -1051,7 +1055,7 @@ export interface FullConfig {
    * Playwright Test.
    */
   workers: number;
-  _launch: LaunchConfig[];
+  webServer: WebServerConfig | null;
 }
 
 export type TestStatus = 'passed' | 'failed' | 'timedOut' | 'skipped';
@@ -1523,6 +1527,9 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
    */
   describe: SuiteFunction & {
     only: SuiteFunction;
+    serial: SuiteFunction & {
+      only: SuiteFunction;
+    };
   };
   /**
    * Skips a test or a group of tests.
@@ -2020,17 +2027,17 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
    *
    * You can use [test.afterAll(hookFunction)](https://playwright.dev/docs/api/class-test#test-after-all) to teardown any
    * resources set up in `beforeAll`.
-   * @param hookFunction Hook function that takes one or two arguments: an object with fixtures and optional [WorkerInfo].
+   * @param hookFunction Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
    */
-  beforeAll(inner: (args: WorkerArgs, workerInfo: WorkerInfo) => Promise<any> | any): void;
+  beforeAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   /**
    * Declares an `afterAll` hook that is executed once after all tests. When called in the scope of a test file, runs after
    * all tests in the file. When called inside a
    * [test.describe(title, callback)](https://playwright.dev/docs/api/class-test#test-describe) group, runs after all tests
    * in the group.
-   * @param hookFunction Hook function that takes one or two arguments: an object with fixtures and optional [WorkerInfo].
+   * @param hookFunction Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
    */
-  afterAll(inner: (args: WorkerArgs, workerInfo: WorkerInfo) => Promise<any> | any): void;
+  afterAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   /**
    * Specifies parameters or fixtures to use in a single test file or a
    * [test.describe(title, callback)](https://playwright.dev/docs/api/class-test#test-describe) group. Most useful to
@@ -2135,9 +2142,9 @@ export type WorkerFixture<R, Args extends KeyValue> = (args: Args, use: (r: R) =
 type TestFixtureValue<R, Args> = R | TestFixture<R, Args>;
 type WorkerFixtureValue<R, Args> = R | WorkerFixture<R, Args>;
 export type Fixtures<T extends KeyValue = {}, W extends KeyValue = {}, PT extends KeyValue = {}, PW extends KeyValue = {}> = {
-  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW>;
+  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW> | [WorkerFixtureValue<PW[K], W & PW>, { scope: 'worker' }];
 } & {
-  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW>;
+  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW> | [TestFixtureValue<PT[K], T & W & PT & PW>, { scope: 'test' }];
 } & {
   [K in keyof W]?: [WorkerFixtureValue<W[K], W & PW>, { scope: 'worker', auto?: boolean }];
 } & {
@@ -2293,6 +2300,35 @@ export interface PlaywrightWorkerOptions {
    * [fixtures.channel](https://playwright.dev/docs/api/class-fixtures#fixtures-channel) take priority over this.
    */
   launchOptions: LaunchOptions;
+  /**
+   * Whether to automatically capture a screenshot after each test. Defaults to `'off'`.
+   * - `'off'`: Do not capture screenshots.
+   * - `'on'`: Capture screenshot after each test.
+   * - `'only-on-failure'`: Capture screenshot after each test failure.
+   *
+   * Learn more about [automatic screenshots](https://playwright.dev/docs/test-configuration#automatic-screenshots).
+   */
+  screenshot: 'off' | 'on' | 'only-on-failure';
+  /**
+   * Whether to record a trace for each test. Defaults to `'off'`.
+   * - `'off'`: Do not record a trace.
+   * - `'on'`: Record a trace for each test.
+   * - `'retain-on-failure'`: Record a trace for each test, but remove it from successful test runs.
+   * - `'on-first-retry'`: Record a trace only when retrying a test for the first time.
+   *
+   * Learn more about [recording trace](https://playwright.dev/docs/test-configuration#record-test-trace).
+   */
+  trace: 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | /** deprecated */ 'retry-with-trace';
+  /**
+   * Whether to record video for each test. Defaults to `'off'`.
+   * - `'off'`: Do not record video.
+   * - `'on'`: Record video for each test.
+   * - `'retain-on-failure'`: Record video for each test, but remove all videos from successful test runs.
+   * - `'on-first-retry'`: Record video only when retrying a test for the first time.
+   *
+   * Learn more about [recording video](https://playwright.dev/docs/test-configuration#record-video).
+   */
+  video: VideoMode | { mode: VideoMode, size: ViewportSize };
 }
 
 export type VideoMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | /** deprecated */ 'retry-with-video';
@@ -2386,35 +2422,6 @@ export type VideoMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | 
  *
  */
 export interface PlaywrightTestOptions {
-  /**
-   * Whether to automatically capture a screenshot after each test. Defaults to `'off'`.
-   * - `'off'`: Do not capture screenshots.
-   * - `'on'`: Capture screenshot after each test.
-   * - `'only-on-failure'`: Capture screenshot after each test failure.
-   *
-   * Learn more about [automatic screenshots](https://playwright.dev/docs/test-configuration#automatic-screenshots).
-   */
-  screenshot: 'off' | 'on' | 'only-on-failure';
-  /**
-   * Whether to record a trace for each test. Defaults to `'off'`.
-   * - `'off'`: Do not record a trace.
-   * - `'on'`: Record a trace for each test.
-   * - `'retain-on-failure'`: Record a trace for each test, but remove it from successful test runs.
-   * - `'on-first-retry'`: Record a trace only when retrying a test for the first time.
-   *
-   * Learn more about [recording trace](https://playwright.dev/docs/test-configuration#record-test-trace).
-   */
-  trace: 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | /** deprecated */ 'retry-with-trace';
-  /**
-   * Whether to record video for each test. Defaults to `'off'`.
-   * - `'off'`: Do not record video.
-   * - `'on'`: Record video for each test.
-   * - `'retain-on-failure'`: Record video for each test, but remove all videos from successful test runs.
-   * - `'on-first-retry'`: Record video only when retrying a test for the first time.
-   *
-   * Learn more about [recording video](https://playwright.dev/docs/test-configuration#record-video).
-   */
-  video: VideoMode | { mode: VideoMode, size: ViewportSize };
   /**
    * Whether to automatically download all the attachments. Defaults to `false` where all the downloads are canceled.
    */
@@ -2518,7 +2525,7 @@ export interface PlaywrightTestOptions {
    */
   contextOptions: BrowserContextOptions;
   /**
-   * Timeout for each action and expect in milliseconds. Defaults to 0 (no timeout).
+   * Default timeout for each Playwright action in milliseconds, defaults to 0 (no timeout).
    *
    * This is a default timeout for all Playwright actions, same as configured via
    * [page.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-page#page-set-default-timeout).
@@ -2716,70 +2723,6 @@ export interface PlaywrightWorkerArgs {
  *
  */
 export interface PlaywrightTestArgs {
-  /**
-   * A function that creates a new context, taking into account all options set through
-   * [configuration file](https://playwright.dev/docs/test-configuration) or
-   * [test.use(fixtures)](https://playwright.dev/docs/api/class-test#test-use) calls. All contexts created by this function
-   * are similar to the default [fixtures.context](https://playwright.dev/docs/api/class-fixtures#fixtures-context).
-   *
-   * This function is useful for multi-context scenarios, for example testing two users talking over the chat application.
-   *
-   * A single `options` argument will be merged with all the default options from
-   * [configuration file](https://playwright.dev/docs/test-configuration) or
-   * [test.use(fixtures)](https://playwright.dev/docs/api/class-test#test-use) calls and passed to
-   * [browser.newContext([options])](https://playwright.dev/docs/api/class-browser#browser-new-context). If you'd like to
-   * undo some of these options, override them with some value or `undefined`. For example:
-   *
-   * ```js js-flavor=ts
-   * // example.spec.ts
-   *
-   * import { test } from '@playwright/test';
-   *
-   * // All contexts will use this storage state.
-   * test.use({ storageState: 'state.json' });
-   *
-   * test('my test', async ({ createContext }) => {
-   *   // An isolated context
-   *   const context1 = await createContext();
-   *
-   *   // Another isolated context with custom options
-   *   const context2 = await createContext({
-   *     // Undo 'state.json' from above
-   *     storageState: undefined,
-   *     // Set custom locale
-   *     locale: 'en-US',
-   *   });
-   *
-   *   // ...
-   * });
-   * ```
-   *
-   * ```js js-flavor=js
-   * // example.spec.js
-   * // @ts-check
-   *
-   * const { test } = require('@playwright/test');
-   *
-   * // All contexts will use this storage state.
-   * test.use({ storageState: 'state.json' });
-   *
-   * test('my test', async ({ createContext }) => {
-   *   // An isolated context
-   *   const context1 = await createContext();
-   *
-   *   // Another isolated context with custom options
-   *   const context2 = await createContext({
-   *     // Undo 'state.json' from above
-   *     storageState: undefined,
-   *     // Set custom locale
-   *     locale: 'en-US',
-   *   });
-   *
-   *   // ...
-   * });
-   * ```
-   *
-   */
   createContext: (options?: BrowserContextOptions) => Promise<BrowserContext>;
   /**
    * Isolated [BrowserContext] instance, created for each test. Since contexts are isolated between each other, every test

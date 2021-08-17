@@ -2070,8 +2070,6 @@ export interface Page {
    * element immediately before performing an action, so a series of actions on the same locator can in fact be performed on
    * different DOM elements. That would happen if the DOM structure between those actions has changed.
    *
-   * Note that locator always implies visibility, so it will always be locating visible elements.
-   *
    * Shortcut for main frame's [frame.locator(selector)](https://playwright.dev/docs/api/class-frame#frame-locator).
    * @param selector A selector to use when resolving DOM element. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
    */
@@ -4338,8 +4336,6 @@ export interface Frame {
    * The method returns an element locator that can be used to perform actions in the frame. Locator is resolved to the
    * element immediately before performing an action, so a series of actions on the same locator can in fact be performed on
    * different DOM elements. That would happen if the DOM structure between those actions has changed.
-   *
-   * Note that locator always implies visibility, so it will always be locating visible elements.
    * @param selector A selector to use when resolving DOM element. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
    */
   locator(selector: string): Locator;
@@ -5482,9 +5478,9 @@ export interface BrowserContext {
    * > NOTE: CDP sessions are only supported on Chromium-based browsers.
    *
    * Returns the newly created session.
-   * @param page Page to create new session for.
+   * @param page Target to create new session for. For backwards-compatability, this parameter is named `page`, but it can be a `Page` or `Frame` type.
    */
-  newCDPSession(page: Page): Promise<CDPSession>;
+  newCDPSession(page: Page|Frame): Promise<CDPSession>;
 
   /**
    * Creates a new page in the browser context.
@@ -7033,6 +7029,19 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
  * await locator.click();
  * ```
  *
+ * **Strictness**
+ *
+ * Locators are strict. This means that all operations on locators that imply some target DOM element will throw if more
+ * than one element matches given selector.
+ *
+ * ```js
+ * // Throws if there are several buttons in DOM:
+ * await page.locator('button').click();
+ *
+ * // Works because we explicitly tell locator to pick the first element:
+ * await page.locator('button').first().click();
+ * ```
+ *
  */
 export interface Locator {
   /**
@@ -7046,7 +7055,7 @@ export interface Locator {
    * Examples:
    *
    * ```js
-   * const tweets = await page.locator('.tweet .retweets');
+   * const tweets = page.locator('.tweet .retweets');
    * expect(await tweets.evaluate(node => node.innerText)).toBe('10 retweets');
    * ```
    *
@@ -7064,8 +7073,9 @@ export interface Locator {
    * The method finds all elements matching the specified locator and passes an array of matched elements as a first argument
    * to `pageFunction`. Returns the result of `pageFunction` invocation.
    *
-   * If `pageFunction` returns a [Promise], then [`Locator.evaluateAll`] would wait for the promise to resolve and return its
-   * value.
+   * If `pageFunction` returns a [Promise], then
+   * [locator.evaluateAll(pageFunction[, arg])](https://playwright.dev/docs/api/class-locator#locator-evaluate-all) would
+   * wait for the promise to resolve and return its value.
    *
    * Examples:
    *
@@ -9155,12 +9165,21 @@ export {};
 
 
 /**
- * Playwright has **experimental** support for Android automation. See [here](https://playwright.dev/docs/mobile) for more information. You can
- * access android namespace via:
+ * Playwright has **experimental** support for Android automation. This includes Chrome for Android and Android WebView.
  *
- * ```js
- * const { _android: android } = require('playwright');
- * ```
+ * *Requirements*
+ * - Android device or AVD Emulator.
+ * - [ADB daemon](https://developer.android.com/studio/command-line/adb) running and authenticated with your device.
+ *   Typically running `adb devices` is all you need to do.
+ * - [`Chrome 87`](https://play.google.com/store/apps/details?id=com.android.chrome) or newer installed on the device
+ * - "Enable command line on non-rooted devices" enabled in `chrome://flags`.
+ *
+ * *Known limitations*
+ * - Raw USB operation is not yet supported, so you need ADB.
+ * - Device needs to be awake to produce screenshots. Enabling "Stay awake" developer mode will help.
+ * - We didn't run all the tests against the device, so not everything works.
+ *
+ * *How to run*
  *
  * An example of the Android automation script would be:
  *
@@ -13022,7 +13041,7 @@ type Devices = {
   "Desktop Firefox HiDPI": DeviceDescriptor;
   "Desktop Safari": DeviceDescriptor;
   "Desktop Chrome": DeviceDescriptor;
-  "Dekstop Edge": DeviceDescriptor;
+  "Desktop Edge": DeviceDescriptor;
   "Desktop Firefox": DeviceDescriptor;
   [key: string]: DeviceDescriptor;
 }

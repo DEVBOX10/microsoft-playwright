@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type { Expect } from './types';
+import type { TestInfoImpl } from './types';
 import util from 'util';
 import path from 'path';
 import type { TestError, Location } from './types';
@@ -71,9 +71,11 @@ export async function raceAgainstDeadline<T>(promise: Promise<T>, deadline: numb
   return (new DeadlineRunner(promise, deadline)).result;
 }
 
-export async function pollUntilDeadline(state: ReturnType<Expect['getState']>, func: (remainingTime: number) => Promise<boolean>, pollTime: number | undefined, pollInterval: number, deadlinePromise: Promise<void>): Promise<void> {
-  const playwrightActionTimeout = (state as any).playwrightActionTimeout;
-  pollTime = pollTime === 0 ? 0 : pollTime || playwrightActionTimeout;
+export async function pollUntilDeadline(testInfo: TestInfoImpl, func: (remainingTime: number) => Promise<boolean>, pollTime: number | undefined, deadlinePromise: Promise<void>): Promise<void> {
+  let defaultExpectTimeout = testInfo.project.expect?.timeout;
+  if (typeof defaultExpectTimeout === 'undefined')
+    defaultExpectTimeout = 5000;
+  pollTime = pollTime === 0 ? 0 : pollTime || defaultExpectTimeout;
   const deadline = pollTime ? monotonicTime() + pollTime : 0;
 
   let aborted = false;
@@ -82,6 +84,8 @@ export async function pollUntilDeadline(state: ReturnType<Expect['getState']>, f
     return true;
   });
 
+  const pollIntervals = [100, 250, 500];
+  let attempts = 0;
   while (!aborted) {
     const remainingTime = deadline ? deadline - monotonicTime() : 1000 * 3600 * 24;
     if (remainingTime <= 0)
@@ -102,7 +106,7 @@ export async function pollUntilDeadline(state: ReturnType<Expect['getState']>, f
     }
 
     let timer: NodeJS.Timer;
-    const timeoutPromise = new Promise(f => timer = setTimeout(f, pollInterval));
+    const timeoutPromise = new Promise(f => timer = setTimeout(f, pollIntervals[attempts++] || 1000));
     await Promise.race([abortedPromise, timeoutPromise]);
     clearTimeout(timer!);
   }
@@ -210,4 +214,8 @@ export function errorWithLocation(location: Location, message: string) {
 export function expectType(receiver: any, type: string, matcherName: string) {
   if (typeof receiver !== 'object' || receiver.constructor.name !== type)
     throw new Error(`${matcherName} can be only used with ${type} object`);
+}
+
+export function sanitizeForFilePath(s: string) {
+  return s.replace(/[\x00-\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+/g, '-');
 }

@@ -95,6 +95,51 @@ await locator.HoverAsync();
 await locator.ClickAsync();
 ```
 
+**Strictness**
+
+Locators are strict. This means that all operations on locators that imply
+some target DOM element will throw if more than one element matches given
+selector.
+
+```js
+// Throws if there are several buttons in DOM:
+await page.locator('button').click();
+
+// Works because we explicitly tell locator to pick the first element:
+await page.locator('button').first().click();
+```
+
+```python async
+# Throws if there are several buttons in DOM:
+await page.locator('button').click()
+
+# Works because we explicitly tell locator to pick the first element:
+await page.locator('button').first.click()
+```
+
+```python sync
+# Throws if there are several buttons in DOM:
+page.locator('button').click()
+
+# Works because we explicitly tell locator to pick the first element:
+page.locator('button').first.click()
+```
+
+```java
+// Throws if there are several buttons in DOM:
+page.locator("button").click();
+
+// Works because you explicitly tell locator to pick the first element:
+page.locator("button").first().click();
+```
+
+```csharp
+// Throws if there are several buttons in DOM:
+await page.Locator("button").ClickAsync();
+// Works because you explicitly tell locator to pick the first element:
+await page.Locator("button").First.ClickAsync();
+```
+
 ## async method: Locator.allInnerTexts
 - returns: <[Array]<[string]>>
 
@@ -344,7 +389,7 @@ its value.
 Examples:
 
 ```js
-const tweets = await page.locator('.tweet .retweets');
+const tweets = page.locator('.tweet .retweets');
 expect(await tweets.evaluate(node => node.innerText)).toBe('10 retweets');
 ```
 
@@ -354,7 +399,7 @@ assertEquals("10 retweets", tweets.evaluate("node => node.innerText"));
 ```
 
 ```python async
-tweets = await page.locator(".tweet .retweets")
+tweets = page.locator(".tweet .retweets")
 assert await tweets.evaluate("node => node.innerText") == "10 retweets"
 ```
 
@@ -383,7 +428,7 @@ Optional argument to pass to [`param: expression`].
 The method finds all elements matching the specified locator and passes an array of matched elements as
 a first argument to [`param: expression`]. Returns the result of [`param: expression`] invocation.
 
-If [`param: expression`] returns a [Promise], then [`Locator.evaluateAll`] would wait for the promise
+If [`param: expression`] returns a [Promise], then [`method: Locator.evaluateAll`] would wait for the promise
 to resolve and return its value.
 
 Examples:

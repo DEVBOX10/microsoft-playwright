@@ -64,9 +64,9 @@ Test function that takes one or two arguments: an object with fixtures and optio
 Declares an `afterAll` hook that is executed once after all tests. When called in the scope of a test file, runs after all tests in the file. When called inside a [`method: Test.describe`] group, runs after all tests in the group.
 
 ### param: Test.afterAll.hookFunction
-- `hookFunction` <[function]\([Fixtures], [WorkerInfo]\)>
+- `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
 
-Hook function that takes one or two arguments: an object with fixtures and optional [WorkerInfo].
+Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
 
 
 
@@ -121,9 +121,9 @@ test('my test', async ({ page }) => {
 You can use [`method: Test.afterAll`] to teardown any resources set up in `beforeAll`.
 
 ### param: Test.beforeAll.hookFunction
-- `hookFunction` <[function]\([Fixtures], [WorkerInfo]\)>
+- `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
 
-Hook function that takes one or two arguments: an object with fixtures and optional [WorkerInfo].
+Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
 
 
 
@@ -242,6 +242,82 @@ Group title.
 - `callback` <[function]>
 
 A callback that is run immediately when calling [`method: Test.describe.only`]. Any tests added in this callback will belong to the group.
+
+
+
+## method: Test.describe.serial
+
+Declares a group of tests that should always be run serially. If one of the tests fails, all subsequent tests are skipped. All tests in a group are retried together.
+
+:::note
+Using serial is not recommended. It is usually better to make your tests isolated, so they can be run independently.
+:::
+
+```js js-flavor=js
+test.describe.serial('group', () => {
+  test('runs first', async ({ page }) => {
+  });
+  test('runs second', async ({ page }) => {
+  });
+});
+```
+
+```js js-flavor=ts
+test.describe.serial('group', () => {
+  test('runs first', async ({ page }) => {
+  });
+  test('runs second', async ({ page }) => {
+  });
+});
+```
+
+### param: Test.describe.serial.title
+- `title` <[string]>
+
+Group title.
+
+### param: Test.describe.serial.callback
+- `callback` <[function]>
+
+A callback that is run immediately when calling [`method: Test.describe.serial`]. Any tests added in this callback will belong to the group.
+
+
+
+## method: Test.describe.serial.only
+
+Declares a focused group of tests that should always be run serially. If one of the tests fails, all subsequent tests are skipped. All tests in a group are retried together. If there are some focused tests or suites, all of them will be run but nothing else.
+
+:::note
+Using serial is not recommended. It is usually better to make your tests isolated, so they can be run independently.
+:::
+
+```js js-flavor=js
+test.describe.serial.only('group', () => {
+  test('runs first', async ({ page }) => {
+  });
+  test('runs second', async ({ page }) => {
+  });
+});
+```
+
+```js js-flavor=ts
+test.describe.serial.only('group', () => {
+  test('runs first', async ({ page }) => {
+  });
+  test('runs second', async ({ page }) => {
+  });
+});
+```
+
+### param: Test.describe.serial.only.title
+- `title` <[string]>
+
+Group title.
+
+### param: Test.describe.serial.only.callback
+- `callback` <[function]>
+
+A callback that is run immediately when calling [`method: Test.describe.serial.only`]. Any tests added in this callback will belong to the group.
 
 
 
