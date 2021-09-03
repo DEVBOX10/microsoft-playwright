@@ -1,0 +1,33 @@
+name: "Check client side changes"
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/client/**/*'
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-20.04
+    if: github.repository == 'microsoft/playwright'
+    steps:
+      - name: Create GitHub issue
+        uses: actions/github-script@v4
+        with:
+          script: |
+            const { data } = await github.git.getCommit({
+              owner: 'microsoft',
+              repo: 'playwright',
+              commit_sha: '${{ github.sha }}',
+            });
+            const commitHeader = data.message.split('\n')[0];
+            const body = `${{ github.sha }} made changes to the client, this needs to get applied in:
+            - [ ] Python
+            - [ ] Java
+            - [ ] .NET`;
+            await github.issues.create({
+              owner: 'microsoft',
+              repo: 'playwright',
+              title: `[Ports] Apply: ${commitHeader}`,
+              body,
+            });

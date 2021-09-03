@@ -29,8 +29,9 @@ import * as accessibility from './accessibility';
 import { FileChooser } from './fileChooser';
 import { Progress, ProgressController } from './progress';
 import { assert, isError } from '../utils/utils';
+import { ManualPromise } from '../utils/async';
 import { debugLogger } from '../utils/debugLogger';
-import { Selectors } from './selectors';
+import { SelectorInfo, Selectors } from './selectors';
 import { CallMetadata, SdkObject } from './instrumentation';
 import { Artifact } from './artifact';
 
@@ -89,6 +90,7 @@ type PageState = {
   mediaType: types.MediaType | null;
   colorScheme: types.ColorScheme | null;
   reducedMotion: types.ReducedMotion | null;
+  forcedColors: types.ForcedColors | null;
   extraHTTPHeaders: types.HeadersArray | null;
 };
 
@@ -115,14 +117,11 @@ export class Page extends SdkObject {
   };
 
   private _closedState: 'open' | 'closing' | 'closed' = 'open';
-  private _closedCallback: () => void;
-  private _closedPromise: Promise<void>;
+  private _closedPromise = new ManualPromise<void>();
   private _disconnected = false;
   private _initialized = false;
-  private _disconnectedCallback: (e: Error) => void;
-  readonly _disconnectedPromise: Promise<Error>;
-  private _crashedCallback: (e: Error) => void;
-  readonly _crashedPromise: Promise<Error>;
+  readonly _disconnectedPromise = new ManualPromise<Error>();
+  readonly _crashedPromise = new ManualPromise<Error>();
   readonly _browserContext: BrowserContext;
   readonly keyboard: input.Keyboard;
   readonly mouse: input.Mouse;
@@ -150,18 +149,13 @@ export class Page extends SdkObject {
     super(browserContext, 'page');
     this.attribution.page = this;
     this._delegate = delegate;
-    this._closedCallback = () => {};
-    this._closedPromise = new Promise(f => this._closedCallback = f);
-    this._disconnectedCallback = () => {};
-    this._disconnectedPromise = new Promise(f => this._disconnectedCallback = f);
-    this._crashedCallback = () => {};
-    this._crashedPromise = new Promise(f => this._crashedCallback = f);
     this._browserContext = browserContext;
     this._state = {
       emulatedSize: browserContext._options.viewport ? { viewport: browserContext._options.viewport, screen: browserContext._options.screen || browserContext._options.viewport } : null,
       mediaType: null,
       colorScheme: browserContext._options.colorScheme !== undefined  ? browserContext._options.colorScheme : 'light',
       reducedMotion: browserContext._options.reducedMotion !== undefined  ? browserContext._options.reducedMotion : 'no-preference',
+      forcedColors: browserContext._options.forcedColors !== undefined  ? browserContext._options.forcedColors : 'none',
       extraHTTPHeaders: null,
     };
     this.accessibility = new accessibility.Accessibility(delegate.getAccessibilityTree.bind(delegate));
@@ -218,20 +212,20 @@ export class Page extends SdkObject {
     assert(this._closedState !== 'closed', 'Page closed twice');
     this._closedState = 'closed';
     this.emit(Page.Events.Close);
-    this._closedCallback();
+    this._closedPromise.resolve();
   }
 
   _didCrash() {
     this._frameManager.dispose();
     this.emit(Page.Events.Crash);
-    this._crashedCallback(new Error('Page crashed'));
+    this._crashedPromise.resolve(new Error('Page crashed'));
   }
 
   _didDisconnect() {
     this._frameManager.dispose();
     assert(!this._disconnected, 'Page disconnected twice');
     this._disconnected = true;
-    this._disconnectedCallback(new Error('Page closed'));
+    this._disconnectedPromise.resolve(new Error('Page closed'));
   }
 
   async _onFileChooserOpened(handle: dom.ElementHandle) {
@@ -361,13 +355,15 @@ export class Page extends SdkObject {
     }), this._timeoutSettings.navigationTimeout(options));
   }
 
-  async emulateMedia(options: { media?: types.MediaType | null, colorScheme?: types.ColorScheme | null, reducedMotion?: types.ReducedMotion | null }) {
+  async emulateMedia(options: { media?: types.MediaType | null, colorScheme?: types.ColorScheme | null, reducedMotion?: types.ReducedMotion | null, forcedColors?: types.ForcedColors | null }) {
     if (options.media !== undefined)
       this._state.mediaType = options.media;
     if (options.colorScheme !== undefined)
       this._state.colorScheme = options.colorScheme;
     if (options.reducedMotion !== undefined)
       this._state.reducedMotion = options.reducedMotion;
+    if (options.forcedColors !== undefined)
+      this._state.forcedColors = options.forcedColors;
     await this._delegate.updateEmulateMedia();
     await this._doSlowMo();
   }
@@ -435,7 +431,7 @@ export class Page extends SdkObject {
     const runBeforeUnload = !!options && !!options.runBeforeUnload;
     if (this._closedState !== 'closing') {
       this._closedState = 'closing';
-      assert(!this._disconnected, 'Protocol error: Connection closed. Most likely the page has been closed.');
+      assert(!this._disconnected, 'Target closed');
       // This might throw if the browser context containing the page closes
       // while we are trying to close the page.
       await this._delegate.closePage(runBeforeUnload).catch(e => debugLogger.log('error', e));
@@ -505,6 +501,11 @@ export class Page extends SdkObject {
 
   firePageError(error: Error) {
     this.emit(Page.Events.PageError, error);
+  }
+
+  parseSelector(selector: string, options?: types.StrictOptions): SelectorInfo {
+    const strict = typeof options?.strict === 'boolean' ? options.strict : !!this.context()._options.strictSelectors;
+    return this.selectors.parseSelector(selector, strict);
   }
 }
 

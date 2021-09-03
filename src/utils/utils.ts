@@ -246,11 +246,19 @@ export async function mkdirIfNeeded(filePath: string) {
 type HeadersArray = { name: string, value: string }[];
 type HeadersObject = { [key: string]: string };
 
-export function headersObjectToArray(headers: HeadersObject): HeadersArray {
+export function headersObjectToArray(headers: HeadersObject, separator?: string, setCookieSeparator?: string): HeadersArray {
+  if (!setCookieSeparator)
+    setCookieSeparator = separator;
   const result: HeadersArray = [];
   for (const name in headers) {
-    if (!Object.is(headers[name], undefined))
-      result.push({ name, value: headers[name] });
+    const values = headers[name];
+    if (separator) {
+      const sep = name.toLowerCase() === 'set-cookie' ? setCookieSeparator : separator;
+      for (const value of values.split(sep!))
+        result.push({ name, value: value.trim() });
+    } else {
+      result.push({ name, value: values });
+    }
   }
   return result;
 }
@@ -270,7 +278,7 @@ export function monotonicTime(): number {
 class HashStream extends stream.Writable {
   private _hash = crypto.createHash('sha1');
 
-  _write(chunk: Buffer, encoding: string, done: () => void) {
+  override _write(chunk: Buffer, encoding: string, done: () => void) {
     this._hash.update(chunk);
     done();
   }
@@ -379,7 +387,7 @@ export const hostPlatform = ((): HostPlatform => {
     return 'ubuntu20.04';
   }
   if (platform === 'win32')
-    return os.arch() === 'x64' ? 'win64' : 'win32';
+    return 'win64';
   return platform as HostPlatform;
 })();
 

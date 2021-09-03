@@ -124,6 +124,7 @@ export class Dispatcher {
 
       // When worker encounters error, we will stop it and create a new one.
       worker.stop();
+      worker.didFail = true;
 
       const retryCandidates = new Set<string>();
 
@@ -160,7 +161,7 @@ export class Dispatcher {
 
         let outermostSerialSuite: Suite | undefined;
         for (let parent = this._testById.get(params.failedTestId)!.test.parent; parent; parent = parent.parent) {
-          if (parent._serial)
+          if (parent._parallelMode ===  'serial')
             outermostSerialSuite = parent;
         }
 
@@ -191,10 +192,9 @@ export class Dispatcher {
         }
       }
 
-      // Only retry expected failures, not passes and only if the test failed.
       for (const testId of retryCandidates) {
         const pair = this._testById.get(testId)!;
-        if (!this._isStopped && pair.test.expectedStatus === 'passed' && pair.test.results.length < pair.test.retries + 1) {
+        if (!this._isStopped && pair.test.results.length < pair.test.retries + 1) {
           pair.result = pair.test._appendTestResult();
           pair.steps = new Map();
           pair.stepStack = new Set();
@@ -255,6 +255,11 @@ export class Dispatcher {
   _createWorker(testGroup: TestGroup) {
     const worker = new Worker(this);
     worker.on('testBegin', (params: TestBeginPayload) => {
+      if (worker.didFail) {
+        // Ignore test-related messages from failed workers, because timed out tests/fixtures
+        // may be triggering unexpected messages.
+        return;
+      }
       if (this._hasReachedMaxFailures())
         return;
       const { test, result: testRun  } = this._testById.get(params.testId)!;
@@ -263,6 +268,11 @@ export class Dispatcher {
       this._reporter.onTestBegin?.(test, testRun);
     });
     worker.on('testEnd', (params: TestEndPayload) => {
+      if (worker.didFail) {
+        // Ignore test-related messages from failed workers, because timed out tests/fixtures
+        // may be triggering unexpected messages.
+        return;
+      }
       if (this._hasReachedMaxFailures())
         return;
       const { test, result } = this._testById.get(params.testId)!;
@@ -281,21 +291,37 @@ export class Dispatcher {
       this._reportTestEnd(test, result);
     });
     worker.on('stepBegin', (params: StepBeginPayload) => {
+      if (worker.didFail) {
+        // Ignore test-related messages from failed workers, because timed out tests/fixtures
+        // may be triggering unexpected messages.
+        return;
+      }
       const { test, result, steps, stepStack } = this._testById.get(params.testId)!;
+      const parentStep = [...stepStack].pop();
       const step: TestStep = {
         title: params.title,
+        titlePath: () => {
+          const parentPath = parentStep?.titlePath() || [];
+          return [...parentPath, params.title];
+        },
+        parent: parentStep,
         category: params.category,
         startTime: new Date(params.wallTime),
         duration: 0,
         steps: [],
+        data: {},
       };
       steps.set(params.stepId, step);
-      const parentStep = [...stepStack].pop() || result;
-      parentStep.steps.push(step);
+      (parentStep || result).steps.push(step);
       stepStack.add(step);
       this._reporter.onStepBegin?.(test, result, step);
     });
     worker.on('stepEnd', (params: StepEndPayload) => {
+      if (worker.didFail) {
+        // Ignore test-related messages from failed workers, because timed out tests/fixtures
+        // may be triggering unexpected messages.
+        return;
+      }
       const { test, result, steps, stepStack } = this._testById.get(params.testId)!;
       const step = steps.get(params.stepId);
       if (!step) {
@@ -305,12 +331,20 @@ export class Dispatcher {
       step.duration = params.wallTime - step.startTime.getTime();
       if (params.error)
         step.error = params.error;
+      step.data = params.data;
       stepStack.delete(step);
       steps.delete(params.stepId);
       this._reporter.onStepEnd?.(test, result, step);
     });
     worker.on('stdOut', (params: TestOutputPayload) => {
       const chunk = chunkFromParams(params);
+      if (worker.didFail) {
+        // Note: we keep reading stdout from workers that are currently stopping after failure,
+        // to debug teardown issues. However, we avoid spoiling the test result from
+        // the next retry.
+        this._reporter.onStdOut?.(chunk);
+        return;
+      }
       const pair = params.testId ? this._testById.get(params.testId) : undefined;
       if (pair)
         pair.result.stdout.push(chunk);
@@ -318,6 +352,13 @@ export class Dispatcher {
     });
     worker.on('stdErr', (params: TestOutputPayload) => {
       const chunk = chunkFromParams(params);
+      if (worker.didFail) {
+        // Note: we keep reading stderr from workers that are currently stopping after failure,
+        // to debug teardown issues. However, we avoid spoiling the test result from
+        // the next retry.
+        this._reporter.onStdErr?.(chunk);
+        return;
+      }
       const pair = params.testId ? this._testById.get(params.testId) : undefined;
       if (pair)
         pair.result.stderr.push(chunk);
@@ -376,6 +417,7 @@ class Worker extends EventEmitter {
   hash = '';
   index: number;
   didSendStop = false;
+  didFail = false;
 
   constructor(runner: Dispatcher) {
     super();

@@ -60,11 +60,14 @@ export interface TestResult {
 
 export interface TestStep {
   title: string;
+  titlePath(): string[];
+  parent?: TestStep;
   category: string,
   startTime: Date;
   duration: number;
   error?: TestError;
   steps: TestStep[];
+  data: { [key: string]: any };
 }
 
 /**

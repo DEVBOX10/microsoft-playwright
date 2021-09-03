@@ -836,7 +836,7 @@ Returns the newly created session.
 ### param: BrowserContext.newCDPSession.page
 - `page` <[Page]|[Frame]>
 
-Target to create new session for. For backwards-compatability, this parameter is
+Target to create new session for. For backwards-compatibility, this parameter is
 named `page`, but it can be a `Page` or `Frame` type.
 
 ## async method: BrowserContext.newPage
@@ -853,6 +853,10 @@ Returns all open pages in the context.
 
 Routing provides the capability to modify network requests that are made by any page in the browser context. Once route
 is enabled, every request matching the url pattern will stall unless it's continued, fulfilled or aborted.
+
+:::note
+[`method: Page.route`] will not intercept requests intercepted by Service Worker. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using request interception. Via `await context.addInitScript(() => delete window.navigator.serviceWorker);`
+:::
 
 An example of a naive handler that aborts all image requests:
 
@@ -1016,6 +1020,11 @@ handler function to route the request.
 - `handler` <[function]\([Route]\)>
 
 handler function to route the request.
+
+### option: BrowserContext.route.times
+- `times` <[int]>
+
+How often a route should be used. By default it will be used every time.
 
 ## method: BrowserContext.serviceWorkers
 * langs: js, python

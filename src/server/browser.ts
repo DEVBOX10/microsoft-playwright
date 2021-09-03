@@ -33,9 +33,10 @@ export interface BrowserProcess {
 }
 
 export type PlaywrightOptions = {
-  rootSdkObject: SdkObject,
-  selectors: Selectors,
-  loopbackProxyOverride?: () => string,
+  rootSdkObject: SdkObject;
+  selectors: Selectors;
+  socksProxyPort?: number;
+  sdkLanguage: string,
 };
 
 export type BrowserOptions = PlaywrightOptions & {
@@ -77,6 +78,7 @@ export abstract class Browser extends SdkObject {
   abstract contexts(): BrowserContext[];
   abstract isConnected(): boolean;
   abstract version(): string;
+  abstract userAgent(): string;
 
   _downloadCreated(page: Page, uuid: string, url: string, suggestedFilename?: string) {
     const download = new Download(page, this.options.downloadsPath || '', uuid, url, suggestedFilename);

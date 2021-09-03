@@ -23,6 +23,7 @@ import { tOptional } from '../protocol/validatorPrimitives';
 import { kBrowserOrContextClosedError } from '../utils/errors';
 import { CallMetadata, SdkObject } from '../server/instrumentation';
 import { rewriteErrorMessage } from '../utils/stackTrace';
+import type { PlaywrightDispatcher } from './playwrightDispatcher';
 
 export const dispatcherSymbol = Symbol('dispatcher');
 
@@ -40,21 +41,21 @@ export function lookupNullableDispatcher<DispatcherType>(object: any | null): Di
   return object ? lookupDispatcher(object) : undefined;
 }
 
-export class Dispatcher<Type extends { guid: string }, Initializer> extends EventEmitter implements channels.Channel {
+export class Dispatcher<Type extends { guid: string }, Initializer, Events> extends EventEmitter implements channels.Channel {
   private _connection: DispatcherConnection;
   private _isScope: boolean;
   // Parent is always "isScope".
-  private _parent: Dispatcher<any, any> | undefined;
+  private _parent: Dispatcher<any, any, {}> | undefined;
   // Only "isScope" channel owners have registered dispatchers inside.
-  private _dispatchers = new Map<string, Dispatcher<any, any>>();
-  private _disposed = false;
+  private _dispatchers = new Map<string, Dispatcher<any, any, {}>>();
+  protected _disposed = false;
 
   readonly _guid: string;
   readonly _type: string;
-  readonly _scope: Dispatcher<any, any>;
+  readonly _scope: Dispatcher<any, any, {}>;
   _object: Type;
 
-  constructor(parent: Dispatcher<any, any> | DispatcherConnection, object: Type, type: string, initializer: Initializer, isScope?: boolean) {
+  constructor(parent: Dispatcher<any, any, {}> | DispatcherConnection, object: Type, type: string, initializer: Initializer, isScope?: boolean) {
     super();
 
     this._connection = parent instanceof DispatcherConnection ? parent : parent._connection;
@@ -79,7 +80,7 @@ export class Dispatcher<Type extends { guid: string }, Initializer> extends Even
       this._connection.sendMessageToClient(this._parent._guid, type, '__create__', { type, initializer, guid }, this._parent._object);
   }
 
-  _dispatchEvent(method: string, params: Dispatcher<any, any> | any = {}) {
+  _dispatchEvent<T extends keyof Events>(method: T, params?: Events[T]) {
     if (this._disposed) {
       if (isUnderTest())
         throw new Error(`${this._guid} is sending "${method}" event after being disposed`);
@@ -87,10 +88,10 @@ export class Dispatcher<Type extends { guid: string }, Initializer> extends Even
       return;
     }
     const sdkObject = this._object instanceof SdkObject ? this._object : undefined;
-    this._connection.sendMessageToClient(this._guid, this._type, method, params, sdkObject);
+    this._connection.sendMessageToClient(this._guid, this._type, method as string, params, sdkObject);
   }
 
-  _dispose() {
+  protected _dispose() {
     assert(!this._disposed);
     this._disposed = true;
 
@@ -120,16 +121,26 @@ export class Dispatcher<Type extends { guid: string }, Initializer> extends Even
   }
 }
 
-export type DispatcherScope = Dispatcher<any, any>;
-class Root extends Dispatcher<{ guid: '' }, {}> {
-  constructor(connection: DispatcherConnection) {
-    super(connection, { guid: '' }, '', {}, true);
+export type DispatcherScope = Dispatcher<any, any, {}>;
+export class Root extends Dispatcher<{ guid: '' }, {}, {}> {
+  private _initialized = false;
+
+  constructor(connection: DispatcherConnection, private readonly createPlaywright?: (scope: DispatcherScope, options: channels.RootInitializeParams) => Promise<PlaywrightDispatcher>) {
+    super(connection, { guid: '' }, 'Root', {}, true);
+  }
+
+  async initialize(params: channels.RootInitializeParams): Promise<channels.RootInitializeResult> {
+    assert(this.createPlaywright);
+    assert(!this._initialized);
+    this._initialized = true;
+    return {
+      playwright: await this.createPlaywright(this, params),
+    };
   }
 }
 
 export class DispatcherConnection {
-  readonly _dispatchers = new Map<string, Dispatcher<any, any>>();
-  private _rootDispatcher: Root;
+  readonly _dispatchers = new Map<string, Dispatcher<any, any, {}>>();
   onmessage = (message: object) => {};
   private _validateParams: (type: string, method: string, params: any) => any;
   private _validateMetadata: (metadata: any) => { stack?: channels.StackFrame[] };
@@ -157,8 +168,6 @@ export class DispatcherConnection {
   }
 
   constructor() {
-    this._rootDispatcher = new Root(this);
-
     const tChannel = (name: string): Validator => {
       return (arg: any, path: string) => {
         if (arg && typeof arg === 'object' && typeof arg.guid === 'string') {
@@ -185,10 +194,6 @@ export class DispatcherConnection {
     };
   }
 
-  rootDispatcher(): Dispatcher<any, any> {
-    return this._rootDispatcher;
-  }
-
   async dispatch(message: object) {
     const { id, guid, method, params, metadata } = message as any;
     const dispatcher = this._dispatchers.get(guid);
@@ -197,7 +202,8 @@ export class DispatcherConnection {
       return;
     }
     if (method === 'debugScopeState') {
-      this.onmessage({ id, result: this._rootDispatcher._debugScopeState() });
+      const rootDispatcher = this._dispatchers.get('')!;
+      this.onmessage({ id, result: rootDispatcher._debugScopeState() });
       return;
     }
 
@@ -216,7 +222,8 @@ export class DispatcherConnection {
     const sdkObject = dispatcher._object instanceof SdkObject ? dispatcher._object : undefined;
     const callMetadata: CallMetadata = {
       id: `call@${id}`,
-      ...validMetadata,
+      stack: validMetadata.stack,
+      apiName: validMetadata.apiName,
       objectId: sdkObject?.guid,
       pageId: sdkObject?.attribution?.page?.guid,
       frameId: sdkObject?.attribution?.frame?.guid,
@@ -271,10 +278,11 @@ export class DispatcherConnection {
       await sdkObject?.instrumentation.onAfterCall(sdkObject, callMetadata);
     }
 
+    const log = validMetadata.collectLogs ? callMetadata.log : undefined;
     if (callMetadata.error)
-      this.onmessage({ id, error: error });
+      this.onmessage({ id, error: error, log });
     else
-      this.onmessage({ id, result: callMetadata.result });
+      this.onmessage({ id, result: callMetadata.result, log });
   }
 
   private _replaceDispatchersWithGuids(payload: any): any {

@@ -132,30 +132,34 @@ function filterComponentsTree(treeNode: ComponentNode, searchFn: (node: Componen
   return result;
 }
 
-function findReactRoot(): ReactVNode | undefined {
-  const walker = document.createTreeWalker(document);
+function findReactRoots(): ReactVNode[] {
+  const roots: ReactVNode[] = [];
+  const walker = document.createTreeWalker(document, NodeFilter.SHOW_ELEMENT);
   while (walker.nextNode()) {
+    const node = walker.currentNode;
     // @see https://github.com/baruchvlz/resq/blob/5c15a5e04d3f7174087248f5a158c3d6dcc1ec72/src/utils.js#L329
-    if (walker.currentNode.hasOwnProperty('_reactRootContainer'))
-      return (walker.currentNode as any)._reactRootContainer._internalRoot.current;
-    for (const key of Object.keys(walker.currentNode)) {
+    if (node.hasOwnProperty('_reactRootContainer'))
+      roots.push((node as any)._reactRootContainer._internalRoot.current);
+  }
+  // Pre-react 16: query dom for `data-reactroot`
+  // @see https://github.com/facebook/react/issues/10971
+  for (const node of document.querySelectorAll('[data-reactroot]')) {
+    for (const key of Object.keys(node)) {
       // @see https://github.com/baruchvlz/resq/blob/5c15a5e04d3f7174087248f5a158c3d6dcc1ec72/src/utils.js#L334
       if (key.startsWith('__reactInternalInstance') || key.startsWith('__reactFiber'))
-        return (walker.currentNode as any)[key];
+        roots.push((node as any)[key]);
     }
   }
-  return undefined;
+  return roots;
 }
 
 export const ReactEngine: SelectorEngine = {
   queryAll(scope: SelectorRoot, selector: string): Element[] {
     const {name, attributes} = parseComponentSelector(selector);
 
-    const reactRoot = findReactRoot();
-    if (!reactRoot)
-      return [];
-    const tree = buildComponentsTree(reactRoot);
-    const treeNodes = filterComponentsTree(tree, treeNode => {
+    const reactRoots = findReactRoots();
+    const trees = reactRoots.map(reactRoot => buildComponentsTree(reactRoot));
+    const treeNodes = trees.map(tree => filterComponentsTree(tree, treeNode => {
       if (name && treeNode.name !== name)
         return false;
       if (treeNode.rootElements.some(domNode => !scope.contains(domNode)))
@@ -165,7 +169,7 @@ export const ReactEngine: SelectorEngine = {
           return false;
       }
       return true;
-    });
+    })).flat();
     const allRootElements: Set<Element> = new Set();
     for (const treeNode of treeNodes) {
       for (const domNode of treeNode.rootElements)

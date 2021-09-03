@@ -2,6 +2,11 @@
 
 [Response] class represents responses which are received by page.
 
+## async method: Response.allHeaders
+- returns: <[Headers]>
+
+An object with all the response HTTP headers associated with this response.
+
 ## async method: Response.body
 - returns: <[Buffer]>
 
@@ -20,7 +25,7 @@ Returns the [Frame] that initiated this response.
 ## method: Response.headers
 - returns: <[Object]<[string], [string]>>
 
-Returns the object with HTTP headers associated with the response. All header names are lower-case.
+**DEPRECATED** Incomplete list of headers as seen by the rendering engine. Use [`method: Response.allHeaders`] instead.
 
 ## async method: Response.json
 * langs: js, python

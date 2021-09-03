@@ -327,6 +327,12 @@ const Browser = {
         userAgent: t.Nullable(t.String),
       }
     },
+    'setPlatformOverride': {
+      params: {
+        browserContextId: t.Optional(t.String),
+        platform: t.Nullable(t.String),
+      }
+    },
     'setBypassCSP': {
       params: {
         browserContextId: t.Optional(t.String),
@@ -502,6 +508,7 @@ const Network = {
       requestId: t.String,
       responseEndTime: t.Number,
       transferSize: t.Number,
+      protocolVersion: t.String,
     },
     'requestFailed': {
       requestId: t.String,
@@ -909,6 +916,16 @@ const Page = {
         modifiers: t.Number,
         clickCount: t.Optional(t.Number),
         buttons: t.Number,
+      }
+    },
+    'dispatchWheelEvent': {
+      params: {
+        x: t.Number,
+        y: t.Number,
+        deltaX: t.Number,
+        deltaY: t.Number,
+        deltaZ: t.Number,
+        modifiers: t.Number,
       }
     },
     'insertText': {

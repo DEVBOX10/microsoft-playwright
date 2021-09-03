@@ -16,6 +16,11 @@ with `'requestfinished'` event.
 If request gets a 'redirect' response, the request is successfully finished with the 'requestfinished' event, and a new
 request is  issued to a redirected url.
 
+## async method: Request.allHeaders
+- returns: <[Headers]>
+
+An object with all the request HTTP headers associated with this request.
+
 ## method: Request.failure
 - returns: <[null]|[string]>
 
@@ -54,7 +59,7 @@ Returns the [Frame] that initiated this request.
 ## method: Request.headers
 - returns: <[Object]<[string], [string]>>
 
-An object with HTTP headers associated with the request. All header names are lower-case.
+**DEPRECATED** Incomplete list of headers as seen by the rendering engine. Use [`method: Request.allHeaders`] instead.
 
 ## method: Request.isNavigationRequest
 - returns: <[boolean]>
@@ -182,6 +187,17 @@ following: `document`, `stylesheet`, `image`, `media`, `font`, `script`, `texttr
 - returns: <[null]|[Response]>
 
 Returns the matching [Response] object, or `null` if the response was not received due to error.
+
+## async method: Request.sizes
+- returns: <[Object]>
+  - `requestBodySize` <[int]> Size of the request body (POST data payload) in bytes. Set to 0 if there was no body.
+  - `requestHeadersSize` <[int]> Total number of bytes from the start of the HTTP request message until (and including) the double CRLF before the body.
+  - `responseBodySize` <[int]> Size of the received response body in bytes.
+  - `responseHeadersSize` <[int]> Total number of bytes from the start of the HTTP response message until (and including) the double CRLF before the body.
+  - `responseTransferSize` <[int]> Total number of bytes received for the request.
+
+Returns resource size information for given request. Requires the response to be finished via [`method: Response.finished`]
+to ensure the info is available.
 
 ## method: Request.timing
 - returns: <[Object]>

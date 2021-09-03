@@ -117,6 +117,13 @@ Clicks on the source element at this point relative to the top-left corner of th
 
 Drops on the target element at this point relative to the top-left corner of the element's padding box. If not specified, some visible point of the element is used.
 
+## input-checked
+* langs:
+  - alias-csharp: checkedState
+- `checked` <[boolean]>
+
+Whether to check or uncheck the checkbox.
+
 ## query-selector
 - `selector` <[string]>
 
@@ -414,6 +421,16 @@ Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`
 Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Defaults
 to `'no-preference'`.
 
+## context-option-forcedColors
+- `forcedColors` <[ForcedColors]<"active"|"none">>
+
+Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See [`method: Page.emulateMedia`] for more details. Defaults
+to `'none'`.
+
+:::note
+It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
+:::
+
 ## context-option-logger
 * langs: js
 - `logger` <[Logger]>
@@ -510,6 +527,13 @@ For Chromium on Windows the browser needs to be launched with the global proxy f
 contexts override the proxy, global proxy will be never used and can be any string, for example
 `launch({ proxy: { server: 'http://per-context' } })`.
 :::
+
+## context-option-strict
+- `strictSelectors` <[boolean]>
+
+It specified, enables strict selectors mode for this context. In the strict selectors mode all operations
+on selectors that imply single target DOM element will throw when more than one element matches the selector.
+See [Locator] to learn more about the strict mode.
 
 ## select-options-values
 * langs: java, js, csharp
@@ -628,6 +652,7 @@ using the [`method: AndroidDevice.setDefaultTimeout`] method.
 - %%-context-option-httpcredentials-%%
 - %%-context-option-colorscheme-%%
 - %%-context-option-reducedMotion-%%
+- %%-context-option-forcedColors-%%
 - %%-context-option-logger-%%
 - %%-context-option-videospath-%%
 - %%-context-option-videosize-%%
@@ -637,6 +662,7 @@ using the [`method: AndroidDevice.setDefaultTimeout`] method.
 - %%-context-option-recordvideo-%%
 - %%-context-option-recordvideo-dir-%%
 - %%-context-option-recordvideo-size-%%
+- %%-context-option-strict-%%
 
 ## browser-option-args
 - `args` <[Array]<[string]>>
@@ -659,7 +685,8 @@ Enable Chromium sandboxing. Defaults to `false`.
 - `downloadsPath` <[path]>
 
 If specified, accepted downloads are downloaded into this directory. Otherwise, temporary directory is created and is
-deleted when browser is closed.
+deleted when browser is closed. In either case, the downloads are deleted when the browser context they were created in
+is closed.
 
 ## browser-option-executablepath
 - `executablePath` <[path]>

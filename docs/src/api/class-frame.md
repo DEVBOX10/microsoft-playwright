@@ -777,19 +777,19 @@ Attribute name to get the value for.
 Returns the main resource response. In case of multiple redirects, the navigation will resolve with the response of the
 last redirect.
 
-`frame.goto` will throw an error if:
+The method will throw an error if:
 * there's an SSL error (e.g. in case of self-signed certificates).
 * target URL is invalid.
 * the [`option: timeout`] is exceeded during navigation.
 * the remote server does not respond or is unreachable.
 * the main resource failed to load.
 
-`frame.goto` will not throw an error when any valid HTTP status code is returned by the remote server, including 404
+The method will not throw an error when any valid HTTP status code is returned by the remote server, including 404
 "Not Found" and 500 "Internal Server Error".  The status code for such responses can be retrieved by calling
 [`method: Response.status`].
 
 :::note
-`frame.goto` either throws an error or returns a main resource response. The only exceptions are navigation to
+The method either throws an error or returns a main resource response. The only exceptions are navigation to
 `about:blank` or navigation to the same URL with a different hash, which would succeed and return `null`.
 :::
 
@@ -919,7 +919,10 @@ Returns whether the element is hidden, the opposite of [visible](./actionability
 ### param: Frame.isHidden.selector = %%-input-selector-%%
 
 ### option: Frame.isHidden.strict = %%-input-strict-%%
-### option: Frame.isHidden.timeout = %%-input-timeout-%%
+### option: Frame.isHidden.timeout
+- `timeout` <[float]>
+
+**DEPRECATED** This option is ignored. [`method: Frame.isHidden`] does not wait for the element to become hidden and returns immediately.
 
 ## async method: Frame.isVisible
 - returns: <[boolean]>
@@ -929,7 +932,10 @@ Returns whether the element is [visible](./actionability.md#visible). [`option: 
 ### param: Frame.isVisible.selector = %%-input-selector-%%
 
 ### option: Frame.isVisible.strict = %%-input-strict-%%
-### option: Frame.isVisible.timeout = %%-input-timeout-%%
+### option: Frame.isVisible.timeout
+- `timeout` <[float]>
+
+**DEPRECATED** This option is ignored. [`method: Frame.isVisible`] does not wait for the element to become visible and returns immediately.
 
 ## method: Frame.locator
 - returns: <[Locator]>
@@ -1090,6 +1096,34 @@ await frame.SelectOptionAsync("select#colors", new[] { "red", "green", "blue" })
 ### option: Frame.selectOption.noWaitAfter = %%-input-no-wait-after-%%
 ### option: Frame.selectOption.strict = %%-input-strict-%%
 ### option: Frame.selectOption.timeout = %%-input-timeout-%%
+
+
+## async method: Frame.setChecked
+
+This method checks or unchecks an element matching [`param: selector`] by performing the following steps:
+1. Find an element matching [`param: selector`]. If there is none, wait until a matching element is attached to
+   the DOM.
+1. Ensure that matched element is a checkbox or a radio input. If not, this method throws.
+1. If the element already has the right checked state, this method returns immediately.
+1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+   set. If the element is detached during the checks, the whole action is retried.
+1. Scroll the element into view if needed.
+1. Use [`property: Page.mouse`] to click in the center of the element.
+1. Wait for initiated navigations to either succeed or fail, unless [`option: noWaitAfter`] option is set.
+1. Ensure that the element is now checked or unchecked. If not, this method throws.
+
+When all steps combined have not finished during the specified [`option: timeout`], this method throws a
+[TimeoutError]. Passing zero timeout disables this.
+
+### param: Frame.setChecked.selector = %%-input-selector-%%
+### param: Frame.setChecked.checked = %%-input-checked-%%
+### option: Frame.setChecked.force = %%-input-force-%%
+### option: Frame.setChecked.noWaitAfter = %%-input-no-wait-after-%%
+### option: Frame.setChecked.position = %%-input-position-%%
+### option: Frame.setChecked.strict = %%-input-strict-%%
+### option: Frame.setChecked.timeout = %%-input-timeout-%%
+### option: Frame.setChecked.trial = %%-input-trial-%%
+
 
 ## async method: Frame.setContent
 

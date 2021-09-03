@@ -999,6 +999,15 @@ Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce
 
 Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. Passing `null` disables reduced motion emulation.
 
+### option: Page.emulateMedia.forcedColors
+- `forcedColors` <null|[ForcedColors]<"active"|"none">>
+
+Emulates `'forced-colors'` media feature, supported values are `'active'` and `'none'`. Passing `null` disables forced colors emulation.
+
+:::note
+It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
+:::
+
 ## async method: Page.evalOnSelector
 * langs:
   - alias-python: eval_on_selector
@@ -1877,19 +1886,19 @@ Navigate to the next page in history.
 Returns the main resource response. In case of multiple redirects, the navigation will resolve with the response of the
 last redirect.
 
-`page.goto` will throw an error if:
+The method will throw an error if:
 * there's an SSL error (e.g. in case of self-signed certificates).
 * target URL is invalid.
 * the [`option: timeout`] is exceeded during navigation.
 * the remote server does not respond or is unreachable.
 * the main resource failed to load.
 
-`page.goto` will not throw an error when any valid HTTP status code is returned by the remote server, including 404 "Not
+The method will not throw an error when any valid HTTP status code is returned by the remote server, including 404 "Not
 Found" and 500 "Internal Server Error".  The status code for such responses can be retrieved by calling
 [`method: Response.status`].
 
 :::note
-`page.goto` either throws an error or returns a main resource response. The only exceptions are navigation to
+The method either throws an error or returns a main resource response. The only exceptions are navigation to
 `about:blank` or navigation to the same URL with a different hash, which would succeed and return `null`.
 :::
 
@@ -2026,7 +2035,10 @@ Returns whether the element is hidden, the opposite of [visible](./actionability
 ### param: Page.isHidden.selector = %%-input-selector-%%
 
 ### option: Page.isHidden.strict = %%-input-strict-%%
-### option: Page.isHidden.timeout = %%-input-timeout-%%
+### option: Page.isHidden.timeout
+- `timeout` <[float]>
+
+**DEPRECATED** This option is ignored. [`method: Page.isHidden`] does not wait for the element to become hidden and returns immediately.
 
 ## async method: Page.isVisible
 - returns: <[boolean]>
@@ -2036,7 +2048,10 @@ Returns whether the element is [visible](./actionability.md#visible). [`option: 
 ### param: Page.isVisible.selector = %%-input-selector-%%
 
 ### option: Page.isVisible.strict = %%-input-strict-%%
-### option: Page.isVisible.timeout = %%-input-timeout-%%
+### option: Page.isVisible.timeout
+- `timeout` <[float]>
+
+**DEPRECATED** This option is ignored. [`method: Page.isVisible`] does not wait for the element to become visible and returns immediately.
 
 ## property: Page.keyboard
 - type: <[Keyboard]>
@@ -2404,6 +2419,10 @@ Once routing is enabled, every request matching the url pattern will stall unles
 The handler will only be called for the first url if the response is a redirect.
 :::
 
+:::note
+[`method: Page.route`] will not intercept requests intercepted by Service Worker. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using request interception. Via `await context.addInitScript(() => delete window.navigator.serviceWorker);`
+:::
+
 An example of a naive handler that aborts all image requests:
 
 ```js
@@ -2551,6 +2570,11 @@ handler function to route the request.
 
 handler function to route the request.
 
+### option: Page.route.times
+- `times` <[int]>
+
+How often a route should be used. By default it will be used every time.
+
 ## async method: Page.screenshot
 - returns: <[Buffer]>
 
@@ -2648,7 +2672,7 @@ page.select_option("select#colors", value=["red", "green", "blue"])
 await page.SelectOptionAsync("select#colors", new[] { "blue" });
 // single selection matching both the value and the label
 await page.SelectOptionAsync("select#colors", new[] { new SelectOptionValue() { Label = "blue" } });
-// multiple 
+// multiple
 await page.SelectOptionAsync("select#colors", new[] { "red", "green", "blue" });
 ```
 
@@ -2660,6 +2684,34 @@ Shortcut for main frame's [`method: Frame.selectOption`].
 ### option: Page.selectOption.noWaitAfter = %%-input-no-wait-after-%%
 ### option: Page.selectOption.strict = %%-input-strict-%%
 ### option: Page.selectOption.timeout = %%-input-timeout-%%
+
+## async method: Page.setChecked
+
+This method checks or unchecks an element matching [`param: selector`] by performing the following steps:
+1. Find an element matching [`param: selector`]. If there is none, wait until a matching element is attached to
+   the DOM.
+1. Ensure that matched element is a checkbox or a radio input. If not, this method throws.
+1. If the element already has the right checked state, this method returns immediately.
+1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+   set. If the element is detached during the checks, the whole action is retried.
+1. Scroll the element into view if needed.
+1. Use [`property: Page.mouse`] to click in the center of the element.
+1. Wait for initiated navigations to either succeed or fail, unless [`option: noWaitAfter`] option is set.
+1. Ensure that the element is now checked or unchecked. If not, this method throws.
+
+When all steps combined have not finished during the specified [`option: timeout`], this method throws a
+[TimeoutError]. Passing zero timeout disables this.
+
+Shortcut for main frame's [`method: Frame.setChecked`].
+
+### param: Page.setChecked.selector = %%-input-selector-%%
+### param: Page.setChecked.checked = %%-input-checked-%%
+### option: Page.setChecked.force = %%-input-force-%%
+### option: Page.setChecked.noWaitAfter = %%-input-no-wait-after-%%
+### option: Page.setChecked.position = %%-input-position-%%
+### option: Page.setChecked.strict = %%-input-strict-%%
+### option: Page.setChecked.timeout = %%-input-timeout-%%
+### option: Page.setChecked.trial = %%-input-trial-%%
 
 ## async method: Page.setContent
 

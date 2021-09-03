@@ -146,7 +146,7 @@ it.describe('snapshots', () => {
     await page.evaluate(() => { (document.styleSheets[0].cssRules[0] as any).style.color = 'blue'; });
     const snapshot2 = await snapshotter.captureSnapshot(toImpl(page), 'snapshot1');
     const resource = snapshot2.resourceByUrl(`http://localhost:${server.PORT}/style.css`);
-    expect(snapshotter.resourceContent(resource.responseSha1).toString()).toBe('button { color: blue; }');
+    expect(snapshotter.resourceContent(resource.response.content._sha1).toString()).toBe('button { color: blue; }');
   });
 
   it('should capture iframe', async ({ page, server, toImpl, browserName, snapshotter, showSnapshot }) => {
@@ -283,6 +283,33 @@ it.describe('snapshots', () => {
     expect(await div.evaluate(div => div.scrollTop)).toBe(136);
   });
 
+  it('should work with meta CSP', async ({ page, showSnapshot, toImpl, snapshotter, browserName }) => {
+    it.skip(browserName === 'firefox');
+
+    await page.setContent(`
+      <head>
+        <meta http-equiv="Content-Security-Policy" content="script-src 'none'">
+      </head>
+      <body>
+        <div>Hello</div>
+      </body>
+    `);
+    await page.$eval('div', div => {
+      const shadow = div.attachShadow({ mode: 'open' });
+      const span = document.createElement('span');
+      span.textContent = 'World';
+      shadow.appendChild(span);
+    });
+
+    const snapshot = await snapshotter.captureSnapshot(toImpl(page), 'meta');
+
+    // Render snapshot, check expectations.
+    const frame = await showSnapshot(snapshot);
+    await frame.waitForSelector('div');
+    // Should render shadow dom with post-processing script.
+    expect(await frame.textContent('span')).toBe('World');
+  });
+
   it('should handle multiple headers', async ({ page, server, showSnapshot, toImpl, snapshotter, browserName }) => {
     it.skip(browserName === 'firefox');
 
@@ -299,6 +326,27 @@ it.describe('snapshots', () => {
     await frame.waitForSelector('div');
     const padding = await frame.$eval('body', body => window.getComputedStyle(body).paddingLeft);
     expect(padding).toBe('42px');
+  });
+
+  it('should handle src=blob', async ({ page, server, showSnapshot, toImpl, snapshotter, browserName }) => {
+    it.skip(browserName === 'firefox');
+
+    await page.goto(server.EMPTY_PAGE);
+    await page.evaluate(async () => {
+      const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAASCAQAAADIvofAAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QA/4ePzL8AAAAHdElNRQfhBhAPKSstM+EuAAAAvUlEQVQY05WQIW4CYRgF599gEZgeoAKBWIfCNSmVvQMe3wv0ChhIViKwtTQEAYJwhgpISBA0JSxNIdlB7LIGTJ/8kpeZ7wW5TcT9o/QNBtvOrrWMrtg0sSGOFeELbHlCDsQ+ukeYiHNFJPHBDRKlQKVEbFkLUT3AiAxI6VGCXsWXAoQLBUl5E7HjUFwiyI4zf/wWoB3CFnxX5IeGdY8IGU/iwE9jcZrLy4pnEat+FL4hf/cbqREKo/Cf6W5zASVMeh234UtGAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDE3LTA2LTE2VDE1OjQxOjQzLTA3OjAwd1xNIQAAACV0RVh0ZGF0ZTptb2RpZnkAMjAxNy0wNi0xNlQxNTo0MTo0My0wNzowMAYB9Z0AAAAASUVORK5CYII=';
+      const blob = await fetch(dataUrl).then(res => res.blob());
+      const url = window.URL.createObjectURL(blob);
+      const img = document.createElement('img');
+      img.src = url;
+      const loaded = new Promise(f => img.onload = f);
+      document.body.appendChild(img);
+      await loaded;
+    });
+
+    const snapshot = await snapshotter.captureSnapshot(toImpl(page), 'snapshot');
+    const frame = await showSnapshot(snapshot);
+    const img = await frame.waitForSelector('img');
+    expect(await img.screenshot()).toMatchSnapshot('blob-src.png');
   });
 });
 

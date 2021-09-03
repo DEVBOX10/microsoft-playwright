@@ -98,10 +98,9 @@ it('should work when header manipulation headers with redirect', async ({page, s
 // @see https://github.com/GoogleChrome/puppeteer/issues/4743
 it('should be able to remove headers', async ({page, server}) => {
   await page.goto(server.EMPTY_PAGE);
-  await page.route('**/*', route => {
-    const headers = Object.assign({}, route.request().headers(), {
-      foo: undefined, // remove "foo" header
-    });
+  await page.route('**/*', async route => {
+    const headers = { ...route.request().headers() };
+    delete headers['foo'];
     route.continue({ headers });
   });
 
@@ -506,7 +505,7 @@ it('should not fulfill with redirect status', async ({page, server, browserName}
   }
 });
 
-it('should support cors with GET', async ({page, server}) => {
+it('should support cors with GET', async ({page, server, browserName}) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars*', async (route, request) => {
     const headers = request.url().endsWith('allow') ? { 'access-control-allow-origin': '*' } : {};
@@ -531,7 +530,12 @@ it('should support cors with GET', async ({page, server}) => {
       const response = await fetch('https://example.com/cars?reject', { mode: 'cors' });
       return response.json();
     }).catch(e => e);
-    expect(error.message).toContain('failed');
+    if (browserName === 'chromium')
+      expect(error.message).toContain('Failed');
+    if (browserName === 'webkit')
+      expect(error.message).toContain('TypeError');
+    if (browserName === 'firefox')
+      expect(error.message).toContain('NetworkError');
   }
 });
 
@@ -651,4 +655,16 @@ it('should support cors for different methods', async ({page, server}) => {
     });
     expect(resp).toEqual(['DELETE', 'electric', 'gas']);
   }
+});
+
+it('should support the times parameter with route matching', async ({page, server}) => {
+  const intercepted = [];
+  await page.route('**/empty.html', route => {
+    intercepted.push(1);
+    route.continue();
+  }, { times: 1});
+  await page.goto(server.EMPTY_PAGE);
+  await page.goto(server.EMPTY_PAGE);
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toHaveLength(1);
 });

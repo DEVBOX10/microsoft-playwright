@@ -35,14 +35,21 @@ import { Stream } from './stream';
 import { debugLogger } from '../utils/debugLogger';
 import { SelectorsOwner } from './selectors';
 import { Android, AndroidSocket, AndroidDevice } from './android';
-import { SocksSocket } from './socksSocket';
 import { ParsedStackTrace } from '../utils/stackTrace';
 import { Artifact } from './artifact';
 import { EventEmitter } from 'events';
+import { JsonPipe } from './jsonPipe';
+import type { LogContainer } from './types';
 
-class Root extends ChannelOwner<channels.Channel, {}> {
+class Root extends ChannelOwner<channels.RootChannel, {}> {
   constructor(connection: Connection) {
-    super(connection, '', '', {});
+    super(connection, 'Root', '', {});
+  }
+
+  async initialize(): Promise<Playwright> {
+    return Playwright.from((await this._channel.initialize({
+      sdkLanguage: 'javascript',
+    })).playwright);
   }
 }
 
@@ -51,8 +58,8 @@ export class Connection extends EventEmitter {
   private _waitingForObject = new Map<string, any>();
   onmessage = (message: object): void => {};
   private _lastId = 0;
-  private _callbacks = new Map<number, { resolve: (a: any) => void, reject: (a: Error) => void, metadata: channels.Metadata }>();
-  private _rootObject: ChannelOwner;
+  private _callbacks = new Map<number, { resolve: (a: any) => void, reject: (a: Error) => void, stackTrace: ParsedStackTrace, logContainer: LogContainer | undefined }>();
+  private _rootObject: Root;
   private _disconnectedErrorMessage: string | undefined;
   private _onClose?: () => void;
 
@@ -62,34 +69,33 @@ export class Connection extends EventEmitter {
     this._onClose = onClose;
   }
 
-  async waitForObjectWithKnownName(guid: string): Promise<any> {
-    if (this._objects.has(guid))
-      return this._objects.get(guid)!;
-    return new Promise(f => this._waitingForObject.set(guid, f));
+  async initializePlaywright(): Promise<Playwright> {
+    return await this._rootObject.initialize();
   }
 
-  pendingProtocolCalls(): channels.Metadata[] {
-    return Array.from(this._callbacks.values()).map(callback => callback.metadata);
+  pendingProtocolCalls(): ParsedStackTrace[] {
+    return Array.from(this._callbacks.values()).map(callback => callback.stackTrace);
   }
 
   getObjectWithKnownName(guid: string): any {
     return this._objects.get(guid)!;
   }
 
-  async sendMessageToServer(object: ChannelOwner, method: string, params: any, stackTrace: ParsedStackTrace | null): Promise<any> {
+  async sendMessageToServer(object: ChannelOwner, method: string, params: any, maybeStackTrace: ParsedStackTrace | null, logContainer?: LogContainer): Promise<any> {
     const guid = object._guid;
-    const { frames, apiName }: ParsedStackTrace = stackTrace || { frameTexts: [], frames: [], apiName: '' };
+    const stackTrace = maybeStackTrace || { frameTexts: [], frames: [], apiName: '' };
+    const { frames, apiName } = stackTrace;
 
     const id = ++this._lastId;
     const converted = { id, guid, method, params };
     // Do not include metadata in debug logs to avoid noise.
     debugLogger.log('channel:command', converted);
-    const metadata: channels.Metadata = { stack: frames, apiName };
+    const metadata: channels.Metadata = { stack: frames, apiName, collectLogs: logContainer ? true : undefined };
     this.onmessage({ ...converted, metadata });
 
     if (this._disconnectedErrorMessage)
       throw new Error(this._disconnectedErrorMessage);
-    return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject, metadata }));
+    return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject, stackTrace, logContainer }));
   }
 
   _debugScopeState(): any {
@@ -97,13 +103,15 @@ export class Connection extends EventEmitter {
   }
 
   dispatch(message: object) {
-    const { id, guid, method, params, result, error } = message as any;
+    const { id, guid, method, params, result, error, log } = message as any;
     if (id) {
       debugLogger.log('channel:response', message);
       const callback = this._callbacks.get(id);
       if (!callback)
         throw new Error(`Cannot find command to respond: ${id}`);
       this._callbacks.delete(id);
+      if (log && callback.logContainer)
+        callback.logContainer.log.push(...log);
       if (error)
         callback.reject(parseError(error));
       else
@@ -126,7 +134,7 @@ export class Connection extends EventEmitter {
     const object = this._objects.get(guid);
     if (!object)
       throw new Error(`Cannot find object to emit "${method}": ${guid}`);
-    object._channel.emit(method, this._replaceGuidsWithChannels(params));
+    object._channel.emit(method, object._type === 'JsonPipe' ? params : this._replaceGuidsWithChannels(params));
   }
 
   close() {
@@ -217,6 +225,9 @@ export class Connection extends EventEmitter {
       case 'JSHandle':
         result = new JSHandle(parent, type, guid, initializer);
         break;
+      case 'JsonPipe':
+        result = new JsonPipe(parent, type, guid, initializer);
+        break;
       case 'Page':
         result = new Page(parent, type, guid, initializer);
         break;
@@ -243,9 +254,6 @@ export class Connection extends EventEmitter {
         break;
       case 'Worker':
         result = new Worker(parent, type, guid, initializer);
-        break;
-      case 'SocksSocket':
-        result = new SocksSocket(parent, type, guid, initializer);
         break;
       default:
         throw new Error('Missing type ' + type);

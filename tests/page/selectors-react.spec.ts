@@ -39,7 +39,7 @@ for (const [name, url] of Object.entries(reacts)) {
 
     it('should work with multi-root elements (fragments)', async ({page}) => {
       it.skip(name === 'react15', 'React 15 does not support fragments');
-      expect(await page.$$eval(`_react=App`, els => els.length)).toBe(14);
+      expect(await page.$$eval(`_react=App`, els => els.length)).toBe(15);
       expect(await page.$$eval(`_react=AppHeader`, els => els.length)).toBe(2);
       expect(await page.$$eval(`_react=NewBook`, els => els.length)).toBe(2);
     });
@@ -103,6 +103,36 @@ for (const [name, url] of Object.entries(reacts)) {
 
     it('should support truthy querying', async ({page}) => {
       expect(await page.$$eval(`_react=ColorButton[enabled]`, els => els.length)).toBe(5);
+    });
+
+    it('should support nested react trees', async ({page}) => {
+      await expect(page.locator(`_react=BookItem`)).toHaveCount(3);
+      await page.evaluate(() => {
+        // @ts-ignore
+        mountNestedApp();
+      });
+      await expect(page.locator(`_react=BookItem`)).toHaveCount(6);
+    });
+
+    it('should work with multiroot react', async ({page}) => {
+      await it.step('mount second root', async () => {
+        await expect(page.locator(`_react=BookItem`)).toHaveCount(3);
+        await page.evaluate(() => {
+          const anotherRoot = document.createElement('div');
+          anotherRoot.id = 'root2';
+          document.body.append(anotherRoot);
+          // @ts-ignore
+          window.mountApp(anotherRoot);
+        });
+        await expect(page.locator(`_react=BookItem`)).toHaveCount(6);
+      });
+
+      await it.step('add a new book to second root', async () => {
+        await page.locator('#root2 input').fill('newbook');
+        await page.locator('#root2 >> text=new book').click();
+        await expect(page.locator('css=#root >> _react=BookItem')).toHaveCount(3);
+        await expect(page.locator('css=#root2 >> _react=BookItem')).toHaveCount(4);
+      });
     });
   });
 }

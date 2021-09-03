@@ -1,7 +1,7 @@
 <link rel=stylesheet href='./style.css'>
 <script src="./vue_2.6.14.js"></script>
 
-<div id=root></div>
+<div id=root><div></div></div>
 
 <script>
 
@@ -82,9 +82,8 @@ Vue.component('button-grid', {
   }
 });
 
-
-new Vue({
-  el: '#root',
+window.mountApp = element => new Vue({
+  el: element,
 
   template: `
     <div>
@@ -92,6 +91,7 @@ new Vue({
       <new-book @newbook='addNewBook'></new-book>
       <book-list :books='books'></book-list>
       <button-grid></button-grid>
+      <div ref="mountPoint"></div>
     </div>
   `,
 
@@ -112,5 +112,7 @@ new Vue({
     }
   },
 });
+window.app = window.mountApp(document.querySelector('#root div'));
+window.mountNestedApp = () => window.mountApp(window.app.$refs.mountPoint);
 
 </script>

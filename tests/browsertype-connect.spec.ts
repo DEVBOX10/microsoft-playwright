@@ -57,18 +57,27 @@ test('should be able to connect two browsers at the same time', async ({browserT
   expect(browser1.contexts().length).toBe(1);
 
   await browser1.close();
+  expect(browser2.contexts().length).toBe(1);
   const page2 = await browser2.newPage();
   expect(await page2.evaluate(() => 7 * 6)).toBe(42); // original browser should still work
 
   await browser2.close();
 });
 
-test('should timeout while connecting', async ({browserType, startRemoteServer, server}) => {
+test('should timeout in socket while connecting', async ({browserType, startRemoteServer, server}) => {
+  const e = await browserType.connect({
+    wsEndpoint: `ws://localhost:${server.PORT}/ws`,
+    timeout: 1,
+  }).catch(e => e);
+  expect(e.message).toContain('browserType.connect: Opening handshake has timed out');
+});
+
+test('should timeout in connect while connecting', async ({browserType, startRemoteServer, server}) => {
   const e = await browserType.connect({
     wsEndpoint: `ws://localhost:${server.PORT}/ws`,
     timeout: 100,
   }).catch(e => e);
-  expect(e.message).toContain('browserType.connect: Timeout 100ms exceeded.');
+  expect(e.message).toContain('browserType.connect: Timeout 100ms exceeded');
 });
 
 test('should send extra headers with connect request', async ({browserType, startRemoteServer, server}) => {
@@ -452,4 +461,25 @@ test('should be able to connect when the wsEndpont is passed as the first argume
   const page = await browser.newPage();
   expect(await page.evaluate('1 + 2')).toBe(3);
   await browser.close();
+});
+
+test('should save har', async ({browserType, startRemoteServer, server}, testInfo) => {
+  const remoteServer = await startRemoteServer();
+  const browser = await browserType.connect(remoteServer.wsEndpoint());
+  const harPath = testInfo.outputPath('test.har');
+  const context = await browser.newContext({
+    recordHar: {
+      path: harPath,
+    }
+  });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+  await context.close();
+  await browser.close();
+
+  const log = JSON.parse(fs.readFileSync(harPath).toString())['log'];
+  expect(log.entries.length).toBe(1);
+  const entry = log.entries[0];
+  expect(entry.pageref).toBe(log.pages[0].id);
+  expect(entry.request.url).toBe(server.EMPTY_PAGE);
 });

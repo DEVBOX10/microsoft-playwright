@@ -29,7 +29,7 @@ import * as structs from '../../types/structs';
 export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements api.ElementHandle {
   readonly _elementChannel: channels.ElementHandleChannel;
 
-  static from(handle: channels.ElementHandleChannel): ElementHandle {
+  static override from(handle: channels.ElementHandleChannel): ElementHandle {
     return (handle as any)._object;
   }
 
@@ -42,7 +42,7 @@ export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements
     this._elementChannel = this._channel as channels.ElementHandleChannel;
   }
 
-  asElement(): T extends Node ? ElementHandle<T> : null {
+  override asElement(): T extends Node ? ElementHandle<T> : null {
     return this as any;
   }
 
@@ -215,6 +215,13 @@ export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements
     return this._wrapApiCall(async (channel: channels.ElementHandleChannel) => {
       return await channel.uncheck(options);
     });
+  }
+
+  async setChecked(checked: boolean, options?: channels.ElementHandleCheckOptions) {
+    if (checked)
+      await this.check(options);
+    else
+      await this.uncheck(options);
   }
 
   async boundingBox(): Promise<Rect | null> {

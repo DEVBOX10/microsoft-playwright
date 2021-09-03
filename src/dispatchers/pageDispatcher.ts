@@ -35,7 +35,7 @@ import { ArtifactDispatcher } from './artifactDispatcher';
 import { Download } from '../server/download';
 import { createGuid } from '../utils/utils';
 
-export class PageDispatcher extends Dispatcher<Page, channels.PageInitializer> implements channels.PageChannel {
+export class PageDispatcher extends Dispatcher<Page, channels.PageInitializer, channels.PageEvents> implements channels.PageChannel {
   private _page: Page;
 
   static fromNullable(scope: DispatcherScope, page: Page | undefined): PageDispatcher | undefined {
@@ -122,6 +122,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageInitializer> i
       media: params.media === 'null' ? null : params.media,
       colorScheme: params.colorScheme === 'null' ? null : params.colorScheme,
       reducedMotion: params.reducedMotion === 'null' ? null : params.reducedMotion,
+      forcedColors: params.forcedColors === 'null' ? null : params.forcedColors,
     });
   }
 
@@ -244,7 +245,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageInitializer> i
 }
 
 
-export class WorkerDispatcher extends Dispatcher<Worker, channels.WorkerInitializer> implements channels.WorkerChannel {
+export class WorkerDispatcher extends Dispatcher<Worker, channels.WorkerInitializer, channels.WorkerEvents> implements channels.WorkerChannel {
   constructor(scope: DispatcherScope, worker: Worker) {
     super(scope, worker, 'Worker', {
       url: worker.url()
@@ -261,13 +262,13 @@ export class WorkerDispatcher extends Dispatcher<Worker, channels.WorkerInitiali
   }
 }
 
-export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels.BindingCallInitializer> implements channels.BindingCallChannel {
+export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels.BindingCallInitializer, channels.BindingCallEvents> implements channels.BindingCallChannel {
   private _resolve: ((arg: any) => void) | undefined;
   private _reject: ((error: any) => void) | undefined;
   private _promise: Promise<any>;
 
   constructor(scope: DispatcherScope, name: string, needsHandle: boolean, source: { context: BrowserContext, page: Page, frame: Frame }, args: any[]) {
-    super(scope, { guid: createGuid() }, 'BindingCall', {
+    super(scope, { guid: 'bindingCall@' + createGuid() }, 'BindingCall', {
       frame: lookupDispatcher<FrameDispatcher>(source.frame),
       name,
       args: needsHandle ? undefined : args.map(serializeResult),

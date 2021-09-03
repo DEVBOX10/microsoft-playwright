@@ -113,8 +113,7 @@ export interface TestCase {
   titlePath(): string[];
   /**
    * Expected test status.
-   * - Tests marked as
-   *   [test.skip(titleOrCondition, testFunctionOrDescription)](https://playwright.dev/docs/api/class-test#test-skip) or
+   * - Tests marked as [test.skip(title, testFunction)](https://playwright.dev/docs/api/class-test#test-skip-1) or
    *   [test.fixme([condition, description])](https://playwright.dev/docs/api/class-test#test-fixme) are expected to be
    *   `'skipped'`.
    * - Tests marked as [test.fail([condition, description])](https://playwright.dev/docs/api/class-test#test-fail) are
@@ -228,10 +227,19 @@ export interface TestStep {
    */
   title: string;
   /**
+   * Returns a list of step titles from the root step down to this step.
+   */
+  titlePath(): string[];
+  /**
+   * Parent step, if any.
+   */
+  parent?: TestStep;
+  /**
    * Step category to differentiate steps with different origin and verbosity. Built-in categories are:
    * - `hook` for fixtures and hooks initialization and teardown
    * - `expect` for expect calls
    * - `pw:api` for Playwright API calls.
+   * - `test.step` for test.step API calls.
    */
   category: string,
   /**
@@ -250,6 +258,7 @@ export interface TestStep {
    * List of steps inside this step.
    */
   steps: TestStep[];
+  data: { [key: string]: any };
 }
 
 /**
@@ -272,34 +281,8 @@ export interface FullResult {
  * You can create a custom reporter by implementing a class with some of the reporter methods. Make sure to export this
  * class as default.
  *
- * ```js js-flavor=js
- * // my-awesome-reporter.js
- * // @ts-check
- *
- * /** @implements {import('@playwright/test/reporter').Reporter} *\/
- * class MyReporter {
- *   onBegin(config, suite) {
- *     console.log(`Starting the run with ${suite.allTests().length} tests`);
- *   }
- *
- *   onTestBegin(test) {
- *     console.log(`Starting test ${test.title}`);
- *   }
- *
- *   onTestEnd(test, result) {
- *     console.log(`Finished test ${test.title}: ${result.status}`);
- *   }
- *
- *   onEnd(result) {
- *     console.log(`Finished the run: ${result.status}`);
- *   }
- * }
- *
- * module.exports = MyReporter;
- * ```
- *
- * ```js js-flavor=ts
- * // playwright.config.ts
+ * ```ts
+ * // my-awesome-reporter.ts
  * import { Reporter } from '@playwright/test/reporter';
  *
  * class MyReporter implements Reporter {
@@ -324,19 +307,7 @@ export interface FullResult {
  *
  * Now use this reporter with [testConfig.reporter](https://playwright.dev/docs/api/class-testconfig#test-config-reporter).
  *
- * ```js js-flavor=js
- * // playwright.config.js
- * // @ts-check
- *
- * /** @type {import('@playwright/test').PlaywrightTestConfig} *\/
- * const config = {
- *   reporter: './my-awesome-reporter.js',
- * };
- *
- * module.exports = config;
- * ```
- *
- * ```js js-flavor=ts
+ * ```ts
  * // playwright.config.ts
  * import { PlaywrightTestConfig } from '@playwright/test';
  *
@@ -385,14 +356,14 @@ export interface Reporter {
    * Called when a test step started in the worker process.
    * @param test Test that has been started.
    * @param result Result of the test run, this object gets populated while the test runs.
-   * @param result Test step instance.
+   * @param step Test step instance.
    */
   onStepBegin?(test: TestCase, result: TestResult, step: TestStep): void;
   /**
    * Called when a test step finished in the worker process.
    * @param test Test that has been finished.
    * @param result Result of the test run.
-   * @param result Test step instance.
+   * @param step Test step instance.
    */
   onStepEnd?(test: TestCase, result: TestResult, step: TestStep): void;
   /**

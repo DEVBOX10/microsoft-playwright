@@ -17,6 +17,7 @@
 import { BrowserContext } from '../server/browserContext';
 import { Dispatcher, DispatcherScope, lookupDispatcher } from './dispatcher';
 import { PageDispatcher, BindingCallDispatcher, WorkerDispatcher } from './pageDispatcher';
+import { playwrightFetch } from '../server/fetch';
 import { FrameDispatcher } from './frameDispatcher';
 import * as channels from '../protocol/channels';
 import { RouteDispatcher, RequestDispatcher, ResponseDispatcher } from './networkDispatchers';
@@ -27,8 +28,9 @@ import { CallMetadata } from '../server/instrumentation';
 import { ArtifactDispatcher } from './artifactDispatcher';
 import { Artifact } from '../server/artifact';
 import { Request, Response } from '../server/network';
+import { headersArrayToObject } from '../utils/utils';
 
-export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextInitializer> implements channels.BrowserContextChannel {
+export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextInitializer, channels.BrowserContextEvents> implements channels.BrowserContextChannel {
   private _context: BrowserContext;
 
   constructor(scope: DispatcherScope, context: BrowserContext) {
@@ -77,14 +79,15 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     }));
     context.on(BrowserContext.Events.RequestFailed, (request: Request) => this._dispatchEvent('requestFailed', {
       request: RequestDispatcher.from(this._scope, request),
-      failureText: request._failureText,
+      failureText: request._failureText || undefined,
       responseEndTiming: request._responseEndTiming,
       page: PageDispatcher.fromNullable(this._scope, request.frame()._page.initializedOrUndefined())
     }));
-    context.on(BrowserContext.Events.RequestFinished, (request: Request) => this._dispatchEvent('requestFinished', {
+    context.on(BrowserContext.Events.RequestFinished, ({ request, response}: { request: Request, response: Response | null }) => this._dispatchEvent('requestFinished', {
       request: RequestDispatcher.from(scope, request),
+      response: ResponseDispatcher.fromNullable(scope, response),
       responseEndTiming: request._responseEndTiming,
-      page: PageDispatcher.fromNullable(this._scope, request.frame()._page.initializedOrUndefined())
+      page: PageDispatcher.fromNullable(this._scope, request.frame()._page.initializedOrUndefined()),
     }));
   }
 
@@ -102,6 +105,26 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
       this._dispatchEvent('bindingCall', { binding });
       return binding.promise();
     }, 'main');
+  }
+
+  async fetch(params: channels.BrowserContextFetchParams): Promise<channels.BrowserContextFetchResult> {
+    const { fetchResponse, error } = await playwrightFetch(this._context, {
+      url: params.url,
+      method: params.method,
+      headers: params.headers ? headersArrayToObject(params.headers, false) : undefined,
+      postData: params.postData ? Buffer.from(params.postData, 'base64') : undefined,
+    });
+    let response;
+    if (fetchResponse) {
+      response = {
+        url: fetchResponse.url,
+        status: fetchResponse.status,
+        statusText: fetchResponse.statusText,
+        headers: fetchResponse.headers,
+        body: fetchResponse.body.toString('base64')
+      };
+    }
+    return { response, error };
   }
 
   async newPage(params: channels.BrowserContextNewPageParams, metadata: CallMetadata): Promise<channels.BrowserContextNewPageResult> {
@@ -187,12 +210,23 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     await this._context.tracing.start(params);
   }
 
+  async tracingStartChunk(params: channels.BrowserContextTracingStartChunkParams): Promise<channels.BrowserContextTracingStartChunkResult> {
+    await this._context.tracing.startChunk();
+  }
+
+  async tracingStopChunk(params: channels.BrowserContextTracingStopChunkParams): Promise<channels.BrowserContextTracingStopChunkResult> {
+    const artifact = await this._context.tracing.stopChunk(params.save);
+    return { artifact: artifact ? new ArtifactDispatcher(this._scope, artifact) : undefined };
+  }
+
   async tracingStop(params: channels.BrowserContextTracingStopParams): Promise<channels.BrowserContextTracingStopResult> {
     await this._context.tracing.stop();
   }
 
-  async tracingExport(params: channels.BrowserContextTracingExportParams): Promise<channels.BrowserContextTracingExportResult> {
-    const artifact = await this._context.tracing.export();
+  async harExport(params: channels.BrowserContextHarExportParams): Promise<channels.BrowserContextHarExportResult> {
+    const artifact = await this._context._harRecorder?.export();
+    if (!artifact)
+      throw new Error('No HAR artifact. Ensure record.harPath is set.');
     return { artifact: new ArtifactDispatcher(this._scope, artifact) };
   }
 }

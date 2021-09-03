@@ -41,6 +41,8 @@ import type { Expect, TestError } from './types';
 import matchers from 'expect/build/matchers';
 import { currentTestInfo } from './globals';
 import { serializeError } from './util';
+import StackUtils from 'stack-utils';
+import path from 'path';
 
 export const expect: Expect = expectLibrary as any;
 expectLibrary.setState({ expand: false });
@@ -73,21 +75,23 @@ function wrap(matcherName: string, matcher: any) {
     if (!testInfo)
       return matcher.call(this, ...args);
 
-    const infix = this.isNot ? '.not' : '';
-    const completeStep = testInfo._addStep('expect', `expect${infix}.${matcherName}`);
-    const stack = new Error().stack;
+    const INTERNAL_STACK_LENGTH = 3;
+    const stackLines = new Error().stack!.split('\n').slice(INTERNAL_STACK_LENGTH + 1);
+    const step = testInfo._addStep('expect', `expect${this.isNot ? '.not' : ''}.${matcherName}`, prepareExpectStepData(stackLines));
 
     const reportStepEnd = (result: any) => {
       const success = result.pass !== this.isNot;
       let error: TestError | undefined;
-      if (!success)
-        error = { message: result.message(), stack };
-      completeStep?.(error);
+      if (!success) {
+        const message = result.message();
+        error = { message, stack: message + '\n' + stackLines.join('\n') };
+      }
+      step.complete(error);
       return result;
     };
 
     const reportStepError = (error: Error) => {
-      completeStep?.(serializeError(error));
+      step.complete(serializeError(error));
       throw error;
     };
 
@@ -100,6 +104,22 @@ function wrap(matcherName: string, matcher: any) {
       reportStepError(e);
     }
   };
+}
+
+const stackUtils = new StackUtils();
+
+function prepareExpectStepData(lines: string[]) {
+  const frames = lines.map(line => {
+    const parsed = stackUtils.parseLine(line);
+    if (!parsed)
+      return;
+    return {
+      file: parsed.file ? path.resolve(process.cwd(), parsed.file) : undefined,
+      line: parsed.line,
+      column: parsed.column
+    };
+  }).filter(frame => !!frame);
+  return { stack: frames, log: [] };
 }
 
 const wrappedMatchers: any = {};

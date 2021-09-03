@@ -96,6 +96,9 @@ export const colorSchemes: Set<ColorScheme> = new Set(['dark', 'light', 'no-pref
 export type ReducedMotion = 'no-preference' | 'reduce';
 export const reducedMotions: Set<ReducedMotion> = new Set(['no-preference', 'reduce']);
 
+export type ForcedColors = 'active' | 'none';
+export const forcedColors: Set<ForcedColors> = new Set(['active', 'none']);
+
 export type DeviceDescriptor = {
   userAgent: string,
   viewport: Size,
@@ -211,14 +214,6 @@ export type NormalizedContinueOverrides = {
   interceptResponse?: boolean,
 };
 
-export type NormalizedResponseContinueOverrides = {
-  status?: number,
-  statusText?: string,
-  headers?: HeadersArray,
-  body?: string,
-  isBase64?: boolean,
-};
-
 export type NetworkCookie = {
   name: string,
   value: string,
@@ -245,7 +240,6 @@ export type SetNetworkCookieParam = {
 export type EmulatedSize = { viewport: Size, screen: Size };
 
 export type BrowserContextOptions = {
-  sdkLanguage: string,
   viewport?: Size,
   screen?: Size,
   noDefaultViewport?: boolean,
@@ -265,6 +259,7 @@ export type BrowserContextOptions = {
   hasTouch?: boolean,
   colorScheme?: ColorScheme,
   reducedMotion?: ReducedMotion,
+  forcedColors?: ForcedColors,
   acceptDownloads?: boolean,
   recordVideo?: {
     dir: string,
@@ -274,6 +269,7 @@ export type BrowserContextOptions = {
     omitContent?: boolean,
     path: string
   },
+  strictSelectors?: boolean,
   proxy?: ProxySettings,
   baseURL?: string,
   _debugName?: string,
@@ -374,4 +370,19 @@ export type StorageState = {
 export type SetStorageState = {
   cookies?: SetNetworkCookieParam[],
   origins?: OriginStorage[]
+};
+
+export type FetchOptions = {
+  url: string,
+  method?: string,
+  headers?: { [name: string]: string },
+  postData?: Buffer,
+};
+
+export type FetchResponse = {
+  url: string,
+  status: number,
+  statusText: string,
+  headers: HeadersArray,
+  body: Buffer,
 };
