@@ -1,6 +1,6 @@
 ---
 id: library
-title: "Playwright Library"
+title: "Overview"
 ---
 
 Playwright can either be used as a part of the [Playwright Test](./intro.md), or as a Playwright Library (this guide). If you are working on an application that utilizes Playwright capabilities or you are using Playwright with another test runner, read on.
@@ -16,7 +16,7 @@ Use npm or Yarn to install Playwright library in your Node.js project. See [syst
 npm i -D playwright
 ```
 
-This single command downloads the Playwright NPM package and browser binaries for Chromium, Firefox and WebKit. To modify this behavior see [managing browsers](#managing-browser-binaries).
+This single command downloads the Playwright NPM package and browser binaries for Chromium, Firefox and WebKit. To modify this behavior see [managing browsers](./browsers.md#managing-browser-binaries).
 
 Once installed, you can `require` Playwright in a Node.js script, and launch any of the 3 browsers (`chromium`, `firefox` and `webkit`).
 

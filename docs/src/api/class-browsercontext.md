@@ -6,7 +6,7 @@ BrowserContexts provide a way to operate multiple independent browser sessions.
 If a page opens another page, e.g. with a `window.open` call, the popup will belong to the parent page's browser
 context.
 
-Playwright allows creation of "incognito" browser contexts with `browser.newContext()` method. "Incognito" browser
+Playwright allows creating "incognito" browser contexts with [`method: Browser.newContext`] method. "Incognito" browser
 contexts don't write any browsing data to disk.
 
 ```js
@@ -849,6 +849,12 @@ Creates a new page in the browser context.
 
 Returns all open pages in the context.
 
+## property: BrowserContext.request
+* langs: js
+- type: <[APIRequestContext]>
+
+API testing helper associated with this context. Requests made with this API will use context cookies.
+
 ## async method: BrowserContext.route
 
 Routing provides the capability to modify network requests that are made by any page in the browser context. Once route
@@ -1164,12 +1170,7 @@ Returns storage state for this browser context, contains current cookies and loc
 * langs: csharp, java
 - returns: <[string]>
 
-### option: BrowserContext.storageState.path
-- `path` <[path]>
-
-The file path to save the storage state to. If [`option: path`] is a relative path, then it is resolved relative to
-current working directory. If no path is provided, storage
-state is still returned, but won't be saved to the disk.
+### option: BrowserContext.storageState.path = %%-storagestate-option-path-%%
 
 ## property: BrowserContext.tracing
 - type: <[Tracing]>

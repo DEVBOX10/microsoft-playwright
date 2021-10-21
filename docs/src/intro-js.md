@@ -3,7 +3,7 @@ id: intro
 title: "Getting started"
 ---
 
-Playwright can either be used as a part of the Playwright Test (this guide), or as a [Playwright Library](./library.md).
+Playwright can either be used as a part of the Playwright Test test runner (this guide), or as a [Playwright Library](./library.md).
 
 Playwright Test was created specifically to accommodate the needs of the end-to-end testing. It does everything you would expect from the regular test runner, and more. Playwright test allows to:
 
@@ -285,16 +285,7 @@ Following are the usual command line patterns. Learn more about the [command lin
 
 - Run in debug mode with [Playwright Inspector](./inspector.md)
   ```bash
-  # Linux/macOS
-  PWDEBUG=1 npx playwright test
-
-  # Windows with cmd.exe
-  set PWDEBUG=1
-  npx playwright test
-
-  # Windows with PowerShell
-  $env:PWDEBUG=1
-  npx playwright test
+  npx playwright test --debug
   ```
 
 - Ask for help

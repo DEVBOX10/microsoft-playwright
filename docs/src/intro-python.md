@@ -155,17 +155,18 @@ with sync_playwright() as p:
 
 If you want to bundle browsers with the executables:
 
-```bash
-# Linux/macOS
+```bash bash-flavor=bash
 PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium
 pyinstaller -F main.py
+```
 
-# Windows with cmd.exe
+```bash bash-flavor=batch
 set PLAYWRIGHT_BROWSERS_PATH=0
 playwright install chromium
 pyinstaller -F main.py
+```
 
-# Windows with PowerShell
+```bash bash-flavor=powershell
 $env:PLAYWRIGHT_BROWSERS_PATH="0"
 playwright install chromium
 pyinstaller -F main.py
@@ -188,6 +189,11 @@ You should use `page.wait_for_timeout(5000)` instead of `time.sleep(5)` and it i
 Playwright runs the driver in a subprocess, so it requires `ProactorEventLoop` of `asyncio` on Windows because `SelectorEventLoop` does not supports async subprocesses.
 
 On Windows Python 3.7, Playwright sets the default event loop to `ProactorEventLoop` as it is default on Python 3.8+.
+
+### Threading
+
+Playwright's API is not thread-safe. If you are using Playwright in a multi-threaded environment, you should create a playwright instance per thread. See [threading issue](https://github.com/microsoft/playwright-python/issues/623) for more details.
+
 
 ## System requirements
 

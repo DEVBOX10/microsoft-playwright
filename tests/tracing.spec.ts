@@ -15,7 +15,7 @@
  */
 
 import { expect, contextTest as test, browserTest } from './config/browserTest';
-import yauzl from 'yauzl';
+import { ZipFileSystem } from '../packages/playwright-core/lib/utils/vfs';
 import jpeg from 'jpeg-js';
 
 test.skip(({ trace }) => !!trace);
@@ -25,6 +25,9 @@ test('should collect trace with resources, but no js', async ({ context, page, s
   await page.goto(server.PREFIX + '/frames/frame.html');
   await page.setContent('<button>Click</button>');
   await page.click('"Click"');
+  await page.mouse.move(20, 20);
+  await page.mouse.dblclick(30, 30);
+  await page.keyboard.insertText('abc');
   await page.waitForTimeout(2000);  // Give it some time to produce screenshots.
   await page.close();
   await context.tracing.stop({ path: testInfo.outputPath('trace.zip') });
@@ -34,12 +37,19 @@ test('should collect trace with resources, but no js', async ({ context, page, s
   expect(events.find(e => e.metadata?.apiName === 'page.goto')).toBeTruthy();
   expect(events.find(e => e.metadata?.apiName === 'page.setContent')).toBeTruthy();
   expect(events.find(e => e.metadata?.apiName === 'page.click')).toBeTruthy();
+  expect(events.find(e => e.metadata?.apiName === 'mouse.move')).toBeTruthy();
+  expect(events.find(e => e.metadata?.apiName === 'mouse.dblclick')).toBeTruthy();
+  expect(events.find(e => e.metadata?.apiName === 'keyboard.insertText')).toBeTruthy();
   expect(events.find(e => e.metadata?.apiName === 'page.close')).toBeTruthy();
 
   expect(events.some(e => e.type === 'frame-snapshot')).toBeTruthy();
-  expect(events.some(e => e.type === 'resource-snapshot' && e.snapshot.request.url.endsWith('style.css'))).toBeTruthy();
-  expect(events.some(e => e.type === 'resource-snapshot' && e.snapshot.request.url.endsWith('script.js'))).toBeFalsy();
   expect(events.some(e => e.type === 'screencast-frame')).toBeTruthy();
+  const style = events.find(e => e.type === 'resource-snapshot' && e.snapshot.request.url.endsWith('style.css'));
+  expect(style).toBeTruthy();
+  expect(style.snapshot.response.content._sha1).toBeTruthy();
+  const script = events.find(e => e.type === 'resource-snapshot' && e.snapshot.request.url.endsWith('script.js'));
+  expect(script).toBeTruthy();
+  expect(script.snapshot.response.content._sha1).toBe(undefined);
 });
 
 test('should not collect snapshots by default', async ({ context, page, server }, testInfo) => {
@@ -149,7 +159,7 @@ for (const params of [
     const previewWidth = params.width * scale;
     const previewHeight = params.height * scale;
 
-    const context = await contextFactory({ viewport: { width: params.width, height: params.height }});
+    const context = await contextFactory({ viewport: { width: params.width, height: params.height } });
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await context.newPage();
     // Make sure we have a chance to paint.
@@ -227,6 +237,10 @@ test('should work with multiple chunks', async ({ context, page, server }, testI
   await page.hover('"Click"');
   await context.tracing.stopChunk({ path: testInfo.outputPath('trace2.zip') });
 
+  await context.tracing.startChunk();
+  await page.click('"Click"');
+  await context.tracing.stopChunk();  // Should stop without a path.
+
   const trace1 = await parseTrace(testInfo.outputPath('trace.zip'));
   expect(trace1.events[0].type).toBe('context-options');
   expect(trace1.events.find(e => e.metadata?.apiName === 'page.goto')).toBeFalsy();
@@ -274,29 +288,12 @@ test('should not hang for clicks that open dialogs', async ({ context, page }) =
 });
 
 async function parseTrace(file: string): Promise<{ events: any[], resources: Map<string, Buffer> }> {
-  const entries = await new Promise<any[]>(f => {
-    const entries: Promise<any>[] = [];
-    yauzl.open(file, (err, zipFile) => {
-      zipFile.on('entry', entry => {
-        const entryPromise = new Promise(ff => {
-          zipFile.openReadStream(entry, (err, readStream) => {
-            const buffers = [];
-            if (readStream) {
-              readStream.on('data', d => buffers.push(d));
-              readStream.on('end', () => ff({ name: entry.fileName, buffer: Buffer.concat(buffers) }));
-            } else {
-              ff({ name: entry.fileName });
-            }
-          });
-        });
-        entries.push(entryPromise);
-      });
-      zipFile.on('end', () => f(entries));
-    });
-  });
+  const zipFS = new ZipFileSystem(file);
   const resources = new Map<string, Buffer>();
-  for (const { name, buffer } of await Promise.all(entries))
-    resources.set(name, buffer);
+  for (const entry of await zipFS.entries())
+    resources.set(entry, await zipFS.read(entry));
+  zipFS.close();
+
   const events = [];
   for (const line of resources.get('trace.trace').toString().split('\n')) {
     if (line)

@@ -14,14 +14,17 @@
  * limitations under the License.
  */
 
-import type { Fixtures } from './test-runner';
-import type { Browser, BrowserContext, BrowserContextOptions, BrowserType, LaunchOptions, Page } from '../../index';
-import { removeFolders } from '../../lib/utils/utils';
+import type { Fixtures } from '@playwright/test';
+import type { Browser, BrowserContext, BrowserContextOptions, BrowserType, LaunchOptions, Page } from 'playwright-core';
+import { removeFolders } from 'playwright-core/src/utils/utils';
+import { ReuseBrowserContextStorage } from '@playwright/test/src/index';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { RemoteServer, RemoteServerOptions } from './remoteServer';
 import { baseTest, CommonWorkerFixtures } from './baseTest';
+import { CommonFixtures } from './commonFixtures';
+import type { ParsedStackTrace } from 'playwright-core/src/utils/stackTrace';
 
 type PlaywrightWorkerOptions = {
   executablePath: LaunchOptions['executablePath'];
@@ -33,6 +36,7 @@ export type PlaywrightWorkerFixtures = {
   browserOptions: LaunchOptions;
   browser: Browser;
   browserVersion: string;
+  _reuseBrowserContext: ReuseBrowserContextStorage,
 };
 type PlaywrightTestOptions = {
   hasTouch: BrowserContextOptions['hasTouch'];
@@ -48,7 +52,7 @@ type PlaywrightTestFixtures = {
 };
 export type PlaywrightOptions = PlaywrightWorkerOptions & PlaywrightTestOptions;
 
-export const playwrightFixtures: Fixtures<PlaywrightTestOptions & PlaywrightTestFixtures, PlaywrightWorkerOptions & PlaywrightWorkerFixtures, {}, CommonWorkerFixtures> = {
+export const playwrightFixtures: Fixtures<PlaywrightTestOptions & PlaywrightTestFixtures, PlaywrightWorkerOptions & PlaywrightWorkerFixtures, CommonFixtures, CommonWorkerFixtures> = {
   executablePath: [ undefined, { scope: 'worker' } ],
   proxy: [ undefined, { scope: 'worker' } ],
   args: [ undefined, { scope: 'worker' } ],
@@ -66,6 +70,7 @@ export const playwrightFixtures: Fixtures<PlaywrightTestOptions & PlaywrightTest
       proxy,
       args,
       handleSIGINT: false,
+      devtools: process.env.DEVTOOLS === '1',
     });
   }, { scope: 'worker' } ],
 
@@ -78,6 +83,8 @@ export const playwrightFixtures: Fixtures<PlaywrightTestOptions & PlaywrightTest
   browserVersion: [async ({ browser }, run) => {
     await run(browser.version());
   }, { scope: 'worker' } ],
+
+  _reuseBrowserContext: [new ReuseBrowserContextStorage(), { scope: 'worker' }],
 
   createUserDataDir: async ({}, run) => {
     const dirs: string[] = [];
@@ -109,13 +116,13 @@ export const playwrightFixtures: Fixtures<PlaywrightTestOptions & PlaywrightTest
       await persistentContext.close();
   },
 
-  startRemoteServer: async ({ browserType, browserOptions }, run) => {
+  startRemoteServer: async ({ childProcess, browserType, browserOptions }, run) => {
     let remoteServer: RemoteServer | undefined;
     await run(async options => {
       if (remoteServer)
         throw new Error('can only start one remote server');
       remoteServer = new RemoteServer();
-      await remoteServer._start(browserType, browserOptions, options);
+      await remoteServer._start(childProcess, browserType, browserOptions, options);
       return remoteServer;
     });
     if (remoteServer)
@@ -133,24 +140,41 @@ export const playwrightFixtures: Fixtures<PlaywrightTestOptions & PlaywrightTest
   },
 
   contextFactory: async ({ browser, contextOptions, trace }, run, testInfo) => {
-    const contexts: BrowserContext[] = [];
+    const contexts = new Map<BrowserContext, { closed: boolean }>();
     await run(async options => {
       const context = await browser.newContext({ ...contextOptions, ...options });
+      contexts.set(context, { closed: false });
+      context.on('close', () => contexts.get(context).closed = true);
       if (trace)
         await context.tracing.start({ screenshots: true, snapshots: true });
       (context as any)._csi = {
-        onApiCall: (stackTrace: any) => {
-          const step = (testInfo as any)._addStep('pw:api', stackTrace.apiName);
-          return (log, error) => step.complete(error);
+        onApiCallBegin: (apiCall: string, stackTrace: ParsedStackTrace | null) => {
+          if (apiCall.startsWith('expect.'))
+            return { userObject: null };
+          const testInfoImpl = testInfo as any;
+          const step = testInfoImpl._addStep({
+            location: stackTrace?.frames[0],
+            category: 'pw:api',
+            title: apiCall,
+            canHaveChildren: false,
+            forceNoParent: false
+          });
+          return { userObject: step };
+        },
+        onApiCallEnd: (data: { userObject: any }, error?: Error) => {
+          const step = data.userObject;
+          step?.complete(error);
         },
       };
-      contexts.push(context);
       return context;
     });
-    await Promise.all(contexts.map(async context => {
+    await Promise.all([...contexts.keys()].map(async context => {
       const videos = context.pages().map(p => p.video()).filter(Boolean);
-      if (!(context as any)._closed && trace)
-        await context.tracing.stop({ path: testInfo.outputPath('trace.zip') });
+      if (trace && !contexts.get(context)!.closed) {
+        const tracePath = testInfo.outputPath('trace.zip');
+        await context.tracing.stop({ path: tracePath });
+        testInfo.attachments.push({ name: 'trace', path: tracePath, contentType: 'application/zip' });
+      }
       await context.close();
       for (const v of videos) {
         const videoPath = await v.path().catch(() => null);
@@ -163,11 +187,20 @@ export const playwrightFixtures: Fixtures<PlaywrightTestOptions & PlaywrightTest
     }));
   },
 
-  context: async ({ contextFactory }, run) => {
+  context: async ({ contextFactory, browser, _reuseBrowserContext, contextOptions }, run) => {
+    if (_reuseBrowserContext.isEnabled()) {
+      const context = await _reuseBrowserContext.obtainContext(browser, contextOptions);
+      await run(context);
+      return;
+    }
     await run(await contextFactory());
   },
 
-  page: async ({ context }, run) => {
+  page: async ({ context, _reuseBrowserContext }, run) => {
+    if (_reuseBrowserContext.isEnabled()) {
+      await run(await _reuseBrowserContext.obtainPage());
+      return;
+    }
     await run(await context.newPage());
   },
 };
@@ -177,4 +210,4 @@ export const playwrightTest = test;
 export const browserTest = test;
 export const contextTest = test;
 
-export { expect } from './test-runner';
+export { expect } from '@playwright/test';

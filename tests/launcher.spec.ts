@@ -17,19 +17,16 @@
 
 import { playwrightTest as it, expect } from './config/browserTest';
 
-it('should require top-level Errors', async ({}) => {
-  const Errors = require('../lib/utils/errors.js');
-  expect(String(Errors.TimeoutError)).toContain('TimeoutError');
+it('should have an errors object', async ({ playwright }) => {
+  expect(String(playwright.errors.TimeoutError)).toContain('TimeoutError');
 });
 
-it('should require top-level DeviceDescriptors', async ({playwright}) => {
-  const Devices = require('../lib/server/deviceDescriptors.js');
-  expect(Devices['iPhone 6']).toBeTruthy();
-  expect(Devices['iPhone 6']).toEqual(playwright.devices['iPhone 6']);
+it('should have a devices object', async ({ playwright }) => {
+  expect(playwright.devices['iPhone 6']).toBeTruthy();
   expect(playwright.devices['iPhone 6'].defaultBrowserType).toBe('webkit');
 });
 
-it('should kill browser process on timeout after close', async ({browserType, browserOptions, mode}) => {
+it('should kill browser process on timeout after close', async ({ browserType, browserOptions, mode }) => {
   it.skip(mode !== 'default', 'Test passes server hooks via options');
 
   const launchOptions = { ...browserOptions };

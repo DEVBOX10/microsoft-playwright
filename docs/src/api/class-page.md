@@ -1000,6 +1000,7 @@ Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce
 Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. Passing `null` disables reduced motion emulation.
 
 ### option: Page.emulateMedia.forcedColors
+* langs: js, python, java
 - `forcedColors` <null|[ForcedColors]<"active"|"none">>
 
 Emulates `'forced-colors'` media feature, supported values are `'active'` and `'none'`. Passing `null` disables forced colors emulation.
@@ -1007,6 +1008,10 @@ Emulates `'forced-colors'` media feature, supported values are `'active'` and `'
 :::note
 It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
 :::
+
+### option: Page.emulateMedia.forcedColors
+* langs: csharp
+- `forcedColors` <[ForcedColors]<"active"|"none"|"null">>
 
 ## async method: Page.evalOnSelector
 * langs:
@@ -2409,6 +2414,12 @@ last redirect.
 
 ### option: Page.reload.timeout = %%-navigation-timeout-%%
 
+## property: Page.request
+* langs: js
+- type: <[APIRequestContext]>
+
+API testing helper associated with this page. Requests made with this API will use page cookies.
+
 ## async method: Page.route
 
 Routing provides the capability to modify network requests that are made by a page.
@@ -2793,7 +2804,7 @@ In the case of multiple pages in a single browser, each page can have its own vi
 [`method: Browser.newContext`] allows to set viewport size (and more) for all pages in the context at once.
 
 `page.setViewportSize` will resize the page. A lot of websites don't expect phones to change size, so you should set the
-viewport size before navigating to the page.
+viewport size before navigating to the page. [`method: Page.setViewportSize`] will also reset `screen` size, use [`method: Browser.newContext`] with `screen` and `viewport` parameters if you need better control of these properties.
 
 ```js
 const page = await browser.newPage();

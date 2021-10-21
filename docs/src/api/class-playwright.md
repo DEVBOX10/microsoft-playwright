@@ -163,7 +163,7 @@ class PlaywrightExample
     {
         using var playwright = await Playwright.CreateAsync();
         await using var browser = await playwright.Webkit.LaunchAsync();
-        await using var context = await browser.NewContextAsync(Playwright.Devices["iPhone 6"]);
+        await using var context = await browser.NewContextAsync(playwright.Devices["iPhone 6"]);
 
         var page = await context.NewPageAsync();
         await page.GotoAsync("https://www.theverge.com");
@@ -213,6 +213,12 @@ except TimeoutError as e:
 - type: <[BrowserType]>
 
 This object can be used to launch or connect to Firefox, returning instances of [Browser].
+
+## property: Playwright.request
+* langs: js
+- type: <[APIRequest]>
+
+Exposes API that can be used for the Web API testing.
 
 ## property: Playwright.selectors
 - type: <[Selectors]>

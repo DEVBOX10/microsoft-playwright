@@ -19,9 +19,9 @@ import { browserTest as it, expect } from './config/browserTest';
 import * as path from 'path';
 import fs from 'fs';
 import http2 from 'http2';
-import type { BrowserContext, BrowserContextOptions } from '../index';
+import type { BrowserContext, BrowserContextOptions } from 'playwright-core';
 import type { AddressInfo } from 'net';
-import type { Log } from '../src/server/supplements/har/har';
+import type { Log } from 'playwright-core/src/server/supplements/har/har';
 
 async function pageWithHar(contextFactory: (options?: BrowserContextOptions) => Promise<BrowserContext>, testInfo: any, outputPath: string = 'test.har') {
   const harPath = testInfo.outputPath(outputPath);
@@ -280,7 +280,6 @@ it('should include sizes', async ({ contextFactory, server, asset }, testInfo) =
 });
 
 it('should work with gzip compression', async ({ contextFactory, server, browserName }, testInfo) => {
-  it.fixme(browserName !== 'chromium');
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
   server.enableGzip('/simplezip.json');
   const response = await page.goto(server.PREFIX + '/simplezip.json');
@@ -403,17 +402,18 @@ it('should not contain internal pages', async ({ browserName, contextFactory, se
   expect(log.pages.length).toBe(1);
 });
 
-it('should have connection details', async ({ contextFactory, server, browserName, platform }, testInfo) => {
+it('should have connection details', async ({ contextFactory, server, browserName, platform, mode }, testInfo) => {
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
   await page.goto(server.EMPTY_PAGE);
   const log = await getLog();
   const { serverIPAddress, _serverPort: port, _securityDetails: securityDetails } = log.entries[0];
   expect(serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
-  expect(port).toBe(server.PORT);
+  if (mode !== 'service')
+    expect(port).toBe(server.PORT);
   expect(securityDetails).toEqual({});
 });
 
-it('should have security details', async ({ contextFactory, httpsServer, browserName, platform }, testInfo) => {
+it('should have security details', async ({ contextFactory, httpsServer, browserName, platform, mode }, testInfo) => {
   it.fail(browserName === 'webkit' && platform === 'linux', 'https://github.com/microsoft/playwright/issues/6759');
   it.fail(browserName === 'webkit' && platform === 'win32');
 
@@ -422,14 +422,15 @@ it('should have security details', async ({ contextFactory, httpsServer, browser
   const log = await getLog();
   const { serverIPAddress, _serverPort: port, _securityDetails: securityDetails } = log.entries[0];
   expect(serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
-  expect(port).toBe(httpsServer.PORT);
+  if (mode !== 'service')
+    expect(port).toBe(httpsServer.PORT);
   if (browserName === 'webkit' && platform === 'darwin')
-    expect(securityDetails).toEqual({protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
+    expect(securityDetails).toEqual({ protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863 });
   else
-    expect(securityDetails).toEqual({issuer: 'puppeteer-tests', protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
+    expect(securityDetails).toEqual({ issuer: 'puppeteer-tests', protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863 });
 });
 
-it('should have connection details for redirects', async ({ contextFactory, server, browserName }, testInfo) => {
+it('should have connection details for redirects', async ({ contextFactory, server, browserName, mode }, testInfo) => {
   server.setRedirect('/foo.html', '/empty.html');
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
   await page.goto(server.PREFIX + '/foo.html');
@@ -443,15 +444,17 @@ it('should have connection details for redirects', async ({ contextFactory, serv
     expect(detailsFoo._serverPort).toBeUndefined();
   } else {
     expect(detailsFoo.serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
-    expect(detailsFoo._serverPort).toBe(server.PORT);
+    if (mode !== 'service')
+      expect(detailsFoo._serverPort).toBe(server.PORT);
   }
 
   const detailsEmpty = log.entries[1];
   expect(detailsEmpty.serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
-  expect(detailsEmpty._serverPort).toBe(server.PORT);
+  if (mode !== 'service')
+    expect(detailsEmpty._serverPort).toBe(server.PORT);
 });
 
-it('should have connection details for failed requests', async ({ contextFactory, server, browserName, platform }, testInfo) => {
+it('should have connection details for failed requests', async ({ contextFactory, server, browserName, platform, mode }, testInfo) => {
   server.setRoute('/one-style.css', (_, res) => {
     res.setHeader('Content-Type', 'text/css');
     res.connection.destroy();
@@ -461,14 +464,16 @@ it('should have connection details for failed requests', async ({ contextFactory
   const log = await getLog();
   const { serverIPAddress, _serverPort: port } = log.entries[0];
   expect(serverIPAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
-  expect(port).toBe(server.PORT);
+  if (mode !== 'service')
+    expect(port).toBe(server.PORT);
 });
 
-it('should return server address directly from response', async ({ page, server }) => {
+it('should return server address directly from response', async ({ page, server, mode }) => {
   const response = await page.goto(server.EMPTY_PAGE);
   const { ipAddress, port } = await response.serverAddr();
   expect(ipAddress).toMatch(/^127\.0\.0\.1|\[::1\]/);
-  expect(port).toBe(server.PORT);
+  if (mode !== 'service')
+    expect(port).toBe(server.PORT);
 });
 
 it('should return security details directly from response', async ({ contextFactory, httpsServer, browserName, platform }) => {
@@ -480,15 +485,16 @@ it('should return security details directly from response', async ({ contextFact
   const response = await page.goto(httpsServer.EMPTY_PAGE);
   const securityDetails = await response.securityDetails();
   if (browserName === 'webkit' && platform === 'win32')
-    expect(securityDetails).toEqual({subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: -1});
+    expect(securityDetails).toEqual({ subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: -1 });
   else if (browserName === 'webkit')
-    expect(securityDetails).toEqual({protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
+    expect(securityDetails).toEqual({ protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863 });
   else
-    expect(securityDetails).toEqual({issuer: 'puppeteer-tests', protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863});
+    expect(securityDetails).toEqual({ issuer: 'puppeteer-tests', protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863 });
 });
 
-it('should contain http2 for http2 requests', async ({ contextFactory, browserName }, testInfo) => {
-  it.fixme(browserName === 'firefox' || browserName === 'webkit');
+it('should contain http2 for http2 requests', async ({ contextFactory, browserName, platform }, testInfo) => {
+  it.fixme(browserName === 'webkit' && platform === 'linux');
+  it.fixme(browserName === 'webkit' && platform === 'win32');
 
   const server = http2.createSecureServer({
     key: await fs.promises.readFile(path.join(__dirname, '..', 'utils', 'testserver', 'key.pem')),
@@ -508,10 +514,11 @@ it('should contain http2 for http2 requests', async ({ contextFactory, browserNa
   const log = await getLog();
   expect(log.entries[0].request.httpVersion).toBe('h2');
   expect(log.entries[0].response.httpVersion).toBe('h2');
+  expect(Buffer.from(log.entries[0].response.content.text, 'base64').toString()).toBe('<h1>Hello World</h1>');
   server.close();
 });
 
-it('should filter favicon and favicon redirects', async ({server, browserName, channel, headless, asset, contextFactory}, testInfo) => {
+it('should filter favicon and favicon redirects', async ({ server, browserName, channel, headless, asset, contextFactory }, testInfo) => {
   it.skip(headless && browserName !== 'firefox', 'headless browsers, except firefox, do not request favicons');
   it.skip(!headless && browserName === 'webkit' && !channel, 'headed webkit does not have a favicon feature');
 
@@ -519,7 +526,7 @@ it('should filter favicon and favicon redirects', async ({server, browserName, c
 
   // Browsers aggresively cache favicons, so force bust with the
   // `d` parameter to make iterating on this test more predictable and isolated.
-  const favicon = `/favicon.ico`;
+  const favicon = `/no-cache-2/favicon.ico`;
   const hashedFaviconUrl = `/favicon-hashed.ico`;
   server.setRedirect(favicon, hashedFaviconUrl);
   server.setRoute(hashedFaviconUrl, (req, res) => {
@@ -587,4 +594,43 @@ it('should have different hars for concurrent contexts', async ({ contextFactory
     expect(pageEntry.id).not.toBe(log0.pages[0].id);
     expect(pageEntry.title).toBe('One');
   }
+});
+
+it('should include _requestref', async ({ contextFactory, server }, testInfo) => {
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  const resp = await page.goto(server.EMPTY_PAGE);
+  const log = await getLog();
+  expect(log.entries.length).toBe(1);
+  const entry = log.entries[0];
+  expect(entry._requestref).toMatch(/^request@[a-f0-9]{32}$/);
+  expect(entry._requestref).toBe((resp.request() as any)._guid);
+});
+
+it('should include _requestref for redirects', async ({ contextFactory, server }, testInfo) => {
+  server.setRedirect('/start', '/one-more');
+  server.setRedirect('/one-more', server.EMPTY_PAGE);
+
+  const { page, getLog, context } = await pageWithHar(contextFactory, testInfo);
+
+  const requests = new Map<string, string>();
+  context.on('request', request => {
+    requests.set(request.url(), (request as any)._guid);
+  });
+
+  await page.goto(server.PREFIX + '/start');
+
+  const log = await getLog();
+  expect(log.entries.length).toBe(3);
+
+  const entryStart = log.entries[0];
+  expect(entryStart.request.url).toBe(server.PREFIX + '/start');
+  expect(entryStart._requestref).toBe(requests.get(entryStart.request.url));
+
+  const entryOneMore = log.entries[1];
+  expect(entryOneMore.request.url).toBe(server.PREFIX + '/one-more');
+  expect(entryOneMore._requestref).toBe(requests.get(entryOneMore.request.url));
+
+  const entryEmptyPage = log.entries[2];
+  expect(entryEmptyPage.request.url).toBe(server.EMPTY_PAGE);
+  expect(entryEmptyPage._requestref).toBe(requests.get(entryEmptyPage.request.url));
 });

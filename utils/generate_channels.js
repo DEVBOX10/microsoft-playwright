@@ -170,8 +170,9 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
 `];
 
 const tracingSnapshots = [];
+const pausesBeforeInputActions = [];
 
-const yml = fs.readFileSync(path.join(__dirname, '..', 'src', 'protocol', 'protocol.yml'), 'utf-8');
+const yml = fs.readFileSync(path.join(__dirname, '..', 'packages', 'playwright-core', 'src', 'protocol', 'protocol.yml'), 'utf-8');
 const protocol = yaml.parse(yml);
 
 function addScheme(name, s) {
@@ -232,6 +233,11 @@ for (const [name, item] of Object.entries(protocol)) {
         for (const derived of derivedClasses.get(name) || [])
           tracingSnapshots.push(derived + '.' + methodName);
       }
+      if (method.tracing && method.tracing.pausesBeforeInput) {
+        pausesBeforeInputActions.push(name + '.' + methodName);
+        for (const derived of derivedClasses.get(name) || [])
+          pausesBeforeInputActions.push(derived + '.' + methodName);
+      }
       const parameters = objectType(method.parameters || {}, '');
       const paramsName = `${channelName}${titleCase(methodName)}Params`;
       const optionsName = `${channelName}${titleCase(methodName)}Options`;
@@ -271,6 +277,10 @@ for (const [name, item] of Object.entries(protocol)) {
 channels_ts.push(`export const commandsWithTracingSnapshots = new Set([
   '${tracingSnapshots.join(`',\n  '`)}'
 ]);`);
+channels_ts.push('');
+channels_ts.push(`export const pausesBeforeInputActions = new Set([
+  '${pausesBeforeInputActions.join(`',\n  '`)}'
+]);`);
 
 validator_ts.push(`
   return scheme;
@@ -291,6 +301,6 @@ function writeFile(filePath, content) {
   fs.writeFileSync(filePath, content, 'utf8');
 }
 
-writeFile(path.join(__dirname, '..', 'src', 'protocol', 'channels.ts'), channels_ts.join('\n'));
-writeFile(path.join(__dirname, '..', 'src', 'protocol', 'validator.ts'), validator_ts.join('\n'));
+writeFile(path.join(__dirname, '..', 'packages', 'playwright-core', 'src', 'protocol', 'channels.ts'), channels_ts.join('\n'));
+writeFile(path.join(__dirname, '..', 'packages', 'playwright-core', 'src', 'protocol', 'validator.ts'), validator_ts.join('\n'));
 process.exit(hasChanges ? 1 : 0);

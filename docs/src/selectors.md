@@ -144,7 +144,7 @@ methods accept [`param: selector`] as their first argument.
   ```csharp
   await page.ClickAsync(".login-button:visible");
   ```
-  Learn more about [`:visible` pseudo-class](#selecting-visible-elements).
+  Learn more about [selecting visible elements](#selecting-visible-elements).
 - Pick n-th match
   ```js
   await page.click(':nth-match(:text("Buy"), 3)');
@@ -490,11 +490,11 @@ page.textContent("article:has(div.promo)");
 ```
 
 ```python async
-await page.textContent("article:has(div.promo)")
+await page.text_content("article:has(div.promo)")
 ```
 
 ```python sync
-page.textContent("article:has(div.promo)")
+page.text_content("article:has(div.promo)")
 ```
 
 ```csharp

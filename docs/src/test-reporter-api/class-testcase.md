@@ -51,7 +51,12 @@ Results for each run of this test.
 
 The maximum number of retries given to this test in the configuration.
 
-Learn more about [test retries](./test-retries.md).
+Learn more about [test retries](./test-retries.md#retries).
+
+## property: TestCase.suite
+- type: <[Suite]>
+
+Suite this test case belongs to.
 
 ## property: TestCase.timeout
 - type: <[float]>

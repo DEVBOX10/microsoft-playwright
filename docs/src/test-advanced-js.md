@@ -16,7 +16,7 @@ These options define your test suite:
 - `name: string` - Project name, useful when defining multiple [test projects](#projects).
 - `outputDir: string` - Output directory for files created during the test run.
 - `repeatEach: number` - The number of times to repeat each test, useful for debugging flaky tests.
-- `retries: number` - The maximum number of retry attempts given to failed tests.
+- `retries: number` - The maximum number of retry attempts given to failed tests. If not specified, failing tests are not retried.
 - `testDir: string` - Directory that will be recursively scanned for test files.
 - `testIgnore: string | RegExp | (string | RegExp)[]` - Files matching one of these patterns are not considered test files.
 - `testMatch: string | RegExp | (string | RegExp)[]` - Only the files matching one of these patterns are considered test files.
@@ -38,7 +38,7 @@ These options would be typically different between local development and CI oper
   - `'failures-only'` - only preserve output for failed tests.
 - `projects: Project[]` - Multiple [projects](#projects) configuration.
 - `quiet: boolean` - Whether to suppress stdout and stderr from the tests.
-- `reporter: 'list' | 'line' | 'dot' | 'json' | 'junit'` - The reporter to use. See [reporters](./test-reporters.md) for details.
+- `reporter: 'list' | 'line' | 'dot' | 'json' | 'junit' | 'github'` - The reporter to use. See [reporters](./test-reporters.md) for details.
 - `reportSlowTests: { max: number, threshold: number } | null` - Whether to report slow tests. When `null`, slow tests are not reported. Otherwise, tests that took more than `threshold` milliseconds are reported as slow, but no more than `max` number of them. Passing zero as `max` reports all slow tests that exceed the threshold.
 - `shard: { total: number, current: number } | null` - [Shard](./test-parallel.md#shard-tests-between-multiple-machines) information.
 - `updateSnapshots: boolean` - Whether to update expected snapshots with the actual results produced by the test run.
@@ -120,7 +120,7 @@ In addition to everything from the [`workerInfo`](#workerinfo), the following in
 - `timeout: number` - Test timeout.
 - `annotations` - [Annotations](./test-annotations.md) that were added to the test.
 - `snapshotSuffix: string` - Suffix used to locate snapshots for the test.
-- `snapshotPath(snapshotName: string)` - Function that returns the full path to a particular snapshot for the test.
+- `snapshotPath(...pathSegments: string[])` - Function that returns the full path to a particular snapshot for the test.
 - `outputDir: string` - Path to the output directory for this test run.
 - `outputPath(...pathSegments: string[])` - Function that returns the full path to a particular output artifact for the test.
 
@@ -301,11 +301,11 @@ async function globalSetup(config: FullConfig) {
   const { baseURL, storageState } = config.projects[0].use;
   const browser = await chromium.launch();
   const page = await browser.newPage();
-  await page.goto(baseURL);
+  await page.goto(baseURL!);
   await page.fill('input[name="user"]', 'user');
   await page.fill('input[name="password"]', 'password');
   await page.click('text=Sign in');
-  await page.context().storageState({ path: storageState });
+  await page.context().storageState({ path: storageState as string });
   await browser.close();
 }
 

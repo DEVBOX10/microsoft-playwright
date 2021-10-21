@@ -40,7 +40,7 @@ it('should throw for missing global proxy on Chromium Windows', async ({ browser
   }
 });
 
-it('should work when passing the proxy only on the context level', async ({browserName, platform, browserType, browserOptions, contextOptions, server, proxyServer}) => {
+it('should work when passing the proxy only on the context level', async ({ browserName, platform, browserType, browserOptions, contextOptions, server, proxyServer }) => {
   // Currently an upstream bug in the network stack of Chromium which leads that
   // the wrong proxy gets used in the BrowserContext.
   it.fixme(browserName === 'chromium' && platform === 'win32');
@@ -86,6 +86,20 @@ it('should use proxy', async ({ contextFactory, server, proxyServer }) => {
   await context.close();
 });
 
+it('should use ipv6 proxy', async ({ contextFactory, server, proxyServer, browserName }) => {
+  it.fail(browserName === 'firefox', 'page.goto: NS_ERROR_UNKNOWN_HOST');
+  it.fail(!!process.env.INSIDE_DOCKER, 'docker does not support IPv6 by default');
+  proxyServer.forwardTo(server.PORT);
+  const context = await contextFactory({
+    proxy: { server: `[0:0:0:0:0:0:0:1]:${proxyServer.PORT}` }
+  });
+  const page = await context.newPage();
+  await page.goto('http://non-existent.com/target.html');
+  expect(proxyServer.requestUrls).toContain('http://non-existent.com/target.html');
+  expect(await page.title()).toBe('Served by the proxy');
+  await context.close();
+});
+
 it('should use proxy twice', async ({ contextFactory, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT);
   const context = await contextFactory({
@@ -100,7 +114,7 @@ it('should use proxy twice', async ({ contextFactory, server, proxyServer }) => 
   await context.close();
 });
 
-it('should use proxy for second page', async ({contextFactory, server, proxyServer}) => {
+it('should use proxy for second page', async ({ contextFactory, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT);
   const context = await contextFactory({
     proxy: { server: `localhost:${proxyServer.PORT}` }
@@ -136,7 +150,7 @@ it('should use proxy for https urls', async ({ contextFactory, server, httpsServ
   await context.close();
 });
 
-it('should work with IP:PORT notion', async ({contextFactory, server, proxyServer}) => {
+it('should work with IP:PORT notion', async ({ contextFactory, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT);
   const context = await contextFactory({
     proxy: { server: `127.0.0.1:${proxyServer.PORT}` }
@@ -148,21 +162,21 @@ it('should work with IP:PORT notion', async ({contextFactory, server, proxyServe
   await context.close();
 });
 
-it('should throw for socks5 authentication', async ({contextFactory}) => {
+it('should throw for socks5 authentication', async ({ contextFactory }) => {
   const error = await contextFactory({
     proxy: { server: `socks5://localhost:1234`, username: 'user', password: 'secret' }
   }).catch(e => e);
   expect(error.message).toContain('Browser does not support socks5 proxy authentication');
 });
 
-it('should throw for socks4 authentication', async ({contextFactory}) => {
+it('should throw for socks4 authentication', async ({ contextFactory }) => {
   const error = await contextFactory({
     proxy: { server: `socks4://localhost:1234`, username: 'user', password: 'secret' }
   }).catch(e => e);
   expect(error.message).toContain('Socks4 proxy protocol does not support authentication');
 });
 
-it('should authenticate', async ({contextFactory, server, proxyServer}) => {
+it('should authenticate', async ({ contextFactory, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT);
   let auth;
   proxyServer.setAuthHandler(req => {
@@ -180,7 +194,7 @@ it('should authenticate', async ({contextFactory, server, proxyServer}) => {
   await context.close();
 });
 
-it('should authenticate with empty password', async ({contextFactory, server, proxyServer}) => {
+it('should authenticate with empty password', async ({ contextFactory, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT);
   let auth;
   proxyServer.setAuthHandler(req => {
@@ -197,7 +211,7 @@ it('should authenticate with empty password', async ({contextFactory, server, pr
   await context.close();
 });
 
-it('should isolate proxy credentials between contexts', async ({contextFactory, server, browserName, proxyServer}) => {
+it('should isolate proxy credentials between contexts', async ({ contextFactory, server, browserName, proxyServer }) => {
   it.fixme(browserName === 'firefox', 'Credentials from the first context stick around');
 
   proxyServer.forwardTo(server.PORT);
@@ -229,7 +243,7 @@ it('should isolate proxy credentials between contexts', async ({contextFactory, 
   }
 });
 
-it('should exclude patterns', async ({contextFactory, server, browserName, headless, proxyServer}) => {
+it('should exclude patterns', async ({ contextFactory, server, browserName, headless, proxyServer }) => {
   it.fixme(browserName === 'chromium' && !headless, 'Chromium headed crashes with CHECK(!in_frame_tree_) in RenderFrameImpl::OnDeleteFrame.');
 
   proxyServer.forwardTo(server.PORT);

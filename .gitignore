@@ -1,4 +1,4 @@
-/node_modules/
+node_modules/
 /test-results/
 /tests/coverage-report
 .local-browsers/
@@ -9,7 +9,7 @@
 .vscode
 .idea
 yarn.lock
-/src/generated/*
+/packages/playwright-core/src/generated/*
 lib/
 drivers/
 .android-sdk/
@@ -17,3 +17,9 @@ drivers/
 nohup.out
 .trace
 .tmp
+allure*
+playwright-report
+/demo/
+/packages/*/LICENSE
+/packages/*/NOTICE
+/packages/playwright/README.md

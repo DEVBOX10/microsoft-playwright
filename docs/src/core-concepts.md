@@ -99,26 +99,31 @@ the browser state is isolated between the tests.
 ```js
 const browser = await chromium.launch();
 const context = await browser.newContext();
+const page = await context.newPage();
 ```
 
 ```java
 Browser browser = chromium.launch();
 BrowserContext context = browser.newContext();
+Page page = context.newPage();
 ```
 
 ```python async
 browser = await playwright.chromium.launch()
 context = await browser.new_context()
+page = await context.new_page()
 ```
 
 ```python sync
 browser = playwright.chromium.launch()
 context = browser.new_context()
+page = context.new_page()
 ```
 
 ```csharp
 await using var browser = playwright.Chromium.LaunchAsync();
 var context = await browser.NewContextAsync();
+var page = await context.NewPageAsync();
 ```
 
 Browser contexts can also be used to emulate multi-page scenarios involving
@@ -135,6 +140,7 @@ const context = await browser.newContext({
   colorScheme: 'dark',
   locale: 'de-DE'
 });
+const page = await context.newPage();
 ```
 
 ```java
@@ -155,6 +161,7 @@ public class Example {
         .setGeolocation(52.52, 13.39)
         .setColorScheme(ColorScheme.DARK)
         .setLocale("de-DE"));
+      Page page = context.newPage();
     }
   }
 }
@@ -193,6 +200,7 @@ with sync_playwright() as p:
         geolocation={ 'longitude': 12.492507, 'latitude': 41.889938 },
         permissions=['geolocation']
     )
+    page = context.new_page()
     browser.close()
 ```
 
@@ -206,7 +214,7 @@ class PlaywrightExample
     {
         using var playwright = await Playwright.CreateAsync();
         await using var browser = await playwright.Webkit.LaunchAsync();
-        var options = new BrowserContextNewOptions(Playwright.Devices["iPhone 11 Pro"])
+        var options = new BrowserNewContextOptions(playwright.Devices["iPhone 11 Pro"])
         {
             Geolocation = new() { Longitude = 12.492507f, Latitude = 41.889938f },
             Permissions = new[] { "geolocation" },
@@ -214,8 +222,7 @@ class PlaywrightExample
         };
 
         await using var context = await browser.NewContextAsync(options);
-        // do work
-
+        var page = await browser.NewPageAsync();
     }
 }
 ```
@@ -224,6 +231,7 @@ class PlaywrightExample
 
 - [BrowserContext]
 - [`method: Browser.newContext`]
+- [`method: BrowserContext.newPage`]
 
 <br/>
 
@@ -586,7 +594,7 @@ page.click('#free-month-promo >> text=Sign Up')
 
 ```csharp
 // Click an element with text "Sign Up" inside of a #free-month-promo.
-await page.Click("#free-month-promo >> text=Sign Up");
+await page.ClickAsync("#free-month-promo >> text=Sign Up");
 ```
 
 ```js

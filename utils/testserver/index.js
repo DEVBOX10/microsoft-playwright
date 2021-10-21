@@ -70,17 +70,24 @@ class TestServer {
     else
       this._server = http.createServer(this._onRequest.bind(this));
     this._server.on('connection', socket => this._onSocket(socket));
-    this._wsServer = new WebSocketServer({server: this._server });
-    this._wsServer.shouldHandle = (request) => {
+    this._wsServer = new WebSocketServer({ noServer: true });
+    this._server.on('upgrade', async (request, socket, head) => {
       const pathname = url.parse(request.url).pathname;
-      return ['/ws', '/ws-emit-and-close'].includes(pathname);
-    };
-    this._wsServer.on('connection', (ws, request) => {
-      const pathname = url.parse(request.url).pathname;
-      if (this._onWebSocketConnectionData !== undefined)
-        ws.send(this._onWebSocketConnectionData);
-      if (pathname === '/ws-emit-and-close')
-        ws.close(1003, 'closed by Playwright test-server');
+      if (pathname === '/ws-slow')
+        await new Promise(f => setTimeout(f, 2000));
+      if (!['/ws', '/ws-slow', '/ws-emit-and-close'].includes(pathname)) {
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      this._wsServer.handleUpgrade(request, socket, head, ws => {
+        // Next emit is only for our internal 'connection' listeners.
+        this._wsServer.emit('connection', ws, request);
+        if (this._onWebSocketConnectionData !== undefined)
+          ws.send(this._onWebSocketConnectionData);
+        if (pathname === '/ws-emit-and-close')
+          ws.close(1003, 'closed by Playwright test-server');
+      });
     });
     this._server.listen(port);
     this._dirPath = dirPath;
@@ -238,10 +245,10 @@ class TestServer {
       request.on('data', chunk => body = Buffer.concat([body, chunk]));
       request.on('end', () => resolve(body));
     });
-    const pathName = url.parse(request.url).path;
-    this.debugServer(`request ${request.method} ${pathName}`);
-    if (this._auths.has(pathName)) {
-      const auth = this._auths.get(pathName);
+    const path = url.parse(request.url).path;
+    this.debugServer(`request ${request.method} ${path}`);
+    if (this._auths.has(path)) {
+      const auth = this._auths.get(path);
       const credentials = Buffer.from((request.headers.authorization || '').split(' ')[1] || '', 'base64').toString();
       this.debugServer(`request credentials ${credentials}`);
       this.debugServer(`actual credentials ${auth.username}:${auth.password}`);
@@ -253,11 +260,11 @@ class TestServer {
       }
     }
     // Notify request subscriber.
-    if (this._requestSubscribers.has(pathName)) {
-      this._requestSubscribers.get(pathName)[fulfillSymbol].call(null, request);
-      this._requestSubscribers.delete(pathName);
+    if (this._requestSubscribers.has(path)) {
+      this._requestSubscribers.get(path)[fulfillSymbol].call(null, request);
+      this._requestSubscribers.delete(path);
     }
-    const handler = this._routes.get(pathName);
+    const handler = this._routes.get(path);
     if (handler) {
       handler.call(null, request, response);
     } else {
@@ -321,6 +328,10 @@ class TestServer {
     } else {
       response.end(data);
     }
+  }
+
+  onceWebSocketConnection(handler) {
+    this._wsServer.once('connection', handler);
   }
 
   waitForWebSocketConnectionRequest() {

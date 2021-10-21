@@ -540,6 +540,11 @@ class NetworkRequest {
 
   // nsIStreamListener
   onDataAvailable(aRequest, aInputStream, aOffset, aCount) {
+    // Turns out webcompat shims might redirect to
+    // SimpleChannel, so we get requests from a different channel.
+    // See https://github.com/microsoft/playwright/issues/9418#issuecomment-944836244
+    if (aRequest !== this.httpChannel)
+      return;
     // For requests with internal redirect (e.g. intercepted by Service Worker),
     // we do not get onResponse normally, but we do get nsIStreamListener notifications.
     this._sendOnResponse(false);
@@ -562,6 +567,11 @@ class NetworkRequest {
 
   // nsIStreamListener
   onStartRequest(aRequest) {
+    // Turns out webcompat shims might redirect to
+    // SimpleChannel, so we get requests from a different channel.
+    // See https://github.com/microsoft/playwright/issues/9418#issuecomment-944836244
+    if (aRequest !== this.httpChannel)
+      return;
     try {
       this._originalListener.onStartRequest(aRequest);
     } catch (e) {
@@ -571,6 +581,11 @@ class NetworkRequest {
 
   // nsIStreamListener
   onStopRequest(aRequest, aStatusCode) {
+    // Turns out webcompat shims might redirect to
+    // SimpleChannel, so we get requests from a different channel.
+    // See https://github.com/microsoft/playwright/issues/9418#issuecomment-944836244
+    if (aRequest !== this.httpChannel)
+      return;
     try {
       this._originalListener.onStopRequest(aRequest, aStatusCode);
     } catch (e) {
@@ -729,6 +744,7 @@ class NetworkRequest {
         requestId: this.requestId,
         responseEndTime: httpChannel.responseEndTime,
         transferSize: httpChannel.transferSize,
+        encodedBodySize: httpChannel.encodedBodySize,
         protocolVersion: httpChannel.protocolVersion,
       }, this._frameId);
     }
@@ -766,7 +782,7 @@ class NetworkObserver {
             proxy.port,
             '', /* aProxyAuthorizationHeader */
             '', /* aConnectionIsolationKey */
-            0, /* aFlags */
+            Ci.nsIProxyInfo.TRANSPARENT_PROXY_RESOLVES_HOST, /* aFlags */
             UINT32_MAX, /* aFailoverTimeout */
             null, /* failover proxy */
         ));

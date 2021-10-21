@@ -16,17 +16,17 @@
 
 import { playwrightTest as it, expect } from './config/browserTest';
 
-it('should have default url when launching browser', async ({browserType, browserOptions, createUserDataDir}) => {
-  const browserContext = await browserType.launchPersistentContext(await createUserDataDir(), {...browserOptions, headless: false });
+it('should have default url when launching browser', async ({ browserType, browserOptions, createUserDataDir }) => {
+  const browserContext = await browserType.launchPersistentContext(await createUserDataDir(), { ...browserOptions, headless: false });
   const urls = browserContext.pages().map(page => page.url());
   expect(urls).toEqual(['about:blank']);
   await browserContext.close();
 });
 
-it('should close browser with beforeunload page', async ({browserType, browserOptions, server, createUserDataDir}) => {
+it('should close browser with beforeunload page', async ({ browserType, browserOptions, server, createUserDataDir }) => {
   it.slow();
 
-  const browserContext = await browserType.launchPersistentContext(await createUserDataDir(), {...browserOptions, headless: false});
+  const browserContext = await browserType.launchPersistentContext(await createUserDataDir(), { ...browserOptions, headless: false });
   const page = await browserContext.newPage();
   await page.goto(server.PREFIX + '/beforeunload.html');
   // We have to interact with a page so that 'beforeunload' handlers
@@ -35,8 +35,8 @@ it('should close browser with beforeunload page', async ({browserType, browserOp
   await browserContext.close();
 });
 
-it('should not crash when creating second context', async ({browserType, browserOptions}) => {
-  const browser = await browserType.launch({...browserOptions, headless: false });
+it('should not crash when creating second context', async ({ browserType, browserOptions }) => {
+  const browser = await browserType.launch({ ...browserOptions, headless: false });
   {
     const browserContext = await browser.newContext();
     await browserContext.newPage();
@@ -50,8 +50,8 @@ it('should not crash when creating second context', async ({browserType, browser
   await browser.close();
 });
 
-it('should click background tab', async ({browserType, browserOptions, server}) => {
-  const browser = await browserType.launch({...browserOptions, headless: false });
+it('should click background tab', async ({ browserType, browserOptions, server }) => {
+  const browser = await browserType.launch({ ...browserOptions, headless: false });
   const page = await browser.newPage();
   await page.setContent(`<button>Hello</button><a target=_blank href="${server.EMPTY_PAGE}">empty.html</a>`);
   await page.click('a');
@@ -59,16 +59,16 @@ it('should click background tab', async ({browserType, browserOptions, server}) 
   await browser.close();
 });
 
-it('should close browser after context menu was triggered', async ({browserType, browserOptions, server}) => {
-  const browser = await browserType.launch({...browserOptions, headless: false });
+it('should close browser after context menu was triggered', async ({ browserType, browserOptions, server }) => {
+  const browser = await browserType.launch({ ...browserOptions, headless: false });
   const page = await browser.newPage();
   await page.goto(server.PREFIX + '/grid.html');
-  await page.click('body', {button: 'right'});
+  await page.click('body', { button: 'right' });
   await browser.close();
 });
 
-it('should(not) block third party cookies', async ({browserType, browserOptions, server, browserName}) => {
-  const browser = await browserType.launch({...browserOptions, headless: false });
+it('should(not) block third party cookies', async ({ browserType, browserOptions, server, browserName }) => {
+  const browser = await browserType.launch({ ...browserOptions, headless: false });
   const page = await browser.newPage();
   await page.goto(server.EMPTY_PAGE);
   await page.evaluate(src => {
@@ -107,11 +107,47 @@ it('should(not) block third party cookies', async ({browserType, browserOptions,
   await browser.close();
 });
 
-it('should not override viewport size when passed null', async function({browserType, browserOptions, server, browserName}) {
+it('should not block third party SameSite=None cookies', async ({ browserOptions, httpsServer, browserName, browserType }) => {
+  it.skip(browserName === 'webkit', 'No third party cookies in WebKit');
+  const browser = await browserType.launch({ ...browserOptions, headless: false });
+  const page = await browser.newPage({
+    ignoreHTTPSErrors: true,
+  });
+
+  httpsServer.setRoute('/empty.html', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/html'
+    });
+    res.end(`<iframe src="${httpsServer.CROSS_PROCESS_PREFIX}/grid.html"></iframe>`);
+  });
+
+  httpsServer.setRoute('/grid.html', (req, res) => {
+    res.writeHead(200, {
+      'Set-Cookie': ['a=b; Path=/; Max-Age=3600; SameSite=None; Secure'],
+      'Content-Type': 'text/html'
+    });
+    res.end(`Hello world
+    <script>
+    setTimeout(() => fetch('/json'), 1000);
+    </script>`);
+  });
+
+  const cookie = new Promise(f => {
+    httpsServer.setRoute('/json', (req, res) => {
+      f(req.headers.cookie);
+      res.end();
+    });
+  });
+
+  await page.goto(httpsServer.EMPTY_PAGE);
+  expect(await cookie).toBe('a=b');
+});
+
+it('should not override viewport size when passed null', async function({ browserType, browserOptions, server, browserName }) {
   it.fixme(browserName === 'webkit');
 
   // Our WebKit embedder does not respect window features.
-  const browser = await browserType.launch({...browserOptions, headless: false });
+  const browser = await browserType.launch({ ...browserOptions, headless: false });
   const context = await browser.newContext({ viewport: null });
   const page = await context.newPage();
   await page.goto(server.EMPTY_PAGE);
@@ -128,8 +164,8 @@ it('should not override viewport size when passed null', async function({browser
   await browser.close();
 });
 
-it('Page.bringToFront should work', async ({browserType, browserOptions}) => {
-  const browser = await browserType.launch({...browserOptions, headless: false });
+it('Page.bringToFront should work', async ({ browserType, browserOptions }) => {
+  const browser = await browserType.launch({ ...browserOptions, headless: false });
   const page1 = await browser.newPage();
   await page1.setContent('Page1');
   const page2 = await browser.newPage();
@@ -147,3 +183,57 @@ it('Page.bringToFront should work', async ({browserType, browserOptions}) => {
   await browser.close();
 });
 
+it.skip('should click in OOPIF', async ({ browserName, browserType, browserOptions, createUserDataDir, server }) => {
+  it.fixme(browserName === 'chromium');
+  server.setRoute('/empty.html', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`<iframe src="${server.CROSS_PROCESS_PREFIX}/iframe.html"></iframe>`);
+  });
+  server.setRoute('/iframe.html', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`<button id="button" onclick="console.log('ok')">Submit</button>
+    <script>console.log('frame loaded')</script>`);
+  });
+
+  const context = await browserType.launchPersistentContext(await createUserDataDir(), { ...browserOptions, headless: false });
+  const [page] = context.pages();
+  const consoleLog: string[] = [];
+  page.on('console', m => consoleLog.push(m.text()));
+  await page.goto(server.EMPTY_PAGE);
+  await page.frames()[1].click('text=Submit');
+  expect(consoleLog).toContain('ok');
+});
+
+it.skip('should click bottom row w/ infobar in OOPIF', async ({ browserType, browserOptions, createUserDataDir, server }) => {
+  server.setRoute('/empty.html', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+      <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+        iframe { position: absolute; bottom: 0; }
+      </style>
+      <iframe src="${server.CROSS_PROCESS_PREFIX}/iframe.html"></iframe>
+    `);
+  });
+
+  server.setRoute('/iframe.html', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+      <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+        button { position: absolute; bottom: 0; }
+      </style>
+      <button id="button" onclick="console.log('ok')">Submit</button>`);
+  });
+
+  const browserContext = await browserType.launchPersistentContext(await createUserDataDir(), { ...browserOptions, headless: false });
+  const [page] = browserContext.pages();
+  await page.goto(server.EMPTY_PAGE);
+  // Chrome bug! Investigate what's happening in the oopif router.
+  const consoleLog: string[] = [];
+  page.on('console', m => consoleLog.push(m.text()));
+  while (!consoleLog.includes('ok')) {
+    await page.waitForTimeout(100);
+    await page.frames()[1].click('text=Submit');
+  }
+});

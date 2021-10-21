@@ -20,15 +20,15 @@ import path from 'path';
 import net from 'net';
 
 import { contextTest, expect } from './config/browserTest';
-import { PlaywrightClient } from '../lib/remote/playwrightClient';
-import type { Page } from '..';
+import { PlaywrightClient } from '../packages/playwright-core/lib/remote/playwrightClient';
+import type { Page } from 'playwright-core';
 
 class OutOfProcessPlaywrightServer {
   private _driverProcess: childProcess.ChildProcess;
   private _receivedPortPromise: Promise<string>;
 
   constructor(port: number, proxyPort: number) {
-    this._driverProcess = childProcess.fork(path.join(__dirname, '..', 'lib', 'cli', 'cli.js'), ['run-server', port.toString()], {
+    this._driverProcess = childProcess.fork(path.join(__dirname, '..', 'packages', 'playwright-core', 'lib', 'cli', 'cli.js'), ['run-server', port.toString()], {
       stdio: 'pipe',
       detached: true,
       env: {
@@ -86,7 +86,7 @@ async function startTestServer() {
   const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
     res.end('<html><body>from-retargeted-server</body></html>');
   });
-  await new Promise(resolve => server.listen(0, resolve));
+  await new Promise<void>(resolve => server.listen(0, resolve));
   return {
     testServerPort: (server.address() as net.AddressInfo).port,
     stopTestServer: () => server.close()
@@ -122,7 +122,6 @@ it('should proxy localhost requests', async ({ pageFactory, server, browserName,
 });
 
 it('should proxy local.playwright requests', async ({ pageFactory, server, browserName }, workerInfo) => {
-  it.fixme(browserName === 'firefox', 'Firefox performs DNS on browser side');
   const { testServerPort, stopTestServer } = await startTestServer();
   let reachedOriginalTarget = false;
   server.setRoute('/foo.html', async (req, res) => {

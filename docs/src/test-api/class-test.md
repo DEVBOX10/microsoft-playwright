@@ -72,7 +72,7 @@ Hook function that takes one or two arguments: an object with fixtures and optio
 
 ## method: Test.afterEach
 
-Declares an `afterEach` hook that is executed after each test. When called in the scope of a test file, runs before each test in the file. When called inside a [`method: Test.describe`] group, runs before each test in the group.
+Declares an `afterEach` hook that is executed after each test. When called in the scope of a test file, runs after each test in the file. When called inside a [`method: Test.describe`] group, runs after each test in the group.
 
 ### param: Test.afterEach.hookFunction
 - `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
@@ -283,27 +283,7 @@ A callback that is run immediately when calling [`method: Test.describe.parallel
 
 ## method: Test.describe.parallel.only
 
-Declares a focused group of tests that could be run in parallel. By default, tests in a single test file run one after another, but using [`method: Test.describe.parallel`] allows them to run in parallel. If there are some focused tests or suites, all of them will be run but nothing else.
-
-```js js-flavor=js
-test.describe.parallel.only('group', () => {
-  test('runs in parallel 1', async ({ page }) => {
-  });
-  test('runs in parallel 2', async ({ page }) => {
-  });
-});
-```
-
-```js js-flavor=ts
-test.describe.parallel.only('group', () => {
-  test('runs in parallel 1', async ({ page }) => {
-  });
-  test('runs in parallel 2', async ({ page }) => {
-  });
-});
-```
-
-Note that parallel tests are executed in separate processes and cannot share any state or global variables. Each of the parallel tests executes all relevant hooks.
+Declares a focused group of tests that could be run in parallel. This is similar to [`method: Test.describe.parallel`], but focuses the group. If there are some focused tests or suites, all of them will be run but nothing else.
 
 ### param: Test.describe.parallel.only.title
 - `title` <[string]>
@@ -974,7 +954,7 @@ Step body.
 
 ## method: Test.use
 
-Specifies parameters or fixtures to use in a single test file or a [`method: Test.describe`] group. Most useful to configure a fixture, for example set `locale` to configure `context` fixture.
+Specifies options or fixtures to use in a single test file or a [`method: Test.describe`] group. Most useful to set an option, for example set `locale` to configure `context` fixture. `test.use` can be called either in the global scope or inside `test.describe`, it's is an error to call it within `beforeEach` or `beforeAll`.
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -996,7 +976,7 @@ test('test with locale', async ({ page }) => {
 });
 ```
 
-It is possible not only to provide a fixture value, but also to override a fixture by providing a fixture function.
+It is also possible to override a fixture by providing a function.
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -1031,8 +1011,8 @@ test('test with locale', async ({ page }) => {
 ```
 
 ### param: Test.use.fixtures
-- `fixtures` <[Fixtures]>
+- `options` <[TestOptions]>
 
-An object with fixture definitions.
+An object with local options.
 
 
