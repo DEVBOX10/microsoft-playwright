@@ -30,7 +30,7 @@ import * as api from '../../types/types';
 import { HeadersArray, URLMatch } from '../common/types';
 import { urlMatches } from './clientHelper';
 import { MultiMap } from '../utils/multimap';
-import { FetchResponse } from './fetch';
+import { APIResponse } from './fetch';
 
 export type NetworkCookie = {
   name: string,
@@ -55,7 +55,7 @@ export type SetNetworkCookieParam = {
   sameSite?: 'Strict' | 'Lax' | 'None'
 };
 
-export class Request extends ChannelOwner<channels.RequestChannel, channels.RequestInitializer> implements api.Request {
+export class Request extends ChannelOwner<channels.RequestChannel> implements api.Request {
   private _redirectedFrom: Request | null = null;
   private _redirectedTo: Request | null = null;
   _failureText: string | null = null;
@@ -142,8 +142,8 @@ export class Request extends ChannelOwner<channels.RequestChannel, channels.Requ
 
   _actualHeaders(): Promise<RawHeaders> {
     if (!this._actualHeadersPromise) {
-      this._actualHeadersPromise = this._wrapApiCall(async (channel: channels.RequestChannel) => {
-        return new RawHeaders((await channel.rawRequestHeaders()).headers);
+      this._actualHeadersPromise = this._wrapApiCall(async () => {
+        return new RawHeaders((await this._channel.rawRequestHeaders()).headers);
       });
     }
     return this._actualHeadersPromise;
@@ -162,15 +162,13 @@ export class Request extends ChannelOwner<channels.RequestChannel, channels.Requ
   }
 
   async response(): Promise<Response | null> {
-    return this._wrapApiCall(async (channel: channels.RequestChannel) => {
-      return Response.fromNullable((await channel.response()).response);
-    });
+    return Response.fromNullable((await this._channel.response()).response);
   }
 
   async _internalResponse(): Promise<Response | null> {
-    return this._wrapApiCall(async (channel: channels.RequestChannel) => {
-      return Response.fromNullable((await channel.response()).response);
-    }, undefined, true);
+    return this._wrapApiCall(async () => {
+      return Response.fromNullable((await this._channel.response()).response);
+    }, true);
   }
 
   frame(): Frame {
@@ -205,9 +203,7 @@ export class Request extends ChannelOwner<channels.RequestChannel, channels.Requ
     const response = await this.response();
     if (!response)
       throw new Error('Unable to fetch sizes for failed request');
-    return response._wrapApiCall(async (channel: channels.ResponseChannel) => {
-      return (await channel.sizes()).sizes;
-    });
+    return (await response._channel.sizes()).sizes;
   }
 
   _finalRequest(): Request {
@@ -215,99 +211,7 @@ export class Request extends ChannelOwner<channels.RequestChannel, channels.Requ
   }
 }
 
-export class InterceptedResponse implements api.Response {
-  private readonly _route: Route;
-  private readonly _initializer: channels.InterceptedResponse;
-  private readonly _request: Request;
-  private readonly _headers: RawHeaders;
-
-  constructor(route: Route, initializer: channels.InterceptedResponse) {
-    this._route = route;
-    this._initializer = initializer;
-    this._headers = new RawHeaders(initializer.headers);
-    this._request = Request.from(initializer.request);
-  }
-
-  async securityDetails(): Promise<{ issuer?: string | undefined; protocol?: string | undefined; subjectName?: string | undefined; validFrom?: number | undefined; validTo?: number | undefined; } | null> {
-    return null;
-  }
-
-  async serverAddr(): Promise<{ ipAddress: string; port: number; } | null> {
-    return null;
-  }
-
-  async finished(): Promise<Error | null> {
-    const response = await this._request.response();
-    if (!response)
-      return null;
-    return await response.finished();
-  }
-
-  frame(): api.Frame {
-    return this._request.frame();
-  }
-
-  ok(): boolean {
-    return this._initializer.status === 0 || (this._initializer.status >= 200 && this._initializer.status <= 299);
-  }
-
-  url(): string {
-    return this._request.url();
-  }
-
-  status(): number {
-    return this._initializer.status;
-  }
-
-  statusText(): string {
-    return this._initializer.statusText;
-  }
-
-  headers(): Headers {
-    return this._headers.headers();
-  }
-
-  async allHeaders(): Promise<Headers> {
-    return this.headers();
-  }
-
-  async headersArray(): Promise<HeadersArray> {
-    return this._headers.headersArray();
-  }
-
-  async headerValue(name: string): Promise<string | null> {
-    return this._headers.get(name);
-  }
-
-  async headerValues(name: string): Promise<string[]> {
-    return this._headers.getAll(name);
-  }
-
-  async body(): Promise<Buffer> {
-    return this._route._responseBody();
-  }
-
-  async text(): Promise<string> {
-    const content = await this.body();
-    return content.toString('utf8');
-  }
-
-  async json(): Promise<object> {
-    const content = await this.text();
-    return JSON.parse(content);
-  }
-
-  request(): Request {
-    return this._request;
-  }
-}
-
-type InterceptResponse = true;
-type NotInterceptResponse = false;
-
-export class Route extends ChannelOwner<channels.RouteChannel, channels.RouteInitializer> implements api.Route {
-  private _interceptedResponse: api.Response | undefined;
-
+export class Route extends ChannelOwner<channels.RouteChannel> implements api.Route {
   static from(route: channels.RouteChannel): Route {
     return (route as any)._object;
   }
@@ -320,104 +224,84 @@ export class Route extends ChannelOwner<channels.RouteChannel, channels.RouteIni
     return Request.from(this._initializer.request);
   }
 
+  private _raceWithPageClose(promise: Promise<any>): Promise<void> {
+    const page = this.request().frame()._page;
+    // When page closes or crashes, we catch any potential rejects from this Route.
+    // Note that page could be missing when routing popup's initial request that
+    // does not have a Page initialized just yet.
+    return Promise.race([
+      promise,
+      page ? page._closedOrCrashedPromise : Promise.resolve(),
+    ]);
+  }
+
   async abort(errorCode?: string) {
-    return this._wrapApiCall(async (channel: channels.RouteChannel) => {
-      await channel.abort({ errorCode });
-    });
+    await this._raceWithPageClose(this._channel.abort({ errorCode }));
   }
 
-  async fulfill(options: { response?: api.Response | api.APIResponse, status?: number, headers?: Headers, contentType?: string, body?: string | Buffer, path?: string } = {}) {
-    return this._wrapApiCall(async (channel: channels.RouteChannel) => {
-      let useInterceptedResponseBody;
-      let fetchResponseUid;
-      let { status: statusOption, headers: headersOption, body: bodyOption } = options;
-      if (options.response) {
-        statusOption ||= options.response.status();
-        headersOption ||= options.response.headers();
-        if (options.body === undefined && options.path === undefined) {
-          if (options.response instanceof FetchResponse)
-            fetchResponseUid = (options.response as FetchResponse)._fetchUid();
-          else if (options.response === this._interceptedResponse)
-            useInterceptedResponseBody = true;
-          else
-            bodyOption = await options.response.body();
-        }
-      }
+  async fulfill(options: { response?: api.APIResponse, status?: number, headers?: Headers, contentType?: string, body?: string | Buffer, path?: string } = {}) {
+    let fetchResponseUid;
+    let { status: statusOption, headers: headersOption, body } = options;
+    if (options.response) {
+      statusOption ||= options.response.status();
+      headersOption ||= options.response.headers();
+      if (options.body === undefined && options.path === undefined && options.response instanceof APIResponse)
+        fetchResponseUid = (options.response as APIResponse)._fetchUid();
+    }
 
-      let body = undefined;
-      let isBase64 = false;
-      let length = 0;
-      if (options.path) {
-        const buffer = await fs.promises.readFile(options.path);
-        body = buffer.toString('base64');
-        isBase64 = true;
-        length = buffer.length;
-      } else if (isString(bodyOption)) {
-        body = bodyOption;
-        isBase64 = false;
-        length = Buffer.byteLength(body);
-      } else if (bodyOption) {
-        body = bodyOption.toString('base64');
-        isBase64 = true;
-        length = bodyOption.length;
-      }
+    let isBase64 = false;
+    let length = 0;
+    if (options.path) {
+      const buffer = await fs.promises.readFile(options.path);
+      body = buffer.toString('base64');
+      isBase64 = true;
+      length = buffer.length;
+    } else if (isString(body)) {
+      isBase64 = false;
+      length = Buffer.byteLength(body);
+    } else if (body) {
+      length = body.length;
+      body = body.toString('base64');
+      isBase64 = true;
+    }
 
-      const headers: Headers = {};
-      for (const header of Object.keys(headersOption || {}))
-        headers[header.toLowerCase()] = String(headersOption![header]);
-      if (options.contentType)
-        headers['content-type'] = String(options.contentType);
-      else if (options.path)
-        headers['content-type'] = mime.getType(options.path) || 'application/octet-stream';
-      if (length && !('content-length' in headers))
-        headers['content-length'] = String(length);
+    const headers: Headers = {};
+    for (const header of Object.keys(headersOption || {}))
+      headers[header.toLowerCase()] = String(headersOption![header]);
+    if (options.contentType)
+      headers['content-type'] = String(options.contentType);
+    else if (options.path)
+      headers['content-type'] = mime.getType(options.path) || 'application/octet-stream';
+    if (length && !('content-length' in headers))
+      headers['content-length'] = String(length);
 
-      await channel.fulfill({
-        status: statusOption || 200,
-        headers: headersObjectToArray(headers),
-        body,
-        isBase64,
-        useInterceptedResponseBody,
-        fetchResponseUid
-      });
-    });
-  }
-
-  async _continueToResponse(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer, interceptResponse?: boolean } = {}): Promise<api.Response> {
-    this._interceptedResponse = await this._continue(options, true);
-    return this._interceptedResponse;
+    await this._raceWithPageClose(this._channel.fulfill({
+      status: statusOption || 200,
+      headers: headersObjectToArray(headers),
+      body,
+      isBase64,
+      fetchResponseUid
+    }));
   }
 
   async continue(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer } = {}) {
-    await this._continue(options, false);
+    await this._continue(options);
   }
 
   async _internalContinue(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer } = {}) {
-    await this._continue(options, false, true).catch(() => {});
+    await this._continue(options, true).catch(() => {});
   }
 
-  async _continue(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer }, interceptResponse: NotInterceptResponse, isInternal?: boolean): Promise<null>;
-  async _continue(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer }, interceptResponse: InterceptResponse, isInternal?: boolean): Promise<api.Response>;
-  async _continue(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer }, interceptResponse: boolean, isInternal?: boolean): Promise<null|api.Response> {
-    return await this._wrapApiCall(async (channel: channels.RouteChannel) => {
+  private async _continue(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer }, isInternal?: boolean) {
+    return await this._wrapApiCall(async () => {
       const postDataBuffer = isString(options.postData) ? Buffer.from(options.postData, 'utf8') : options.postData;
-      const result = await channel.continue({
+      await this._raceWithPageClose(this._channel.continue({
         url: options.url,
         method: options.method,
         headers: options.headers ? headersObjectToArray(options.headers) : undefined,
         postData: postDataBuffer ? postDataBuffer.toString('base64') : undefined,
-        interceptResponse,
-      });
-      if (result.response)
-        return new InterceptedResponse(this, result.response);
-      return null;
-    }, undefined, isInternal);
-  }
-
-  async _responseBody(): Promise<Buffer> {
-    return this._wrapApiCall(async (channel: channels.RouteChannel) => {
-      return Buffer.from((await channel.responseBody()).binary, 'base64');
-    });
+      }));
+    }, isInternal);
   }
 }
 
@@ -442,7 +326,7 @@ export type RequestSizes = {
   responseHeadersSize: number;
 };
 
-export class Response extends ChannelOwner<channels.ResponseChannel, channels.ResponseInitializer> implements api.Response {
+export class Response extends ChannelOwner<channels.ResponseChannel> implements api.Response {
   private _provisionalHeaders: RawHeaders;
   private _actualHeadersPromise: Promise<RawHeaders> | undefined;
   private _request: Request;
@@ -468,6 +352,7 @@ export class Response extends ChannelOwner<channels.ResponseChannel, channels.Re
   }
 
   ok(): boolean {
+    // Status 0 is for file:// URLs
     return this._initializer.status === 0 || (this._initializer.status >= 200 && this._initializer.status <= 299);
   }
 
@@ -488,9 +373,9 @@ export class Response extends ChannelOwner<channels.ResponseChannel, channels.Re
 
   async _actualHeaders(): Promise<RawHeaders> {
     if (!this._actualHeadersPromise) {
-      this._actualHeadersPromise = this._wrapApiCall(async (channel: channels.ResponseChannel) => {
-        return new RawHeaders((await channel.rawResponseHeaders()).headers);
-      });
+      this._actualHeadersPromise = (async () => {
+        return new RawHeaders((await this._channel.rawResponseHeaders()).headers);
+      })();
     }
     return this._actualHeadersPromise;
   }
@@ -516,9 +401,7 @@ export class Response extends ChannelOwner<channels.ResponseChannel, channels.Re
   }
 
   async body(): Promise<Buffer> {
-    return this._wrapApiCall(async (channel: channels.ResponseChannel) => {
-      return Buffer.from((await channel.body()).binary, 'base64');
-    });
+    return Buffer.from((await this._channel.body()).binary, 'base64');
   }
 
   async text(): Promise<string> {
@@ -540,19 +423,15 @@ export class Response extends ChannelOwner<channels.ResponseChannel, channels.Re
   }
 
   async serverAddr(): Promise<RemoteAddr|null> {
-    return this._wrapApiCall(async (channel: channels.ResponseChannel) => {
-      return (await channel.serverAddr()).value || null;
-    });
+    return (await this._channel.serverAddr()).value || null;
   }
 
   async securityDetails(): Promise<SecurityDetails|null> {
-    return this._wrapApiCall(async (channel: channels.ResponseChannel) => {
-      return (await channel.securityDetails()).value || null;
-    });
+    return (await this._channel.securityDetails()).value || null;
   }
 }
 
-export class WebSocket extends ChannelOwner<channels.WebSocketChannel, channels.WebSocketInitializer> implements api.WebSocket {
+export class WebSocket extends ChannelOwner<channels.WebSocketChannel> implements api.WebSocket {
   private _page: Page;
   private _isClosed: boolean;
 
@@ -592,11 +471,11 @@ export class WebSocket extends ChannelOwner<channels.WebSocketChannel, channels.
   }
 
   async waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions = {}): Promise<any> {
-    return this._wrapApiCall(async (channel: channels.WebSocketChannel) => {
+    return this._wrapApiCall(async () => {
       const timeout = this._page._timeoutSettings.timeout(typeof optionsOrPredicate === 'function' ? {} : optionsOrPredicate);
       const predicate = typeof optionsOrPredicate === 'function' ? optionsOrPredicate : optionsOrPredicate.predicate;
-      const waiter = Waiter.createForEvent(channel, event);
-      waiter.rejectOnTimeout(timeout, `Timeout while waiting for event "${event}"`);
+      const waiter = Waiter.createForEvent(this, event);
+      waiter.rejectOnTimeout(timeout, `Timeout ${timeout}ms exceeded while waiting for event "${event}"`);
       if (event !== Events.WebSocket.Error)
         waiter.rejectOnEvent(this, Events.WebSocket.Error, new Error('Socket error'));
       if (event !== Events.WebSocket.Close)
@@ -620,29 +499,27 @@ export function validateHeaders(headers: Headers) {
 export class RouteHandler {
   private handledCount = 0;
   private readonly _baseURL: string | undefined;
-  private readonly _times: number | undefined;
+  private readonly _times: number;
   readonly url: URLMatch;
   readonly handler: RouteHandlerCallback;
 
-  constructor(baseURL: string | undefined, url: URLMatch, handler: RouteHandlerCallback, times?: number) {
+  constructor(baseURL: string | undefined, url: URLMatch, handler: RouteHandlerCallback, times: number = Number.MAX_SAFE_INTEGER) {
     this._baseURL = baseURL;
     this._times = times;
     this.url = url;
     this.handler = handler;
   }
 
-  public expired(): boolean {
-    return !!this._times && this.handledCount >= this._times;
-  }
-
   public matches(requestURL: string): boolean {
     return urlMatches(this._baseURL, requestURL, this.url);
   }
 
-  public handle(route: Route, request: Request) {
-    this.handler(route, request);
-    if (this._times)
-      this.handledCount++;
+  public handle(route: Route, request: Request): boolean {
+    try {
+      this.handler(route, request);
+    } finally {
+      return ++this.handledCount >= this._times;
+    }
   }
 }
 

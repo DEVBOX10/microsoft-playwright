@@ -23,7 +23,7 @@ rm -rf .mozconfig
 if [[ "$(uname)" == "Darwin" ]]; then
   CURRENT_HOST_OS_VERSION=$(getMacVersion)
   # As of Oct 2021, building Firefox requires XCode 13
-  if [[ "${CURRENT_HOST_OS_VERSION}" == "11."* ]]; then
+  if [[ "${CURRENT_HOST_OS_VERSION}" != "10."* ]]; then
     selectXcodeVersionOrDie "13"
   else
     echo "ERROR: ${CURRENT_HOST_OS_VERSION} is not supported"
@@ -37,16 +37,10 @@ elif [[ "$(uname)" == MINGW* ]]; then
   echo "ac_add_options --disable-update-agent" >> .mozconfig
   echo "ac_add_options --disable-default-browser-agent" >> .mozconfig
 
-  DLL_FILE=""
-  if [[ $1 == "--win64" ]]; then
-    echo "-- building win64 build on MINGW"
-    echo "ac_add_options --target=x86_64-pc-mingw32" >> .mozconfig
-    echo "ac_add_options --host=x86_64-pc-mingw32" >> .mozconfig
-    DLL_FILE=$("C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -find '**\Redist\MSVC\*\x64\**\vcruntime140.dll')
-  else
-    echo "-- building win32 build on MINGW"
-    DLL_FILE=$("C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -find '**\Redist\MSVC\*\x86\**\vcruntime140.dll')
-  fi
+  echo "-- building win64 build on MINGW"
+  echo "ac_add_options --target=x86_64-pc-mingw32" >> .mozconfig
+  echo "ac_add_options --host=x86_64-pc-mingw32" >> .mozconfig
+  DLL_FILE=$("C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -find '**\Redist\MSVC\*\x64\**\vcruntime140.dll')
   WIN32_REDIST_DIR=$(dirname "$DLL_FILE")
   if ! [[ -d $WIN32_REDIST_DIR ]]; then
     echo "ERROR: cannot find MS VS C++ redistributable $WIN32_REDIST_DIR"
@@ -57,10 +51,21 @@ else
   exit 1;
 fi
 
+if [[ $1 == "--linux-arm64" || $2 == "--linux-arm64" ]]; then
+  echo "ac_add_options --target=aarch64-linux-gnu" >> .mozconfig
+fi
+
 OBJ_FOLDER="obj-build-playwright"
 echo "mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/${OBJ_FOLDER}" >> .mozconfig
 echo "ac_add_options --disable-crashreporter" >> .mozconfig
 echo "ac_add_options --disable-backgroundtasks" >> .mozconfig
+
+if [[ -n $FF_DEBUG_BUILD ]]; then
+  echo "ac_add_options --enable-debug" >> .mozconfig
+  echo "ac_add_options --enable-debug-symbols" >> .mozconfig
+else
+  echo "ac_add_options --enable-release" >> .mozconfig
+fi
 
 if [[ "$(uname)" == MINGW* || "$(uname)" == "Darwin" ]]; then
   # This options is only available on win and mac.
@@ -83,7 +88,8 @@ if [[ $1 != "--juggler" ]]; then
   fi
 fi
 
-if [[ $1 == "--full" || $2 == "--full" ]]; then
+if [[ $1 == "--full" || $2 == "--full" || $1 == "--bootstrap" ]]; then
+  echo "ac_add_options --enable-bootstrap" >> .mozconfig
   if [[ "$(uname)" == "Darwin" || "$(uname)" == "Linux" ]]; then
     SHELL=/bin/sh ./mach --no-interactive bootstrap --application-choice=browser
   fi
@@ -93,19 +99,17 @@ if [[ $1 == "--full" || $2 == "--full" ]]; then
   fi
 fi
 
-if ! [[ -f "$HOME/.mozbuild/_virtualenvs/mach/bin/python" ]]; then
-  ./mach create-mach-environment
-fi
-
 if [[ $1 == "--juggler" ]]; then
   ./mach build faster
+elif [[ $1 == "--bootstrap" ]]; then
+  ./mach configure
 else
   ./mach build
+  if [[ "$(uname)" == "Darwin" ]]; then
+    node "${SCRIPT_FOLDER}"/install-preferences.js "$PWD"/${OBJ_FOLDER}/dist
+  else
+    node "${SCRIPT_FOLDER}"/install-preferences.js "$PWD"/${OBJ_FOLDER}/dist/bin
+  fi
 fi
 
-if [[ "$(uname)" == "Darwin" ]]; then
-  node "${SCRIPT_FOLDER}"/install-preferences.js "$PWD"/${OBJ_FOLDER}/dist
-else
-  node "${SCRIPT_FOLDER}"/install-preferences.js "$PWD"/${OBJ_FOLDER}/dist/bin
-fi
 

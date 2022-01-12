@@ -79,3 +79,27 @@ test('render trace attachment', async ({ runInlineTest }) => {
   expect(text).toContain('    ------------------------------------------------------------------------------------------------');
   expect(result.exitCode).toBe(1);
 });
+
+
+test(`testInfo.attach errors`, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.js': `
+      const { test } = pwt;
+      test('fail1', async ({}, testInfo) => {
+        await testInfo.attach('name', { path: 'foo.txt' });
+      });
+      test('fail2', async ({}, testInfo) => {
+        await testInfo.attach('name', { path: 'foo.txt', body: 'bar' });
+      });
+      test('fail3', async ({}, testInfo) => {
+        await testInfo.attach('name', {});
+      });
+    `,
+  }, { reporter: 'line', workers: 1 });
+  const text = stripAscii(result.output).replace(/\\/g, '/');
+  expect(text).toMatch(/Error: ENOENT: no such file or directory, open '.*foo.txt.*'/);
+  expect(text).toContain(`Exactly one of "path" and "body" must be specified`);
+  expect(result.passed).toBe(0);
+  expect(result.failed).toBe(3);
+  expect(result.exitCode).toBe(1);
+});

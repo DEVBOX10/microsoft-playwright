@@ -20,7 +20,7 @@ import { assert } from '../utils/utils';
 import { ManualPromise } from '../utils/async';
 import { SdkObject } from './instrumentation';
 import { NameValue } from '../common/types';
-import { FetchRequest } from './fetch';
+import { APIRequestContext } from './fetch';
 
 export function filterCookies(cookies: types.NetworkCookie[], urls: string[]): types.NetworkCookie[] {
   const parsedURLs = urls.map(s => new URL(s));
@@ -226,7 +226,6 @@ export class Route extends SdkObject {
   private readonly _request: Request;
   private readonly _delegate: RouteDelegate;
   private _handled = false;
-  private _response: InterceptedResponse | null = null;
 
   constructor(request: Request, delegate: RouteDelegate) {
     super(request.frame(), 'route');
@@ -252,12 +251,9 @@ export class Route extends SdkObject {
     if (body === undefined) {
       if (overrides.fetchResponseUid) {
         const context = this._request.frame()._page._browserContext;
-        const buffer = context.fetchRequest.fetchResponses.get(overrides.fetchResponseUid) || FetchRequest.findResponseBody(overrides.fetchResponseUid);
+        const buffer = context.fetchRequest.fetchResponses.get(overrides.fetchResponseUid) || APIRequestContext.findResponseBody(overrides.fetchResponseUid);
         assert(buffer, 'Fetch response has been disposed');
         body = buffer.toString('base64');
-        isBase64 = true;
-      } else if (this._response && overrides.useInterceptedResponseBody) {
-        body = (await this._delegate.responseBody()).toString('base64');
         isBase64 = true;
       } else {
         body = '';
@@ -272,22 +268,15 @@ export class Route extends SdkObject {
     });
   }
 
-  async continue(overrides: types.NormalizedContinueOverrides = {}): Promise<InterceptedResponse|null> {
+  async continue(overrides: types.NormalizedContinueOverrides = {}) {
     assert(!this._handled, 'Route is already handled!');
-    assert(!this._response, 'Cannot call continue after response interception!');
     if (overrides.url) {
       const newUrl = new URL(overrides.url);
       const oldUrl = new URL(this._request.url());
       if (oldUrl.protocol !== newUrl.protocol)
         throw new Error('New URL must have same protocol as overridden URL');
     }
-    this._response = await this._delegate.continue(this._request, overrides);
-    return this._response;
-  }
-
-  async responseBody(): Promise<Buffer> {
-    assert(!this._handled, 'Route is already handled!');
-    return this._delegate.responseBody();
+    await this._delegate.continue(this._request, overrides);
   }
 }
 
@@ -445,6 +434,8 @@ export class Response extends SdkObject {
       return 'HTTP/1.1';
     if (this._httpVersion === 'http/1.1')
       return 'HTTP/1.1';
+    if (this._httpVersion === 'h2')
+      return 'HTTP/2.0';
     return this._httpVersion;
   }
 
@@ -485,39 +476,9 @@ export class Response extends SdkObject {
   }
 }
 
-export class InterceptedResponse extends SdkObject {
-  private readonly _request: Request;
-  private readonly _status: number;
-  private readonly _statusText: string;
-  private readonly _headers: types.HeadersArray;
-
-  constructor(request: Request, status: number, statusText: string, headers: types.HeadersArray) {
-    super(request.frame(), 'interceptedResponse');
-    this._request = request._finalRequest();
-    this._status = status;
-    this._statusText = statusText;
-    this._headers = headers;
-  }
-
-  status(): number {
-    return this._status;
-  }
-
-  statusText(): string {
-    return this._statusText;
-  }
-
-  headers(): types.HeadersArray {
-    return this._headers;
-  }
-
-  request(): Request {
-    return this._request;
-  }
-}
-
 export class WebSocket extends SdkObject {
   private _url: string;
+  private _notified = false;
 
   static Events = {
     Close: 'close',
@@ -529,6 +490,16 @@ export class WebSocket extends SdkObject {
   constructor(parent: SdkObject, url: string) {
     super(parent, 'ws');
     this._url = url;
+  }
+
+  markAsNotified() {
+    // Sometimes we get "onWebSocketRequest" twice, at least in Chromium.
+    // Perhaps websocket is restarted because of chrome.webRequest extensions api?
+    // Or maybe the handshake response was a redirect?
+    if (this._notified)
+      return false;
+    this._notified = true;
+    return true;
   }
 
   url(): string {
@@ -555,8 +526,7 @@ export class WebSocket extends SdkObject {
 export interface RouteDelegate {
   abort(errorCode: string): Promise<void>;
   fulfill(response: types.NormalizedFulfillResponse): Promise<void>;
-  continue(request: Request, overrides: types.NormalizedContinueOverrides): Promise<InterceptedResponse|null>;
-  responseBody(): Promise<Buffer>;
+  continue(request: Request, overrides: types.NormalizedContinueOverrides): Promise<void>;
 }
 
 // List taken from https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml with extra 306 and 418 codes.

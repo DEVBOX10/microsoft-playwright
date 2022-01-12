@@ -24,7 +24,7 @@ import type { CallMetadata } from '../../protocol/callMetadata';
 // @ts-ignore
 self.importScripts('zip.min.js');
 
-const zipjs = (self as any).zip;
+const zipjs = (self as any).zip as typeof zip;
 
 export class TraceModel {
   contextEntry: ContextEntry;
@@ -37,17 +37,19 @@ export class TraceModel {
     this.contextEntry = createEmptyContext();
   }
 
-  async load(traceURL: string) {
-    const response = await fetch(traceURL, { mode: 'cors' });
-    const blob = await response.blob();
-    const zipReader = new zipjs.ZipReader(new zipjs.BlobReader(blob), { useWebWorkers: false }) as zip.ZipReader;
+  async load(traceURL: string, progress: (done: number, total: number) => void) {
+    const zipReader = new zipjs.ZipReader( // @ts-ignore
+        new zipjs.HttpReader(traceURL, { mode: 'cors', preventHeadRequest: true }),
+        { useWebWorkers: false }) as zip.ZipReader;
     let traceEntry: zip.Entry | undefined;
     let networkEntry: zip.Entry | undefined;
-    for (const entry of await zipReader.getEntries()) {
+    for (const entry of await zipReader.getEntries({ onprogress: progress })) {
       if (entry.filename.endsWith('.trace'))
         traceEntry = entry;
       if (entry.filename.endsWith('.network'))
         networkEntry = entry;
+      if (entry.filename.includes('src@'))
+        this.contextEntry.hasSource = true;
       this._entries.set(entry.filename, entry);
     }
     this._snapshotStorage = new PersistentSnapshotStorage(this._entries);
@@ -103,6 +105,9 @@ export class TraceModel {
     switch (event.type) {
       case 'context-options': {
         this.contextEntry.browserName = event.browserName;
+        this.contextEntry.title = event.title;
+        this.contextEntry.platform = event.platform;
+        this.contextEntry.wallTime = event.wallTime;
         this.contextEntry.options = event.options;
         break;
       }
@@ -111,9 +116,12 @@ export class TraceModel {
         break;
       }
       case 'action': {
-        const include = !!event.metadata.apiName && !isTracing(event.metadata);
-        if (include)
+        const include = !isTracing(event.metadata) && (!event.metadata.internal || event.metadata.apiName);
+        if (include) {
+          if (!event.metadata.apiName)
+            event.metadata.apiName = event.metadata.type + '.' + event.metadata.method;
           this.contextEntry!.actions.push(event);
+        }
         break;
       }
       case 'event': {

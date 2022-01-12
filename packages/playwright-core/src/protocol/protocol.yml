@@ -29,6 +29,7 @@ Metadata:
       type: array?
       items: StackFrame
     apiName: string?
+    internal: boolean?
 
 
 Point:
@@ -223,21 +224,10 @@ FormField:
       type: object?
       properties:
         name: string
-        mimeType: string
+        mimeType: string?
         buffer: binary
 
-InterceptedResponse:
-  type: object
-  properties:
-    request: Request
-    status: number
-    statusText: string
-    headers:
-      type: array
-      items: NameValue
-
-
-FetchRequest:
+APIRequestContext:
   type: interface
 
   commands:
@@ -264,14 +254,21 @@ FetchRequest:
         failOnStatusCode: boolean?
         ignoreHTTPSErrors: boolean?
       returns:
-        response: FetchResponse?
-        error: string?
+        response: APIResponse
 
     fetchResponseBody:
       parameters:
         fetchUid: string
       returns:
         binary?: binary
+
+    fetchLog:
+      parameters:
+        fetchUid: string
+      returns:
+        log:
+          type: array
+          items: string
 
     storageState:
       returns:
@@ -282,14 +279,14 @@ FetchRequest:
           type: array
           items: OriginStorage
 
-    disposeFetchResponse:
+    disposeAPIResponse:
       parameters:
         fetchUid: string
 
     dispose:
 
 
-FetchResponse:
+APIResponse:
   type: object
   properties:
     fetchUid: string
@@ -299,6 +296,16 @@ FetchResponse:
     headers:
       type: array
       items: NameValue
+
+
+LifecycleEvent:
+  type: enum
+  literals:
+  - load
+  - domcontentloaded
+  - networkidle
+  - commit
+
 
 LaunchOptions:
   type: mixin
@@ -392,7 +399,6 @@ ContextOptions:
       - none
     acceptDownloads: boolean?
     baseURL: string?
-    _debugName: string?
     recordVideo:
       type: object?
       properties:
@@ -408,6 +414,18 @@ ContextOptions:
         omitContent: boolean?
         path: string
     strictSelectors: boolean?
+
+LocalUtils:
+  type: interface
+
+  commands:
+
+    zip:
+      parameters:
+        zipFile: string
+        entries:
+          type: array
+          items: NameValue
 
 Root:
   type: interface
@@ -429,6 +447,7 @@ Playwright:
     webkit: BrowserType
     android: Android
     electron: Electron
+    utils: LocalUtils
     deviceDescriptors:
       type: array
       items:
@@ -521,7 +540,9 @@ Playwright:
               items: OriginStorage
 
       returns:
-        request: FetchRequest
+        request: APIRequestContext
+
+    hideHighlight:
 
   events:
     socksRequested:
@@ -685,7 +706,7 @@ BrowserContext:
 
   initializer:
     isChromium: boolean
-    fetchRequest: FetchRequest
+    APIRequestContext: APIRequestContext
 
   commands:
 
@@ -733,11 +754,11 @@ BrowserContext:
 
     setDefaultNavigationTimeoutNoReply:
       parameters:
-        timeout: number
+        timeout: number?
 
     setDefaultTimeoutNoReply:
       parameters:
-        timeout: number
+        timeout: number?
 
     setExtraHTTPHeaders:
       parameters:
@@ -806,14 +827,26 @@ BrowserContext:
         name: string?
         snapshots: boolean?
         screenshots: boolean?
+        sources: boolean?
 
     tracingStartChunk:
+      parameters:
+        title: string?
 
     tracingStopChunk:
       parameters:
-        save: boolean
+        mode:
+          type: enum
+          literals:
+          - doNotSave
+          - compressTrace
+          - compressTraceAndSources
       returns:
+        # The artifact may be missing if the browser closes while tracing is beeing stopped.
         artifact: Artifact?
+        sourceEntries:
+          type: array?
+          items: NameValue
 
     tracingStop:
 
@@ -893,11 +926,11 @@ Page:
 
     setDefaultNavigationTimeoutNoReply:
       parameters:
-        timeout: number
+        timeout: number?
 
     setDefaultTimeoutNoReply:
       parameters:
-        timeout: number
+        timeout: number?
 
     setFileChooserInterceptedNoReply:
       parameters:
@@ -951,12 +984,7 @@ Page:
     goBack:
       parameters:
         timeout: number?
-        waitUntil:
-          type: enum?
-          literals:
-          - load
-          - domcontentloaded
-          - networkidle
+        waitUntil: LifecycleEvent?
       returns:
         response: Response?
       tracing:
@@ -965,12 +993,7 @@ Page:
     goForward:
       parameters:
         timeout: number?
-        waitUntil:
-          type: enum?
-          literals:
-          - load
-          - domcontentloaded
-          - networkidle
+        waitUntil: LifecycleEvent?
       returns:
         response: Response?
       tracing:
@@ -979,12 +1002,7 @@ Page:
     reload:
       parameters:
         timeout: number?
-        waitUntil:
-          type: enum?
-          literals:
-          - load
-          - domcontentloaded
-          - networkidle
+        waitUntil: LifecycleEvent?
       returns:
         response: Response?
       tracing:
@@ -1275,12 +1293,7 @@ Frame:
     parentFrame: Frame?
     loadStates:
       type: array
-      items:
-        type: enum
-        literals:
-        - load
-        - domcontentloaded
-        - networkidle
+      items: LifecycleEvent
 
   commands:
 
@@ -1383,6 +1396,7 @@ Frame:
         trial: boolean?
         sourcePosition: Point?
         targetPosition: Point?
+        strict: boolean?
       tracing:
         snapshot: true
         pausesBeforeInput: true
@@ -1470,6 +1484,10 @@ Frame:
       returns:
         element: ElementHandle
 
+    highlight:
+      parameters:
+        selector: string
+
     getAttribute:
       parameters:
         selector: string
@@ -1485,12 +1503,7 @@ Frame:
       parameters:
         url: string
         timeout: number?
-        waitUntil:
-          type: enum?
-          literals:
-          - load
-          - domcontentloaded
-          - networkidle
+        waitUntil: LifecycleEvent?
         referer: string?
       returns:
         response: Response?
@@ -1633,6 +1646,12 @@ Frame:
           type: array
           items: ElementHandle
 
+    queryCount:
+      parameters:
+        selector: string
+      returns:
+        value: number
+
     selectOption:
       parameters:
         selector: string
@@ -1663,12 +1682,7 @@ Frame:
       parameters:
         html: string
         timeout: number?
-        waitUntil:
-          type: enum?
-          literals:
-          - load
-          - domcontentloaded
-          - networkidle
+        waitUntil: LifecycleEvent?
       tracing:
         snapshot: true
 
@@ -1814,18 +1828,8 @@ Frame:
 
     loadstate:
       parameters:
-        add:
-          type: enum?
-          literals:
-          - load
-          - domcontentloaded
-          - networkidle
-        remove:
-          type: enum?
-          literals:
-          - load
-          - domcontentloaded
-          - networkidle
+        add: LifecycleEvent?
+        remove: LifecycleEvent?
 
     navigated:
       parameters:
@@ -2351,9 +2355,6 @@ Route:
           type: array?
           items: NameValue
         postData: binary?
-        interceptResponse: boolean?
-      returns:
-        response: InterceptedResponse?
 
     fulfill:
       parameters:
@@ -2364,12 +2365,7 @@ Route:
           items: NameValue
         body: string?
         isBase64: boolean?
-        useInterceptedResponseBody: boolean?
         fetchResponseUid: string?
-
-    responseBody:
-      returns:
-        binary: binary
 
 
 ResourceTiming:
@@ -2917,7 +2913,6 @@ AndroidDevice:
           - active
           - none
         acceptDownloads: boolean?
-        _debugName: string?
         recordVideo:
           type: object?
           properties:
@@ -3067,4 +3062,5 @@ JsonPipe:
         message: json
 
     closed:
+      parameters:
         error: SerializedError?

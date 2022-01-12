@@ -19,9 +19,9 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { PNG } from 'pngjs';
-import { registry } from 'playwright-core/src/utils/registry';
+import { registry } from 'playwright-core/lib/utils/registry';
 
-const ffmpeg = registry.findExecutable('ffmpeg')!.executablePath();
+const ffmpeg = registry.findExecutable('ffmpeg')!.executablePath('javascript');
 
 export class VideoPlayer {
   fileName: string;
@@ -159,7 +159,8 @@ it.describe('screencast', () => {
     expect(error.message).toContain('"videoSize" option requires "videosPath" to be specified');
   });
 
-  it('should work with old options', async ({ browser }, testInfo) => {
+  it('should work with old options', async ({ browser, browserName }, testInfo) => {
+    it.fixme(browserName === 'firefox' && !!process.env.PWTEST_TRACE, 'https://github.com/microsoft/playwright/issues/10060');
     const videosPath = testInfo.outputPath('');
     const size = { width: 450, height: 240 };
     const context = await browser.newContext({
@@ -182,7 +183,8 @@ it.describe('screencast', () => {
     expect(error.message).toContain('recordVideo.dir: expected string, got undefined');
   });
 
-  it('should capture static page', async ({ browser }, testInfo) => {
+  it('should capture static page', async ({ browser, browserName }, testInfo) => {
+    it.fixme(browserName === 'firefox' && !!process.env.PWTEST_TRACE, 'https://github.com/microsoft/playwright/issues/10060');
     const size = { width: 450, height: 240 };
     const context = await browser.newContext({
       recordVideo: {
@@ -307,7 +309,8 @@ it.describe('screencast', () => {
     expect(fs.existsSync(path)).toBeTruthy();
   });
 
-  it('should capture navigation', async ({ browser, server }, testInfo) => {
+  it('should capture navigation', async ({ browser, browserName, server }, testInfo) => {
+    it.fixme(browserName === 'firefox' && !!process.env.PWTEST_TRACE, 'https://github.com/microsoft/playwright/issues/10060');
     const context = await browser.newContext({
       recordVideo: {
         dir: testInfo.outputPath(''),
@@ -341,6 +344,7 @@ it.describe('screencast', () => {
   it('should capture css transformation', async ({ browser, server, headless, browserName, platform }, testInfo) => {
     it.fixme(!headless, 'Fails on headed');
     it.fixme(browserName === 'webkit' && platform === 'win32');
+    it.fixme(browserName === 'firefox' && !!process.env.PWTEST_TRACE, 'https://github.com/microsoft/playwright/issues/10060');
 
     const size = { width: 320, height: 240 };
     // Set viewport equal to screencast frame size to avoid scaling.
@@ -368,7 +372,8 @@ it.describe('screencast', () => {
     }
   });
 
-  it('should work for popups', async ({ browser, server }, testInfo) => {
+  it('should work for popups', async ({ browser, server, browserName }, testInfo) => {
+    it.fixme(browserName === 'firefox' && !!process.env.PWTEST_TRACE, 'https://github.com/microsoft/playwright/issues/10060');
     const videosPath = testInfo.outputPath('');
     const size = { width: 450, height: 240 };
     const context = await browser.newContext({
@@ -398,8 +403,9 @@ it.describe('screencast', () => {
     expect(videoFiles.length).toBe(2);
   });
 
-  it('should scale frames down to the requested size ', async ({ browser, server, headless }, testInfo) => {
+  it('should scale frames down to the requested size ', async ({ browser, browserName, server, headless }, testInfo) => {
     it.fixme(!headless, 'Fails on headed');
+    it.fixme(browserName === 'firefox' && !!process.env.PWTEST_TRACE, 'https://github.com/microsoft/playwright/issues/10060');
 
     const context = await browser.newContext({
       recordVideo: {
@@ -502,7 +508,8 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(600);
   });
 
-  it('should capture static page in persistent context', async ({ launchPersistent }, testInfo) => {
+  it('should capture static page in persistent context #smoke', async ({ launchPersistent, browserName }, testInfo) => {
+    it.fixme(browserName === 'firefox' && !!process.env.PWTEST_TRACE, 'https://github.com/microsoft/playwright/issues/10060');
     const size = { width: 320, height: 240 };
     const { context, page } = await launchPersistent({
       recordVideo: {
@@ -530,12 +537,11 @@ it.describe('screencast', () => {
     }
   });
 
-  it('should emulate an iphone', async ({ contextFactory, playwright, contextOptions, browserName }, testInfo) => {
+  it('should emulate an iphone', async ({ contextFactory, playwright, browserName }, testInfo) => {
     it.skip(browserName === 'firefox', 'isMobile is not supported in Firefox');
 
     const device = playwright.devices['iPhone 6'];
     const context = await contextFactory({
-      ...contextOptions,
       ...device,
       recordVideo: {
         dir: testInfo.outputPath(''),
@@ -552,11 +558,10 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(666);
   });
 
-  it('should throw on browser close', async ({ browserType, browserOptions, contextOptions }, testInfo) => {
+  it('should throw on browser close', async ({ browserType }, testInfo) => {
     const size = { width: 320, height: 240 };
-    const browser = await browserType.launch(browserOptions);
+    const browser = await browserType.launch();
     const context = await browser.newContext({
-      ...contextOptions,
       recordVideo: {
         dir: testInfo.outputPath(''),
         size,
@@ -573,12 +578,11 @@ it.describe('screencast', () => {
     expect(saveResult.message).toContain('browser has been closed');
   });
 
-  it('should throw if browser dies', async ({ browserType, browserOptions, contextOptions }, testInfo) => {
+  it('should throw if browser dies', async ({ browserType }, testInfo) => {
     const size = { width: 320, height: 240 };
-    const browser = await browserType.launch(browserOptions);
+    const browser = await browserType.launch();
 
     const context = await browser.newContext({
-      ...contextOptions,
       recordVideo: {
         dir: testInfo.outputPath(''),
         size,
@@ -595,13 +599,12 @@ it.describe('screencast', () => {
     expect(saveResult.message).toContain('rowser has been closed');
   });
 
-  it('should wait for video to finish if page was closed', async ({ browserType, browserOptions, contextOptions }, testInfo) => {
+  it('should wait for video to finish if page was closed', async ({ browserType }, testInfo) => {
     const size = { width: 320, height: 240 };
-    const browser = await browserType.launch(browserOptions);
+    const browser = await browserType.launch();
 
     const videoDir = testInfo.outputPath('');
     const context = await browser.newContext({
-      ...contextOptions,
       recordVideo: {
         dir: videoDir,
         size,
@@ -622,7 +625,7 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(240);
   });
 
-  it('should not create video for internal pages', async ({ browser, browserName, contextOptions, server }, testInfo) => {
+  it('should not create video for internal pages', async ({ browser, server }, testInfo) => {
     it.fixme(true, 'https://github.com/microsoft/playwright/issues/6743');
     server.setRoute('/empty.html', (req, res) => {
       res.setHeader('Set-Cookie', 'name=value');
@@ -631,7 +634,6 @@ it.describe('screencast', () => {
 
     const videoDir = testInfo.outputPath('');
     const context = await browser.newContext({
-      ...contextOptions,
       recordVideo: {
         dir: videoDir
       }
@@ -648,6 +650,40 @@ it.describe('screencast', () => {
 
     const files = fs.readdirSync(videoDir);
     expect(files.length).toBe(1);
+  });
+
+  it('should capture full viewport on hidpi', async ({ browserType, browserName, headless }, testInfo) => {
+    it.fail(browserName === 'firefox', 'The actual picture is smaller than video frame');
+    it.fail(browserName === 'chromium' && !headless, 'The square is not on the video');
+    const size = { width: 400, height: 400 };
+    const browser = await browserType.launch();
+
+    const videoDir = testInfo.outputPath('');
+    const context = await browser.newContext({
+      viewport: size,
+      deviceScaleFactor: 3,
+      recordVideo: {
+        dir: videoDir,
+        size,
+      },
+    });
+
+    const page = await context.newPage();
+    await page.setContent(`<div style='margin: 0; background: red; position: fixed; right:0; bottom:0; width: 30; height: 30;'></div>`);
+    await new Promise(r => setTimeout(r, 1000));
+    await page.close();
+    await context.close();
+    await browser.close();
+
+    const videoFiles = findVideos(videoDir);
+    expect(videoFiles.length).toBe(1);
+    const videoPlayer = new VideoPlayer(videoFiles[0]);
+    expect(videoPlayer.videoWidth).toBe(size.width);
+    expect(videoPlayer.videoHeight).toBe(size.height);
+
+    // Bottom right corner should be part of the red border.
+    const pixels = videoPlayer.seekLastFrame({ x: size.width - 10, y: size.height - 10 }).data;
+    expectAll(pixels, almostRed);
   });
 });
 

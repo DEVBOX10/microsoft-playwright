@@ -45,30 +45,34 @@ export const ActionList: React.FC<ActionListProps> = ({
   }, [selectedAction, actionListRef]);
 
   return <div className='action-list vbox'>
-    <div className='action-list-title tab-strip'>
-      <div className='tab-element'>
-        <div className='tab-label'>Actions</div>
-      </div>
-    </div>
     <div
       className='action-list-content'
       tabIndex={0}
       onKeyDown={event => {
         if (event.key !== 'ArrowDown' &&  event.key !== 'ArrowUp')
           return;
+        event.stopPropagation();
+        event.preventDefault();
         const index = selectedAction ? actions.indexOf(selectedAction) : -1;
+        let newIndex = index;
         if (event.key === 'ArrowDown') {
           if (index === -1)
-            onSelected(actions[0]);
+            newIndex = 0;
           else
-            onSelected(actions[Math.min(index + 1, actions.length - 1)]);
+            newIndex = Math.min(index + 1, actions.length - 1);
         }
         if (event.key === 'ArrowUp') {
           if (index === -1)
-            onSelected(actions[actions.length - 1]);
+            newIndex = actions.length - 1;
           else
-            onSelected(actions[Math.max(index - 1, 0)]);
+            newIndex = Math.max(index - 1, 0);
         }
+        const element = actionListRef.current?.children.item(newIndex);
+        if ((element as any)?.scrollIntoViewIfNeeded)
+          (element as any).scrollIntoViewIfNeeded(false);
+        else
+          element?.scrollIntoView();
+        onSelected(actions[newIndex]);
       }}
       ref={actionListRef}
     >
@@ -90,8 +94,8 @@ export const ActionList: React.FC<ActionListProps> = ({
             <span>{metadata.apiName}</span>
             {metadata.params.selector && <div className='action-selector' title={metadata.params.selector}>{metadata.params.selector}</div>}
             {metadata.method === 'goto' && metadata.params.url && <div className='action-url' title={metadata.params.url}>{metadata.params.url}</div>}
-            <span className='action-duration'>— {metadata.endTime ? msToString(metadata.endTime - metadata.startTime) : 'Timed Out'}</span>
           </div>
+          <div className='action-duration' style={{ flex: 'none' }}>{metadata.endTime ? msToString(metadata.endTime - metadata.startTime) : 'Timed Out'}</div>
           <div className='action-icons' onClick={() => setSelectedTab('console')}>
             {!!errors && <div className='action-icon'><span className={'codicon codicon-error'}></span><span className="action-icon-value">{errors}</span></div>}
             {!!warnings && <div className='action-icon'><span className={'codicon codicon-warning'}></span><span className="action-icon-value">{warnings}</span></div>}

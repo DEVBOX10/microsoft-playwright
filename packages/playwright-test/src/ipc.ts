@@ -24,6 +24,7 @@ export type SerializedLoaderData = {
 };
 export type WorkerInitParams = {
   workerIndex: number;
+  parallelIndex: number;
   repeatEachIndex: number;
   projectIndex: number;
   loader: SerializedLoaderData;
@@ -32,7 +33,6 @@ export type WorkerInitParams = {
 export type TestBeginPayload = {
   testId: string;
   startWallTime: number;  // milliseconds since unix epoch
-  workerIndex: number;
 };
 
 export type TestEndPayload = {

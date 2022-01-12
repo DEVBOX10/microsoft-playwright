@@ -69,3 +69,52 @@ it('should return response body when Cross-Origin-Opener-Policy is set', async (
   expect(response.request().failure()).toBeNull();
   expect(await response.text()).toBe('Hello there!');
 });
+
+it('should fire requestfailed when intercepting race', async ({ page, server, browserName }) => {
+  it.skip(browserName !== 'chromium', 'This test is specifically testing Chromium race');
+
+  const promsie = new Promise<void>(resolve => {
+    let counter = 0;
+    const failures = new Set();
+    const alive = new Set();
+    page.on('request', request => {
+      expect(alive.has(request)).toBe(false);
+      expect(failures.has(request)).toBe(false);
+      alive.add(request);
+    });
+    page.on('requestfailed', request => {
+      expect(failures.has(request)).toBe(false);
+      expect(alive.has(request)).toBe(true);
+      alive.delete(request);
+      failures.add(request);
+      if (++counter === 10)
+        resolve();
+    });
+  });
+
+  // Stall requests to make sure we don't get requestfinished.
+  await page.route('**', route => {});
+
+  await page.setContent(`
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <iframe src="${server.EMPTY_PAGE}"></iframe>
+    <script>
+      function abortAll() {
+        const frames = document.querySelectorAll("iframe");
+        for (const frame of frames)
+          frame.src = "about:blank";
+      }
+      abortAll();
+    </script>
+  `);
+
+  await promsie;
+});

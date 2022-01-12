@@ -155,26 +155,26 @@ function buildCandidates(injectedScript: InjectedScript, element: Element): Sele
   if (element.hasAttribute('aria-label'))
     candidates.push({ engine: 'css', selector: `[aria-label=${quoteString(element.getAttribute('aria-label')!)}]`, score: 10 });
   if (element.getAttribute('alt') && ['APPLET', 'AREA', 'IMG', 'INPUT'].includes(element.nodeName))
-    candidates.push({ engine: 'css', selector: `${element.nodeName.toLowerCase()}[alt=${quoteString(element.getAttribute('alt')!)}]`, score: 10 });
+    candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[alt=${quoteString(element.getAttribute('alt')!)}]`, score: 10 });
 
   if (element.hasAttribute('role'))
-    candidates.push({ engine: 'css', selector: `${element.nodeName.toLocaleLowerCase()}[role=${quoteString(element.getAttribute('role')!)}]` , score: 50 });
+    candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[role=${quoteString(element.getAttribute('role')!)}]` , score: 50 });
 
   if (element.getAttribute('name') && ['BUTTON', 'FORM', 'FIELDSET', 'IFRAME', 'INPUT', 'KEYGEN', 'OBJECT', 'OUTPUT', 'SELECT', 'TEXTAREA', 'MAP', 'META', 'PARAM'].includes(element.nodeName))
-    candidates.push({ engine: 'css', selector: `${element.nodeName.toLowerCase()}[name=${quoteString(element.getAttribute('name')!)}]`, score: 50 });
+    candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[name=${quoteString(element.getAttribute('name')!)}]`, score: 50 });
   if (['INPUT', 'TEXTAREA'].includes(element.nodeName) && element.getAttribute('type') !== 'hidden') {
     if (element.getAttribute('type'))
-      candidates.push({ engine: 'css', selector: `${element.nodeName.toLowerCase()}[type=${quoteString(element.getAttribute('type')!)}]`, score: 50 });
+      candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[type=${quoteString(element.getAttribute('type')!)}]`, score: 50 });
   }
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(element.nodeName))
-    candidates.push({ engine: 'css', selector: element.nodeName.toLowerCase(), score: 50 });
+    candidates.push({ engine: 'css', selector: cssEscape(element.nodeName.toLowerCase()), score: 50 });
 
   const idAttr = element.getAttribute('id');
   if (idAttr && !isGuidLike(idAttr))
     candidates.push({ engine: 'css', selector: makeSelectorForId(idAttr), score: 100 });
 
 
-  candidates.push({ engine: 'css', selector: element.nodeName.toLocaleLowerCase(), score: 200 });
+  candidates.push({ engine: 'css', selector: cssEscape(element.nodeName.toLowerCase()), score: 200 });
   return candidates;
 }
 
@@ -192,7 +192,7 @@ function buildTextCandidates(injectedScript: InjectedScript, element: Element, a
 
   candidates.push({ engine: 'text', selector: escaped, score: 10 });
   if (allowHasText && escaped === text) {
-    let prefix = element.nodeName.toLocaleLowerCase();
+    let prefix = element.nodeName.toLowerCase();
     if (element.hasAttribute('role'))
       prefix += `[role=${quoteString(element.getAttribute('role')!)}]`;
     candidates.push({ engine: 'css', selector: `${prefix}:has-text("${text}")`, score: 30 });
@@ -211,7 +211,7 @@ function parentElementOrShadowHost(element: Element): Element | null {
 }
 
 function makeSelectorForId(id: string) {
-  return /^[a-zA-Z][a-zA-Z0-9\-\_]+$/.test(id) ? '#' + id : `[id="${id}"]`;
+  return /^[a-zA-Z][a-zA-Z0-9\-\_]+$/.test(id) ? '#' + id : `[id="${cssEscape(id)}"]`;
 }
 
 function cssFallback(injectedScript: InjectedScript, targetElement: Element): SelectorToken {
@@ -263,7 +263,7 @@ function cssFallback(injectedScript: InjectedScript, targetElement: Element): Se
     if (parent) {
       const siblings = [...parent.children];
       const sameTagSiblings = siblings.filter(sibling => (sibling).nodeName.toLowerCase() === nodeName);
-      const token = sameTagSiblings.indexOf(element) === 0 ? nodeName : `${nodeName}:nth-child(${1 + siblings.indexOf(element)})`;
+      const token = sameTagSiblings.indexOf(element) === 0 ? cssEscape(nodeName) : `${cssEscape(nodeName)}:nth-child(${1 + siblings.indexOf(element)})`;
       const selector = uniqueCSSSelector(token);
       if (selector)
         return { engine: 'css', selector, score: kFallbackScore };
@@ -282,7 +282,7 @@ function escapeForRegex(text: string): string {
 }
 
 function quoteString(text: string): string {
-  return `"${text.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
+  return `"${cssEscape(text)}"`;
 }
 
 function joinTokens(tokens: SelectorToken[]): string {
@@ -366,4 +366,27 @@ function isGuidLike(id: string): boolean {
     lastCharacterType = characterType;
   }
   return transitionCount >= id.length / 4;
+}
+
+function cssEscape(s: string): string {
+  let result = '';
+  for (let i = 0; i < s.length; i++)
+    result += cssEscapeOne(s, i);
+  return result;
+}
+
+function cssEscapeOne(s: string, i: number): string {
+  // https://drafts.csswg.org/cssom/#serialize-an-identifier
+  const c = s.charCodeAt(i);
+  if (c === 0x0000)
+    return '\uFFFD';
+  if ((c >= 0x0001 && c <= 0x001f) ||
+      (c >= 0x0030 && c <= 0x0039 && (i === 0 || (i === 1 && s.charCodeAt(0) === 0x002d))))
+    return '\\' + c.toString(16) + ' ';
+  if (i === 0 && c === 0x002d && s.length === 1)
+    return '\\' + s.charAt(i);
+  if (c >= 0x0080 || c === 0x002d || c === 0x005f || (c >= 0x0030 && c <= 0x0039) ||
+      (c >= 0x0041 && c <= 0x005a) || (c >= 0x0061 && c <= 0x007a))
+    return s.charAt(i);
+  return '\\' + s.charAt(i);
 }

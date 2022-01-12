@@ -18,7 +18,7 @@
 import { browserTest as it, expect } from './config/browserTest';
 import { attachFrame, verifyViewport } from './config/utils';
 
-it('should create new context', async function({ browser }) {
+it('should create new context #smoke', async function({ browser }) {
   expect(browser.contexts().length).toBe(0);
   const context = await browser.newContext();
   expect(browser.contexts().length).toBe(1);
@@ -41,7 +41,7 @@ it('window.open should use parent tab context', async function({ browser, server
   await context.close();
 });
 
-it('should isolate localStorage and cookies', async function({ browser, server }) {
+it('should isolate localStorage and cookies #smoke', async function({ browser, server }) {
   // Create two incognito contexts.
   const context1 = await browser.newContext();
   const context2 = await browser.newContext();
@@ -134,10 +134,7 @@ it('close() should abort waitForEvent', async ({ browser }) => {
 
 it('close() should be callable twice', async ({ browser }) => {
   const context = await browser.newContext();
-  await Promise.all([
-    context.close(),
-    context.close(),
-  ]);
+  await context.close();
   await context.close();
 });
 

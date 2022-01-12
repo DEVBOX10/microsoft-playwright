@@ -17,22 +17,24 @@
 import fs from 'fs';
 import path from 'path';
 import rimraf from 'rimraf';
+import * as mime from 'mime';
 import util from 'util';
 import colors from 'colors/safe';
 import { EventEmitter } from 'events';
-import { monotonicTime, serializeError, sanitizeForFilePath, getContainedPath, addSuffixToFilePath } from './util';
+import { monotonicTime, serializeError, sanitizeForFilePath, getContainedPath, addSuffixToFilePath, prependToTestError, trimLongString, formatLocation } from './util';
 import { TestBeginPayload, TestEndPayload, RunPayload, TestEntry, DonePayload, WorkerInitParams, StepBeginPayload, StepEndPayload } from './ipc';
 import { setCurrentTestInfo } from './globals';
 import { Loader } from './loader';
 import { Modifier, Suite, TestCase } from './test';
-import { Annotations, TestError, TestInfo, TestInfoImpl, TestStepInternal, WorkerInfo } from './types';
+import { Annotations, TestCaseType, TestError, TestInfo, TestInfoImpl, TestStepInternal, WorkerInfo } from './types';
 import { ProjectImpl } from './project';
-import { FixturePool, FixtureRunner } from './fixtures';
-import { DeadlineRunner, raceAgainstDeadline } from 'playwright-core/src/utils/async';
+import { FixtureRunner } from './fixtures';
+import { DeadlineRunner, raceAgainstDeadline } from 'playwright-core/lib/utils/async';
+import { calculateFileSha1 } from 'playwright-core/lib/utils/utils';
 
 const removeFolderAsync = util.promisify(rimraf);
 
-type TestData = { testId: string, testInfo: TestInfoImpl, type: 'test' | 'beforeAll' | 'afterAll' };
+type TestData = { testId: string, testInfo: TestInfoImpl, type: TestCaseType };
 
 export class WorkerRunner extends EventEmitter {
   private _params: WorkerInitParams;
@@ -90,7 +92,17 @@ export class WorkerRunner extends EventEmitter {
   }
 
   unhandledError(error: Error | any) {
-    if (this._currentTest && this._currentTest.type === 'test') {
+    // Usually, we do not differentiate between errors in the control flow
+    // and unhandled errors - both lead to the test failing. This is good for regular tests,
+    // so that you can, e.g. expect() from inside an event handler. The test fails,
+    // and we restart the worker.
+    //
+    // However, for tests marked with test.fail(), this is a problem. Unhandled error
+    // could come either from the user test code (legit failure), or from a fixture or
+    // a test runner. In the latter case, the worker state could be messed up,
+    // and continuing to run tests in the same worker is problematic. Therefore,
+    // we turn this into a fatal error and restart the worker anyway.
+    if (this._currentTest && this._currentTest.type === 'test' && this._currentTest.testInfo.expectedStatus !== 'failed') {
       if (!this._currentTest.testInfo.error) {
         this._currentTest.testInfo.status = 'failed';
         this._currentTest.testInfo.error = serializeError(error);
@@ -125,6 +137,7 @@ export class WorkerRunner extends EventEmitter {
 
     this._workerInfo = {
       workerIndex: this._params.workerIndex,
+      parallelIndex: this._params.parallelIndex,
       project: this._project.config,
       config: this._loader.fullConfig(),
     };
@@ -137,15 +150,14 @@ export class WorkerRunner extends EventEmitter {
       this._entries = new Map(runPayload.entries.map(e => [ e.testId, e ]));
       await this._loadIfNeeded();
       const fileSuite = await this._loader.loadTestFile(runPayload.file);
-      let anyPool: FixturePool | undefined;
       const suite = this._project.cloneFileSuite(fileSuite, this._params.repeatEachIndex, test => {
         if (!this._entries.has(test._id))
           return false;
-        anyPool = test._pool;
         return true;
       });
-      if (suite && anyPool) {
-        this._fixtureRunner.setPool(anyPool);
+      if (suite) {
+        const firstPool = suite.allTests()[0]._pool!;
+        this._fixtureRunner.setPool(firstPool);
         await this._runSuite(suite, []);
       }
       if (this._failedTest)
@@ -159,7 +171,7 @@ export class WorkerRunner extends EventEmitter {
       if (this._failedTest) {
         // Now that we did run all hooks and teared down scopes, we can
         // report the failure, possibly with any error details revealed by teardown.
-        this.emit('testEnd', buildTestEndPayload(this._failedTest.testId, this._failedTest.testInfo));
+        this.emit('testEnd', buildTestEndPayload(this._failedTest));
       }
       this._reportDone();
       runFinishedCallback();
@@ -177,17 +189,17 @@ export class WorkerRunner extends EventEmitter {
       if (!this._fixtureRunner.dependsOnWorkerFixturesOnly(beforeAllModifier.fn, beforeAllModifier.location))
         continue;
       // TODO: separate timeout for beforeAll modifiers?
-      const result = await raceAgainstDeadline(this._fixtureRunner.resolveParametersAndRunHookOrTest(beforeAllModifier.fn, this._workerInfo, undefined), this._deadline());
+      const result = await raceAgainstDeadline(this._fixtureRunner.resolveParametersAndRunFunction(beforeAllModifier.fn, this._workerInfo, undefined), this._deadline());
       if (result.timedOut) {
         if (!this._fatalError)
-          this._fatalError = serializeError(new Error(`Timeout of ${this._project.config.timeout}ms exceeded while running ${beforeAllModifier.type} modifier`));
+          this._fatalError = serializeError(new Error(`Timeout of ${this._project.config.timeout}ms exceeded while running ${beforeAllModifier.type} modifier\n    at ${formatLocation(beforeAllModifier.location)}`));
         this.stop();
-      }
-      if (!!result.result)
+      } else if (!!result.result) {
         annotations.push({ type: beforeAllModifier.type, description: beforeAllModifier.description });
+      }
     }
 
-    for (const hook of suite._allHooks) {
+    for (const hook of suite.hooks) {
       if (hook._type !== 'beforeAll')
         continue;
       const firstTest = suite.allTests()[0];
@@ -202,7 +214,7 @@ export class WorkerRunner extends EventEmitter {
           await this._runTestOrAllHook(entry, annotations, runEntry.retry);
       }
     }
-    for (const hook of suite._allHooks) {
+    for (const hook of suite.hooks) {
       if (hook._type !== 'afterAll')
         continue;
       await this._runTestOrAllHook(hook, annotations, 0);
@@ -210,7 +222,6 @@ export class WorkerRunner extends EventEmitter {
   }
 
   private async _runTestOrAllHook(test: TestCase, annotations: Annotations, retry: number) {
-    const reportEvents = test._type === 'test';
     const startTime = monotonicTime();
     const startWallTime = Date.now();
     let deadlineRunner: DeadlineRunner<any> | undefined;
@@ -220,7 +231,8 @@ export class WorkerRunner extends EventEmitter {
       const relativeTestFilePath = path.relative(this._project.config.testDir, test._requireFile.replace(/\.(spec|test)\.(js|ts|mjs)$/, ''));
       const sanitizedRelativePath = relativeTestFilePath.replace(process.platform === 'win32' ? new RegExp('\\\\', 'g') : new RegExp('/', 'g'), '-');
       const fullTitleWithoutSpec = test.titlePath().slice(1).join(' ') + (test._type === 'test' ? '' : '-worker' + this._params.workerIndex);
-      let testOutputDir = sanitizedRelativePath + '-' + sanitizeForFilePath(fullTitleWithoutSpec);
+
+      let testOutputDir = sanitizedRelativePath + '-' + sanitizeForFilePath(trimLongString(fullTitleWithoutSpec));
       if (this._uniqueProjectNamePathSegment)
         testOutputDir += '-' + this._uniqueProjectNamePathSegment;
       if (retry)
@@ -230,13 +242,19 @@ export class WorkerRunner extends EventEmitter {
       return path.join(this._project.config.outputDir, testOutputDir);
     })();
 
-    let testFinishedCallback = () => {};
+    const snapshotDir = (() => {
+      const relativeTestFilePath = path.relative(this._project.config.testDir, test._requireFile);
+      return path.join(this._project.config.snapshotDir, relativeTestFilePath + '-snapshots');
+    })();
+
     let lastStepId = 0;
     const testInfo: TestInfoImpl = {
       workerIndex: this._params.workerIndex,
+      parallelIndex: this._params.parallelIndex,
       project: this._project.config,
       config: this._loader.fullConfig(),
       title: test.title,
+      titlePath: test.titlePath(),
       file: test.location.file,
       line: test.location.line,
       column: test.location.column,
@@ -246,6 +264,21 @@ export class WorkerRunner extends EventEmitter {
       expectedStatus: test.expectedStatus,
       annotations: [],
       attachments: [],
+      attach: async (name: string, options: { path?: string, body?: string | Buffer, contentType?: string } = {}) => {
+        if ((options.path !== undefined ? 1 : 0) + (options.body !== undefined ? 1 : 0) !== 1)
+          throw new Error(`Exactly one of "path" and "body" must be specified`);
+        if (options.path) {
+          const hash = await calculateFileSha1(options.path);
+          const dest = testInfo.outputPath('attachments', hash + path.extname(options.path));
+          await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+          await fs.promises.copyFile(options.path, dest);
+          const contentType = options.contentType ?? (mime.getType(path.basename(options.path)) || 'application/octet-stream');
+          testInfo.attachments.push({ name, contentType, path: dest });
+        } else {
+          const contentType = options.contentType ?? (typeof options.body === 'string' ? 'text/plain' : 'application/octet-stream');
+          testInfo.attachments.push({ name, contentType, body: typeof options.body === 'string' ? Buffer.from(options.body) : options.body });
+        }
+      },
       duration: 0,
       status: 'passed',
       stdout: [],
@@ -253,13 +286,13 @@ export class WorkerRunner extends EventEmitter {
       timeout: this._project.config.timeout,
       snapshotSuffix: '',
       outputDir: baseOutputDir,
+      snapshotDir,
       outputPath: (...pathSegments: string[]): string => {
         fs.mkdirSync(baseOutputDir, { recursive: true });
         const joinedPath = path.join(...pathSegments);
         const outputPath = getContainedPath(baseOutputDir, joinedPath);
         if (outputPath) return outputPath;
         throw new Error(`The outputPath is not allowed outside of the parent directory. Please fix the defined path.\n\n\toutputPath: ${joinedPath}`);
-
       },
       snapshotPath: (...pathSegments: string[]): string => {
         let suffix = '';
@@ -267,11 +300,8 @@ export class WorkerRunner extends EventEmitter {
           suffix += '-' + this._projectNamePathSegment;
         if (testInfo.snapshotSuffix)
           suffix += '-' + testInfo.snapshotSuffix;
-
-        const baseSnapshotPath = test._requireFile + '-snapshots';
         const subPath = addSuffixToFilePath(path.join(...pathSegments), suffix);
-        const snapshotPath =  getContainedPath(baseSnapshotPath, subPath);
-
+        const snapshotPath =  getContainedPath(snapshotDir, subPath);
         if (snapshotPath) return snapshotPath;
         throw new Error(`The snapshotPath is not allowed outside of the parent directory. Please fix the defined path.\n\n\tsnapshotPath: ${subPath}`);
       },
@@ -280,11 +310,12 @@ export class WorkerRunner extends EventEmitter {
       fail: (...args: [arg?: any, description?: string]) => modifier(testInfo, 'fail', args),
       slow: (...args: [arg?: any, description?: string]) => modifier(testInfo, 'slow', args),
       setTimeout: (timeout: number) => {
+        if (!testInfo.timeout)
+          return; // Zero timeout means some debug mode - do not set a timeout.
         testInfo.timeout = timeout;
         if (deadlineRunner)
           deadlineRunner.updateDeadline(deadline());
       },
-      _testFinished: new Promise(f => testFinishedCallback = f),
       _addStep: data => {
         const stepId = `${data.category}@${data.title}@${++lastStepId}`;
         let callbackHandled = false;
@@ -302,8 +333,7 @@ export class WorkerRunner extends EventEmitter {
               wallTime: Date.now(),
               error,
             };
-            if (reportEvents)
-              this.emit('stepEnd', payload);
+            this.emit('stepEnd', payload);
           }
         };
         const hasLocation = data.location && !data.location.file.includes('@playwright');
@@ -316,8 +346,7 @@ export class WorkerRunner extends EventEmitter {
           location,
           wallTime: Date.now(),
         };
-        if (reportEvents)
-          this.emit('stepBegin', payload);
+        this.emit('stepBegin', payload);
         return step;
       },
     };
@@ -356,13 +385,11 @@ export class WorkerRunner extends EventEmitter {
       return testInfo.timeout ? startTime + testInfo.timeout : 0;
     };
 
-    if (reportEvents)
-      this.emit('testBegin', buildTestBeginPayload(testId, testInfo, startWallTime));
+    this.emit('testBegin', buildTestBeginPayload(testData, startWallTime));
 
     if (testInfo.expectedStatus === 'skipped') {
       testInfo.status = 'skipped';
-      if (reportEvents)
-        this.emit('testEnd', buildTestEndPayload(testId, testInfo));
+      this.emit('testEnd', buildTestEndPayload(testData));
       return;
     }
 
@@ -374,7 +401,7 @@ export class WorkerRunner extends EventEmitter {
     // Do not overwrite test failure upon hook timeout.
     if (result.timedOut && testInfo.status === 'passed')
       testInfo.status = 'timedOut';
-    testFinishedCallback();
+    testInfo.duration = monotonicTime() - startTime;
 
     if (!result.timedOut) {
       this._currentDeadlineRunner = deadlineRunner = new DeadlineRunner(this._runAfterHooks(test, testInfo), deadline());
@@ -397,18 +424,19 @@ export class WorkerRunner extends EventEmitter {
 
     const isFailure = testInfo.status !== 'skipped' && testInfo.status !== testInfo.expectedStatus;
     if (isFailure) {
-      if (test._type === 'test') {
-        // Delay reporting testEnd result until after teardownScopes is done.
-        this._failedTest = testData;
-      } else if (!this._fatalError) {
-        if (testInfo.status === 'timedOut')
-          this._fatalError = { message: colors.red(`Timeout of ${testInfo.timeout}ms exceeded in ${test._type} hook.`) };
-        else
+      // Delay reporting testEnd result until after teardownScopes is done.
+      this._failedTest = testData;
+      if (test._type !== 'test') {
+        // beforeAll/afterAll hook failure skips any remaining tests in the worker.
+        if (!this._fatalError)
           this._fatalError = testInfo.error;
+        // Keep any error we have, and add "timeout" message.
+        if (testInfo.status === 'timedOut')
+          this._fatalError = prependToTestError(this._fatalError, colors.red(`Timeout of ${testInfo.timeout}ms exceeded in ${test._type} hook.\n`), test.location);
       }
       this.stop();
-    } else if (reportEvents) {
-      this.emit('testEnd', buildTestEndPayload(testId, testInfo));
+    } else {
+      this.emit('testEnd', buildTestEndPayload(testData));
     }
 
     const preserveOutput = this._loader.fullConfig().preserveOutput === 'always' ||
@@ -418,28 +446,17 @@ export class WorkerRunner extends EventEmitter {
   }
 
   private async _runBeforeHooks(test: TestCase, testInfo: TestInfoImpl) {
-    try {
-      const beforeEachModifiers: Modifier[] = [];
-      for (let s: Suite | undefined = test.parent; s; s = s.parent) {
-        const modifiers = s._modifiers.filter(modifier => !this._fixtureRunner.dependsOnWorkerFixturesOnly(modifier.fn, modifier.location));
-        beforeEachModifiers.push(...modifiers.reverse());
-      }
-      beforeEachModifiers.reverse();
-      for (const modifier of beforeEachModifiers) {
-        const result = await this._fixtureRunner.resolveParametersAndRunHookOrTest(modifier.fn, this._workerInfo, testInfo);
-        testInfo[modifier.type](!!result, modifier.description!);
-      }
-      await this._runHooks(test.parent!, 'beforeEach', testInfo);
-    } catch (error) {
-      if (error instanceof SkipError) {
-        if (testInfo.status === 'passed')
-          testInfo.status = 'skipped';
-      } else {
-        testInfo.status = 'failed';
-        testInfo.error = serializeError(error);
-      }
-      // Continue running afterEach hooks even after the failure.
+    const beforeEachModifiers: Modifier[] = [];
+    for (let s: Suite | undefined = test.parent; s; s = s.parent) {
+      const modifiers = s._modifiers.filter(modifier => !this._fixtureRunner.dependsOnWorkerFixturesOnly(modifier.fn, modifier.location));
+      beforeEachModifiers.push(...modifiers.reverse());
     }
+    beforeEachModifiers.reverse();
+    for (const modifier of beforeEachModifiers) {
+      const result = await this._fixtureRunner.resolveParametersAndRunFunction(modifier.fn, this._workerInfo, testInfo);
+      testInfo[modifier.type](!!result, modifier.description!);
+    }
+    await this._runHooks(test.parent!, 'beforeEach', testInfo);
   }
 
   private async _runTestWithBeforeHooks(test: TestCase, testInfo: TestInfoImpl) {
@@ -449,69 +466,41 @@ export class WorkerRunner extends EventEmitter {
       canHaveChildren: true,
       forceNoParent: true
     });
+    let error1: TestError | undefined;
     if (test._type === 'test')
-      await this._runBeforeHooks(test, testInfo);
+      error1 = await this._runFn(() => this._runBeforeHooks(test, testInfo), testInfo, 'allowSkips');
 
     // Do not run the test when beforeEach hook fails.
     if (testInfo.status === 'failed' || testInfo.status === 'skipped') {
-      step.complete(testInfo.error);
+      step.complete(error1);
       return;
     }
 
-    try {
-      await this._fixtureRunner.resolveParametersAndRunHookOrTest(test.fn, this._workerInfo, testInfo, step);
-    } catch (error) {
-      if (error instanceof SkipError) {
-        if (testInfo.status === 'passed')
-          testInfo.status = 'skipped';
-      } else {
-        // We might fail after the timeout, e.g. due to fixture teardown.
-        // Do not overwrite the timeout status.
-        if (testInfo.status === 'passed')
-          testInfo.status = 'failed';
-        // Keep the error even in the case of timeout, if there was no error before.
-        if (!('error' in  testInfo))
-          testInfo.error = serializeError(error);
-      }
-    } finally {
-      step.complete(testInfo.error);
-    }
+    const error2 = await this._runFn(async () => {
+      const params = await this._fixtureRunner.resolveParametersForFunction(test.fn, this._workerInfo, testInfo);
+      step.complete(); // Report fixture hooks step as completed.
+      const fn = test.fn; // Extract a variable to get a better stack trace ("myTest" vs "TestCase.myTest [as fn]").
+      await fn(params, testInfo);
+    }, testInfo, 'allowSkips');
+
+    step.complete(error2); // Second complete is a no-op.
   }
 
   private async _runAfterHooks(test: TestCase, testInfo: TestInfoImpl) {
-    let step: TestStepInternal | undefined;
-    let teardownError: TestError | undefined;
-    try {
-      step = testInfo._addStep({
-        category: 'hook',
-        title: 'After Hooks',
-        canHaveChildren: true,
-        forceNoParent: true
-      });
-      if (test._type === 'test')
-        await this._runHooks(test.parent!, 'afterEach', testInfo);
-    } catch (error) {
-      if (!(error instanceof SkipError)) {
-        if (testInfo.status === 'passed')
-          testInfo.status = 'failed';
-        // Do not overwrite test failure error.
-        if (!('error' in  testInfo))
-          testInfo.error = serializeError(error);
-        // Continue running even after the failure.
-      }
-    }
-    try {
-      await this._fixtureRunner.teardownScope('test');
-    } catch (error) {
-      if (testInfo.status === 'passed')
-        testInfo.status = 'failed';
-      // Do not overwrite test failure error.
-      if (!('error' in  testInfo)) {
-        testInfo.error = serializeError(error);
-        teardownError = testInfo.error;
-      }
-    }
-    step?.complete(teardownError);
+    const step = testInfo._addStep({
+      category: 'hook',
+      title: 'After Hooks',
+      canHaveChildren: true,
+      forceNoParent: true
+    });
+
+    let teardownError1: TestError | undefined;
+    if (test._type === 'test')
+      teardownError1 = await this._runFn(() => this._runHooks(test.parent!, 'afterEach', testInfo), testInfo, 'disallowSkips');
+    // Continue teardown even after the failure.
+
+    const teardownError2 = await this._runFn(() => this._fixtureRunner.teardownScope('test'), testInfo, 'disallowSkips');
+    step.complete(teardownError1 || teardownError2);
   }
 
   private async _runHooks(suite: Suite, type: 'beforeEach' | 'afterEach', testInfo: TestInfo) {
@@ -525,7 +514,7 @@ export class WorkerRunner extends EventEmitter {
     let error: Error | undefined;
     for (const hook of all) {
       try {
-        await this._fixtureRunner.resolveParametersAndRunHookOrTest(hook, this._workerInfo, testInfo);
+        await this._fixtureRunner.resolveParametersAndRunFunction(hook, this._workerInfo, testInfo);
       } catch (e) {
         // Always run all the hooks, and capture the first error.
         error = error || e;
@@ -533,6 +522,28 @@ export class WorkerRunner extends EventEmitter {
     }
     if (error)
       throw error;
+  }
+
+  private async _runFn(fn: Function, testInfo: TestInfoImpl, skips: 'allowSkips' | 'disallowSkips'): Promise<TestError | undefined> {
+    try {
+      await fn();
+    } catch (error) {
+      if (skips === 'allowSkips' && error instanceof SkipError) {
+        if (testInfo.status === 'passed')
+          testInfo.status = 'skipped';
+      } else {
+        const serialized = serializeError(error);
+        // Do not overwrite any previous error and error status.
+        // Some (but not all) scenarios include:
+        //   - expect() that fails after uncaught exception.
+        //   - fail after the timeout, e.g. due to fixture teardown.
+        if (testInfo.status === 'passed')
+          testInfo.status = 'failed';
+        if (!('error' in  testInfo))
+          testInfo.error = serialized;
+        return serialized;
+      }
+    }
   }
 
   private _reportDone() {
@@ -543,15 +554,15 @@ export class WorkerRunner extends EventEmitter {
   }
 }
 
-function buildTestBeginPayload(testId: string, testInfo: TestInfo, startWallTime: number): TestBeginPayload {
+function buildTestBeginPayload(testData: TestData, startWallTime: number): TestBeginPayload {
   return {
-    testId,
-    workerIndex: testInfo.workerIndex,
+    testId: testData.testId,
     startWallTime,
   };
 }
 
-function buildTestEndPayload(testId: string, testInfo: TestInfo): TestEndPayload {
+function buildTestEndPayload(testData: TestData): TestEndPayload {
+  const { testId, testInfo } = testData;
   return {
     testId,
     duration: testInfo.duration,

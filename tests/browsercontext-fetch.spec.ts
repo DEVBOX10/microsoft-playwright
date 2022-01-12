@@ -42,13 +42,12 @@ it.afterAll(() => {
   http.globalAgent = prevAgent;
 });
 
-it('get should work', async ({ context, server }) => {
+it('get should work #smoke', async ({ context, server }) => {
   const response = await context.request.get(server.PREFIX + '/simple.json');
   expect(response.url()).toBe(server.PREFIX + '/simple.json');
   expect(response.status()).toBe(200);
   expect(response.statusText()).toBe('OK');
   expect(response.ok()).toBeTruthy();
-  expect(response.url()).toBe(server.PREFIX + '/simple.json');
   expect(response.headers()['content-type']).toBe('application/json; charset=utf-8');
   expect(response.headersArray()).toContainEqual({ name: 'Content-Type', value: 'application/json; charset=utf-8' });
   expect(await response.text()).toBe('{"foo": "bar"}\n');
@@ -60,7 +59,6 @@ it('fetch should work', async ({ context, server }) => {
   expect(response.status()).toBe(200);
   expect(response.statusText()).toBe('OK');
   expect(response.ok()).toBeTruthy();
-  expect(response.url()).toBe(server.PREFIX + '/simple.json');
   expect(response.headers()['content-type']).toBe('application/json; charset=utf-8');
   expect(response.headersArray()).toContainEqual({ name: 'Content-Type', value: 'application/json; charset=utf-8' });
   expect(await response.text()).toBe('{"foo": "bar"}\n');
@@ -71,7 +69,7 @@ it('should throw on network error', async ({ context, server }) => {
     req.socket.destroy();
   });
   const error = await context.request.get(server.PREFIX + '/test').catch(e => e);
-  expect(error.message).toContain('socket hang up');
+  expect(error.message).toContain('apiRequestContext.get: socket hang up');
 });
 
 it('should throw on network error after redirect', async ({ context, server }) => {
@@ -80,7 +78,7 @@ it('should throw on network error after redirect', async ({ context, server }) =
     req.socket.destroy();
   });
   const error = await context.request.get(server.PREFIX + '/redirect').catch(e => e);
-  expect(error.message).toContain('socket hang up');
+  expect(error.message).toContain('apiRequestContext.get: socket hang up');
 });
 
 it('should throw on network error when sending body', async ({ context, server }) => {
@@ -94,7 +92,7 @@ it('should throw on network error when sending body', async ({ context, server }
     req.socket.destroy();
   });
   const error = await context.request.get(server.PREFIX + '/test').catch(e => e);
-  expect(error.message).toContain('Error: aborted');
+  expect(error.message).toContain('apiRequestContext.get: aborted');
 });
 
 it('should throw on network error when sending body after redirect', async ({ context, server }) => {
@@ -109,7 +107,7 @@ it('should throw on network error when sending body after redirect', async ({ co
     req.socket.destroy();
   });
   const error = await context.request.get(server.PREFIX + '/redirect').catch(e => e);
-  expect(error.message).toContain('Error: aborted');
+  expect(error.message).toContain('apiRequestContext.get: aborted');
 });
 
 it('should add session cookies to request', async ({ context, server }) => {
@@ -130,22 +128,20 @@ it('should add session cookies to request', async ({ context, server }) => {
   expect(req.headers.cookie).toEqual('username=John Doe');
 });
 
-for (const method of ['fetch', 'delete', 'get', 'head', 'patch', 'post', 'put']) {
+for (const method of ['fetch', 'delete', 'get', 'head', 'patch', 'post', 'put'] as const) {
   it(`${method} should support queryParams`, async ({ context, server }) => {
-    let request;
     const url = new URL(server.EMPTY_PAGE);
     url.searchParams.set('p1', 'v1');
     url.searchParams.set('парам2', 'знач2');
-    server.setRoute(url.pathname + url.search, (req, res) => {
-      request = req;
-      server.serveFile(req, res);
-    });
-    await context.request[method](server.EMPTY_PAGE + '?p1=foo', {
-      params: {
-        'p1': 'v1',
-        'парам2': 'знач2',
-      }
-    });
+    const [request] = await Promise.all([
+      server.waitForRequest(url.pathname + url.search),
+      context.request[method](server.EMPTY_PAGE + '?p1=foo', {
+        params: {
+          'p1': 'v1',
+          'парам2': 'знач2',
+        }
+      }),
+    ]);
     const params = new URLSearchParams(request.url.substr(request.url.indexOf('?')));
     expect(params.get('p1')).toEqual('v1');
     expect(params.get('парам2')).toEqual('знач2');
@@ -336,13 +332,12 @@ it('should return raw headers', async ({ context, page, server }) => {
   expect(response.headers()['name-b']).toBe('v4');
 });
 
-it('should work with context level proxy', async ({ browserOptions, browserType, contextOptions, server, proxyServer }) => {
+it('should work with context level proxy', async ({ browserType, contextOptions, server, proxyServer }) => {
   server.setRoute('/target.html', async (req, res) => {
     res.end('<title>Served by the proxy</title>');
   });
 
   const browser = await browserType.launch({
-    ...browserOptions,
     proxy: { server: 'http://per-context' }
   });
 
@@ -364,7 +359,7 @@ it('should work with context level proxy', async ({ browserOptions, browserType,
   }
 });
 
-it('should pass proxy credentials', async ({ browserType, browserOptions, server, proxyServer }) => {
+it('should pass proxy credentials', async ({ browserType, server, proxyServer }) => {
   proxyServer.forwardTo(server.PORT);
   let auth;
   proxyServer.setAuthHandler(req => {
@@ -372,7 +367,6 @@ it('should pass proxy credentials', async ({ browserType, browserOptions, server
     return !!auth;
   });
   const browser = await browserType.launch({
-    ...browserOptions,
     proxy: { server: `localhost:${proxyServer.PORT}`, username: 'user', password: 'secret' }
   });
   const context = await browser.newContext();
@@ -415,18 +409,20 @@ it('should return error with wrong credentials', async ({ context, server }) => 
   expect(response2.status()).toBe(401);
 });
 
-it('should support post data', async ({ context, server }) => {
-  const [request, response] = await Promise.all([
-    server.waitForRequest('/simple.json'),
-    context.request.post(`${server.PREFIX}/simple.json`, {
-      data: 'My request'
-    })
-  ]);
-  expect(request.method).toBe('POST');
-  expect((await request.postBody).toString()).toBe('My request');
-  expect(response.status()).toBe(200);
-  expect(request.url).toBe('/simple.json');
-});
+for (const method of ['delete', 'patch', 'post', 'put']) {
+  it(`${method} should support post data`, async ({ context, server }) => {
+    const [request, response] = await Promise.all([
+      server.waitForRequest('/simple.json'),
+      context.request[method](`${server.PREFIX}/simple.json`, {
+        data: 'My request'
+      })
+    ]);
+    expect(request.method).toBe(method.toUpperCase());
+    expect((await request.postBody).toString()).toBe('My request');
+    expect(response.status()).toBe(200);
+    expect(request.url).toBe('/simple.json');
+  });
+}
 
 it('should add default headers', async ({ context, server, page }) => {
   const [request] = await Promise.all([

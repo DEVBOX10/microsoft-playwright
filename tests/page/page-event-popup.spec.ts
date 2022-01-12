@@ -16,7 +16,7 @@
 
 import { test as it, expect } from './pageTest';
 
-it('should work', async ({ page }) => {
+it('should work #smoke', async ({ page }) => {
   const [popup] = await Promise.all([
     page.waitForEvent('popup'),
     page.evaluate(() => window['__popup'] = window.open('about:blank')),
@@ -47,7 +47,7 @@ it('should emit for immediately closed popups', async ({ page }) => {
 });
 
 it('should emit for immediately closed popups 2', async ({ page, server, browserName, video }) => {
-  it.fixme(browserName === 'firefox' && video);
+  it.fixme(browserName === 'firefox' && video === 'on');
 
   await page.goto(server.EMPTY_PAGE);
   const [popup] = await Promise.all([
@@ -159,7 +159,6 @@ it('should not treat navigations as new popups', async ({ page, server }) => {
 });
 
 it('should report popup opened from iframes', async ({ page, server, browserName }) => {
-  it.fixme(browserName === 'firefox', 'attachedToTarget event comes without openerId');
   await page.goto(server.PREFIX + '/frames/two-frames.html');
   const frame = page.frame('uno');
   expect(frame).toBeTruthy();

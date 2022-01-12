@@ -26,38 +26,56 @@ export class Tracing implements api.Tracing {
     this._context = channel;
   }
 
-  async start(options: { name?: string, snapshots?: boolean, screenshots?: boolean } = {}) {
-    await this._context._wrapApiCall(async (channel: channels.BrowserContextChannel) => {
-      await channel.tracingStart(options);
-      await channel.tracingStartChunk();
+  async start(options: { name?: string, title?: string, snapshots?: boolean, screenshots?: boolean, sources?: boolean } = {}) {
+    await this._context._wrapApiCall(async () => {
+      await this._context._channel.tracingStart(options);
+      await this._context._channel.tracingStartChunk({ title: options.title });
     });
   }
 
-  async startChunk() {
-    await this._context._wrapApiCall(async (channel: channels.BrowserContextChannel) => {
-      await channel.tracingStartChunk();
-    });
+  async startChunk(options: { title?: string } = {}) {
+    await this._context._channel.tracingStartChunk(options);
   }
 
   async stopChunk(options: { path?: string } = {}) {
-    await this._context._wrapApiCall(async (channel: channels.BrowserContextChannel) => {
-      await this._doStopChunk(channel, options.path);
-    });
+    await this._doStopChunk(this._context._channel, options.path);
   }
 
   async stop(options: { path?: string } = {}) {
-    await this._context._wrapApiCall(async (channel: channels.BrowserContextChannel) => {
-      await this._doStopChunk(channel, options.path);
-      await channel.tracingStop();
+    await this._context._wrapApiCall(async () => {
+      await this._doStopChunk(this._context._channel, options.path);
+      await this._context._channel.tracingStop();
     });
   }
 
-  private async _doStopChunk(channel: channels.BrowserContextChannel, path: string | undefined) {
-    const result = await channel.tracingStopChunk({ save: !!path });
+  private async _doStopChunk(channel: channels.BrowserContextChannel, filePath: string | undefined) {
+    const isLocal = !this._context._connection.isRemote();
+
+    let mode: channels.BrowserContextTracingStopChunkParams['mode'] = 'doNotSave';
+    if (filePath) {
+      if (isLocal)
+        mode = 'compressTraceAndSources';
+      else
+        mode = 'compressTrace';
+    }
+
+    const result = await channel.tracingStopChunk({ mode });
+    if (!filePath) {
+      // Not interested in artifacts.
+      return;
+    }
+
+    // The artifact may be missing if the browser closed while stopping tracing.
     if (!result.artifact)
       return;
+
+    // Save trace to the final local file.
     const artifact = Artifact.from(result.artifact);
-    await artifact.saveAs(path!);
+    await artifact.saveAs(filePath);
     await artifact.delete();
+
+    // Add local sources to the remote trace if necessary.
+    if (result.sourceEntries?.length)
+      await this._context._localUtils.zip(filePath, result.sourceEntries);
   }
 }

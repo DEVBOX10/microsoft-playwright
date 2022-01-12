@@ -59,6 +59,7 @@ function copy_test_scripts {
 
 function run_tests {
   test_playwright_test_should_work
+  test_connect_to_selenium
   test_screencast
   test_typescript_types
   test_playwright_global_installation_subsequent_installs
@@ -632,7 +633,7 @@ function test_playwright_test_stacks_should_work {
   copy_test_scripts
 
   echo "Running playwright test"
-  OUTPUT=$(DEBUG=pw:api npx playwright test -c . failing.spec.js || true)
+  OUTPUT=$(DEBUG=pw:api npx playwright test -c . failing.spec.js 2>&1 || true)
   if [[ "${OUTPUT}" != *"expect.toHaveText started"* ]]; then
     echo "ERROR: missing 'expect.toHaveText started' in the output"
     exit 1
@@ -642,6 +643,13 @@ function test_playwright_test_stacks_should_work {
     exit 1
   fi
 
+  echo "${FUNCNAME[0]} success"
+}
+
+function test_connect_to_selenium {
+  node "${SCRIPTS_PATH}/download-chromedriver.js" ${TEST_ROOT}
+  cd ${SCRIPTS_PATH}/output
+  PWTEST_CHROMEDRIVER="${TEST_ROOT}/chromedriver" npm run test -- --reporter=list selenium.spec
   echo "${FUNCNAME[0]} success"
 }
 

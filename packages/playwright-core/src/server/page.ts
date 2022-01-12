@@ -34,6 +34,7 @@ import { debugLogger } from '../utils/debugLogger';
 import { SelectorInfo, Selectors } from './selectors';
 import { CallMetadata, SdkObject } from './instrumentation';
 import { Artifact } from './artifact';
+import { ParsedSelector } from './common/selectorParser';
 
 export interface PageDelegate {
   readonly rawMouse: input.RawMouse;
@@ -57,10 +58,8 @@ export interface PageDelegate {
   setFileChooserIntercepted(enabled: boolean): Promise<void>;
   bringToFront(): Promise<void>;
 
-  canScreenshotOutsideViewport(): boolean;
-  resetViewport(): Promise<void>; // Only called if canScreenshotOutsideViewport() returns false.
   setBackgroundColor(color?: { r: number; g: number; b: number; a: number; }): Promise<void>;
-  takeScreenshot(progress: Progress, format: string, documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined): Promise<Buffer>;
+  takeScreenshot(progress: Progress, format: string, documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined, fitsViewport: boolean | undefined): Promise<Buffer>;
 
   isElementHandle(remoteObject: any): boolean;
   adoptElementHandle<T extends Node>(handle: dom.ElementHandle<T>, to: dom.FrameExecutionContext): Promise<dom.ElementHandle<T>>;
@@ -144,6 +143,7 @@ export class Page extends SdkObject {
   _pageIsError: Error | undefined;
   _video: Artifact | null = null;
   _opener: Page | undefined;
+  private _frameThrottler = new FrameThrottler(10, 200);
 
   constructor(delegate: PageDelegate, browserContext: BrowserContext) {
     super(browserContext, 'page');
@@ -169,6 +169,7 @@ export class Page extends SdkObject {
       this.pdf = delegate.pdf.bind(delegate);
     this.coverage = delegate.coverage ? delegate.coverage() : null;
     this.selectors = browserContext.selectors();
+    this.instrumentation.onPageOpen(this);
   }
 
   async initOpener(opener: PageDelegate | null) {
@@ -208,7 +209,9 @@ export class Page extends SdkObject {
   }
 
   _didClose() {
+    this.instrumentation.onPageClose(this);
     this._frameManager.dispose();
+    this._frameThrottler.setEnabled(false);
     assert(this._closedState !== 'closed', 'Page closed twice');
     this._closedState = 'closed';
     this.emit(Page.Events.Close);
@@ -216,13 +219,17 @@ export class Page extends SdkObject {
   }
 
   _didCrash() {
+    this.instrumentation.onPageClose(this);
     this._frameManager.dispose();
+    this._frameThrottler.setEnabled(false);
     this.emit(Page.Events.Crash);
     this._crashedPromise.resolve(new Error('Page crashed'));
   }
 
   _didDisconnect() {
+    this.instrumentation.onPageClose(this);
     this._frameManager.dispose();
+    this._frameThrottler.setEnabled(false);
     assert(!this._disconnected, 'Page disconnected twice');
     this._disconnected = true;
     this._disconnectedPromise.resolve(new Error('Page closed'));
@@ -260,11 +267,11 @@ export class Page extends SdkObject {
     return this._frameManager.frames();
   }
 
-  setDefaultNavigationTimeout(timeout: number) {
+  setDefaultNavigationTimeout(timeout: number | undefined) {
     this._timeoutSettings.setDefaultNavigationTimeout(timeout);
   }
 
-  setDefaultTimeout(timeout: number) {
+  setDefaultTimeout(timeout: number | undefined) {
     this._timeoutSettings.setDefaultTimeout(timeout);
   }
 
@@ -460,13 +467,13 @@ export class Page extends SdkObject {
     const worker = this._workers.get(workerId);
     if (!worker)
       return;
-    worker.emit(Worker.Events.Close, worker);
+    worker.didClose();
     this._workers.delete(workerId);
   }
 
   _clearWorkers() {
     for (const [workerId, worker] of this._workers) {
-      worker.emit(Worker.Events.Close, worker);
+      worker.didClose();
       this._workers.delete(workerId);
     }
   }
@@ -495,15 +502,29 @@ export class Page extends SdkObject {
 
   setScreencastOptions(options: { width: number, height: number, quality: number } | null) {
     this._delegate.setScreencastOptions(options).catch(e => debugLogger.log('error', e));
+    this._frameThrottler.setEnabled(!!options);
+  }
+
+  throttleScreencastFrameAck(ack: () => void) {
+    // Don't ack immediately, tracing has smart throttling logic that is implemented here.
+    this._frameThrottler.ack(ack);
+  }
+
+  temporarlyDisableTracingScreencastThrottling() {
+    this._frameThrottler.recharge();
   }
 
   firePageError(error: Error) {
     this.emit(Page.Events.PageError, error);
   }
 
-  parseSelector(selector: string, options?: types.StrictOptions): SelectorInfo {
+  parseSelector(selector: string | ParsedSelector, options?: types.StrictOptions): SelectorInfo {
     const strict = typeof options?.strict === 'boolean' ? options.strict : !!this.context()._options.strictSelectors;
     return this.selectors.parseSelector(selector, strict);
+  }
+
+  async hideHighlight() {
+    await Promise.all(this.frames().map(frame => frame.hideHighlight().catch(() => {})));
   }
 }
 
@@ -531,6 +552,12 @@ export class Worker extends SdkObject {
 
   url(): string {
     return this._url;
+  }
+
+  didClose() {
+    if (this._existingExecutionContext)
+      this._existingExecutionContext.contextDestroyed(new Error('Worker was closed'));
+    this.emit(Worker.Events.Close, this);
   }
 
   async evaluateExpression(expression: string, isFunction: boolean | undefined, arg: any): Promise<any> {
@@ -630,4 +657,58 @@ function addPageBinding(bindingName: string, needsHandle: boolean) {
     return promise;
   };
   (globalThis as any)[bindingName].__installed = true;
+}
+
+class FrameThrottler {
+  private _acks: (() => void)[] = [];
+  private _interval: number;
+  private _nonThrottledFrames: number;
+  private _budget: number;
+  private _intervalId: NodeJS.Timeout | undefined;
+
+  constructor(nonThrottledFrames: number, interval: number) {
+    this._nonThrottledFrames = nonThrottledFrames;
+    this._budget = nonThrottledFrames;
+    this._interval = interval;
+  }
+
+  setEnabled(enabled: boolean) {
+    if (enabled) {
+      if (this._intervalId)
+        clearInterval(this._intervalId);
+      this._intervalId = setInterval(() => this._tick(), this._interval);
+    } else if (this._intervalId) {
+      clearInterval(this._intervalId);
+      this._intervalId = undefined;
+    }
+  }
+
+  recharge() {
+    // Send all acks, reset budget.
+    for (const ack of this._acks)
+      ack();
+    this._acks = [];
+    this._budget = this._nonThrottledFrames;
+  }
+
+  ack(ack: () => void) {
+    // Either not engaged or video is also recording, don't throttle.
+    if (!this._intervalId) {
+      ack();
+      return;
+    }
+
+    // Do we have enough budget to respond w/o throttling?
+    if (--this._budget > 0) {
+      ack();
+      return;
+    }
+
+    // Schedule.
+    this._acks.push(ack);
+  }
+
+  private _tick() {
+    this._acks.shift()?.();
+  }
 }

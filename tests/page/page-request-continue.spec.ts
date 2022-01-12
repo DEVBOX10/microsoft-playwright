@@ -77,6 +77,30 @@ it('should not allow changing protocol when overriding url', async ({ page, serv
   expect(error.message).toContain('New URL must have same protocol as overridden URL');
 });
 
+it('should not throw when continuing while page is closing', async ({ page, server }) => {
+  let done;
+  await page.route('**/*', async route => {
+    done = Promise.all([
+      route.continue(),
+      page.close(),
+    ]);
+  });
+  const error = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  await done;
+  expect(error).toBeInstanceOf(Error);
+});
+
+it('should not throw when continuing after page is closed', async ({ page, server }) => {
+  let done;
+  await page.route('**/*', async route => {
+    await page.close();
+    done = route.continue();
+  });
+  const error = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  await done;
+  expect(error).toBeInstanceOf(Error);
+});
+
 it('should override method along with url', async ({ page, server }) => {
   const request = server.waitForRequest('/empty.html');
   await page.route('**/foo', route => {
@@ -96,7 +120,7 @@ it('should amend method on main request', async ({ page, server }) => {
   expect((await request).method).toBe('POST');
 });
 
-it.describe('', () => {
+it.describe('post data', () => {
   it.fixme(({ isAndroid }) => isAndroid, 'Post data does not work');
 
   it('should amend post data', async ({ page, server }) => {

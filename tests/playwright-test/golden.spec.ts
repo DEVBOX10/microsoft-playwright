@@ -72,7 +72,7 @@ Line7`,
   expect(result.exitCode).toBe(1);
   expect(result.output).toContain('Line1');
   expect(result.output).toContain('Line2' + colors.green('2'));
-  expect(result.output).toContain('line' + colors.strikethrough(colors.red('1')) + colors.green('2'));
+  expect(result.output).toContain('line' + colors.reset(colors.strikethrough(colors.red('1'))) + colors.green('2'));
   expect(result.output).toContain('Line3');
   expect(result.output).toContain('Line5');
   expect(result.output).toContain('Line7');
@@ -155,22 +155,31 @@ test('should fail on same snapshots with negate matcher', async ({ runInlineTest
   expect(result.output).toContain('Expected result should be different from the actual one.');
 });
 
-test('should write missing expectations locally', async ({ runInlineTest }, testInfo) => {
+test('should write missing expectations locally twice and continue', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     ...files,
     'a.spec.js': `
       const { test } = require('./helper');
       test('is a test', ({}) => {
         expect('Hello world').toMatchSnapshot('snapshot.txt');
+        expect('Hello world2').toMatchSnapshot('snapshot2.txt');
+        console.log('Here we are!');
       });
     `
-  }, {}, { CI: '' });
+  });
 
   expect(result.exitCode).toBe(1);
-  const snapshotOutputPath = testInfo.outputPath('a.spec.js-snapshots/snapshot.txt');
-  expect(result.output).toContain(`${snapshotOutputPath} is missing in snapshots, writing actual`);
-  const data = fs.readFileSync(snapshotOutputPath);
-  expect(data.toString()).toBe('Hello world');
+  expect(result.failed).toBe(1);
+
+  const snapshot1OutputPath = testInfo.outputPath('a.spec.js-snapshots/snapshot.txt');
+  expect(result.output).toContain(`${snapshot1OutputPath} is missing in snapshots, writing actual`);
+  expect(fs.readFileSync(snapshot1OutputPath, 'utf-8')).toBe('Hello world');
+
+  const snapshot2OutputPath = testInfo.outputPath('a.spec.js-snapshots/snapshot2.txt');
+  expect(result.output).toContain(`${snapshot2OutputPath} is missing in snapshots, writing actual`);
+  expect(fs.readFileSync(snapshot2OutputPath, 'utf-8')).toBe('Hello world2');
+
+  expect(result.output).toContain('Here we are!');
 });
 
 test('shouldn\'t write missing expectations locally for negated matcher', async ({ runInlineTest }, testInfo) => {
@@ -412,6 +421,7 @@ test('should compare different PNG images', async ({ runInlineTest }, testInfo) 
 });
 
 test('should respect threshold', async ({ runInlineTest }) => {
+  test.skip(!!process.env.PW_USE_BLINK_DIFF);
   const expected = fs.readFileSync(path.join(__dirname, 'assets/screenshot-canvas-expected.png'));
   const actual = fs.readFileSync(path.join(__dirname, 'assets/screenshot-canvas-actual.png'));
   const result = await runInlineTest({
@@ -432,6 +442,7 @@ test('should respect threshold', async ({ runInlineTest }) => {
 });
 
 test('should respect project threshold', async ({ runInlineTest }) => {
+  test.skip(!!process.env.PW_USE_BLINK_DIFF);
   const expected = fs.readFileSync(path.join(__dirname, 'assets/screenshot-canvas-expected.png'));
   const actual = fs.readFileSync(path.join(__dirname, 'assets/screenshot-canvas-actual.png'));
   const result = await runInlineTest({
@@ -488,12 +499,101 @@ test('should write missing expectations with sanitized snapshot name', async ({ 
   expect(data.toString()).toBe('Hello world');
 });
 
-test('should join array of snapshot path segments without sanitizing ', async ({ runInlineTest }) => {
+test('should join array of snapshot path segments without sanitizing', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     ...files,
     'a.spec.js-snapshots/test/path/snapshot.txt': `Hello world`,
     'a.spec.js': `
-      const { test } = require('./helper');;
+      const { test } = require('./helper');
+      test('is a test', ({}) => {
+        expect('Hello world').toMatchSnapshot(['test', 'path', 'snapshot.txt']);
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test('should use snapshotDir as snapshot base directory', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    ...files,
+    'playwright.config.ts': `
+      module.exports = {
+        snapshotDir: 'snaps',
+      };
+    `,
+    'snaps/a.spec.js-snapshots/snapshot.txt': `Hello world`,
+    'a.spec.js': `
+      const { test } = require('./helper');
+      test('is a test', ({}) => {
+        expect('Hello world').toMatchSnapshot('snapshot.txt');
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test('should use snapshotDir with path segments as snapshot directory', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    ...files,
+    'playwright.config.ts': `
+      module.exports = {
+        snapshotDir: 'snaps',
+      };
+    `,
+    'snaps/tests/a.spec.js-snapshots/test/path/snapshot.txt': `Hello world`,
+    'tests/a.spec.js': `
+      const { test } = require('../helper');
+      test('is a test', ({}) => {
+        expect('Hello world').toMatchSnapshot(['test', 'path', 'snapshot.txt']);
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test('should use snapshotDir with nested test suite and path segments', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    ...files,
+    'playwright.config.ts': `
+      module.exports = {
+        snapshotDir: 'snaps',
+      };
+    `,
+    'snaps/path/to/tests/a.spec.js-snapshots/path/to/snapshot.txt': `Hello world`,
+    'path/to/tests/a.spec.js': `
+      const { test } = require('../../../helper');
+      test('is a test', ({}) => {
+        expect('Hello world').toMatchSnapshot(['path', 'to', 'snapshot.txt']);
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test('should use project snapshotDir over base snapshotDir', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'helper.ts': `
+      export const test = pwt.test.extend({
+        auto: [ async ({}, run, testInfo) => {
+          testInfo.snapshotSuffix = 'suffix';
+          await run();
+        }, { auto: true } ]
+      });
+    `,
+    'playwright.config.ts': `
+      module.exports = {
+        projects: [
+          {
+            name: 'foo',
+            snapshotDir: 'project_snaps',
+           },
+        ],
+        snapshotDir: 'snaps',
+      };
+    `,
+    'project_snaps/a.spec.js-snapshots/test/path/snapshot-foo-suffix.txt': `Hello world`,
+    'a.spec.js': `
+      const { test } = require('./helper');
       test('is a test', ({}) => {
         expect('Hello world').toMatchSnapshot(['test', 'path', 'snapshot.txt']);
       });
@@ -649,6 +749,28 @@ test('should fail with missing expectations and retries', async ({ runInlineTest
 
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
+  const snapshotOutputPath = testInfo.outputPath('a.spec.js-snapshots/snapshot.txt');
+  expect(result.output).toContain(`${snapshotOutputPath} is missing in snapshots, writing actual`);
+  const data = fs.readFileSync(snapshotOutputPath);
+  expect(data.toString()).toBe('Hello world');
+});
+
+test('should update expectations with retries', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    ...files,
+    'playwright.config.ts': `
+      module.exports = { retries: 1 };
+    `,
+    'a.spec.js': `
+      const { test } = require('./helper');
+      test('is a test', ({}) => {
+        expect('Hello world').toMatchSnapshot('snapshot.txt');
+      });
+    `
+  }, { 'update-snapshots': true });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
   const snapshotOutputPath = testInfo.outputPath('a.spec.js-snapshots/snapshot.txt');
   expect(result.output).toContain(`${snapshotOutputPath} is missing in snapshots, writing actual`);
   const data = fs.readFileSync(snapshotOutputPath);

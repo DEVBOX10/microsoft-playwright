@@ -24,7 +24,8 @@ import { Android } from './android';
 import { BrowserType } from './browserType';
 import { ChannelOwner } from './channelOwner';
 import { Electron } from './electron';
-import { Fetch } from './fetch';
+import { APIRequest } from './fetch';
+import { LocalUtils } from './localUtils';
 import { Selectors, SelectorsOwner } from './selectors';
 import { Size } from './types';
 const dnsLookupAsync = util.promisify(dns.lookup);
@@ -39,7 +40,7 @@ type DeviceDescriptor = {
 };
 type Devices = { [name: string]: DeviceDescriptor };
 
-export class Playwright extends ChannelOwner<channels.PlaywrightChannel, channels.PlaywrightInitializer> {
+export class Playwright extends ChannelOwner<channels.PlaywrightChannel> {
   readonly _android: Android;
   readonly _electron: Electron;
   readonly chromium: BrowserType;
@@ -47,14 +48,15 @@ export class Playwright extends ChannelOwner<channels.PlaywrightChannel, channel
   readonly webkit: BrowserType;
   readonly devices: Devices;
   selectors: Selectors;
-  readonly request: Fetch;
+  readonly request: APIRequest;
   readonly errors: { TimeoutError: typeof TimeoutError };
+  _utils: LocalUtils;
   private _sockets = new Map<string, net.Socket>();
   private _redirectPortForTest: number | undefined;
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.PlaywrightInitializer) {
     super(parent, type, guid, initializer);
-    this.request = new Fetch(this);
+    this.request = new APIRequest(this);
     this.chromium = BrowserType.from(initializer.chromium);
     this.chromium._playwright = this;
     this.firefox = BrowserType.from(initializer.firefox);
@@ -68,6 +70,7 @@ export class Playwright extends ChannelOwner<channels.PlaywrightChannel, channel
       this.devices[name] = descriptor;
     this.selectors = new Selectors();
     this.errors = { TimeoutError };
+    this._utils = LocalUtils.from(initializer.utils);
 
     const selectorsOwner = SelectorsOwner.from(initializer.selectors);
     this.selectors._addChannel(selectorsOwner);
@@ -76,6 +79,11 @@ export class Playwright extends ChannelOwner<channels.PlaywrightChannel, channel
       for (const uid of this._sockets.keys())
         this._onSocksClosed(uid);
     });
+    (global as any)._playwrightInstance = this;
+  }
+
+  async _hideHighlight() {
+    await this._channel.hideHighlight();
   }
 
   _setSelectors(selectors: Selectors) {

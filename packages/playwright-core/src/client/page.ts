@@ -27,7 +27,7 @@ import { ConsoleMessage } from './consoleMessage';
 import { Dialog } from './dialog';
 import { Download } from './download';
 import { ElementHandle, determineScreenshotType } from './elementHandle';
-import { Locator } from './locator';
+import { Locator, FrameLocator } from './locator';
 import { Worker } from './worker';
 import { Frame, verifyLoadState, WaitForNavigationOptions } from './frame';
 import { Keyboard, Mouse, Touchscreen } from './input';
@@ -47,7 +47,7 @@ import { isString, isRegExp, isObject, mkdirIfNeeded, headersObjectToArray } fro
 import { isSafeCloseError } from '../utils/errors';
 import { Video } from './video';
 import { Artifact } from './artifact';
-import { FetchRequest } from './fetch';
+import { APIRequestContext } from './fetch';
 
 type PDFOptions = Omit<channels.PagePdfParams, 'width' | 'height' | 'margin'> & {
   width?: string | number,
@@ -62,7 +62,7 @@ type PDFOptions = Omit<channels.PagePdfParams, 'width' | 'height' | 'margin'> & 
 };
 type Listener = (...args: any[]) => void;
 
-export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitializer> implements api.Page {
+export class Page extends ChannelOwner<channels.PageChannel> implements api.Page {
   private _browserContext: BrowserContext;
   _ownedContext: BrowserContext | undefined;
 
@@ -78,7 +78,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   readonly coverage: Coverage;
   readonly keyboard: Keyboard;
   readonly mouse: Mouse;
-  readonly request: FetchRequest;
+  readonly request: APIRequestContext;
   readonly touchscreen: Touchscreen;
 
   readonly _bindings = new Map<string, (source: structs.BindingSource, ...args: any[]) => any>();
@@ -96,7 +96,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.PageInitializer) {
     super(parent, type, guid, initializer);
-    this._browserContext = parent as BrowserContext;
+    this._browserContext = parent as unknown as BrowserContext;
     this._timeoutSettings = new TimeoutSettings(this._browserContext._timeoutSettings);
 
     this.accessibility = new Accessibility(this._channel);
@@ -168,18 +168,17 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   }
 
   private _onRoute(route: Route, request: Request) {
-    let handled = false;
     for (const routeHandler of this._routes) {
       if (routeHandler.matches(request.url())) {
-        routeHandler.handle(route, request);
-        handled = true;
-        break;
+        if (routeHandler.handle(route, request)) {
+          this._routes.splice(this._routes.indexOf(routeHandler), 1);
+          if (!this._routes.length)
+            this._wrapApiCall(() => this._disableInterception(), true).catch(() => {});
+        }
+        return;
       }
     }
-    if (!handled)
-      this._browserContext._onRoute(route, request);
-    else
-      this._routes = this._routes.filter(route => !route.expired());
+    this._browserContext._onRoute(route, request);
   }
 
   async _onBinding(bindingCall: BindingCall) {
@@ -239,12 +238,16 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
 
   setDefaultNavigationTimeout(timeout: number) {
     this._timeoutSettings.setDefaultNavigationTimeout(timeout);
-    this._channel.setDefaultNavigationTimeoutNoReply({ timeout });
+    this._wrapApiCall(async () => {
+      this._channel.setDefaultNavigationTimeoutNoReply({ timeout });
+    }, true);
   }
 
   setDefaultTimeout(timeout: number) {
     this._timeoutSettings.setDefaultTimeout(timeout);
-    this._channel.setDefaultTimeoutNoReply({ timeout });
+    this._wrapApiCall(async () => {
+      this._channel.setDefaultTimeoutNoReply({ timeout });
+    }, true);
   }
 
   private _forceVideo(): Video {
@@ -304,25 +307,19 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   }
 
   async exposeFunction(name: string, callback: Function) {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      await channel.exposeBinding({ name });
-      const binding = (source: structs.BindingSource, ...args: any[]) => callback(...args);
-      this._bindings.set(name, binding);
-    });
+    await this._channel.exposeBinding({ name });
+    const binding = (source: structs.BindingSource, ...args: any[]) => callback(...args);
+    this._bindings.set(name, binding);
   }
 
   async exposeBinding(name: string, callback: (source: structs.BindingSource, ...args: any[]) => any, options: { handle?: boolean } = {}) {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      await channel.exposeBinding({ name, needsHandle: options.handle });
-      this._bindings.set(name, callback);
-    });
+    await this._channel.exposeBinding({ name, needsHandle: options.handle });
+    this._bindings.set(name, callback);
   }
 
   async setExtraHTTPHeaders(headers: Headers) {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      validateHeaders(headers);
-      await channel.setExtraHTTPHeaders({ headers: headersObjectToArray(headers) });
-    });
+    validateHeaders(headers);
+    await this._channel.setExtraHTTPHeaders({ headers: headersObjectToArray(headers) });
   }
 
   url(): string {
@@ -342,10 +339,8 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   }
 
   async reload(options: channels.PageReloadOptions = {}): Promise<Response | null> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const waitUntil = verifyLoadState('waitUntil', options.waitUntil === undefined ? 'load' : options.waitUntil);
-      return Response.fromNullable((await channel.reload({ ...options, waitUntil })).response);
-    });
+    const waitUntil = verifyLoadState('waitUntil', options.waitUntil === undefined ? 'load' : options.waitUntil);
+    return Response.fromNullable((await this._channel.reload({ ...options, waitUntil })).response);
   }
 
   async waitForLoadState(state?: LifecycleEvent, options?: { timeout?: number }): Promise<void> {
@@ -361,83 +356,71 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   }
 
   async waitForRequest(urlOrPredicate: string | RegExp | ((r: Request) => boolean | Promise<boolean>), options: { timeout?: number } = {}): Promise<Request> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const predicate = (request: Request) => {
-        if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
-          return urlMatches(this._browserContext._options.baseURL, request.url(), urlOrPredicate);
-        return urlOrPredicate(request);
-      };
-      const trimmedUrl = trimUrl(urlOrPredicate);
-      const logLine = trimmedUrl ? `waiting for request ${trimmedUrl}` : undefined;
-      return this._waitForEvent(channel, Events.Page.Request, { predicate, timeout: options.timeout }, logLine);
-    });
+    const predicate = (request: Request) => {
+      if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
+        return urlMatches(this._browserContext._options.baseURL, request.url(), urlOrPredicate);
+      return urlOrPredicate(request);
+    };
+    const trimmedUrl = trimUrl(urlOrPredicate);
+    const logLine = trimmedUrl ? `waiting for request ${trimmedUrl}` : undefined;
+    return this._waitForEvent(Events.Page.Request, { predicate, timeout: options.timeout }, logLine);
   }
 
   async waitForResponse(urlOrPredicate: string | RegExp | ((r: Response) => boolean | Promise<boolean>), options: { timeout?: number } = {}): Promise<Response> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const predicate = (response: Response) => {
-        if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
-          return urlMatches(this._browserContext._options.baseURL, response.url(), urlOrPredicate);
-        return urlOrPredicate(response);
-      };
-      const trimmedUrl = trimUrl(urlOrPredicate);
-      const logLine = trimmedUrl ? `waiting for response ${trimmedUrl}` : undefined;
-      return this._waitForEvent(channel, Events.Page.Response, { predicate, timeout: options.timeout }, logLine);
-    });
+    const predicate = (response: Response) => {
+      if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
+        return urlMatches(this._browserContext._options.baseURL, response.url(), urlOrPredicate);
+      return urlOrPredicate(response);
+    };
+    const trimmedUrl = trimUrl(urlOrPredicate);
+    const logLine = trimmedUrl ? `waiting for response ${trimmedUrl}` : undefined;
+    return this._waitForEvent(Events.Page.Response, { predicate, timeout: options.timeout }, logLine);
   }
 
   async waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions = {}): Promise<any> {
-    return this._wrapApiCall(async channel => {
-      return this._waitForEvent(channel, event, optionsOrPredicate, `waiting for event "${event}"`);
-    });
+    return this._waitForEvent(event, optionsOrPredicate, `waiting for event "${event}"`);
   }
 
-  private async _waitForEvent(channel: channels.EventTargetChannel, event: string, optionsOrPredicate: WaitForEventOptions, logLine?: string): Promise<any> {
-    const timeout = this._timeoutSettings.timeout(typeof optionsOrPredicate === 'function' ? {} : optionsOrPredicate);
-    const predicate = typeof optionsOrPredicate === 'function' ? optionsOrPredicate : optionsOrPredicate.predicate;
-    const waiter = Waiter.createForEvent(channel, event);
-    if (logLine)
-      waiter.log(logLine);
-    waiter.rejectOnTimeout(timeout, `Timeout while waiting for event "${event}"`);
-    if (event !== Events.Page.Crash)
-      waiter.rejectOnEvent(this, Events.Page.Crash, new Error('Page crashed'));
-    if (event !== Events.Page.Close)
-      waiter.rejectOnEvent(this, Events.Page.Close, new Error('Page closed'));
-    const result = await waiter.waitForEvent(this, event, predicate as any);
-    waiter.dispose();
-    return result;
+  private async _waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions, logLine?: string): Promise<any> {
+    return this._wrapApiCall(async () => {
+      const timeout = this._timeoutSettings.timeout(typeof optionsOrPredicate === 'function' ? {} : optionsOrPredicate);
+      const predicate = typeof optionsOrPredicate === 'function' ? optionsOrPredicate : optionsOrPredicate.predicate;
+      const waiter = Waiter.createForEvent(this, event);
+      if (logLine)
+        waiter.log(logLine);
+      waiter.rejectOnTimeout(timeout, `Timeout ${timeout}ms exceeded while waiting for event "${event}"`);
+      if (event !== Events.Page.Crash)
+        waiter.rejectOnEvent(this, Events.Page.Crash, new Error('Page crashed'));
+      if (event !== Events.Page.Close)
+        waiter.rejectOnEvent(this, Events.Page.Close, new Error('Page closed'));
+      const result = await waiter.waitForEvent(this, event, predicate as any);
+      waiter.dispose();
+      return result;
+    });
   }
 
   async goBack(options: channels.PageGoBackOptions = {}): Promise<Response | null> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const waitUntil = verifyLoadState('waitUntil', options.waitUntil === undefined ? 'load' : options.waitUntil);
-      return Response.fromNullable((await channel.goBack({ ...options, waitUntil })).response);
-    });
+    const waitUntil = verifyLoadState('waitUntil', options.waitUntil === undefined ? 'load' : options.waitUntil);
+    return Response.fromNullable((await this._channel.goBack({ ...options, waitUntil })).response);
   }
 
   async goForward(options: channels.PageGoForwardOptions = {}): Promise<Response | null> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const waitUntil = verifyLoadState('waitUntil', options.waitUntil === undefined ? 'load' : options.waitUntil);
-      return Response.fromNullable((await channel.goForward({ ...options, waitUntil })).response);
-    });
+    const waitUntil = verifyLoadState('waitUntil', options.waitUntil === undefined ? 'load' : options.waitUntil);
+    return Response.fromNullable((await this._channel.goForward({ ...options, waitUntil })).response);
   }
 
   async emulateMedia(options: { media?: 'screen' | 'print' | null, colorScheme?: 'dark' | 'light' | 'no-preference' | null, reducedMotion?: 'reduce' | 'no-preference' | null, forcedColors?: 'active' | 'none' | null } = {}) {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      await channel.emulateMedia({
-        media: options.media === null ? 'null' : options.media,
-        colorScheme: options.colorScheme === null ? 'null' : options.colorScheme,
-        reducedMotion: options.reducedMotion === null ? 'null' : options.reducedMotion,
-        forcedColors: options.forcedColors === null ? 'null' : options.forcedColors,
-      });
+    await this._channel.emulateMedia({
+      media: options.media === null ? 'null' : options.media,
+      colorScheme: options.colorScheme === null ? 'null' : options.colorScheme,
+      reducedMotion: options.reducedMotion === null ? 'null' : options.reducedMotion,
+      forcedColors: options.forcedColors === null ? 'null' : options.forcedColors,
     });
   }
 
   async setViewportSize(viewportSize: Size) {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      this._viewportSize = viewportSize;
-      await channel.setViewportSize({ viewportSize });
-    });
+    this._viewportSize = viewportSize;
+    await this._channel.setViewportSize({ viewportSize });
   }
 
   viewportSize(): Size | null {
@@ -450,41 +433,37 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   }
 
   async addInitScript(script: Function | string | { path?: string, content?: string }, arg?: any) {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const source = await evaluationScript(script, arg);
-      await channel.addInitScript({ source });
-    });
+    const source = await evaluationScript(script, arg);
+    await this._channel.addInitScript({ source });
   }
 
   async route(url: URLMatch, handler: RouteHandlerCallback, options: { times?: number } = {}): Promise<void> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      this._routes.unshift(new RouteHandler(this._browserContext._options.baseURL, url, handler, options.times));
-      if (this._routes.length === 1)
-        await channel.setNetworkInterceptionEnabled({ enabled: true });
-    });
+    this._routes.unshift(new RouteHandler(this._browserContext._options.baseURL, url, handler, options.times));
+    if (this._routes.length === 1)
+      await this._channel.setNetworkInterceptionEnabled({ enabled: true });
   }
 
   async unroute(url: URLMatch, handler?: RouteHandlerCallback): Promise<void> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      this._routes = this._routes.filter(route => route.url !== url || (handler && route.handler !== handler));
-      if (this._routes.length === 0)
-        await channel.setNetworkInterceptionEnabled({ enabled: false });
-    });
+    this._routes = this._routes.filter(route => route.url !== url || (handler && route.handler !== handler));
+    if (!this._routes.length)
+      await this._disableInterception();
+  }
+
+  private async _disableInterception() {
+    await this._channel.setNetworkInterceptionEnabled({ enabled: false });
   }
 
   async screenshot(options: channels.PageScreenshotOptions & { path?: string } = {}): Promise<Buffer> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const copy = { ...options };
-      if (!copy.type)
-        copy.type = determineScreenshotType(options);
-      const result = await channel.screenshot(copy);
-      const buffer = Buffer.from(result.binary, 'base64');
-      if (options.path) {
-        await mkdirIfNeeded(options.path);
-        await fs.promises.writeFile(options.path, buffer);
-      }
-      return buffer;
-    });
+    const copy = { ...options };
+    if (!copy.type)
+      copy.type = determineScreenshotType(options);
+    const result = await this._channel.screenshot(copy);
+    const buffer = Buffer.from(result.binary, 'base64');
+    if (options.path) {
+      await mkdirIfNeeded(options.path);
+      await fs.promises.writeFile(options.path, buffer);
+    }
+    return buffer;
   }
 
   async title(): Promise<string> {
@@ -492,19 +471,15 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   }
 
   async bringToFront(): Promise<void> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      await channel.bringToFront();
-    });
+    await this._channel.bringToFront();
   }
 
   async close(options: { runBeforeUnload?: boolean } = { runBeforeUnload: undefined }) {
     try {
-      await this._wrapApiCall(async (channel: channels.PageChannel) => {
-        if (this._ownedContext)
-          await this._ownedContext.close();
-        else
-          await channel.close(options);
-      });
+      if (this._ownedContext)
+        await this._ownedContext.close();
+      else
+        await this._channel.close(options);
     } catch (e) {
       if (isSafeCloseError(e))
         return;
@@ -536,8 +511,12 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
     return this._mainFrame.fill(selector, value, options);
   }
 
-  locator(selector: string): Locator {
-    return this.mainFrame().locator(selector);
+  locator(selector: string, options?: { hasText?: string | RegExp }): Locator {
+    return this.mainFrame().locator(selector, options);
+  }
+
+  frameLocator(selector: string): FrameLocator {
+    return this.mainFrame().frameLocator(selector);
   }
 
   async focus(selector: string, options?: channels.FrameFocusOptions) {
@@ -661,37 +640,33 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
   }
 
   async pause() {
-    return this.context()._wrapApiCall(async (channel: channels.BrowserContextChannel) => {
-      await channel.pause();
-    });
+    await this.context()._channel.pause();
   }
 
   async pdf(options: PDFOptions = {}): Promise<Buffer> {
-    return this._wrapApiCall(async (channel: channels.PageChannel) => {
-      const transportOptions: channels.PagePdfParams = { ...options } as channels.PagePdfParams;
-      if (transportOptions.margin)
-        transportOptions.margin = { ...transportOptions.margin };
-      if (typeof options.width === 'number')
-        transportOptions.width = options.width + 'px';
-      if (typeof options.height === 'number')
-        transportOptions.height  = options.height + 'px';
-      for (const margin of ['top', 'right', 'bottom', 'left']) {
-        const index = margin as 'top' | 'right' | 'bottom' | 'left';
-        if (options.margin && typeof options.margin[index] === 'number')
-          transportOptions.margin![index] = transportOptions.margin![index] + 'px';
-      }
-      const result = await channel.pdf(transportOptions);
-      const buffer = Buffer.from(result.pdf, 'base64');
-      if (options.path) {
-        await fs.promises.mkdir(path.dirname(options.path), { recursive: true });
-        await fs.promises.writeFile(options.path, buffer);
-      }
-      return buffer;
-    });
+    const transportOptions: channels.PagePdfParams = { ...options } as channels.PagePdfParams;
+    if (transportOptions.margin)
+      transportOptions.margin = { ...transportOptions.margin };
+    if (typeof options.width === 'number')
+      transportOptions.width = options.width + 'px';
+    if (typeof options.height === 'number')
+      transportOptions.height  = options.height + 'px';
+    for (const margin of ['top', 'right', 'bottom', 'left']) {
+      const index = margin as 'top' | 'right' | 'bottom' | 'left';
+      if (options.margin && typeof options.margin[index] === 'number')
+        transportOptions.margin![index] = transportOptions.margin![index] + 'px';
+    }
+    const result = await this._channel.pdf(transportOptions);
+    const buffer = Buffer.from(result.pdf, 'base64');
+    if (options.path) {
+      await fs.promises.mkdir(path.dirname(options.path), { recursive: true });
+      await fs.promises.writeFile(options.path, buffer);
+    }
+    return buffer;
   }
 }
 
-export class BindingCall extends ChannelOwner<channels.BindingCallChannel, channels.BindingCallInitializer> {
+export class BindingCall extends ChannelOwner<channels.BindingCallChannel> {
   static from(channel: channels.BindingCallChannel): BindingCall {
     return (channel as any)._object;
   }

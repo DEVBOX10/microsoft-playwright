@@ -17,10 +17,11 @@
 import child_process from 'child_process';
 import path from 'path';
 import { EventEmitter } from 'events';
-import { RunPayload, TestBeginPayload, TestEndPayload, DonePayload, TestOutputPayload, WorkerInitParams, StepBeginPayload, StepEndPayload } from './ipc';
+import { RunPayload, TestBeginPayload, TestEndPayload, DonePayload, TestOutputPayload, WorkerInitParams, StepBeginPayload, StepEndPayload, SerializedLoaderData } from './ipc';
 import type { TestResult, Reporter, TestStep } from '../types/testReporter';
 import { Suite, TestCase } from './test';
 import { Loader } from './loader';
+import { ManualPromise } from 'playwright-core/lib/utils/async';
 
 export type TestGroup = {
   workerHash: string;
@@ -30,18 +31,25 @@ export type TestGroup = {
   tests: TestCase[];
 };
 
+type TestResultData = {
+  result: TestResult;
+  steps: Map<string, TestStep>;
+  stepStack: Set<TestStep>;
+};
+type TestData = {
+  test: TestCase;
+  resultByWorkerIndex: Map<number, TestResultData>;
+};
 export class Dispatcher {
-  private _workers = new Set<Worker>();
-  private _freeWorkers: Worker[] = [];
-  private _workerClaimers: (() => void)[] = [];
-
-  private _testById = new Map<string, { test: TestCase, result: TestResult, steps: Map<string, TestStep>, stepStack: Set<TestStep> }>();
+  private _workerSlots: { busy: boolean, worker?: Worker }[] = [];
   private _queue: TestGroup[] = [];
-  private _stopCallback = () => {};
-  readonly _loader: Loader;
+  private _finished = new ManualPromise<void>();
+  private _isStopped = false;
+
+  private _testById = new Map<string, TestData>();
+  private _loader: Loader;
   private _reporter: Reporter;
   private _hasWorkerErrors = false;
-  private _isStopped = false;
   private _failureCount = 0;
 
   constructor(loader: Loader, testGroups: TestGroup[], reporter: Reporter) {
@@ -50,36 +58,101 @@ export class Dispatcher {
     this._queue = testGroups;
     for (const group of testGroups) {
       for (const test of group.tests) {
-        const result = test._appendTestResult();
-        // When changing this line, change the one in retry too.
-        this._testById.set(test._id, { test, result, steps: new Map(), stepStack: new Set() });
+        this._testById.set(test._id, { test, resultByWorkerIndex: new Map() });
+        for (let suite: Suite | undefined = test.parent; suite; suite = suite.parent) {
+          for (const hook of suite.hooks) {
+            if (!this._testById.has(hook._id))
+              this._testById.set(hook._id, { test: hook, resultByWorkerIndex: new Map() });
+          }
+        }
       }
     }
+  }
+
+  private async _scheduleJob() {
+    // 1. Find a job to run.
+    if (this._isStopped || !this._queue.length)
+      return;
+    const job = this._queue[0];
+
+    // 2. Find a worker with the same hash, or just some free worker.
+    let index = this._workerSlots.findIndex(w => !w.busy && w.worker && w.worker.hash() === job.workerHash && !w.worker.didSendStop());
+    if (index === -1)
+      index = this._workerSlots.findIndex(w => !w.busy);
+    // No workers available, bail out.
+    if (index === -1)
+      return;
+
+    // 3. Claim both the job and the worker, run the job and release the worker.
+    this._queue.shift();
+    this._workerSlots[index].busy = true;
+    await this._startJobInWorker(index, job);
+    this._workerSlots[index].busy = false;
+
+    // 4. Check the "finished" condition.
+    this._checkFinished();
+
+    // 5. We got a free worker - perhaps we can immediately start another job?
+    this._scheduleJob();
+  }
+
+  private async _startJobInWorker(index: number, job: TestGroup) {
+    let worker = this._workerSlots[index].worker;
+
+    // 1. Restart the worker if it has the wrong hash or is being stopped already.
+    if (worker && (worker.hash() !== job.workerHash || worker.didSendStop())) {
+      await worker.stop();
+      worker = undefined;
+      if (this._isStopped) // Check stopped signal after async hop.
+        return;
+    }
+
+    // 2. Start the worker if it is down.
+    if (!worker) {
+      worker = this._createWorker(job.workerHash, index);
+      this._workerSlots[index].worker = worker;
+      worker.on('exit', () => this._workerSlots[index].worker = undefined);
+      await worker.init(job, this._loader.serialize());
+      if (this._isStopped) // Check stopped signal after async hop.
+        return;
+    }
+
+    // 3. Run the job.
+    await this._runJob(worker, job);
+  }
+
+  private _checkFinished() {
+    if (this._finished.isDone())
+      return;
+
+    // Check that we have no more work to do.
+    if (this._queue.length && !this._isStopped)
+      return;
+
+    // Make sure all workers have finished the current job.
+    if (this._workerSlots.some(w => w.busy))
+      return;
+
+    for (const { test } of this._testById.values()) {
+      // Emulate skipped test run if we have stopped early.
+      if (!test.results.length)
+        test._appendTestResult().status = 'skipped';
+    }
+    this._finished.resolve();
   }
 
   async run() {
-    // Loop in case job schedules more jobs
-    while (this._queue.length && !this._isStopped)
-      await this._dispatchQueue();
-  }
-
-  async _dispatchQueue() {
-    const jobs = [];
-    while (this._queue.length) {
-      if (this._isStopped)
-        break;
-      const testGroup = this._queue.shift()!;
-      const requiredHash = testGroup.workerHash;
-      let worker = await this._obtainWorker(testGroup);
-      while (worker && worker.hash && worker.hash !== requiredHash) {
-        worker.stop();
-        worker = await this._obtainWorker(testGroup);
-      }
-      if (this._isStopped || !worker)
-        break;
-      jobs.push(this._runJob(worker, testGroup));
-    }
-    await Promise.all(jobs);
+    this._workerSlots = [];
+    // 1. Allocate workers.
+    for (let i = 0; i < this._loader.fullConfig().workers; i++)
+      this._workerSlots.push({ busy: false });
+    // 2. Schedule enough jobs.
+    for (let i = 0; i < this._workerSlots.length; i++)
+      this._scheduleJob();
+    this._checkFinished();
+    // 3. More jobs are scheduled when the worker becomes free, or a new job is added.
+    // 4. Wait for all jobs to finish.
+    await this._finished;
   }
 
   async _runJob(worker: Worker, testGroup: TestGroup) {
@@ -98,25 +171,33 @@ export class Dispatcher {
     };
 
     const remainingByTestId = new Map(testGroup.tests.map(e => [ e._id, e ]));
-    let lastStartedTestId: string | undefined;
     const failedTestIds = new Set<string>();
+    let runningHookId: string | undefined;
 
     const onTestBegin = (params: TestBeginPayload) => {
-      lastStartedTestId = params.testId;
+      const data = this._testById.get(params.testId)!;
+      if (data.test._type !== 'test')
+        runningHookId = params.testId;
       if (this._hasReachedMaxFailures())
         return;
-      const { test, result: testRun  } = this._testById.get(params.testId)!;
-      testRun.workerIndex = params.workerIndex;
-      testRun.startTime = new Date(params.startWallTime);
-      this._reporter.onTestBegin?.(test, testRun);
+      const result = data.test._appendTestResult();
+      data.resultByWorkerIndex.set(worker.workerIndex, { result, stepStack: new Set(), steps: new Map() });
+      result.workerIndex = worker.workerIndex;
+      result.startTime = new Date(params.startWallTime);
+      if (data.test._type === 'test')
+        this._reporter.onTestBegin?.(data.test, result);
     };
     worker.addListener('testBegin', onTestBegin);
 
     const onTestEnd = (params: TestEndPayload) => {
+      runningHookId = undefined;
       remainingByTestId.delete(params.testId);
       if (this._hasReachedMaxFailures())
         return;
-      const { test, result } = this._testById.get(params.testId)!;
+      const data = this._testById.get(params.testId)!;
+      const test = data.test;
+      const { result } = data.resultByWorkerIndex.get(worker.workerIndex)!;
+      data.resultByWorkerIndex.delete(worker.workerIndex);
       result.duration = params.duration;
       result.error = params.error;
       result.attachments = params.attachments.map(a => ({
@@ -130,14 +211,20 @@ export class Dispatcher {
       test.annotations = params.annotations;
       test.timeout = params.timeout;
       const isFailure = result.status !== 'skipped' && result.status !== test.expectedStatus;
-      if (isFailure)
+      if (isFailure && test._type === 'test')
         failedTestIds.add(params.testId);
       this._reportTestEnd(test, result);
     };
     worker.addListener('testEnd', onTestEnd);
 
     const onStepBegin = (params: StepBeginPayload) => {
-      const { test, result, steps, stepStack } = this._testById.get(params.testId)!;
+      const data = this._testById.get(params.testId)!;
+      const runData = data.resultByWorkerIndex.get(worker.workerIndex);
+      if (!runData) {
+        // The test has finished, but steps are still coming. Just ignore them.
+        return;
+      }
+      const { result, steps, stepStack } = runData;
       const parentStep = params.forceNoParent ? undefined : [...stepStack].pop();
       const step: TestStep = {
         title: params.title,
@@ -148,7 +235,7 @@ export class Dispatcher {
         parent: parentStep,
         category: params.category,
         startTime: new Date(params.wallTime),
-        duration: 0,
+        duration: -1,
         steps: [],
         location: params.location,
         data: {},
@@ -157,15 +244,21 @@ export class Dispatcher {
       (parentStep || result).steps.push(step);
       if (params.canHaveChildren)
         stepStack.add(step);
-      this._reporter.onStepBegin?.(test, result, step);
+      this._reporter.onStepBegin?.(data.test, result, step);
     };
     worker.on('stepBegin', onStepBegin);
 
     const onStepEnd = (params: StepEndPayload) => {
-      const { test, result, steps, stepStack } = this._testById.get(params.testId)!;
+      const data = this._testById.get(params.testId)!;
+      const runData = data.resultByWorkerIndex.get(worker.workerIndex);
+      if (!runData) {
+        // The test has finished, but steps are still coming. Just ignore them.
+        return;
+      }
+      const { result, steps, stepStack } = runData;
       const step = steps.get(params.stepId);
       if (!step) {
-        this._reporter.onStdErr?.('Internal error: step end without step begin: ' + params.stepId, test, result);
+        this._reporter.onStdErr?.('Internal error: step end without step begin: ' + params.stepId, data.test, result);
         return;
       }
       step.duration = params.wallTime - step.startTime.getTime();
@@ -173,7 +266,7 @@ export class Dispatcher {
         step.error = params.error;
       stepStack.delete(step);
       steps.delete(params.stepId);
-      this._reporter.onStepEnd?.(test, result, step);
+      this._reporter.onStepEnd?.(data.test, result, step);
     };
     worker.on('stepEnd', onStepEnd);
 
@@ -185,27 +278,40 @@ export class Dispatcher {
       // - we are here not because something failed
       // - no unrecoverable worker error
       if (!remaining.length && !failedTestIds.size && !params.fatalError) {
-        this._freeWorkers.push(worker);
-        this._notifyWorkerClaimer();
         doneWithJob();
         return;
       }
 
       // When worker encounters error, we will stop it and create a new one.
-      worker.stop();
-      worker.didFail = true;
+      worker.stop(true /* didFail */);
 
       // In case of fatal error, report first remaining test as failing with this error,
       // and all others as skipped.
       if (params.fatalError) {
+        // Perhaps we were running a hook - report it as failed.
+        if (runningHookId) {
+          const data = this._testById.get(runningHookId)!;
+          const { result } = data.resultByWorkerIndex.get(worker.workerIndex)!;
+          result.error = params.fatalError;
+          result.status = 'failed';
+          this._reporter.onTestEnd?.(data.test, result);
+        }
+
         let first = true;
         for (const test of remaining) {
-          const { result } = this._testById.get(test._id)!;
           if (this._hasReachedMaxFailures())
             break;
+          const data = this._testById.get(test._id)!;
+          const runData = data.resultByWorkerIndex.get(worker.workerIndex);
           // There might be a single test that has started but has not finished yet.
-          if (test._id !== lastStartedTestId)
-            this._reporter.onTestBegin?.(test, result);
+          let result: TestResult;
+          if (runData) {
+            result = runData.result;
+          } else {
+            result = data.test._appendTestResult();
+            if (test._type === 'test')
+              this._reporter.onTestBegin?.(test, result);
+          }
           result.error = params.fatalError;
           result.status = first ? 'failed' : 'skipped';
           this._reportTestEnd(test, result);
@@ -250,8 +356,9 @@ export class Dispatcher {
           return true;
 
         // Emulate a "skipped" run, and drop this test from remaining.
-        const { result } = this._testById.get(test._id)!;
-        this._reporter.onTestBegin?.(test, result);
+        const result = test._appendTestResult();
+        if (test._type === 'test')
+          this._reporter.onTestBegin?.(test, result);
         result.status = 'skipped';
         this._reportTestEnd(test, result);
         return false;
@@ -266,118 +373,65 @@ export class Dispatcher {
 
       for (const testId of retryCandidates) {
         const pair = this._testById.get(testId)!;
-        if (!this._isStopped && pair.test.results.length < pair.test.retries + 1) {
-          pair.result = pair.test._appendTestResult();
-          pair.steps = new Map();
-          pair.stepStack = new Set();
+        if (!this._isStopped && pair.test.results.length < pair.test.retries + 1)
           remaining.push(pair.test);
-        }
       }
 
-      if (remaining.length)
+      if (remaining.length) {
         this._queue.unshift({ ...testGroup, tests: remaining });
+        // Perhaps we can immediately start the new job if there is a worker available?
+        this._scheduleJob();
+      }
 
       // This job is over, we just scheduled another one.
       doneWithJob();
     };
     worker.on('done', onDone);
 
-    const onExit = () => {
-      if (worker.didSendStop)
-        onDone({});
-      else
-        onDone({ fatalError: { value: 'Worker process exited unexpectedly' } });
+    const onExit = (expectedly: boolean) => {
+      onDone(expectedly ? {} : { fatalError: { value: 'Worker process exited unexpectedly' } });
     };
     worker.on('exit', onExit);
 
     return result;
   }
 
-  async _obtainWorker(testGroup: TestGroup) {
-    const claimWorker = (): Promise<Worker> | null => {
-      if (this._isStopped)
-        return null;
-      // Use available worker.
-      if (this._freeWorkers.length)
-        return Promise.resolve(this._freeWorkers.pop()!);
-      // Create a new worker.
-      if (this._workers.size < this._loader.fullConfig().workers)
-        return this._createWorker(testGroup);
-      return null;
-    };
-
-    // Note: it is important to claim the worker synchronously,
-    // so that we won't miss a _notifyWorkerClaimer call while awaiting.
-    let worker = claimWorker();
-    if (!worker) {
-      // Wait for available or stopped worker.
-      await new Promise<void>(f => this._workerClaimers.push(f));
-      worker = claimWorker();
-    }
-    return worker;
-  }
-
-  async _notifyWorkerClaimer() {
-    if (this._isStopped || !this._workerClaimers.length)
-      return;
-    const callback = this._workerClaimers.shift()!;
-    callback();
-  }
-
-  _createWorker(testGroup: TestGroup) {
-    const worker = new Worker(this);
-    worker.on('stdOut', (params: TestOutputPayload) => {
+  _createWorker(hash: string, parallelIndex: number) {
+    const worker = new Worker(hash, parallelIndex);
+    const handleOutput = (params: TestOutputPayload) => {
       const chunk = chunkFromParams(params);
-      if (worker.didFail) {
-        // Note: we keep reading stdout from workers that are currently stopping after failure,
+      if (worker.didFail()) {
+        // Note: we keep reading stdio from workers that are currently stopping after failure,
         // to debug teardown issues. However, we avoid spoiling the test result from
         // the next retry.
-        this._reporter.onStdOut?.(chunk);
-        return;
+        return { chunk };
       }
-      const pair = params.testId ? this._testById.get(params.testId) : undefined;
-      if (pair)
-        pair.result.stdout.push(chunk);
-      this._reporter.onStdOut?.(chunk, pair?.test, pair?.result);
+      if (!params.testId)
+        return { chunk };
+      const data = this._testById.get(params.testId)!;
+      return { chunk, test: data.test, result: data.resultByWorkerIndex.get(worker.workerIndex)?.result };
+    };
+    worker.on('stdOut', (params: TestOutputPayload) => {
+      const { chunk, test, result } = handleOutput(params);
+      result?.stdout.push(chunk);
+      this._reporter.onStdOut?.(chunk, test, result);
     });
     worker.on('stdErr', (params: TestOutputPayload) => {
-      const chunk = chunkFromParams(params);
-      if (worker.didFail) {
-        // Note: we keep reading stderr from workers that are currently stopping after failure,
-        // to debug teardown issues. However, we avoid spoiling the test result from
-        // the next retry.
-        this._reporter.onStdErr?.(chunk);
-        return;
-      }
-      const pair = params.testId ? this._testById.get(params.testId) : undefined;
-      if (pair)
-        pair.result.stderr.push(chunk);
-      this._reporter.onStdErr?.(chunk, pair?.test, pair?.result);
+      const { chunk, test, result } = handleOutput(params);
+      result?.stderr.push(chunk);
+      this._reporter.onStdErr?.(chunk, test, result);
     });
     worker.on('teardownError', ({ error }) => {
       this._hasWorkerErrors = true;
       this._reporter.onError?.(error);
     });
-    worker.on('exit', () => {
-      this._workers.delete(worker);
-      this._notifyWorkerClaimer();
-      if (this._stopCallback && !this._workers.size)
-        this._stopCallback();
-    });
-    this._workers.add(worker);
-    return worker.init(testGroup).then(() => worker);
+    return worker;
   }
 
   async stop() {
     this._isStopped = true;
-    if (this._workers.size) {
-      const result = new Promise<void>(f => this._stopCallback = f);
-      for (const worker of this._workers)
-        worker.stop();
-      await result;
-    }
-    while (this._workerClaimers.length)
-      this._workerClaimers.shift()!();
+    await Promise.all(this._workerSlots.map(({ worker }) => worker?.stop()));
+    this._checkFinished();
   }
 
   private _hasReachedMaxFailures() {
@@ -386,9 +440,10 @@ export class Dispatcher {
   }
 
   private _reportTestEnd(test: TestCase, result: TestResult) {
-    if (result.status !== 'skipped' && result.status !== test.expectedStatus)
+    if (test._type === 'test' && result.status !== 'skipped' && result.status !== test.expectedStatus)
       ++this._failureCount;
-    this._reporter.onTestEnd?.(test, result);
+    if (test._type === 'test')
+      this._reporter.onTestEnd?.(test, result);
     const maxFailures = this._loader.fullConfig().maxFailures;
     if (maxFailures && this._failureCount === maxFailures)
       this.stop().catch(e => {});
@@ -402,30 +457,36 @@ export class Dispatcher {
 let lastWorkerIndex = 0;
 
 class Worker extends EventEmitter {
-  process: child_process.ChildProcess;
-  runner: Dispatcher;
-  hash = '';
-  index: number;
-  didSendStop = false;
-  didFail = false;
+  private process: child_process.ChildProcess;
+  private _hash: string;
+  private parallelIndex: number;
+  readonly workerIndex: number;
+  private _didSendStop = false;
+  private _didFail = false;
+  private didExit = false;
 
-  constructor(runner: Dispatcher) {
+  constructor(hash: string, parallelIndex: number) {
     super();
-    this.runner = runner;
-    this.index = lastWorkerIndex++;
+    this.workerIndex = lastWorkerIndex++;
+    this._hash = hash;
+    this.parallelIndex = parallelIndex;
 
     this.process = child_process.fork(path.join(__dirname, 'worker.js'), {
       detached: false,
       env: {
         FORCE_COLOR: process.stdout.isTTY ? '1' : '0',
         DEBUG_COLORS: process.stdout.isTTY ? '1' : '0',
-        TEST_WORKER_INDEX: String(this.index),
+        TEST_WORKER_INDEX: String(this.workerIndex),
+        TEST_PARALLEL_INDEX: String(this.parallelIndex),
         ...process.env
       },
       // Can't pipe since piping slows down termination for some reason.
       stdio: ['ignore', 'ignore', process.env.PW_RUNNER_DEBUG ? 'inherit' : 'ignore', 'ipc']
     });
-    this.process.on('exit', () => this.emit('exit'));
+    this.process.on('exit', () => {
+      this.didExit = true;
+      this.emit('exit', this._didSendStop /* expectedly */);
+    });
     this.process.on('error', e => {});  // do not yell at a send to dead process.
     this.process.on('message', (message: any) => {
       const { method, params } = message;
@@ -433,13 +494,13 @@ class Worker extends EventEmitter {
     });
   }
 
-  async init(testGroup: TestGroup) {
-    this.hash = testGroup.workerHash;
+  async init(testGroup: TestGroup, loaderData: SerializedLoaderData) {
     const params: WorkerInitParams = {
-      workerIndex: this.index,
+      workerIndex: this.workerIndex,
+      parallelIndex: this.parallelIndex,
       repeatEachIndex: testGroup.repeatEachIndex,
       projectIndex: testGroup.projectIndex,
-      loader: this.runner._loader.serialize(),
+      loader: loaderData,
     };
     this.process.send({ method: 'init', params });
     await new Promise(f => this.process.once('message', f));  // Ready ack
@@ -449,16 +510,34 @@ class Worker extends EventEmitter {
     const runPayload: RunPayload = {
       file: testGroup.requireFile,
       entries: testGroup.tests.map(test => {
-        return { testId: test._id, retry: test.results.length - 1 };
+        return { testId: test._id, retry: test.results.length };
       }),
     };
     this.process.send({ method: 'run', params: runPayload });
   }
 
-  stop() {
-    if (!this.didSendStop)
+  didFail() {
+    return this._didFail;
+  }
+
+  didSendStop() {
+    return this._didSendStop;
+  }
+
+  hash() {
+    return this._hash;
+  }
+
+  async stop(didFail?: boolean) {
+    if (didFail)
+      this._didFail = true;
+    if (this.didExit)
+      return;
+    if (!this._didSendStop) {
       this.process.send({ method: 'stop' });
-    this.didSendStop = true;
+      this._didSendStop = true;
+    }
+    await new Promise(f => this.once('exit', f));
   }
 }
 

@@ -271,6 +271,27 @@ it('xpath should be relative', async ({ page }) => {
   expect(await page.$eval(`div >> xpath=/*[@class="find-me"]`, e => e.id)).toBe('target2');
 });
 
+it('should work with pipe in xpath', async ({ page, server }) => {
+  await page.setContent(`
+    <span class="find-me" id=t1>1</span>
+    <div>
+      <span class="find-me" id=t2>2</span>
+    </div>
+    <div id=t3>3</span>
+  `);
+  expect(await page.$$eval(`//*[@id="t1"]|//*[@id="t3"]`, els => els.length)).toBe(2);
+
+  const e1 = await page.waitForSelector(`//*[@id="t1"]|//*[@id="t3"]`);
+  expect(e1).toBeTruthy();
+  expect(await e1.evaluate(e => e.id)).toBe('t1');
+
+  const e2 = await page.waitForSelector(`//*[@id="unknown"]|//*[@id="t2"]`);
+  expect(e2).toBeTruthy();
+  expect(await e2.evaluate(e => e.id)).toBe('t2');
+
+  await page.click(`//code|//span[@id="t2"]`);
+});
+
 it('data-testid on the handle should be relative', async ({ page }) => {
   await page.setContent(`
     <span data-testid="find-me" id=target1>1</span>
@@ -283,4 +304,38 @@ it('data-testid on the handle should be relative', async ({ page }) => {
   const div = await page.$('div');
   expect(await div.$eval(`data-testid=find-me`, e => e.id)).toBe('target2');
   expect(await page.$eval(`div >> data-testid=find-me`, e => e.id)).toBe('target2');
+});
+
+it('should properly determine visibility of display:contents elements', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/11202' });
+
+  await page.setContent(`
+    <div>
+      <p style="display:contents">DISPLAY CONTENTS</p>
+    </div>`);
+  await page.waitForSelector('"DISPLAY CONTENTS"');
+
+  await page.setContent(`
+    <div>
+      <article style="display:contents"><div>DISPLAY CONTENTS</div></article>
+    </div>`);
+  await page.waitForSelector('article');
+
+  await page.setContent(`
+    <div>
+      <article style="display:contents"><div style="display:contents">DISPLAY CONTENTS</div></article>
+    </div>`);
+  await page.waitForSelector('article');
+
+  await page.setContent(`
+    <div>
+      <article style="display:contents"><div></div>DISPLAY CONTENTS<span></span></article>
+    </div>`);
+  await page.waitForSelector('article');
+
+  await page.setContent(`
+    <div>
+      <article style="display:contents"><div></div></article>
+    </div>`);
+  await page.waitForSelector('article', { state: 'hidden' });
 });

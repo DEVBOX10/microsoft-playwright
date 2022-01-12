@@ -16,7 +16,7 @@
 
 import net, { AddressInfo } from 'net';
 import * as channels from '../protocol/channels';
-import { GlobalFetchRequest } from '../server/fetch';
+import { GlobalAPIRequestContext } from '../server/fetch';
 import { Playwright } from '../server/playwright';
 import * as types from '../server/types';
 import { debugLogger } from '../utils/debugLogger';
@@ -26,10 +26,12 @@ import { AndroidDispatcher } from './androidDispatcher';
 import { BrowserTypeDispatcher } from './browserTypeDispatcher';
 import { Dispatcher, DispatcherScope } from './dispatcher';
 import { ElectronDispatcher } from './electronDispatcher';
-import { FetchRequestDispatcher } from './networkDispatchers';
+import { LocalUtilsDispatcher } from './localUtilsDispatcher';
+import { APIRequestContextDispatcher } from './networkDispatchers';
 import { SelectorsDispatcher } from './selectorsDispatcher';
 
-export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.PlaywrightInitializer, channels.PlaywrightEvents> implements channels.PlaywrightChannel {
+export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.PlaywrightChannel> implements channels.PlaywrightChannel {
+  _type_Playwright;
   private _socksProxy: SocksProxy | undefined;
 
   constructor(scope: DispatcherScope, playwright: Playwright, customSelectors?: channels.SelectorsChannel, preLaunchedBrowser?: channels.BrowserChannel) {
@@ -42,10 +44,12 @@ export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.Playwr
       webkit: new BrowserTypeDispatcher(scope, playwright.webkit),
       android: new AndroidDispatcher(scope, playwright.android),
       electron: new ElectronDispatcher(scope, playwright.electron),
+      utils: new LocalUtilsDispatcher(scope),
       deviceDescriptors,
       selectors: customSelectors || new SelectorsDispatcher(scope, playwright.selectors),
       preLaunchedBrowser,
     }, false);
+    this._type_Playwright = true;
   }
 
   async enableSocksProxy() {
@@ -75,8 +79,12 @@ export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.Playwr
   }
 
   async newRequest(params: channels.PlaywrightNewRequestParams, metadata?: channels.Metadata): Promise<channels.PlaywrightNewRequestResult> {
-    const request = new GlobalFetchRequest(this._object, params);
-    return { request: FetchRequestDispatcher.from(this._scope, request) };
+    const request = new GlobalAPIRequestContext(this._object, params);
+    return { request: APIRequestContextDispatcher.from(this._scope, request) };
+  }
+
+  async hideHighlight(params: channels.PlaywrightHideHighlightParams, metadata?: channels.Metadata): Promise<channels.PlaywrightHideHighlightResult> {
+    await this._object.hideHighlight();
   }
 }
 

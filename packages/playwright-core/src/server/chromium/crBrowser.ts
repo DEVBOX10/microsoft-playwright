@@ -90,10 +90,19 @@ export class CRBrowser extends Browser {
 
   async newContext(options: types.BrowserContextOptions): Promise<BrowserContext> {
     validateBrowserContextOptions(options, this.options);
+
+    let proxyBypassList = undefined;
+    if (options.proxy) {
+      if (process.env.PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK)
+        proxyBypassList = options.proxy.bypass;
+      else
+        proxyBypassList = '<-loopback>' + (options.proxy.bypass ? `,${options.proxy.bypass}` : '');
+    }
+
     const { browserContextId } = await this._session.send('Target.createBrowserContext', {
       disposeOnDetach: true,
       proxyServer: options.proxy ? options.proxy.server : undefined,
-      proxyBypassList: options.proxy ? options.proxy.bypass : undefined,
+      proxyBypassList,
     });
     const context = new CRBrowserContext(this, browserContextId, options);
     await context._initialize();
@@ -192,7 +201,7 @@ export class CRBrowser extends Browser {
     const serviceWorker = this._serviceWorkers.get(targetId);
     if (serviceWorker) {
       this._serviceWorkers.delete(targetId);
-      serviceWorker.emit(Worker.Events.Close);
+      serviceWorker.didClose();
       return;
     }
   }
@@ -471,7 +480,7 @@ export class CRBrowserContext extends BrowserContext {
       // asynchronously and we get detached from them later.
       // To avoid the wrong order of notifications, we manually fire
       // "close" event here and forget about the serivce worker.
-      serviceWorker.emit(Worker.Events.Close);
+      serviceWorker.didClose();
       this._browser._serviceWorkers.delete(targetId);
     }
   }

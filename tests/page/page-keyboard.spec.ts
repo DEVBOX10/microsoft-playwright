@@ -20,7 +20,7 @@ import { attachFrame } from '../config/utils';
 
 it.skip(({ isAndroid }) => isAndroid);
 
-it('should type into a textarea', async ({ page }) => {
+it('should type into a textarea #smoke', async ({ page }) => {
   await page.evaluate(() => {
     const textarea = document.createElement('textarea');
     document.body.appendChild(textarea);
@@ -438,6 +438,30 @@ it('should move to the start of the document', async ({ page, isMac }) => {
   await page.keyboard.type('1\n2\n3\n');
   await page.keyboard.press('Shift+Meta+ArrowUp');
   expect(await page.evaluate(() => window.getSelection().toString())).toBe('1\n2\n3\n');
+});
+
+it('should dispatch a click event on a button when Space gets pressed', async ({ page }) => {
+  await page.setContent(`<button type="button">a11y</button>`);
+  const actual = await page.evaluateHandle(() => {
+    const actual = { clicked: false };
+    document.querySelector('button').addEventListener('click', () => (actual.clicked = true));
+    return actual;
+  });
+  await page.focus('button');
+  await page.keyboard.press('Space');
+  expect((await actual.jsonValue()).clicked).toBe(true);
+});
+
+it('should dispatch a click event on a button when Enter gets pressed', async ({ page }) => {
+  await page.setContent(`<button type="button">a11y</button>`);
+  const actual = await page.evaluateHandle(() => {
+    const actual = { clicked: false };
+    document.querySelector('button').addEventListener('click', () => (actual.clicked = true));
+    return actual;
+  });
+  await page.focus('button');
+  await page.keyboard.press('Enter');
+  expect((await actual.jsonValue()).clicked).toBe(true);
 });
 
 async function captureLastKeydown(page) {

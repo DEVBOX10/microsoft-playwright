@@ -18,11 +18,14 @@ import colors from 'colors/safe';
 import fs from 'fs';
 import open from 'open';
 import path from 'path';
-import { FullConfig, Suite } from '../../types/testReporter';
-import { HttpServer } from 'playwright-core/src/utils/httpServer';
-import { calculateSha1, removeFolders } from 'playwright-core/src/utils/utils';
-import RawReporter, { JsonReport, JsonSuite, JsonTestCase, JsonTestResult, JsonTestStep, JsonAttachment } from './raw';
+import { Transform, TransformCallback } from 'stream';
+import { FullConfig, Suite, Reporter } from '../../types/testReporter';
+import { HttpServer } from 'playwright-core/lib/utils/httpServer';
+import { calculateSha1, removeFolders } from 'playwright-core/lib/utils/utils';
+import RawReporter, { JsonReport, JsonSuite, JsonTestCase, JsonTestResult, JsonTestStep } from './raw';
 import assert from 'assert';
+import yazl from 'yazl';
+import { stripAnsiEscapes } from './base';
 
 export type Stats = {
   total: number;
@@ -50,12 +53,14 @@ export type TestFile = {
   fileId: string;
   fileName: string;
   tests: TestCase[];
+  hooks: TestCase[];
 };
 
 export type TestFileSummary = {
   fileId: string;
   fileName: string;
   tests: TestCaseSummary[];
+  hooks: TestCaseSummary[];
   stats: Stats;
 };
 
@@ -65,6 +70,7 @@ export type TestCaseSummary = {
   path: string[];
   projectName: string;
   location: Location;
+  annotations: { type: string, description?: string }[];
   outcome: 'skipped' | 'expected' | 'unexpected' | 'flaky';
   duration: number;
   ok: boolean;
@@ -74,7 +80,13 @@ export type TestCase = TestCaseSummary & {
   results: TestResult[];
 };
 
-export type TestAttachment = JsonAttachment;
+export type TestAttachment = {
+  name: string;
+  body?: string;
+  path?: string;
+  contentType: string;
+};
+
 
 export type TestResult = {
   retry: number;
@@ -94,6 +106,7 @@ export type TestStep = {
   snippet?: string;
   error?: string;
   steps: TestStep[];
+  count: number;
 };
 
 type TestEntry = {
@@ -101,14 +114,22 @@ type TestEntry = {
   testCaseSummary: TestCaseSummary
 };
 
-class HtmlReporter {
+const kMissingContentType = 'x-playwright/missing';
+
+class HtmlReporter implements Reporter {
   private config!: FullConfig;
   private suite!: Suite;
   private _outputFolder: string | undefined;
+  private _open: 'always' | 'never' | 'on-failure';
 
-  constructor(options: { outputFolder?: string } = {}) {
+  constructor(options: { outputFolder?: string, open?: 'always' | 'never' | 'on-failure' } = {}) {
     // TODO: resolve relative to config.
     this._outputFolder = options.outputFolder;
+    this._open = options.open || 'on-failure';
+  }
+
+  printsToStdio() {
+    return false;
   }
 
   onBegin(config: FullConfig, suite: Suite) {
@@ -125,19 +146,22 @@ class HtmlReporter {
     });
     const reportFolder = htmlReportFolder(this._outputFolder);
     await removeFolders([reportFolder]);
-    const builder = new HtmlBuilder(reportFolder, this.config.rootDir);
-    const ok = builder.build(reports);
+    const builder = new HtmlBuilder(reportFolder);
+    const { ok, singleTestId } = await builder.build(reports);
 
-    if (!process.env.PWTEST_SKIP_TEST_OUTPUT) {
-      if (!ok && !process.env.CI && !process.env.PWTEST_SKIP_TEST_OUTPUT) {
-        await showHTMLReport(reportFolder);
-      } else {
-        console.log('');
-        console.log('All tests passed. To open last HTML report run:');
-        console.log(colors.cyan(`
-  npx playwright show-report
+    if (process.env.PWTEST_SKIP_TEST_OUTPUT || process.env.CI)
+      return;
+
+    const shouldOpen = this._open === 'always' || (!ok && this._open === 'on-failure');
+    if (shouldOpen) {
+      await showHTMLReport(reportFolder, singleTestId);
+    } else {
+      const outputFolderPath = htmlReportFolder(this._outputFolder) === defaultReportFolder() ? '' : ' ' + path.relative(process.cwd(), htmlReportFolder(this._outputFolder));
+      console.log('');
+      console.log('To open last HTML report run:');
+      console.log(colors.cyan(`
+  npx playwright show-report${outputFolderPath}
 `));
-      }
     }
   }
 }
@@ -147,10 +171,14 @@ export function htmlReportFolder(outputFolder?: string): string {
     return path.resolve(process.cwd(), process.env[`PLAYWRIGHT_HTML_REPORT`]);
   if (outputFolder)
     return outputFolder;
+  return defaultReportFolder();
+}
+
+function defaultReportFolder(): string {
   return path.resolve(process.cwd(), 'playwright-report');
 }
 
-export async function showHTMLReport(reportFolder: string | undefined) {
+export async function showHTMLReport(reportFolder: string | undefined, testId?: string) {
   const folder = reportFolder || htmlReportFolder();
   try {
     assert(fs.statSync(folder).isDirectory());
@@ -159,36 +187,50 @@ export async function showHTMLReport(reportFolder: string | undefined) {
     process.exit(1);
     return;
   }
+  const server = startHtmlReportServer(folder);
+  let url = await server.start(9323);
+  console.log('');
+  console.log(colors.cyan(`  Serving HTML report at ${url}. Press Ctrl+C to quit.`));
+  if (testId)
+    url += `#?testId=${testId}`;
+  open(url);
+  await new Promise(() => {});
+}
+
+export function startHtmlReportServer(folder: string): HttpServer {
   const server = new HttpServer();
   server.routePrefix('/', (request, response) => {
     let relativePath = new URL('http://localhost' + request.url).pathname;
+    if (relativePath.startsWith('/trace/file')) {
+      const url = new URL('http://localhost' + request.url!);
+      try {
+        return server.serveFile(request, response, url.searchParams.get('path')!);
+      } catch (e) {
+        return false;
+      }
+    }
     if (relativePath === '/')
       relativePath = '/index.html';
     const absolutePath = path.join(folder, ...relativePath.split('/'));
-    return server.serveFile(response, absolutePath);
+    return server.serveFile(request, response, absolutePath);
   });
-  const url = await server.start(9323);
-  console.log('');
-  console.log(colors.cyan(`  Serving HTML report at ${url}. Press Ctrl+C to quit.`));
-  open(url);
-  process.on('SIGINT', () => process.exit(0));
-  await new Promise(() => {});
+  return server;
 }
 
 class HtmlBuilder {
   private _reportFolder: string;
   private _tests = new Map<string, JsonTestCase>();
   private _testPath = new Map<string, string[]>();
-  private _dataFolder: string;
+  private _dataZipFile: yazl.ZipFile;
   private _hasTraces = false;
 
-  constructor(outputDir: string, rootDir: string) {
+  constructor(outputDir: string) {
     this._reportFolder = path.resolve(process.cwd(), outputDir);
-    this._dataFolder = path.join(this._reportFolder, 'data');
+    fs.mkdirSync(this._reportFolder, { recursive: true });
+    this._dataZipFile = new yazl.ZipFile();
   }
 
-  build(rawReports: JsonReport[]): boolean {
-    fs.mkdirSync(this._dataFolder, { recursive: true });
+  async build(rawReports: JsonReport[]): Promise<{ ok: boolean, singleTestId: string | undefined }> {
 
     const data = new Map<string, { testFile: TestFile, testFileSummary: TestFileSummary }>();
     for (const projectJson of rawReports) {
@@ -198,17 +240,22 @@ class HtmlBuilder {
         let fileEntry = data.get(fileId);
         if (!fileEntry) {
           fileEntry = {
-            testFile: { fileId, fileName, tests: [] },
-            testFileSummary: { fileId, fileName, tests: [], stats: emptyStats() },
+            testFile: { fileId, fileName, tests: [], hooks: [] },
+            testFileSummary: { fileId, fileName, tests: [], hooks: [], stats: emptyStats() },
           };
           data.set(fileId, fileEntry);
         }
         const { testFile, testFileSummary } = fileEntry;
         const testEntries: TestEntry[] = [];
-        this._processJsonSuite(file, fileId, projectJson.project.name, [], testEntries);
+        const hookEntries: TestEntry[] = [];
+        this._processJsonSuite(file, fileId, projectJson.project.name, [], testEntries, hookEntries);
         for (const test of testEntries) {
           testFile.tests.push(test.testCase);
           testFileSummary.tests.push(test.testCaseSummary);
+        }
+        for (const hook of hookEntries) {
+          testFile.hooks.push(hook.testCase);
+          testFileSummary.hooks.push(hook.testCaseSummary);
         }
       }
     }
@@ -232,15 +279,17 @@ class HtmlBuilder {
       if (!stats.ok)
         ok = false;
 
-      testFileSummary.tests.sort((t1, t2) => {
+      const testCaseSummaryComparator = (t1: TestCaseSummary, t2: TestCaseSummary) => {
         const w1 = (t1.outcome === 'unexpected' ? 1000 : 0) +  (t1.outcome === 'flaky' ? 1 : 0);
         const w2 = (t2.outcome === 'unexpected' ? 1000 : 0) +  (t2.outcome === 'flaky' ? 1 : 0);
         if (w2 - w1)
           return w2 - w1;
         return t1.location.line - t2.location.line;
-      });
+      };
+      testFileSummary.tests.sort(testCaseSummaryComparator);
+      testFileSummary.hooks.sort(testCaseSummaryComparator);
 
-      fs.writeFileSync(path.join(this._dataFolder, fileId + '.json'), JSON.stringify(testFile, undefined, 2));
+      this._addDataFile(fileId + '.json', testFile);
     }
     const htmlReport: HTMLReport = {
       files: [...data.values()].map(e => e.testFileSummary),
@@ -253,15 +302,11 @@ class HtmlBuilder {
       return w2 - w1;
     });
 
-    fs.writeFileSync(path.join(this._dataFolder, 'report.json'), JSON.stringify(htmlReport, undefined, 2));
+    this._addDataFile('report.json', htmlReport);
 
     // Copy app.
     const appFolder = path.join(require.resolve('playwright-core'), '..', 'lib', 'webpack', 'htmlReport');
-    for (const file of fs.readdirSync(appFolder)) {
-      if (file.endsWith('.map'))
-        continue;
-      fs.copyFileSync(path.join(appFolder, file), path.join(this._reportFolder, file));
-    }
+    fs.copyFileSync(path.join(appFolder, 'index.html'), path.join(this._reportFolder, 'index.html'));
 
     // Copy trace viewer.
     if (this._hasTraces) {
@@ -275,20 +320,43 @@ class HtmlBuilder {
       }
     }
 
-    return ok;
+    // Inline report data.
+    const indexFile = path.join(this._reportFolder, 'index.html');
+    fs.appendFileSync(indexFile, '<script>\nwindow.playwrightReportBase64 = "data:application/zip;base64,');
+    await new Promise(f => {
+      this._dataZipFile!.end(undefined, () => {
+        this._dataZipFile!.outputStream
+            .pipe(new Base64Encoder())
+            .pipe(fs.createWriteStream(indexFile, { flags: 'a' })).on('close', f);
+      });
+    });
+    fs.appendFileSync(indexFile, '";</script>');
+
+    let singleTestId: string | undefined;
+    if (htmlReport.stats.total === 1) {
+      const testFile: TestFile  = data.values().next().value.testFile;
+      singleTestId = testFile.tests[0].testId;
+    }
+
+    return { ok, singleTestId };
   }
 
-  private _processJsonSuite(suite: JsonSuite, fileId: string, projectName: string, path: string[], out: TestEntry[]) {
+  private _addDataFile(fileName: string, data: any) {
+    this._dataZipFile.addBuffer(Buffer.from(JSON.stringify(data)), fileName);
+  }
+
+  private _processJsonSuite(suite: JsonSuite, fileId: string, projectName: string, path: string[], outTests: TestEntry[], outHooks: TestEntry[]) {
     const newPath = [...path, suite.title];
-    suite.suites.map(s => this._processJsonSuite(s, fileId, projectName, newPath, out));
-    suite.tests.forEach(t => out.push(this._createTestEntry(t, fileId, projectName, newPath)));
+    suite.suites.map(s => this._processJsonSuite(s, fileId, projectName, newPath, outTests, outHooks));
+    suite.tests.forEach(t => outTests.push(this._createTestEntry(t, projectName, newPath)));
+    suite.hooks.forEach(t => outHooks.push(this._createTestEntry(t, projectName, newPath)));
   }
 
-  private _createTestEntry(test: JsonTestCase, fileId: string, projectName: string, path: string[]): TestEntry {
+  private _createTestEntry(test: JsonTestCase, projectName: string, path: string[]): TestEntry {
     const duration = test.results.reduce((a, r) => a + r.duration, 0);
     this._tests.set(test.testId, test);
     const location = test.location;
-    path = [location.file + ':' + location.line,  ...path.slice(1)];
+    path = [...path.slice(1)];
     this._testPath.set(test.testId, path);
 
     return {
@@ -298,6 +366,7 @@ class HtmlBuilder {
         projectName,
         location,
         duration,
+        annotations: test.annotations,
         outcome: test.outcome,
         path,
         results: test.results.map(r => this._createTestResult(r)),
@@ -309,6 +378,7 @@ class HtmlBuilder {
         projectName,
         location,
         duration,
+        annotations: test.annotations,
         outcome: test.outcome,
         path,
         ok: test.outcome === 'expected' || test.outcome === 'flaky',
@@ -328,14 +398,33 @@ class HtmlBuilder {
       attachments: result.attachments.map(a => {
         if (a.name === 'trace')
           this._hasTraces = true;
+
+        if ((a.name === 'stdout' || a.name === 'stderr') && a.contentType === 'text/plain') {
+          if (lastAttachment &&
+            lastAttachment.name === a.name &&
+            lastAttachment.contentType === a.contentType) {
+            lastAttachment.body += stripAnsiEscapes(a.body as string);
+            return null;
+          }
+          a.body = stripAnsiEscapes(a.body as string);
+          lastAttachment = a as TestAttachment;
+          return a;
+        }
+
         if (a.path) {
           let fileName = a.path;
           try {
             const buffer = fs.readFileSync(a.path);
             const sha1 = calculateSha1(buffer) + path.extname(a.path);
             fileName = 'data/' + sha1;
+            fs.mkdirSync(path.join(this._reportFolder, 'data'), { recursive: true });
             fs.writeFileSync(path.join(this._reportFolder, 'data', sha1), buffer);
           } catch (e) {
+            return {
+              name: `Missing attachment "${a.name}"`,
+              contentType: kMissingContentType,
+              body: `Attachment file ${fileName} is missing`,
+            };
           }
           return {
             name: a.name,
@@ -345,16 +434,39 @@ class HtmlBuilder {
           };
         }
 
-        if ((a.name === 'stdout' || a.name === 'stderr') &&
-          a.contentType === 'text/plain' &&
-          lastAttachment &&
-          lastAttachment.name === a.name &&
-          lastAttachment.contentType === a.contentType) {
-          lastAttachment.body += a.body as string;
-          return null;
+        if (a.body instanceof Buffer) {
+          if (isTextContentType(a.contentType)) {
+            // Content type is like this: "text/html; charset=UTF-8"
+            const charset = a.contentType.match(/charset=(.*)/)?.[1];
+            try {
+              const body = a.body.toString(charset as any || 'utf-8');
+              return {
+                name: a.name,
+                contentType: a.contentType,
+                body,
+              };
+            } catch (e) {
+              // Invalid encoding, fall through and save to file.
+            }
+          }
+
+          fs.mkdirSync(path.join(this._reportFolder, 'data'), { recursive: true });
+          const sha1 = calculateSha1(a.body) + '.dat';
+          fs.writeFileSync(path.join(this._reportFolder, 'data', sha1), a.body);
+          return {
+            name: a.name,
+            contentType: a.contentType,
+            path: 'data/' + sha1,
+            body: a.body,
+          };
         }
-        lastAttachment = a;
-        return a;
+
+        // string
+        return {
+          name: a.name,
+          contentType: a.contentType,
+          body: a.body,
+        };
       }).filter(Boolean) as TestAttachment[]
     };
   }
@@ -367,7 +479,8 @@ class HtmlBuilder {
       snippet: step.snippet,
       steps: step.steps.map(s => this._createTestStep(s)),
       location: step.location,
-      error: step.error
+      error: step.error,
+      count: step.count
     };
   }
 }
@@ -394,5 +507,35 @@ const addStats = (stats: Stats, delta: Stats): Stats => {
   stats.duration += delta.duration;
   return stats;
 };
+
+class Base64Encoder extends Transform {
+  private _remainder: Buffer | undefined;
+
+  override _transform(chunk: any, encoding: BufferEncoding, callback: TransformCallback): void {
+    if (this._remainder) {
+      chunk = Buffer.concat([this._remainder, chunk]);
+      this._remainder = undefined;
+    }
+
+    const remaining = chunk.length % 3;
+    if (remaining) {
+      this._remainder = chunk.slice(chunk.length - remaining);
+      chunk = chunk.slice(0, chunk.length - remaining);
+    }
+    chunk = chunk.toString('base64');
+    this.push(Buffer.from(chunk));
+    callback();
+  }
+
+  override _flush(callback: TransformCallback): void {
+    if (this._remainder)
+      this.push(Buffer.from(this._remainder.toString('base64')));
+    callback();
+  }
+}
+
+function isTextContentType(contentType: string) {
+  return contentType.startsWith('text/') || contentType.startsWith('application/json');
+}
 
 export default HtmlReporter;

@@ -17,15 +17,11 @@
 import type { Fixtures } from '@playwright/test';
 import { ChildProcess, execSync, spawn } from 'child_process';
 import net from 'net';
-import path from 'path';
-import socks from 'socksv5';
-import { TestServer } from '../../utils/testserver';
-import { TestProxy } from './proxy';
 
 type TestChildParams = {
   command: string[],
   cwd?: string,
-  env?: { [key: string]: string | number | boolean | undefined },
+  env?: NodeJS.ProcessEnv,
   shell?: boolean,
   onOutput?: () => void;
 };
@@ -46,9 +42,13 @@ export class TestChildProcess {
       env: {
         ...process.env,
         ...params.env,
-      } as any,
+      },
       cwd: params.cwd,
       shell: params.shell,
+      // On non-windows platforms, `detached: true` makes child process a leader of a new
+      // process group, making it possible to kill child process tree with `.kill(-pid)` command.
+      // @see https://nodejs.org/api/child_process.html#child_process_options_detached
+      detached: process.platform !== 'win32',
     });
     if (process.env.PWTEST_DEBUG)
       process.stdout.write(`\n\nLaunching ${params.command.join(' ')}\n`);
@@ -67,30 +67,32 @@ export class TestChildProcess {
     this.process.stderr.on('data', appendChunk);
     this.process.stdout.on('data', appendChunk);
 
-    const onExit = () => {
-      if (!this.process.pid || this.process.killed)
-        return;
-      try {
-        if (process.platform === 'win32')
-          execSync(`taskkill /pid ${this.process.pid} /T /F /FI "MEMUSAGE gt 0"`);
-        else
-          process.kill(-this.process.pid, 'SIGKILL');
-      } catch (e) {
-        // the process might have already stopped
-      }
-    };
-    process.on('exit', onExit);
+    const killProcessGroup = this._killProcessGroup.bind(this);
+    process.on('exit', killProcessGroup);
     this.exited = new Promise(f => {
       this.process.on('exit', (exitCode, signal) => f({ exitCode, signal }));
-      process.off('exit', onExit);
+      process.off('exit', killProcessGroup);
     });
     this.exitCode = this.exited.then(r => r.exitCode);
   }
 
   async close() {
     if (!this.process.killed)
-      this.process.kill();
+      this._killProcessGroup();
     return this.exited;
+  }
+
+  private _killProcessGroup() {
+    if (!this.process.pid || this.process.killed)
+      return;
+    try {
+      if (process.platform === 'win32')
+        execSync(`taskkill /pid ${this.process.pid} /T /F /FI "MEMUSAGE gt 0"`, { stdio: 'ignore' });
+      else
+        process.kill(-this.process.pid, 'SIGKILL');
+    } catch (e) {
+      // the process might have already stopped
+    }
   }
 
   async cleanExit() {
@@ -121,7 +123,7 @@ export const commonFixtures: Fixtures<CommonFixtures, {}> = {
       return process;
     });
     await Promise.all(processes.map(child => child.close()));
-    if (testInfo.status !== 'passed' && !process.env.PWTEST_DEBUG) {
+    if (testInfo.status !== 'passed' && testInfo.status !== 'skipped' && !process.env.PWTEST_DEBUG) {
       for (const process of processes) {
         console.log('====== ' + process.params.command.join(' '));
         console.log(process.output);
@@ -148,95 +150,5 @@ export const commonFixtures: Fixtures<CommonFixtures, {}> = {
       }
     });
     token.canceled = true;
-  },
-};
-
-export type ServerOptions = {
-  loopback?: string;
-};
-export type ServerFixtures = {
-  server: TestServer;
-  httpsServer: TestServer;
-  socksPort: number;
-  proxyServer: TestProxy;
-  asset: (p: string) => string;
-};
-
-export type ServersInternal = ServerFixtures & { socksServer: socks.SocksServer };
-export const serverFixtures: Fixtures<ServerFixtures, ServerOptions & { __servers: ServersInternal }> = {
-  loopback: [ undefined, { scope: 'worker' } ],
-  __servers: [ async ({ loopback }, run, workerInfo) => {
-    const assetsPath = path.join(__dirname, '..', 'assets');
-    const cachedPath = path.join(__dirname, '..', 'assets', 'cached');
-
-    const port = 8907 + workerInfo.workerIndex * 4;
-    const server = await TestServer.create(assetsPath, port, loopback);
-    server.enableHTTPCache(cachedPath);
-
-    const httpsPort = port + 1;
-    const httpsServer = await TestServer.createHTTPS(assetsPath, httpsPort, loopback);
-    httpsServer.enableHTTPCache(cachedPath);
-
-    const socksServer = socks.createServer((info, accept, deny) => {
-      const socket = accept(true);
-      if (socket) {
-        // Catch and ignore ECONNRESET errors.
-        socket.on('error', () => {});
-        const body = '<html><title>Served by the SOCKS proxy</title></html>';
-        socket.end([
-          'HTTP/1.1 200 OK',
-          'Connection: close',
-          'Content-Type: text/html',
-          'Content-Length: ' + Buffer.byteLength(body),
-          '',
-          body
-        ].join('\r\n'));
-      }
-    });
-    const socksPort = port + 2;
-    socksServer.listen(socksPort, 'localhost');
-    socksServer.useAuth(socks.auth.None());
-
-    const proxyPort = port + 3;
-    const proxyServer = await TestProxy.create(proxyPort);
-
-    await run({
-      asset: (p: string) => path.join(__dirname, '..', 'assets', ...p.split('/')),
-      server,
-      httpsServer,
-      socksPort,
-      proxyServer,
-      socksServer,
-    });
-
-    await Promise.all([
-      server.stop(),
-      httpsServer.stop(),
-      socksServer.close(),
-      proxyServer.stop(),
-    ]);
-  }, { scope: 'worker' } ],
-
-  server: async ({ __servers }, run) => {
-    __servers.server.reset();
-    await run(__servers.server);
-  },
-
-  httpsServer: async ({ __servers }, run) => {
-    __servers.httpsServer.reset();
-    await run(__servers.httpsServer);
-  },
-
-  socksPort: async ({ __servers }, run) => {
-    await run(__servers.socksPort);
-  },
-
-  proxyServer: async ({ __servers }, run) => {
-    __servers.proxyServer.reset();
-    await run(__servers.proxyServer);
-  },
-
-  asset: async ({ __servers }, run) => {
-    await run(__servers.asset);
   },
 };

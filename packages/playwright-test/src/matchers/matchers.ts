@@ -14,25 +14,31 @@
  * limitations under the License.
  */
 
-import { Locator, Page } from 'playwright-core';
-import { FrameExpectOptions } from 'playwright-core/src/client/types';
-import { constructURLBasedOnBaseURL } from 'playwright-core/src/utils/utils';
+import { Locator, Page, APIResponse } from 'playwright-core';
+import { FrameExpectOptions } from 'playwright-core/lib/client/types';
+import { constructURLBasedOnBaseURL } from 'playwright-core/lib/utils/utils';
 import type { Expect } from '../types';
+import { expectType } from '../util';
 import { toBeTruthy } from './toBeTruthy';
 import { toEqual } from './toEqual';
-import { toExpectedTextValues, toMatchText } from './toMatchText';
+import { callLogText, toExpectedTextValues, toMatchText } from './toMatchText';
 
 interface LocatorEx extends Locator {
-  _expect(expression: string, options: FrameExpectOptions): Promise<{ matches: boolean, received?: any, log?: string[] }>;
+  _expect(expression: string, options: Omit<FrameExpectOptions, 'expectedValue'> & { expectedValue?: any }): Promise<{ matches: boolean, received?: any, log?: string[] }>;
+}
+
+interface APIResponseEx extends APIResponse {
+  _fetchLog(): Promise<string[]>;
 }
 
 export function toBeChecked(
   this: ReturnType<Expect['getState']>,
   locator: LocatorEx,
-  options?: { timeout?: number },
+  options?: { checked?: boolean, timeout?: number },
 ) {
   return toBeTruthy.call(this, 'toBeChecked', locator, 'Locator', async (isNot, timeout) => {
-    return await locator._expect('to.be.checked', { isNot, timeout });
+    const checked = !options || options.checked === undefined || options.checked === true;
+    return await locator._expect(checked ? 'to.be.checked' : 'to.be.unchecked', { isNot, timeout });
   }, options);
 }
 
@@ -224,6 +230,18 @@ export function toHaveText(
   }
 }
 
+export function toHaveValue(
+  this: ReturnType<Expect['getState']>,
+  locator: LocatorEx,
+  expected: string | RegExp,
+  options?: { timeout?: number },
+) {
+  return toMatchText.call(this, 'toHaveValue', locator, 'Locator', async (isNot, timeout) => {
+    const expectedText = toExpectedTextValues([expected]);
+    return await locator._expect('to.have.value', { expectedText, isNot, timeout });
+  }, expected, options);
+}
+
 export function toHaveTitle(
   this: ReturnType<Expect['getState']>,
   page: Page,
@@ -252,14 +270,14 @@ export function toHaveURL(
   }, expected, options);
 }
 
-export function toHaveValue(
+export async function toBeOK(
   this: ReturnType<Expect['getState']>,
-  locator: LocatorEx,
-  expected: string | RegExp,
-  options?: { timeout?: number },
+  response: APIResponseEx
 ) {
-  return toMatchText.call(this, 'toHaveValue', locator, 'Locator', async (isNot, timeout) => {
-    const expectedText = toExpectedTextValues([expected]);
-    return await locator._expect('to.have.value', { expectedText, isNot, timeout });
-  }, expected, options);
+  const matcherName = 'toBeOK';
+  expectType(response, 'APIResponse', matcherName);
+  const log = (this.isNot === response.ok()) ? await response._fetchLog() : [];
+  const message = () => this.utils.matcherHint(matcherName, undefined, '', { isNot: this.isNot }) + callLogText(log);
+  const pass = response.ok();
+  return { message, pass };
 }

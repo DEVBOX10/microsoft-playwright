@@ -591,7 +591,7 @@ await page.SetContentAsync("<script>\n" +
 await page.ClickAsync("div");
 // Note: it makes sense to await the result here, because otherwise, the context
 //  gets closed and the binding function will throw an exception.
-Assert.Equal("Click me", await result.Task);
+Assert.AreEqual("Click me", await result.Task);
 ```
 
 ### param: BrowserContext.exposeBinding.name
@@ -850,7 +850,7 @@ Creates a new page in the browser context.
 Returns all open pages in the context.
 
 ## property: BrowserContext.request
-* langs: js
+* langs: js, java, python
 - type: <[APIRequestContext]>
 
 API testing helper associated with this context. Requests made with this API will use context cookies.

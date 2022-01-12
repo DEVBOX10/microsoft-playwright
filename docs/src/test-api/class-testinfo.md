@@ -38,18 +38,23 @@ Learn more about [test annotations](./test-annotations.md).
   - `path` <[void]|[string]> Optional path on the filesystem to the attached file.
   - `body` <[void]|[Buffer]> Optional attachment body used instead of a file.
 
-The list of files or buffers attached to the current test. Some reporters show test attachments. For example, you can attach a screenshot to the test.
+The list of files or buffers attached to the current test. Some reporters show test attachments.
+
+To add an attachment, use [`method: TestInfo.attach`] instead of directly pushing onto this array.
+
+## method: TestInfo.attach
+
+Attach a value or a file from disk to the current test. Some reporters show test attachments. Either [`option: path`] or [`option: body`] must be specified, but not both.
+
+For example, you can attach a screenshot to the test:
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
 
 test('basic test', async ({ page }, testInfo) => {
   await page.goto('https://playwright.dev');
-
-  // Capture a screenshot and attach it.
-  const path = testInfo.outputPath('screenshot.png');
-  await page.screenshot({ path });
-  testInfo.attachments.push({ name: 'screenshot', path, contentType: 'image/png' });
+  const screenshot = await page.screenshot();
+  await testInfo.attach('screenshot', { body: screenshot, contentType: 'image/png' });
 });
 ```
 
@@ -58,13 +63,51 @@ import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }, testInfo) => {
   await page.goto('https://playwright.dev');
-
-  // Capture a screenshot and attach it.
-  const path = testInfo.outputPath('screenshot.png');
-  await page.screenshot({ path });
-  testInfo.attachments.push({ name: 'screenshot', path, contentType: 'image/png' });
+  const screenshot = await page.screenshot();
+  await testInfo.attach('screenshot', { body: screenshot, contentType: 'image/png' });
 });
 ```
+
+Or you can attach files returned by your APIs:
+
+```js js-flavor=js
+const { test, expect } = require('@playwright/test');
+
+test('basic test', async ({}, testInfo) => {
+  const { download } = require('./my-custom-helpers');
+  const tmpPath = await download('a');
+  await testInfo.attach('downloaded', { path: tmpPath });
+});
+```
+
+```js js-flavor=ts
+import { test, expect } from '@playwright/test';
+
+test('basic test', async ({}, testInfo) => {
+  const { download } = require('./my-custom-helpers');
+  const tmpPath = await download('a');
+  await testInfo.attach('downloaded', { path: tmpPath });
+});
+```
+
+:::note
+[`method: TestInfo.attach`] automatically takes care of copying attached files to a
+location that is accessible to reporters. You can safely remove the attachment
+after awaiting the attach call.
+:::
+
+### param: TestInfo.attach.name
+- `name` <[string]> Attachment name.
+
+### option: TestInfo.attach.body
+- `body` <[string]|[Buffer]> Attachment body. Mutually exclusive with [`option: path`].
+
+### option: TestInfo.attach.contentType
+- `contentType` <[void]|[string]> Optional content type of this attachment to properly present in the report, for example `'application/json'` or `'image/png'`. If omitted, content type is inferred based on the [`option: path`], or defaults to `text/plain` for [string] attachments and `application/octet-stream` for [Buffer] attachments.
+
+### option: TestInfo.attach.path
+- `path` <[string]> Path on the filesystem to the attached file. Mutually exclusive with [`option: body`].
+
 
 ## property: TestInfo.column
 - type: <[int]>
@@ -81,7 +124,7 @@ Processed configuration from the [configuration file](./test-configuration.md).
 ## property: TestInfo.duration
 - type: <[int]>
 
-The number of milliseconds the test took to finish. Always zero before the test finishes, either successfully or not.
+The number of milliseconds the test took to finish. Always zero before the test finishes, either successfully or not. Can be used in [`method: Test.afterEach`] hook.
 
 
 ## property: TestInfo.error
@@ -141,7 +184,7 @@ Absolute path to a file where the currently running test is declared.
 
 ## method: TestInfo.fixme
 
-Marks the currently running test as "fixme". The test will be skipped, but the intention is to fix it. This is similar to [`method: Test.fixme`].
+Marks the currently running test as "fixme". The test will be skipped, but the intention is to fix it. This is similar to [`method: Test.fixme#2`].
 
 ### param: TestInfo.fixme.condition
 - `condition` <[void]|[boolean]>
@@ -162,6 +205,11 @@ Test function as passed to `test(title, testFunction)`.
 - type: <[int]>
 
 Line number where the currently running test is declared.
+
+## property: TestInfo.snapshotDir
+- type: <[string]>
+
+Absolute path to the snapshot output directory for this specific test. Each test suite gets its own directory so they cannot conflict.
 
 ## property: TestInfo.outputDir
 - type: <[string]>
@@ -201,6 +249,13 @@ test('example test', async ({}, testInfo) => {
 
 Path segments to append at the end of the resulting path.
 
+## property: TestInfo.parallelIndex
+- type: <[int]>
+
+The index of the worker between `0` and `workers - 1`. It is guaranteed that workers running at the same time have a different `parallelIndex`. When a worker is restarted, for example after a failure, the new worker process has the same `parallelIndex`.
+
+Also available as `process.env.TEST_PARALLEL_INDEX`. Learn more about [parallelism and sharding](./test-parallel.md) with Playwright Test.
+
 ## property: TestInfo.project
 - type: <[TestProject]>
 
@@ -217,9 +272,43 @@ Specifies a unique repeat index when running in "repeat each" mode. This mode is
 
 Specifies the retry number when the test is retried after a failure. The first test run has [`property: TestInfo.retry`] equal to zero, the first retry has it equal to one, and so on. Learn more about [retries](./test-retries.md#retries).
 
+```js js-flavor=js
+const { test, expect } = require('@playwright/test');
+
+test.beforeEach(async ({}, testInfo) => {
+  // You can access testInfo.retry in any hook or fixture.
+  if (testInfo.retry > 0)
+    console.log(`Retrying!`);
+});
+
+test('my test', async ({ page }, testInfo) => {
+  // Here we clear some server-side state when retrying.
+  if (testInfo.retry)
+    await cleanSomeCachesOnTheServer();
+  // ...
+});
+```
+
+```js js-flavor=ts
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({}, testInfo) => {
+  // You can access testInfo.retry in any hook or fixture.
+  if (testInfo.retry > 0)
+    console.log(`Retrying!`);
+});
+
+test('my test', async ({ page }, testInfo) => {
+  // Here we clear some server-side state when retrying.
+  if (testInfo.retry)
+    await cleanSomeCachesOnTheServer();
+  // ...
+});
+```
+
 ## method: TestInfo.setTimeout
 
-Changes the timeout for the currently running test. Zero means no timeout.
+Changes the timeout for the currently running test. Zero means no timeout. Learn more about [various timeouts](./test-timeouts.md).
 
 Timeout is usually specified in the [configuration file](./test-configuration.md), but it could be useful to change the timeout in certain scenarios:
 
@@ -330,7 +419,9 @@ Output written to `process.stdout` or `console.log` during the test execution.
 ## property: TestInfo.timeout
 - type: <[int]>
 
-Timeout in milliseconds for the currently running test. Zero means no timeout. Timeout is usually specified in the [configuration file](./test-configuration.md)
+Timeout in milliseconds for the currently running test. Zero means no timeout. Learn more about [various timeouts](./test-timeouts.md).
+
+Timeout is usually specified in the [configuration file](./test-configuration.md)
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -355,7 +446,14 @@ test.beforeEach(async ({ page }, testInfo) => {
 
 The title of the currently running test as passed to `test(title, testFunction)`.
 
+## property: TestInfo.titlePath
+- type: <[Array]<[string]>>
+
+The full title path starting with the project.
+
 ## property: TestInfo.workerIndex
 - type: <[int]>
 
-The unique index of the worker process that is running the test. Also available as `process.env.TEST_WORKER_INDEX`. Learn more about [parallelism and sharding](./test-parallel.md) with Playwright Test.
+The unique index of the worker process that is running the test. When a worker is restarted, for example after a failure, the new worker process gets a new unique `workerIndex`.
+
+Also available as `process.env.TEST_WORKER_INDEX`. Learn more about [parallelism and sharding](./test-parallel.md) with Playwright Test.

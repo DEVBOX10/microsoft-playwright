@@ -18,7 +18,7 @@ Learn more about [test annotations](./test-annotations.md).
 - type: <[TestStatus]<"passed"|"failed"|"timedOut"|"skipped">>
 
 Expected test status.
-* Tests marked as [`method: Test.skip#1`] or [`method: Test.fixme`] are expected to be `'skipped'`.
+* Tests marked as [`method: Test.skip#1`] or [`method: Test.fixme#1`] are expected to be `'skipped'`.
 * Tests marked as [`method: Test.fail`] are expected to be `'failed'`.
 * Other tests are expected to be `'passed'`.
 
@@ -41,6 +41,16 @@ Testing outcome for this test. Note that outcome is not the same as [`property: 
 * Test that is expected to fail and actually fails is `'expected'`.
 * Test that passes on a second retry is `'flaky'`.
 
+## property: TestCase.parent
+- type: <[Suite]>
+
+Suite this test case belongs to.
+
+## property: TestCase.repeatEachIndex
+- type: <[int]>
+
+Contains the repeat index when running in "repeat each" mode. This mode is enabled by passing `--repeat-each` to the [command line](./test-cli.md).
+
 ## property: TestCase.results
 - type: <[Array]<[TestResult]>>
 
@@ -52,11 +62,6 @@ Results for each run of this test.
 The maximum number of retries given to this test in the configuration.
 
 Learn more about [test retries](./test-retries.md#retries).
-
-## property: TestCase.suite
-- type: <[Suite]>
-
-Suite this test case belongs to.
 
 ## property: TestCase.timeout
 - type: <[float]>

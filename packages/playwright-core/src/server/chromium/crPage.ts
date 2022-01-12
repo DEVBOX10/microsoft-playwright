@@ -244,15 +244,11 @@ export class CRPage implements PageDelegate {
       await this._browserContext._browser._closePage(this);
   }
 
-  canScreenshotOutsideViewport(): boolean {
-    return false;
-  }
-
   async setBackgroundColor(color?: { r: number; g: number; b: number; a: number; }): Promise<void> {
     await this._mainFrameSession._client.send('Emulation.setDefaultBackgroundColorOverride', { color });
   }
 
-  async takeScreenshot(progress: Progress, format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined): Promise<Buffer> {
+  async takeScreenshot(progress: Progress, format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined, fitsViewport: boolean | undefined): Promise<Buffer> {
     const { visualViewport } = await this._mainFrameSession._client.send('Page.getLayoutMetrics');
     if (!documentRect) {
       documentRect = {
@@ -268,12 +264,8 @@ export class CRPage implements PageDelegate {
     // ignore current page scale.
     const clip = { ...documentRect, scale: viewportRect ? visualViewport.scale : 1 };
     progress.throwIfAborted();
-    const result = await this._mainFrameSession._client.send('Page.captureScreenshot', { format, quality, clip });
+    const result = await this._mainFrameSession._client.send('Page.captureScreenshot', { format, quality, clip, captureBeyondViewport: !fitsViewport });
     return Buffer.from(result.data, 'base64');
-  }
-
-  async resetViewport(): Promise<void> {
-    await this._mainFrameSession._client.send('Emulation.setDeviceMetricsOverride', { mobile: false, width: 0, height: 0, deviceScaleFactor: 0 });
   }
 
   async getContentFrame(handle: dom.ElementHandle): Promise<frames.Frame | null> {
@@ -663,6 +655,7 @@ class FrameSession {
     else if (contextPayload.name === UTILITY_WORLD_NAME)
       worldName = 'utility';
     const context = new dom.FrameExecutionContext(delegate, frame, worldName);
+    (context as any)[contextDelegateSymbol] = delegate;
     if (worldName)
       frame._contextCreated(worldName, context);
     this._contextIdToContext.set(contextPayload.id, context);
@@ -773,7 +766,9 @@ class FrameSession {
       // @see https://github.com/GoogleChrome/puppeteer/issues/3865
       return;
     }
-    const context = this._contextIdToContext.get(event.executionContextId)!;
+    const context = this._contextIdToContext.get(event.executionContextId);
+    if (!context)
+      return;
     const values = event.args.map(arg => context.createHandle(arg));
     this._page._addConsoleMessage(event.type, values, toConsoleMessageLocation(event.stackTrace));
   }
@@ -786,10 +781,12 @@ class FrameSession {
   }
 
   async _onBindingCalled(event: Protocol.Runtime.bindingCalledPayload) {
-    const context = this._contextIdToContext.get(event.executionContextId)!;
     const pageOrError = await this._crPage.pageOrError();
-    if (!(pageOrError instanceof Error))
-      await this._page._onBindingCalled(event.payload, context);
+    if (!(pageOrError instanceof Error)) {
+      const context = this._contextIdToContext.get(event.executionContextId);
+      if (context)
+        await this._page._onBindingCalled(event.payload, context);
+    }
   }
 
   _onDialog(event: Protocol.Page.javascriptDialogOpeningPayload) {
@@ -853,7 +850,9 @@ class FrameSession {
   }
 
   _onScreencastFrame(payload: Protocol.Page.screencastFramePayload) {
-    this._client.send('Page.screencastFrameAck', { sessionId: payload.sessionId }).catch(() => {});
+    this._page.throttleScreencastFrameAck(() => {
+      this._client.send('Page.screencastFrameAck', { sessionId: payload.sessionId }).catch(() => {});
+    });
     const buffer = Buffer.from(payload.data, 'base64');
     this._page.emit(Page.Events.ScreencastFrame, {
       buffer,
@@ -1129,7 +1128,7 @@ class FrameSession {
   async _adoptBackendNodeId(backendNodeId: Protocol.DOM.BackendNodeId, to: dom.FrameExecutionContext): Promise<dom.ElementHandle> {
     const result = await this._client._sendMayFail('DOM.resolveNode', {
       backendNodeId,
-      executionContextId: (to._delegate as CRExecutionContext)._contextId,
+      executionContextId: ((to as any)[contextDelegateSymbol] as CRExecutionContext)._contextId,
     });
     if (!result || result.object.subtype === 'null')
       throw new Error(dom.kUnableToAdoptErrorMessage);
@@ -1161,3 +1160,5 @@ async function emulateTimezone(session: CRSession, timezoneId: string) {
     throw exception;
   }
 }
+
+const contextDelegateSymbol = Symbol('delegate');

@@ -39,7 +39,7 @@ test('should get top level stdio', async ({ runInlineTest }) => {
   ]);
 });
 
-test('should get stdio from env afterAll', async ({ runInlineTest }) => {
+test('should get stdio from worker fixture teardown', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.ts': `
       export const test = pwt.test.extend({

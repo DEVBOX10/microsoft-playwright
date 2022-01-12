@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, stripAscii } from './playwright-test-fixtures';
 
 test('hooks should work with fixtures', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
@@ -139,26 +139,30 @@ test('beforeEach failure should prevent the test, but not other hooks', async ({
 });
 
 test('beforeAll should be run once', async ({ runInlineTest }) => {
-  const report = await runInlineTest({
+  const result = await runInlineTest({
     'a.test.js': `
       const { test } = pwt;
       test.describe('suite1', () => {
         let counter = 0;
         test.beforeAll(async () => {
-          console.log('beforeAll1-' + (++counter));
+          console.log('\\n%%beforeAll1-' + (++counter));
         });
         test.describe('suite2', () => {
           test.beforeAll(async () => {
-            console.log('beforeAll2');
+            console.log('\\n%%beforeAll2');
           });
           test('one', async ({}) => {
-            console.log('test');
+            console.log('\\n%%test');
           });
         });
       });
     `,
   });
-  expect(report.output).toContain('beforeAll1-1\nbeforeAll2\ntest');
+  expect(result.output.split('\n').filter(line => line.startsWith('%%'))).toEqual([
+    '%%beforeAll1-1',
+    '%%beforeAll2',
+    '%%test',
+  ]);
 });
 
 test('beforeEach should be able to skip a test', async ({ runInlineTest }) => {
@@ -446,7 +450,7 @@ test('beforeAll timeout should be reported', async ({ runInlineTest }) => {
   expect(result.output).toContain('Timeout of 1000ms exceeded in beforeAll hook.');
 });
 
-test('afterAll timeout should be reported', async ({ runInlineTest }) => {
+test('afterAll timeout should be reported', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'a.test.js': `
       const { test } = pwt;
@@ -466,6 +470,7 @@ test('afterAll timeout should be reported', async ({ runInlineTest }) => {
     '%%afterAll',
   ]);
   expect(result.output).toContain('Timeout of 1000ms exceeded in afterAll hook.');
+  expect(result.output).toContain(`at ${testInfo.outputPath('a.test.js')}:6:12`);
 });
 
 test('beforeAll and afterAll timeouts at the same time should be reported', async ({ runInlineTest }) => {
@@ -492,4 +497,93 @@ test('beforeAll and afterAll timeouts at the same time should be reported', asyn
     '%%afterAll',
   ]);
   expect(result.output).toContain('Timeout of 1000ms exceeded in beforeAll hook.');
+});
+
+test('afterEach should get the test status and duration right away', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.js': `
+      const { test } = pwt;
+      test.afterEach(({}, testInfo) => {
+        const duration = testInfo.duration ? 'XXms' : 'none';
+        console.log('\\n%%' + testInfo.title + ': ' + testInfo.status + '; ' + duration);
+      });
+      test('failing', () => {
+        throw new Error('Oh my!');
+      });
+      test('timing out', async () => {
+        test.setTimeout(100);
+        await new Promise(() => {});
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(2);
+  expect(result.output.split('\n').filter(line => line.startsWith('%%'))).toEqual([
+    '%%failing: failed; XXms',
+    '%%timing out: timedOut; XXms',
+  ]);
+});
+
+test('uncaught error in beforeEach should not be masked by another error', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.js': `
+      const test = pwt.test.extend({
+        foo: async ({}, use) => {
+          let cb;
+          await use(new Promise((f, r) => cb = r));
+          cb(new Error('Oh my!'));
+        },
+      });
+      test.beforeEach(async ({ foo }, testInfo) => {
+        setTimeout(() => {
+          expect(1).toBe(2);
+        }, 0);
+        await foo;
+      });
+      test('passing', () => {
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(stripAscii(result.output)).toContain('Expected: 2');
+  expect(stripAscii(result.output)).toContain('Received: 1');
+});
+
+test('should report error from fixture teardown when beforeAll times out', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.js': `
+      const test = pwt.test.extend({
+        foo: async ({}, use) => {
+          let cb;
+          await use(new Promise((f, r) => cb = r));
+          cb(new Error('Oh my!'));
+        },
+      });
+      test.beforeAll(async ({ foo }, testInfo) => {
+        await foo;
+      });
+      test('passing', () => {
+      });
+    `,
+  }, { timeout: 1000 });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(stripAscii(result.output)).toContain('Timeout of 1000ms exceeded in beforeAll hook.');
+  expect(stripAscii(result.output)).toContain('Error: Oh my!');
+});
+
+test('should not hang and report results when worker process suddenly exits during afterAll', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.js': `
+      const { test } = pwt;
+      test('passed', () => {});
+      test.afterAll(() => { process.exit(0); });
+    `
+  }, { reporter: 'line' });
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('Worker process exited unexpectedly');
+  expect(stripAscii(result.output)).toContain('[1/1] a.spec.js:6:7 › passed');
+  expect(stripAscii(result.output)).toContain('[1/1] a.spec.js:7:12 › afterAll');
 });

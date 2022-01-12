@@ -29,7 +29,7 @@ for (const [name, url] of Object.entries(reacts)) {
       await page.goto(server.PREFIX + url);
     });
 
-    it('should work with single-root elements', async ({ page }) => {
+    it('should work with single-root elements #smoke', async ({ page }) => {
       expect(await page.$$eval(`_react=BookList`, els => els.length)).toBe(1);
       expect(await page.$$eval(`_react=BookItem`, els => els.length)).toBe(3);
       expect(await page.$$eval(`_react=BookList >> _react=BookItem`, els => els.length)).toBe(3);
@@ -133,6 +133,18 @@ for (const [name, url] of Object.entries(reacts)) {
         await expect(page.locator('css=#root >> _react=BookItem')).toHaveCount(3);
         await expect(page.locator('css=#root2 >> _react=BookItem')).toHaveCount(4);
       });
+    });
+
+    it('should work with multiroot react inside shadow DOM', async ({ page }) => {
+      await expect(page.locator(`_react=BookItem`)).toHaveCount(3);
+      await page.evaluate(() => {
+        const anotherRoot = document.createElement('div');
+        document.body.append(anotherRoot);
+        const shadowRoot = anotherRoot.attachShadow({ mode: 'open' });
+        // @ts-ignore
+        window.mountApp(shadowRoot);
+      });
+      await expect(page.locator(`_react=BookItem`)).toHaveCount(6);
     });
   });
 }

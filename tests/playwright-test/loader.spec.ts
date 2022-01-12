@@ -185,7 +185,7 @@ test('should load esm when package.json has type module', async ({ runInlineTest
       export default { projects: [{name: 'foo'}] };
     `,
     'package.json': JSON.stringify({ type: 'module' }),
-    'a.test.ts': `
+    'a.esm.test.js': `
       const { test } = pwt;
       test('check project name', ({}, testInfo) => {
         expect(testInfo.project.name).toBe('foo');
@@ -214,4 +214,54 @@ test('should load esm config files', async ({ runInlineTest }) => {
 
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
+});
+
+test('should fail to load ts from esm when package.json has type module', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `
+      //@no-header
+      import * as fs from 'fs';
+      export default { projects: [{name: 'foo'}] };
+    `,
+    'package.json': JSON.stringify({ type: 'module' }),
+    'a.test.js': `
+      import { foo } from './b.ts';
+      const { test } = pwt;
+      test('check project name', ({}, testInfo) => {
+        expect(testInfo.project.name).toBe('foo');
+      });
+    `,
+    'b.ts': `
+      export const foo: string = 'foo';
+    `
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Cannot import a typescript file from an esmodule');
+});
+
+test('should import esm from ts when package.json has type module in experimental mode', async ({ runInlineTest }) => {
+  // We only support experimental esm mode on Node 16+
+  test.skip(parseInt(process.version.slice(1), 10) < 16);
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      import * as fs from 'fs';
+      export default { projects: [{name: 'foo'}] };
+    `,
+    'package.json': JSON.stringify({ type: 'module' }),
+    'a.test.ts': `
+      import { foo } from './b.ts';
+      const { test } = pwt;
+      test('check project name', ({}, testInfo) => {
+        expect(testInfo.project.name).toBe('foo');
+      });
+    `,
+    'b.ts': `
+      export const foo: string = 'foo';
+    `
+  }, {}, {
+    PW_EXPERIMENTAL_TS_ESM: true
+  });
+
+  expect(result.exitCode).toBe(0);
 });

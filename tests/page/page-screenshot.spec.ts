@@ -24,7 +24,7 @@ it.describe('page screenshot', () => {
   it.skip(({ browserName, headless }) => browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
   it.skip(({ isAndroid }) => isAndroid, 'Different viewport');
 
-  it('should work', async ({ page, server }) => {
+  it('should work #smoke', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
     const screenshot = await page.screenshot();
@@ -171,8 +171,7 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-canvas.png', { threshold: 0.4 });
   });
 
-  it('should capture canvas changes', async ({ page, browserName, isMac, isElectron }) => {
-    it.fail(browserName === 'webkit' && isMac, 'https://github.com/microsoft/playwright/issues/8796');
+  it('should capture canvas changes', async ({ page, isElectron }) => {
     it.skip(isElectron);
     await page.goto('data:text/html,<canvas></canvas>');
     await page.evaluate(() => {

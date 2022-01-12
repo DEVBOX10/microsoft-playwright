@@ -16,14 +16,14 @@
  */
 
 import { test as it, expect } from './pageTest';
-import { attachFrame } from '../config/utils';
+import { attachFrame, detachFrame } from '../config/utils';
 
 async function giveItAChanceToClick(page) {
   for (let i = 0; i < 5; i++)
     await page.evaluate(() => new Promise(f => requestAnimationFrame(() => requestAnimationFrame(f))));
 }
 
-it('should click the button', async ({ page, server }) => {
+it('should click the button #smoke', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/button.html');
   await page.click('button');
   expect(await page.evaluate('result')).toBe('Clicked');
@@ -819,4 +819,35 @@ it('should retry when navigating during the click', async ({ page, server, mode 
   };
   const error = await page.click('button', { __testHookBeforeStable, timeout: 2000 } as any).catch(e => e);
   expect(error.message).toContain('element was detached from the DOM, retrying');
+});
+
+it('should not hang when frame is detached', async ({ page, server, mode }) => {
+  it.skip(mode !== 'default');
+
+  await attachFrame(page, 'frame1', server.EMPTY_PAGE);
+  const frame = page.frames()[1];
+  await frame.goto(server.PREFIX + '/input/button.html');
+
+  // Start moving the button.
+  await frame.$eval('button', button => {
+    button.style.transition = 'margin 5s linear 0s';
+    button.style.marginLeft = '200px';
+  });
+
+  let resolveDetachPromise;
+  const detachPromise = new Promise(resolve => resolveDetachPromise = resolve);
+  const __testHookBeforeStable = () => {
+    // Detach the frame after "waiting for stable" has started.
+
+    setTimeout(async () => {
+      await detachFrame(page, 'frame1');
+      resolveDetachPromise();
+    }, 1000);
+  };
+  const promise = frame.click('button', { __testHookBeforeStable } as any).catch(e => e);
+
+  await detachPromise;
+  const error = await promise;
+  expect(error).toBeTruthy();
+  expect(error.message).toMatch(/frame got detached|Frame was detached/);
 });

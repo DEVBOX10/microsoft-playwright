@@ -18,8 +18,9 @@ import type { BrowserContextOptions } from '../../../..';
 import { LanguageGenerator, LanguageGeneratorOptions, sanitizeDeviceOptions, toSignalMap } from './language';
 import { ActionInContext } from './codeGenerator';
 import { Action, actionTitle } from './recorderActions';
-import { escapeWithQuotes, MouseClickOptions, toModifiers } from './utils';
+import { MouseClickOptions, toModifiers } from './utils';
 import deviceDescriptors from '../../deviceDescriptors';
+import { escapeWithQuotes } from '../../../utils/stringUtils';
 
 export class JavaScriptLanguageGenerator implements LanguageGenerator {
   id: string;
@@ -161,7 +162,7 @@ export class JavaScriptLanguageGenerator implements LanguageGenerator {
     const formatter = new JavaScriptFormatter();
     const useText = formatContextOptions(options.contextOptions, options.deviceName);
     formatter.add(`
-      const { test, expect${options.deviceName ? ', devices' : ''} } = require('@playwright/test');
+      import { test, expect${options.deviceName ? ', devices' : ''} } from '@playwright/test';
 ${useText ? '\ntest.use(' + useText + ');\n' : ''}
       test('test', async ({ page }) => {`);
     return formatter.format();

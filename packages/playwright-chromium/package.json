@@ -1,6 +1,6 @@
 {
   "name": "playwright-chromium",
-  "version": "1.17.0-next",
+  "version": "1.18.0-next",
   "description": "A high-level API to automate Chromium",
   "repository": "github:Microsoft/playwright",
   "homepage": "https://playwright.dev",
@@ -16,7 +16,8 @@
       "import": "./index.mjs",
       "require": "./index.js"
     },
-    "./": "./"
+    "./cli": "./cli.js",
+    "./package.json": "./package.json"
   },
   "bin": {
     "playwright": "./cli.js"
@@ -25,6 +26,6 @@
     "install": "node install.js"
   },
   "dependencies": {
-    "playwright-core": "=1.17.0-next"
+    "playwright-core": "=1.18.0-next"
   }
 }

@@ -18,6 +18,7 @@ import { Point, StackFrame, SerializedError } from './channels';
 
 export type CallMetadata = {
   id: string;
+  wallTime: number;
   startTime: number;
   endTime: number;
   pauseStartTime?: number;
@@ -26,6 +27,7 @@ export type CallMetadata = {
   method: string;
   params: any;
   apiName?: string;
+  internal?: boolean;
   stack?: StackFrame[];
   log: string[];
   afterSnapshot?: string;

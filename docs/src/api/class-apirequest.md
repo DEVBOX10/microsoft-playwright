@@ -1,10 +1,13 @@
 # class: APIRequest
-* langs: js
+* langs: js, java, python
 
-Exposes API that can be used for the Web API testing.
+Exposes API that can be used for the Web API testing. Each Playwright browser context
+has a APIRequestContext instance attached which shares cookies with the page context.
+Its also possible to create a new APIRequestContext instance manually. For more information
+see [here](./class-apirequestcontext).
 
 ## async method: APIRequest.newContext
-* langs: js
+* langs: js, java, python
 - returns: <[APIRequestContext]>
 
 Creates new instances of [APIRequestContext].
@@ -28,8 +31,10 @@ Maximum time in milliseconds to wait for the response. Defaults to
 Methods like [`method: APIRequestContext.get`] take the base URL into consideration by using the [`URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor for building the corresponding URL. Examples:
 * baseURL: `http://localhost:3000` and sending request to `/bar.html` results in `http://localhost:3000/bar.html`
 * baseURL: `http://localhost:3000/foo/` and sending request to `./bar.html` results in `http://localhost:3000/foo/bar.html`
+* baseURL: `http://localhost:3000/foo` (without trailing slash) and navigating to `./bar.html` results in `http://localhost:3000/bar.html`
 
 ### option: APIRequest.newContext.storageState
+* langs: js, python
 - `storageState` <[path]|[Object]>
   - `cookies` <[Array]<[Object]>>
     - `name` <[string]>
@@ -51,3 +56,13 @@ obtained via [`method: BrowserContext.storageState`] or [`method: APIRequestCont
 file with saved storage, or the value returned by one of [`method: BrowserContext.storageState`] or
 [`method: APIRequestContext.storageState`] methods.
 
+### option: APIRequest.newContext.storageState
+* langs: java
+- `storageState` <[string]>
+
+Populates context with given storage state. This option can be used to initialize context with logged-in information
+obtained via [`method: BrowserContext.storageState`] or [`method: APIRequestContext.storageState`]. Either a path to the
+file with saved storage, or the value returned by one of [`method: BrowserContext.storageState`] or
+[`method: APIRequestContext.storageState`] methods.
+
+### option: APIRequest.newContext.storageStatePath = %%-csharp-java-context-option-storage-state-path-%%

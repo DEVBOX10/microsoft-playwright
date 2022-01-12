@@ -72,13 +72,13 @@ test('should save stdio', async ({ runInlineTest }, testInfo) => {
     {
       name: 'stdout',
       contentType: 'application/octet-stream',
-      body: 'AQID'
+      body: { data: [1, 2, 3], type: 'Buffer' }
     },
     { name: 'stderr', contentType: 'text/plain', body: 'STDERR\n' },
     {
       name: 'stderr',
       contentType: 'application/octet-stream',
-      body: 'BAUG'
+      body: { data: [4, 5, 6], type: 'Buffer' }
     }
   ]);
 });
@@ -108,6 +108,134 @@ test('should save attachments', async ({ runInlineTest }, testInfo) => {
   expect(result.attachments[1].name).toBe('text');
   const path2 = result.attachments[1].path;
   expect(path2).toBe('dummy-path');
+});
+
+test(`testInfo.attach should save attachments via path`, async ({ runInlineTest }, testInfo) => {
+  await runInlineTest({
+    'a.test.js': `
+      const path = require('path');
+      const fs = require('fs');
+      const { test } = pwt;
+      test('infer contentType from path', async ({}, testInfo) => {
+        const tmpPath = testInfo.outputPath('example.json');
+        await fs.promises.writeFile(tmpPath, 'We <3 Playwright!');
+        await testInfo.attach('foo', { path: tmpPath });
+        // Forcibly remove the tmp file to ensure attach is actually automagically copying it
+        await fs.promises.unlink(tmpPath);
+      });
+
+      test('explicit contentType (over extension)', async ({}, testInfo) => {
+        const tmpPath = testInfo.outputPath('example.json');
+        await fs.promises.writeFile(tmpPath, 'We <3 Playwright!');
+        await testInfo.attach('foo', { path: tmpPath, contentType: 'image/png' });
+        // Forcibly remove the tmp file to ensure attach is actually automagically copying it
+        await fs.promises.unlink(tmpPath);
+      });
+
+      test('explicit contentType (over extension and name)', async ({}, testInfo) => {
+        const tmpPath = testInfo.outputPath('example.json');
+        await fs.promises.writeFile(tmpPath, 'We <3 Playwright!');
+        await testInfo.attach('example.png', { path: tmpPath, contentType: 'x-playwright/custom' });
+        // Forcibly remove the tmp file to ensure attach is actually automagically copying it
+        await fs.promises.unlink(tmpPath);
+      });
+
+      test('fallback contentType', async ({}, testInfo) => {
+        const tmpPath = testInfo.outputPath('example.this-extension-better-not-map-to-an-actual-mimetype');
+        await fs.promises.writeFile(tmpPath, 'We <3 Playwright!');
+        await testInfo.attach('foo', { path: tmpPath });
+        // Forcibly remove the tmp file to ensure attach is actually automagically copying it
+        await fs.promises.unlink(tmpPath);
+      });
+    `,
+  }, { reporter: 'dot,' + kRawReporterPath, workers: 1 }, {}, { usesCustomOutputDir: true });
+  const json = JSON.parse(fs.readFileSync(testInfo.outputPath('test-results', 'report', 'project.report'), 'utf-8'));
+  {
+    const result = json.suites[0].tests[0].results[0];
+    expect(result.attachments[0].name).toBe('foo');
+    expect(result.attachments[0].contentType).toBe('application/json');
+    const p = result.attachments[0].path;
+    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.json$/);
+    const contents = fs.readFileSync(p);
+    expect(contents.toString()).toBe('We <3 Playwright!');
+  }
+  {
+    const result = json.suites[0].tests[1].results[0];
+    expect(result.attachments[0].name).toBe('foo');
+    expect(result.attachments[0].contentType).toBe('image/png');
+    const p = result.attachments[0].path;
+    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.json$/);
+    const contents = fs.readFileSync(p);
+    expect(contents.toString()).toBe('We <3 Playwright!');
+  }
+  {
+    const result = json.suites[0].tests[2].results[0];
+    expect(result.attachments[0].name).toBe('example.png');
+    expect(result.attachments[0].contentType).toBe('x-playwright/custom');
+    const p = result.attachments[0].path;
+    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.json$/);
+    const contents = fs.readFileSync(p);
+    expect(contents.toString()).toBe('We <3 Playwright!');
+  }
+  {
+    const result = json.suites[0].tests[3].results[0];
+    expect(result.attachments[0].name).toBe('foo');
+    expect(result.attachments[0].contentType).toBe('application/octet-stream');
+    const p = result.attachments[0].path;
+    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.this-extension-better-not-map-to-an-actual-mimetype$/);
+    const contents = fs.readFileSync(p);
+    expect(contents.toString()).toBe('We <3 Playwright!');
+  }
+});
+
+test(`testInfo.attach should save attachments via inline attachment`, async ({ runInlineTest }, testInfo) => {
+  await runInlineTest({
+    'a.test.js': `
+      const path = require('path');
+      const fs = require('fs');
+      const { test } = pwt;
+      test('default contentType - string', async ({}, testInfo) => {
+        await testInfo.attach('example.json', { body: 'We <3 Playwright!' });
+      });
+
+      test('default contentType - Buffer', async ({}, testInfo) => {
+        await testInfo.attach('example.json', { body: Buffer.from('We <3 Playwright!') });
+      });
+
+      test('explicit contentType - string', async ({}, testInfo) => {
+        await testInfo.attach('example.json', { body: 'We <3 Playwright!', contentType: 'x-playwright/custom' });
+      });
+
+      test('explicit contentType - Buffer', async ({}, testInfo) => {
+        await testInfo.attach('example.json', { body: Buffer.from('We <3 Playwright!'), contentType: 'x-playwright/custom' });
+      });
+  `,
+  }, { reporter: 'dot,' + kRawReporterPath, workers: 1 }, {}, { usesCustomOutputDir: true });
+  const json = JSON.parse(fs.readFileSync(testInfo.outputPath('test-results', 'report', 'project.report'), 'utf-8'));
+  {
+    const result = json.suites[0].tests[0].results[0];
+    expect(result.attachments[0].name).toBe('example.json');
+    expect(result.attachments[0].contentType).toBe('text/plain');
+    expect(Buffer.from(result.attachments[0].body, 'base64')).toEqual(Buffer.from('We <3 Playwright!'));
+  }
+  {
+    const result = json.suites[0].tests[1].results[0];
+    expect(result.attachments[0].name).toBe('example.json');
+    expect(result.attachments[0].contentType).toBe('application/octet-stream');
+    expect(Buffer.from(result.attachments[0].body, 'base64')).toEqual(Buffer.from('We <3 Playwright!'));
+  }
+  {
+    const result = json.suites[0].tests[2].results[0];
+    expect(result.attachments[0].name).toBe('example.json');
+    expect(result.attachments[0].contentType).toBe('x-playwright/custom');
+    expect(Buffer.from(result.attachments[0].body, 'base64')).toEqual(Buffer.from('We <3 Playwright!'));
+  }
+  {
+    const result = json.suites[0].tests[3].results[0];
+    expect(result.attachments[0].name).toBe('example.json');
+    expect(result.attachments[0].contentType).toBe('x-playwright/custom');
+    expect(Buffer.from(result.attachments[0].body, 'base64')).toEqual(Buffer.from('We <3 Playwright!'));
+  }
 });
 
 test('dupe project names', async ({ runInlineTest }, testInfo) => {

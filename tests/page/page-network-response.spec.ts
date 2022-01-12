@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-import { test as it, expect } from './pageTest';
 import fs from 'fs';
+import url from 'url';
+import { expect, test as it } from './pageTest';
 
-it('should work', async ({ page, server }) => {
+it('should work #smoke', async ({ page, server }) => {
   server.setRoute('/empty.html', (req, res) => {
     res.setHeader('foo', 'bar');
     res.setHeader('BaZ', 'bAz');
@@ -267,3 +268,53 @@ it('should behave the same way for headers and allHeaders', async ({ page, serve
   expect(allHeaders['name-b']).toEqual('v4');
 });
 
+it('should provide a Response with a file URL', async ({ page, asset, isAndroid, isElectron, isWindows, browserName }) => {
+  it.skip(isAndroid, 'No files on Android');
+  it.fixme(browserName === 'firefox', 'Firefox does return null for file:// URLs');
+
+  const fileurl = url.pathToFileURL(asset('frames/two-frames.html')).href;
+  const response = await page.goto(fileurl);
+  if (isElectron || (browserName === 'webkit' && isWindows))
+    expect(response.status()).toBe(200);
+  else
+    expect(response.status()).toBe(0);
+  expect(response.ok()).toBe(true);
+});
+
+it('should return set-cookie header after route.fulfill', async ({ page, server, browserName }) => {
+  it.fail(browserName === 'webkit' || browserName === 'chromium', 'https://github.com/microsoft/playwright/issues/11035');
+  await page.route('**/*', async route => {
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'set-cookie': 'a=b'
+      },
+      contentType: 'text/plain',
+      body: ''
+    });
+  });
+  const response = await page.goto(server.EMPTY_PAGE);
+  const headers = await response.allHeaders();
+  expect(headers['set-cookie']).toBe('a=b');
+});
+
+it('should return headers after route.fulfill', async ({ page, server }) => {
+  await page.route('**/*', async route => {
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'foo': 'bar',
+        'content-language': 'en'
+      },
+      contentType: 'text/plain',
+      body: 'done'
+    });
+  });
+  const response = await page.goto(server.EMPTY_PAGE);
+  expect(await response.allHeaders()).toEqual({
+    'foo': 'bar',
+    'content-type': 'text/plain',
+    'content-length': '4',
+    'content-language': 'en'
+  });
+});

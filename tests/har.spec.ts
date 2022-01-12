@@ -21,7 +21,7 @@ import fs from 'fs';
 import http2 from 'http2';
 import type { BrowserContext, BrowserContextOptions } from 'playwright-core';
 import type { AddressInfo } from 'net';
-import type { Log } from 'playwright-core/src/server/supplements/har/har';
+import type { Log } from 'playwright-core/lib/server/supplements/har/har';
 
 async function pageWithHar(contextFactory: (options?: BrowserContextOptions) => Promise<BrowserContext>, testInfo: any, outputPath: string = 'test.har') {
   const harPath = testInfo.outputPath(outputPath);
@@ -82,8 +82,11 @@ it('should have pages in persistent context', async ({ launchPersistent }, testI
   await page.waitForLoadState('domcontentloaded');
   await context.close();
   const log = JSON.parse(fs.readFileSync(harPath).toString())['log'];
-  expect(log.pages.length).toBe(1);
-  const pageEntry = log.pages[0];
+  // Explicit locale emulation forces a new page creation when
+  // doing a new context.
+  // See https://github.com/microsoft/playwright/blob/13dd41c2e36a63f35ddef5dc5dec322052d670c6/packages/playwright-core/src/server/browserContext.ts#L232-L242
+  expect(log.pages.length).toBe(2);
+  const pageEntry = log.pages[1];
   expect(pageEntry.id).toBeTruthy();
   expect(pageEntry.title).toBe('Hello');
 });
@@ -242,7 +245,7 @@ it('should include secure set-cookies', async ({ contextFactory, httpsServer }, 
   expect(cookies[0]).toEqual({ name: 'name1', value: 'value1', secure: true });
 });
 
-it('should include content', async ({ contextFactory, server }, testInfo) => {
+it('should include content #smoke', async ({ contextFactory, server }, testInfo) => {
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
   await page.goto(server.PREFIX + '/har.html');
   const log = await getLog();
@@ -512,8 +515,8 @@ it('should contain http2 for http2 requests', async ({ contextFactory, browserNa
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
   await page.goto(`https://localhost:${(server.address() as AddressInfo).port}`);
   const log = await getLog();
-  expect(log.entries[0].request.httpVersion).toBe('h2');
-  expect(log.entries[0].response.httpVersion).toBe('h2');
+  expect(log.entries[0].request.httpVersion).toBe('HTTP/2.0');
+  expect(log.entries[0].response.httpVersion).toBe('HTTP/2.0');
   expect(Buffer.from(log.entries[0].response.content.text, 'base64').toString()).toBe('<h1>Hello World</h1>');
   server.close();
 });
@@ -634,3 +637,40 @@ it('should include _requestref for redirects', async ({ contextFactory, server }
   expect(entryEmptyPage.request.url).toBe(server.EMPTY_PAGE);
   expect(entryEmptyPage._requestref).toBe(requests.get(entryEmptyPage.request.url));
 });
+
+it('should include API request', async ({ contextFactory, server }, testInfo) => {
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  const url = server.PREFIX + '/simple.json';
+  const response = await page.request.post(url, {
+    headers: { cookie: 'a=b; c=d' },
+    data: { foo: 'bar' }
+  });
+  const responseBody = await response.body();
+  const log = await getLog();
+  expect(log.entries.length).toBe(1);
+  const entry = log.entries[0];
+  expect(entry.request.url).toBe(url);
+  expect(entry.request.method).toBe('POST');
+  expect(entry.request.httpVersion).toBe('HTTP/1.1');
+  expect(entry.request.cookies).toEqual([
+    {
+      'name': 'a',
+      'value': 'b'
+    },
+    {
+      'name': 'c',
+      'value': 'd'
+    }
+  ]);
+  expect(entry.request.headers.length).toBeGreaterThan(1);
+  expect(entry.request.headers.find(h => h.name.toLowerCase() === 'user-agent')).toBeTruthy();
+  expect(entry.request.headers.find(h => h.name.toLowerCase() === 'content-type')?.value).toBe('application/json');
+  expect(entry.request.headers.find(h => h.name.toLowerCase() === 'content-length')?.value).toBe('13');
+  expect(entry.request.bodySize).toBe(13);
+
+  expect(entry.response.status).toBe(200);
+  expect(entry.response.headers.find(h => h.name.toLowerCase() === 'content-type')?.value).toContain('application/json');
+  expect(entry.response.content.size).toBe(15);
+  expect(entry.response.content.text).toBe(responseBody.toString('base64'));
+});
+

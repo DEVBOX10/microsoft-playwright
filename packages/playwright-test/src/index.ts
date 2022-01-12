@@ -16,111 +16,42 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { LaunchOptions, BrowserContextOptions, Page, BrowserContext, BrowserType } from 'playwright-core';
+import type { LaunchOptions, BrowserContextOptions, Page, BrowserContext, BrowserType, Video, Browser, APIRequestContext } from 'playwright-core';
 import type { TestType, PlaywrightTestArgs, PlaywrightTestOptions, PlaywrightWorkerArgs, PlaywrightWorkerOptions, TestInfo } from '../types/test';
 import { rootTestType } from './testType';
-import { assert, createGuid, removeFolders } from 'playwright-core/src/utils/utils';
-import { GridClient } from 'playwright-core/src/grid/gridClient';
-import { Browser } from 'playwright-core';
+import { createGuid, removeFolders } from 'playwright-core/lib/utils/utils';
+import { GridClient } from 'playwright-core/lib/grid/gridClient';
+import { prependToTestError } from './util';
 export { expect } from './expect';
 export const _baseTest: TestType<{}, {}> = rootTestType.test;
+
+if ((process as any)['__pw_initiator__']) {
+  const originalStackTraceLimit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 200;
+  try {
+    throw new Error('Requiring @playwright/test second time, \nFirst:\n' + (process as any)['__pw_initiator__'] + '\n\nSecond: ');
+  } finally {
+    Error.stackTraceLimit = originalStackTraceLimit;
+  }
+} else {
+  (process as any)['__pw_initiator__'] = new Error().stack;
+}
 
 type TestFixtures = PlaywrightTestArgs & PlaywrightTestOptions & {
   _combinedContextOptions: BrowserContextOptions,
   _setupContextOptionsAndArtifacts: void;
+  _contextFactory: (options?: BrowserContextOptions) => Promise<BrowserContext>;
 };
-type WorkerAndFileFixtures = PlaywrightWorkerArgs & PlaywrightWorkerOptions & {
+type WorkerFixtures = PlaywrightWorkerArgs & PlaywrightWorkerOptions & {
   _browserType: BrowserType;
-  _artifactsDir: () => string,
-  _reuseBrowserContext: ReuseBrowserContextStorage,
+  _browserOptions: LaunchOptions;
+  _artifactsDir: () => string;
+  _snapshotSuffix: string;
 };
 
-export class ReuseBrowserContextStorage {
-  private _browserContext?: BrowserContext;
-  private _uniqueOrigins = new Set<string>();
-  private _options?: BrowserContextOptions;
-  private _pauseNavigationEventCollection = false;
-
-  isEnabled(): boolean {
-    return !!process.env.PWTEST_REUSE_CONTEXT;
-  }
-
-  async obtainContext(browser: Browser, newContextOptions: BrowserContextOptions): Promise<BrowserContext> {
-    if (!this._browserContext)
-      return await this._createNewContext(browser);
-    return await this._refurbishExistingContext(newContextOptions);
-  }
-
-  private async _createNewContext(browser: Browser): Promise<BrowserContext> {
-    this._browserContext = await browser.newContext();
-    this._options = (this._browserContext as any)._options;
-    this._browserContext.on('page', page => {
-      page.on('framenavigated', frame => {
-        if (this._pauseNavigationEventCollection)
-          return;
-        const origin = new URL(frame.url()).origin;
-        if (origin !== 'null') // 'chrome-error://chromewebdata/'
-          this._uniqueOrigins.add(origin);
-      });
-      page.on('crash', () => {
-        this._browserContext?.close().then(() => {});
-        this._browserContext = undefined;
-      });
-    });
-    return this._browserContext;
-  }
-
-  async _refurbishExistingContext(newContextOptions: BrowserContextOptions): Promise<BrowserContext> {
-    assert(this._browserContext);
-    const page = this._browserContext.pages().length > 0 ? this._browserContext.pages()[0] : await this._browserContext.newPage();
-    this._pauseNavigationEventCollection = true;
-    try {
-      const initialOrigin = new URL(page.url()).origin;
-      await page.route('**/*', route => route.fulfill({ body: `<html></html>`, contentType: 'text/html' }));
-      while (this._uniqueOrigins.size > 0) {
-        const nextOrigin = this._uniqueOrigins.has(initialOrigin) ? initialOrigin : this._uniqueOrigins.values().next().value;
-        this._uniqueOrigins.delete(nextOrigin);
-        await page.goto(nextOrigin);
-        await page.evaluate(() => window.localStorage.clear());
-        await page.evaluate(() => window.sessionStorage.clear());
-      }
-      await page.unroute('**/*');
-      await page.goto('about:blank');
-      await Promise.all(this._browserContext.pages().slice(1).map(page => page.close()));
-      await this._browserContext.clearCookies();
-      await this._applyNewContextOptions(page, newContextOptions);
-    } finally {
-      this._pauseNavigationEventCollection = false;
-    }
-    return this._browserContext;
-  }
-
-  private async _applyNewContextOptions(page: Page, newOptions: BrowserContextOptions) {
-    assert(this._options);
-    const currentViewport = page.viewportSize();
-    const newViewport = newOptions.viewport === undefined ? { width: 1280, height: 720 } : newOptions.viewport;
-    if (
-      (
-        currentViewport?.width !== newViewport?.width ||
-        currentViewport?.height !== newViewport?.height
-      ) &&
-      (newViewport?.height && newViewport?.width)
-    )
-      await page.setViewportSize(newViewport);
-    this._options = newOptions;
-  }
-
-  async obtainPage(): Promise<Page> {
-    assert(this._browserContext);
-    if (this._browserContext.pages().length === 0)
-      return await this._browserContext.newPage();
-    return this._browserContext.pages()[0];
-  }
-}
-
-export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
-  defaultBrowserType: [ 'chromium', { scope: 'worker' } ],
-  browserName: [ ({ defaultBrowserType }, use) => use(defaultBrowserType), { scope: 'worker' } ],
+export const test = _baseTest.extend<TestFixtures, WorkerFixtures>({
+  defaultBrowserType: [ 'chromium', { scope: 'worker', option: true } ],
+  browserName: [ ({ defaultBrowserType }, use) => use(defaultBrowserType), { scope: 'worker', option: true } ],
   playwright: [async ({}, use, workerInfo) => {
     if (process.env.PW_GRID) {
       const gridClient = await GridClient.connect(process.env.PW_GRID);
@@ -130,12 +61,12 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
       await use(require('playwright-core'));
     }
   }, { scope: 'worker' } ],
-  headless: [ undefined, { scope: 'worker' } ],
-  channel: [ undefined, { scope: 'worker' } ],
-  launchOptions: [ {}, { scope: 'worker' } ],
-  screenshot: [ 'off', { scope: 'worker' } ],
-  video: [ 'off', { scope: 'worker' } ],
-  trace: [ 'off', { scope: 'worker' } ],
+  headless: [ undefined, { scope: 'worker', option: true } ],
+  channel: [ undefined, { scope: 'worker', option: true } ],
+  launchOptions: [ {}, { scope: 'worker', option: true } ],
+  screenshot: [ 'off', { scope: 'worker', option: true } ],
+  video: [ 'off', { scope: 'worker', option: true } ],
+  trace: [ 'off', { scope: 'worker', option: true } ],
 
   _artifactsDir: [async ({}, use, workerInfo) => {
     let dir: string | undefined;
@@ -150,57 +81,35 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
       await removeFolders([dir]);
   }, { scope: 'worker' }],
 
-  _browserType: [async ({ playwright, browserName, headless, channel, launchOptions }, use) => {
-    if (!['chromium', 'firefox', 'webkit'].includes(browserName))
-      throw new Error(`Unexpected browserName "${browserName}", must be one of "chromium", "firefox" or "webkit"`);
-    const browserType = playwright[browserName];
+  _browserOptions: [browserOptionsWorkerFixture, { scope: 'worker' }],
+  _browserType: [browserTypeWorkerFixture, { scope: 'worker' }],
+  browser: [browserWorkerFixture, { scope: 'worker' } ],
 
-    const options: LaunchOptions = {
-      handleSIGINT: false,
-      timeout: 0,
-      ...launchOptions,
-    };
-    if (headless !== undefined)
-      options.headless = headless;
-    if (channel !== undefined)
-      options.channel = channel;
-
-    (browserType as any)._defaultLaunchOptions = options;
-    await use(browserType);
-    (browserType as any)._defaultLaunchOptions = undefined;
-  }, { scope: 'worker' }],
-
-  browser: [ async ({ _browserType }, use) => {
-    const browser = await _browserType.launch();
-    await use(browser);
-    await browser.close();
-  }, { scope: 'worker' } ],
-
-  acceptDownloads: undefined,
-  bypassCSP: undefined,
-  colorScheme: undefined,
-  deviceScaleFactor: undefined,
-  extraHTTPHeaders: undefined,
-  geolocation: undefined,
-  hasTouch: undefined,
-  httpCredentials: undefined,
-  ignoreHTTPSErrors: undefined,
-  isMobile: undefined,
-  javaScriptEnabled: undefined,
-  locale: undefined,
-  offline: undefined,
-  permissions: undefined,
-  proxy: undefined,
-  storageState: undefined,
-  timezoneId: undefined,
-  userAgent: undefined,
-  viewport: undefined,
-  actionTimeout: undefined,
-  navigationTimeout: undefined,
-  baseURL: async ({ }, use) => {
+  acceptDownloads: [ undefined, { option: true } ],
+  bypassCSP: [ undefined, { option: true } ],
+  colorScheme: [ undefined, { option: true } ],
+  deviceScaleFactor: [ undefined, { option: true } ],
+  extraHTTPHeaders: [ undefined, { option: true } ],
+  geolocation: [ undefined, { option: true } ],
+  hasTouch: [ undefined, { option: true } ],
+  httpCredentials: [ undefined, { option: true } ],
+  ignoreHTTPSErrors: [ undefined, { option: true } ],
+  isMobile: [ undefined, { option: true } ],
+  javaScriptEnabled: [ undefined, { option: true } ],
+  locale: [ 'en-US', { option: true } ],
+  offline: [ undefined, { option: true } ],
+  permissions: [ undefined, { option: true } ],
+  proxy: [ undefined, { option: true } ],
+  storageState: [ undefined, { option: true } ],
+  timezoneId: [ undefined, { option: true } ],
+  userAgent: [ undefined, { option: true } ],
+  viewport: [ undefined, { option: true } ],
+  actionTimeout: [ undefined, { option: true } ],
+  navigationTimeout: [ undefined, { option: true } ],
+  baseURL: [ async ({ }, use) => {
     await use(process.env.PLAYWRIGHT_TEST_BASE_URL);
-  },
-  contextOptions: {},
+  }, { option: true } ],
+  contextOptions: [ {}, { option: true } ],
 
   _combinedContextOptions: async ({
     acceptDownloads,
@@ -272,35 +181,34 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
     });
   },
 
-  _setupContextOptionsAndArtifacts: [async ({ _browserType, _combinedContextOptions, _artifactsDir, trace, screenshot, actionTimeout, navigationTimeout }, use, testInfo) => {
-    testInfo.snapshotSuffix = process.platform;
+  _snapshotSuffix: [process.env.PLAYWRIGHT_DOCKER ? 'docker' : process.platform, { scope: 'worker' }],
+
+  _setupContextOptionsAndArtifacts: [async ({ playwright, _snapshotSuffix, _combinedContextOptions, _artifactsDir, trace, screenshot, actionTimeout, navigationTimeout }, use, testInfo) => {
+    testInfo.snapshotSuffix = _snapshotSuffix;
     if (process.env.PWDEBUG)
       testInfo.setTimeout(0);
 
-    if (trace === 'retry-with-trace')
-      trace = 'on-first-retry';
-    const captureTrace = (trace === 'on' || trace === 'retain-on-failure' || (trace === 'on-first-retry' && testInfo.retry === 1));
+    let traceMode = typeof trace === 'string' ? trace : trace.mode;
+    if (traceMode as any === 'retry-with-trace')
+      traceMode = 'on-first-retry';
+    const defaultTraceOptions = { screenshots: true, snapshots: true, sources: true };
+    const traceOptions = typeof trace === 'string' ? defaultTraceOptions : { ...defaultTraceOptions, ...trace, mode: undefined };
+
+    const captureTrace = (traceMode === 'on' || traceMode === 'retain-on-failure' || (traceMode === 'on-first-retry' && testInfo.retry === 1));
     const temporaryTraceFiles: string[] = [];
     const temporaryScreenshots: string[] = [];
+    const createdContexts = new Set<BrowserContext>();
 
-    const onDidCreateContext = async (context: BrowserContext) => {
-      context.setDefaultTimeout(actionTimeout || 0);
-      context.setDefaultNavigationTimeout(navigationTimeout || actionTimeout || 0);
-      if (captureTrace) {
-        if (!(context.tracing as any)[kTracingStarted]) {
-          await context.tracing.start({ screenshots: true, snapshots: true });
-          (context.tracing as any)[kTracingStarted] = true;
-        } else {
-          await context.tracing.startChunk();
-        }
-      } else {
-        (context.tracing as any)[kTracingStarted] = false;
-        await context.tracing.stop();
-      }
-      (context as any)._csi = {
-        onApiCallBegin: (apiCall: string, stackTrace: ParsedStackTrace | null) => {
+    const createInstrumentationListener = (context?: BrowserContext) => {
+      return {
+        onApiCallBegin: (apiCall: string, stackTrace: ParsedStackTrace | null, userData: any) => {
           if (apiCall.startsWith('expect.'))
             return { userObject: null };
+          if (apiCall === 'page.pause') {
+            testInfo.setTimeout(0);
+            context?.setDefaultNavigationTimeout(0);
+            context?.setDefaultTimeout(0);
+          }
           const testInfoImpl = testInfo as any;
           const step = testInfoImpl._addStep({
             location: stackTrace?.frames[0],
@@ -309,16 +217,43 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
             canHaveChildren: false,
             forceNoParent: false
           });
-          return { userObject: step };
+          userData.userObject = step;
         },
-        onApiCallEnd: (data: { userObject: any }, error?: Error) => {
-          const step = data.userObject;
+        onApiCallEnd: (userData: any, error?: Error) => {
+          const step = userData.userObject;
           step?.complete(error);
         },
       };
     };
 
+    const onDidCreateBrowserContext = async (context: BrowserContext) => {
+      createdContexts.add(context);
+      context.setDefaultTimeout(testInfo.timeout === 0 ? 0 : (actionTimeout || 0));
+      context.setDefaultNavigationTimeout(testInfo.timeout === 0 ? 0 : (navigationTimeout || actionTimeout || 0));
+      if (captureTrace) {
+        const title = [path.relative(testInfo.project.testDir, testInfo.file) + ':' + testInfo.line, ...testInfo.titlePath.slice(1)].join(' › ');
+        if (!(context.tracing as any)[kTracingStarted]) {
+          await context.tracing.start({ ...traceOptions, title });
+          (context.tracing as any)[kTracingStarted] = true;
+        } else {
+          await context.tracing.startChunk({ title });
+        }
+      } else {
+        (context.tracing as any)[kTracingStarted] = false;
+        await context.tracing.stop();
+      }
+      const listener = createInstrumentationListener(context);
+      (context as any)._instrumentation.addListener(listener);
+      (context.request as any)._instrumentation.addListener(listener);
+    };
+    const onDidCreateRequestContext = async (context: APIRequestContext) => {
+      (context as any)._instrumentation.addListener(createInstrumentationListener());
+    };
+
+    const startedCollectingArtifacts = Symbol('startedCollectingArtifacts');
+
     const onWillCloseContext = async (context: BrowserContext) => {
+      (context as any)[startedCollectingArtifacts] = true;
       if (captureTrace) {
         // Export trace for now. We'll know whether we have to preserve it
         // after the test finishes.
@@ -338,20 +273,22 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
     };
 
     // 1. Setup instrumentation and process existing contexts.
-    (_browserType as any)._onDidCreateContext = onDidCreateContext;
-    (_browserType as any)._onWillCloseContext = onWillCloseContext;
-    (_browserType as any)._defaultContextOptions = _combinedContextOptions;
-    const existingContexts = Array.from((_browserType as any)._contexts) as BrowserContext[];
-    await Promise.all(existingContexts.map(onDidCreateContext));
+    for (const browserType of [playwright.chromium, playwright.firefox, playwright.webkit]) {
+      (browserType as any)._onDidCreateContext = onDidCreateBrowserContext;
+      (browserType as any)._onWillCloseContext = onWillCloseContext;
+      (browserType as any)._defaultContextOptions = _combinedContextOptions;
+      const existingContexts = Array.from((browserType as any)._contexts) as BrowserContext[];
+      await Promise.all(existingContexts.map(onDidCreateBrowserContext));
+    }
+    (playwright.request as any)._onDidCreateContext = onDidCreateRequestContext;
 
     // 2. Run the test.
     await use();
 
     // 3. Determine whether we need the artifacts.
     const testFailed = testInfo.status !== testInfo.expectedStatus;
-    const isHook = !!hookType(testInfo);
-    const preserveTrace = captureTrace && !isHook && (trace === 'on' || (testFailed && trace === 'retain-on-failure') || (trace === 'on-first-retry' && testInfo.retry === 1));
-    const captureScreenshots = !isHook && (screenshot === 'on' || (screenshot === 'only-on-failure' && testFailed));
+    const preserveTrace = captureTrace && (traceMode === 'on' || (testFailed && traceMode === 'retain-on-failure') || (traceMode === 'on-first-retry' && testInfo.retry === 1));
+    const captureScreenshots = (screenshot === 'on' || (screenshot === 'only-on-failure' && testFailed));
 
     const traceAttachments: string[] = [];
     const addTraceAttachment = () => {
@@ -370,14 +307,26 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
     };
 
     // 4. Cleanup instrumentation.
-    const leftoverContexts = Array.from((_browserType as any)._contexts) as BrowserContext[];
-    (_browserType as any)._onDidCreateContext = undefined;
-    (_browserType as any)._onWillCloseContext = undefined;
-    (_browserType as any)._defaultContextOptions = undefined;
-    leftoverContexts.forEach(context => (context as any)._csi = undefined);
+    const leftoverContexts: BrowserContext[] = [];
+    for (const browserType of [playwright.chromium, playwright.firefox, playwright.webkit]) {
+      leftoverContexts.push(...(browserType as any)._contexts);
+      (browserType as any)._onDidCreateContext = undefined;
+      (browserType as any)._onWillCloseContext = undefined;
+      (browserType as any)._defaultContextOptions = undefined;
+    }
+    leftoverContexts.forEach(context => (context as any)._instrumentation.removeAllListeners());
+    (playwright.request as any)._onDidCreateContext = undefined;
+    for (const context of (playwright.request as any)._contexts)
+      context._instrumentation.removeAllListeners();
 
     // 5. Collect artifacts from any non-closed contexts.
     await Promise.all(leftoverContexts.map(async context => {
+      // When we timeout during context.close(), we might end up with context still alive
+      // but artifacts being already collected. In this case, do not collect artifacts
+      // for the second time.
+      if ((context as any)[startedCollectingArtifacts])
+        return;
+
       if (preserveTrace)
         await context.tracing.stopChunk({ path: addTraceAttachment() });
       else if (captureTrace)
@@ -400,75 +349,73 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
       else
         await fs.promises.unlink(file).catch(() => {});
     }));
+
+    // 7. Cleanup created contexts when we know it's safe - this will produce nice error message.
+    if (hookType(testInfo) === 'beforeAll' && testInfo.status === 'timedOut') {
+      const anyContext = leftoverContexts[0];
+      const pendingCalls = anyContext ? formatPendingCalls((anyContext as any)._connection.pendingProtocolCalls()) : '';
+      await Promise.all(leftoverContexts.filter(c => createdContexts.has(c)).map(c => c.close()));
+      testInfo.error = prependToTestError(testInfo.error, pendingCalls);
+    }
   }, { auto: true }],
 
-  _reuseBrowserContext: [new ReuseBrowserContextStorage(), { scope: 'worker' }],
-
-  context: async ({ browser, video, _artifactsDir, _reuseBrowserContext, _combinedContextOptions }, use, testInfo) => {
-    const hook = hookType(testInfo);
-    if (hook)
-      throw new Error(`"context" and "page" fixtures are not supported in ${hook}. Use browser.newContext() instead.`);
-    if (_reuseBrowserContext.isEnabled()) {
-      const context = await _reuseBrowserContext.obtainContext(browser, _combinedContextOptions);
-      await use(context);
-      return;
-    }
-
+  _contextFactory: async ({ browser, video, _artifactsDir }, use, testInfo) => {
     let videoMode = typeof video === 'string' ? video : video.mode;
     if (videoMode === 'retry-with-video')
       videoMode = 'on-first-retry';
 
     const captureVideo = (videoMode === 'on' || videoMode === 'retain-on-failure' || (videoMode === 'on-first-retry' && testInfo.retry === 1));
-    const videoOptions: BrowserContextOptions = captureVideo ? {
-      recordVideo: {
-        dir: _artifactsDir(),
-        size: typeof video === 'string' ? undefined : video.size,
-      }
-    } : {};
-    const context = await browser.newContext(videoOptions);
+    const contexts = new Map<BrowserContext, { pages: Page[] }>();
 
-    const allPages: Page[] = [];
-    context.on('page', page => allPages.push(page));
-
-    await use(context);
+    await use(async options => {
+      const hook = hookType(testInfo);
+      if (hook)
+        throw new Error(`"context" and "page" fixtures are not supported in ${hook}. Use browser.newContext() instead.`);
+      const videoOptions: BrowserContextOptions = captureVideo ? {
+        recordVideo: {
+          dir: _artifactsDir(),
+          size: typeof video === 'string' ? undefined : video.size,
+        }
+      } : {};
+      const context = await browser.newContext({ ...videoOptions, ...options });
+      const contextData: { pages: Page[] } = { pages: [] };
+      contexts.set(context, contextData);
+      context.on('page', page => contextData.pages.push(page));
+      return context;
+    });
 
     const prependToError = testInfo.status === 'timedOut' ?
-      formatPendingCalls((context as any)._connection.pendingProtocolCalls()) : '';
-    await context.close();
-    if (prependToError) {
-      if (!testInfo.error) {
-        testInfo.error = { value: prependToError };
-      } else if (testInfo.error.message) {
-        testInfo.error.message = prependToError + testInfo.error.message;
-        if (testInfo.error.stack)
-          testInfo.error.stack = prependToError + testInfo.error.stack;
-      }
-    }
+      formatPendingCalls((browser as any)._connection.pendingProtocolCalls()) : '';
 
-    const testFailed = testInfo.status !== testInfo.expectedStatus;
-    const preserveVideo = captureVideo && (videoMode === 'on' || (testFailed && videoMode === 'retain-on-failure') || (videoMode === 'on-first-retry' && testInfo.retry === 1));
-    if (preserveVideo) {
-      await Promise.all(allPages.map(async page => {
-        const v = page.video();
-        if (!v)
-          return;
-        try {
-          const videoPath = await v.path();
-          const savedPath = testInfo.outputPath(path.basename(videoPath));
-          await v.saveAs(savedPath);
-          testInfo.attachments.push({ name: 'video', path: savedPath, contentType: 'video/webm' });
-        } catch (e) {
-          // Silent catch empty videos.
-        }
-      }));
-    }
+    await Promise.all([...contexts.keys()].map(async context => {
+      await context.close();
+
+      const testFailed = testInfo.status !== testInfo.expectedStatus;
+      const preserveVideo = captureVideo && (videoMode === 'on' || (testFailed && videoMode === 'retain-on-failure') || (videoMode === 'on-first-retry' && testInfo.retry === 1));
+      if (preserveVideo) {
+        const { pages } = contexts.get(context)!;
+        const videos = pages.map(p => p.video()).filter(Boolean) as Video[];
+        await Promise.all(videos.map(async v => {
+          try {
+            const videoPath = await v.path();
+            const savedPath = testInfo.outputPath(path.basename(videoPath));
+            await v.saveAs(savedPath);
+            testInfo.attachments.push({ name: 'video', path: savedPath, contentType: 'video/webm' });
+          } catch (e) {
+            // Silent catch empty videos.
+          }
+        }));
+      }
+    }));
+
+    testInfo.error = prependToTestError(testInfo.error, prependToError);
   },
 
-  page: async ({ context, _reuseBrowserContext }, use) => {
-    if (_reuseBrowserContext.isEnabled()) {
-      await use(await _reuseBrowserContext.obtainPage());
-      return;
-    }
+  context: async ({ _contextFactory }, use) => {
+    await use(await _contextFactory());
+  },
+
+  page: async ({ context }, use) => {
     await use(await context.newPage());
   },
 
@@ -480,7 +427,54 @@ export const test = _baseTest.extend<TestFixtures, WorkerAndFileFixtures>({
 
 });
 
-export default test;
+export async function browserOptionsWorkerFixture(
+  {
+    headless,
+    channel,
+    launchOptions
+  }: {
+    headless: boolean | undefined,
+    channel: string | undefined,
+    launchOptions: LaunchOptions
+  }, use: (options: LaunchOptions) => Promise<void>) {
+  const options: LaunchOptions = {
+    handleSIGINT: false,
+    timeout: 0,
+    ...launchOptions,
+  };
+  if (headless !== undefined)
+    options.headless = headless;
+  if (channel !== undefined)
+    options.channel = channel;
+  await use(options);
+}
+
+export async function browserTypeWorkerFixture(
+  {
+    playwright,
+    browserName,
+    _browserOptions
+  }: {
+    playwright: any,
+    browserName: string,
+    _browserOptions: LaunchOptions
+  }, use: (browserType: BrowserType) => Promise<void>) {
+  if (!['chromium', 'firefox', 'webkit'].includes(browserName))
+    throw new Error(`Unexpected browserName "${browserName}", must be one of "chromium", "firefox" or "webkit"`);
+  const browserType = playwright[browserName];
+  (browserType as any)._defaultLaunchOptions = _browserOptions;
+  await use(browserType);
+  (browserType as any)._defaultLaunchOptions = undefined;
+}
+
+export async function browserWorkerFixture(
+  { _browserType }: { _browserType: BrowserType },
+  use: (browser: Browser) => Promise<void>) {
+  const browser = await _browserType.launch();
+  await use(browser);
+  await browser.close();
+}
+
 
 function formatPendingCalls(calls: ParsedStackTrace[]) {
   if (!calls.length)
@@ -517,3 +511,5 @@ type ParsedStackTrace = {
 };
 
 const kTracingStarted = Symbol('kTracingStarted');
+
+export default test;

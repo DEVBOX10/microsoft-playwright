@@ -26,7 +26,13 @@ import * as fs from 'fs';
 import { ProjectImpl } from './project';
 import { Reporter } from '../types/testReporter';
 import { BuiltInReporter, builtInReporters } from './runner';
-import { isRegExp } from 'playwright-core/src/utils/utils';
+import { isRegExp } from 'playwright-core/lib/utils/utils';
+import { tsConfigLoader, TsConfigLoaderResult } from './third_party/tsconfig-loader';
+
+// To allow multiple loaders in the same process without clearing require cache,
+// we make these maps global.
+const cachedFileSuites = new Map<string, Suite>();
+const cachedTSConfigs = new Map<string, TsConfigLoaderResult>();
 
 export class Loader {
   private _defaultConfig: Config;
@@ -35,7 +41,7 @@ export class Loader {
   private _config: Config = {};
   private _configFile: string | undefined;
   private _projects: ProjectImpl[] = [];
-  private _fileSuites = new Map<string, Suite>();
+  private _lastModuleInfo: { rootFolder: string, isModule: boolean } | null = null;
 
   constructor(defaultConfig: Config, configOverrides: Config) {
     this._defaultConfig = defaultConfig;
@@ -65,9 +71,10 @@ export class Loader {
     return rawConfig;
   }
 
-  loadEmptyConfig(rootDir: string) {
+  loadEmptyConfig(rootDir: string): Config {
     this._config = {};
     this._processConfigObject(rootDir);
+    return {};
   }
 
   private _processConfigObject(rootDir: string) {
@@ -109,15 +116,15 @@ export class Loader {
   }
 
   async loadTestFile(file: string) {
-    if (this._fileSuites.has(file))
-      return this._fileSuites.get(file)!;
+    if (cachedFileSuites.has(file))
+      return cachedFileSuites.get(file)!;
     try {
       const suite = new Suite(path.relative(this._fullConfig.rootDir, file) || path.basename(file));
       suite._requireFile = file;
       suite.location = { file, line: 0, column: 0 };
       setCurrentlyLoadingFileSuite(suite);
       await this._requireOrImport(file);
-      this._fileSuites.set(file, suite);
+      cachedFileSuites.set(file, suite);
       return suite;
     } finally {
       setCurrentlyLoadingFileSuite(undefined);
@@ -150,10 +157,6 @@ export class Loader {
     return this._projects;
   }
 
-  fileSuites() {
-    return this._fileSuites;
-  }
-
   serialize(): SerializedLoaderData {
     return {
       defaultConfig: this._defaultConfig,
@@ -169,8 +172,10 @@ export class Loader {
     let outputDir = takeFirst(this._configOverrides.outputDir, projectConfig.outputDir, this._config.outputDir, path.resolve(process.cwd(), 'test-results'));
     if (!path.isAbsolute(outputDir))
       outputDir = path.resolve(configDir, outputDir);
+    let snapshotDir = takeFirst(this._configOverrides.snapshotDir, projectConfig.snapshotDir, this._config.snapshotDir, testDir);
+    if (!path.isAbsolute(snapshotDir))
+      snapshotDir = path.resolve(configDir, snapshotDir);
     const fullProject: FullProject = {
-      define: takeFirst(this._configOverrides.define, projectConfig.define, this._config.define, []),
       expect: takeFirst(this._configOverrides.expect, projectConfig.expect, this._config.expect, undefined),
       outputDir,
       repeatEach: takeFirst(this._configOverrides.repeatEach, projectConfig.repeatEach, this._config.repeatEach, 1),
@@ -178,8 +183,9 @@ export class Loader {
       metadata: takeFirst(this._configOverrides.metadata, projectConfig.metadata, this._config.metadata, undefined),
       name: takeFirst(this._configOverrides.name, projectConfig.name, this._config.name, ''),
       testDir,
+      snapshotDir,
       testIgnore: takeFirst(this._configOverrides.testIgnore, projectConfig.testIgnore, this._config.testIgnore, []),
-      testMatch: takeFirst(this._configOverrides.testMatch, projectConfig.testMatch, this._config.testMatch, '**/?(*.)@(spec|test).@(ts|js|mjs)'),
+      testMatch: takeFirst(this._configOverrides.testMatch, projectConfig.testMatch, this._config.testMatch, '**/?(*.)@(spec|test).*'),
       timeout: takeFirst(this._configOverrides.timeout, projectConfig.timeout, this._config.timeout, 10000),
       use: mergeObjects(mergeObjects(this._config.use, projectConfig.use), this._configOverrides.use),
     };
@@ -188,22 +194,58 @@ export class Loader {
 
 
   private async _requireOrImport(file: string) {
-    const revertBabelRequire = installTransform();
-    try {
-      const esmImport = () => eval(`import(${JSON.stringify(url.pathToFileURL(file))})`);
-      if (file.endsWith('.mjs')) {
-        return await esmImport();
-      } else {
+    // Respect tsconfig paths.
+    const cwd = path.dirname(file);
+    let tsconfig = cachedTSConfigs.get(cwd);
+    if (!tsconfig) {
+      tsconfig = tsConfigLoader({
+        getEnv: (name: string) => process.env[name],
+        cwd
+      });
+      cachedTSConfigs.set(cwd, tsconfig);
+    }
+
+    const revertBabelRequire = installTransform(tsconfig);
+
+    // Figure out if we are importing or requiring.
+    let isModule: boolean;
+    if (file.endsWith('.mjs')) {
+      isModule = true;
+    } else {
+      if (!this._lastModuleInfo || !file.startsWith(this._lastModuleInfo.rootFolder)) {
+        this._lastModuleInfo = null;
         try {
-          return require(file);
-        } catch (e) {
-          // Attempt to load this module as ESM if a normal require didn't work.
-          if (e.code === 'ERR_REQUIRE_ESM')
-            return await esmImport();
-          throw e;
+          const pathSegments = file.split(path.sep);
+          for (let i = pathSegments.length - 1; i >= 0; --i) {
+            const rootFolder = pathSegments.slice(0, i).join(path.sep);
+            const packageJson = path.join(rootFolder, 'package.json');
+            if (fs.existsSync(packageJson)) {
+              isModule = require(packageJson).type === 'module';
+              this._lastModuleInfo = { rootFolder, isModule };
+              break;
+            }
+          }
+        } catch {
+          // Silent catch.
         }
       }
+      isModule = this._lastModuleInfo?.isModule || false;
+    }
+
+    try {
+      const esmImport = () => eval(`import(${JSON.stringify(url.pathToFileURL(file))})`);
+      if (isModule)
+        return await esmImport();
+      return require(file);
     } catch (error) {
+      if (error.code === 'ERR_MODULE_NOT_FOUND' && error.message.includes('Did you mean to import')) {
+        const didYouMean = /Did you mean to import (.*)\?/.exec(error.message)?.[1];
+        if (didYouMean?.endsWith('.ts'))
+          throw errorWithFile(file, 'Cannot import a typescript file from an esmodule.');
+      }
+      if (error.code === 'ERR_UNKNOWN_FILE_EXTENSION' && error.message.includes('.ts'))
+        throw errorWithFile(file, 'Cannot import a typescript file from an esmodule.');
+
       if (error instanceof SyntaxError && error.message.includes('Cannot use import statement outside a module'))
         throw errorWithFile(file, 'JavaScript files must end with .mjs to use import.');
 
@@ -345,16 +387,6 @@ function validateProject(file: string, project: Project, title: string) {
   if (typeof project !== 'object' || !project)
     throw errorWithFile(file, `${title} must be an object`);
 
-  if ('define' in project && project.define !== undefined) {
-    if (Array.isArray(project.define)) {
-      project.define.forEach((item, index) => {
-        validateDefine(file, item, `${title}.define[${index}]`);
-      });
-    } else {
-      validateDefine(file, project.define, `${title}.define`);
-    }
-  }
-
   if ('name' in project && project.name !== undefined) {
     if (typeof project.name !== 'string')
       throw errorWithFile(file, `${title}.name must be a string`);
@@ -403,11 +435,6 @@ function validateProject(file: string, project: Project, title: string) {
     if (!project.use || typeof project.use !== 'object')
       throw errorWithFile(file, `${title}.use must be an object`);
   }
-}
-
-function validateDefine(file: string, define: any, title: string) {
-  if (!define || typeof define !== 'object' || !define.test || !define.fixtures)
-    throw errorWithFile(file, `${title} must be an object with "test" and "fixtures" properties`);
 }
 
 const baseFullConfig: FullConfig = {

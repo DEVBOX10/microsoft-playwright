@@ -92,11 +92,11 @@ The same works inside describe.
 // example.spec.js
 const { test, expect } = require('@playwright/test');
 
-test.describe('headed block', () => {
-  // Run tests in this describe block in headed mode.
-  test.use({ headless: false });
+test.describe('locale block', () => {
+  // Run tests in this describe block with portrait-like viewport.
+  test.use({ viewport: { width: 600, height: 900 } });
 
-  test('my headed test', async ({ page }) => {
+  test('my portrait test', async ({ page }) => {
     // ...
   });
 });
@@ -106,11 +106,11 @@ test.describe('headed block', () => {
 // example.spec.ts
 import { test, expect } from '@playwright/test';
 
-test.describe('headed block', () => {
-  // Run tests in this describe block in headed mode.
-  test.use({ headless: false });
+test.describe('locale block', () => {
+  // Run tests in this describe block with portrait-like viewport.
+  test.use({ viewport: { width: 600, height: 900 } });
 
-  test('my headed test', async ({ page }) => {
+  test('my portrait test', async ({ page }) => {
     // ...
   });
 });
@@ -120,7 +120,7 @@ test.describe('headed block', () => {
 
 These are commonly used options for various scenarios. You usually set them globally in [configuration file](#global-configuration).
 
-- `actionTimeout` - Timeout for each Playwright action in milliseconds. Defaults to `0` (no timeout).
+- `actionTimeout` - Timeout for each Playwright action in milliseconds. Defaults to `0` (no timeout). Learn more about [various timeouts](./test-timeouts.md).
 - `baseURL` - Base URL used for all pages in the context. Allows navigating by using just the path, for example `page.goto('/settings')`.
 - `browserName` - Name of the browser that will run the tests, one of `chromium`, `firefox`, or `webkit`.
 - `bypassCSP` - Toggles bypassing Content-Security-Policy. Useful when CSP includes the production origin.
@@ -154,6 +154,83 @@ const config: PlaywrightTestConfig = {
   },
 };
 export default config;
+```
+
+## Multiple browsers
+
+Playwright Test supports multiple "projects" that can run your tests in multiple browsers and configurations. Here is an example that runs every test in Chromium, Firefox and WebKit, by creating a project for each.
+
+```js js-flavor=js
+// playwright.config.js
+// @ts-check
+const { devices } = require('@playwright/test');
+
+/** @type {import('@playwright/test').PlaywrightTestConfig} */
+const config = {
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+  ],
+};
+
+module.exports = config;
+```
+
+```js js-flavor=ts
+// playwright.config.ts
+import { PlaywrightTestConfig, devices } from '@playwright/test';
+
+const config: PlaywrightTestConfig = {
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+  ],
+};
+export default config;
+```
+
+You can specify [different options][TestProject] for each project, for example set specific command-line arguments for Chromium.
+
+Playwright Test will run all projects by default.
+
+```bash
+npx playwright test
+
+Running 5 tests using 5 workers
+
+  ✓ [chromium] › example.spec.ts:3:1 › basic test (2s)
+  ✓ [firefox] › example.spec.ts:3:1 › basic test (2s)
+  ✓ [webkit] › example.spec.ts:3:1 › basic test (2s)
+```
+
+Use `--project` command line option to run a single project.
+
+```bash
+npx playwright test --project=firefox
+
+Running 1 test using 1 worker
+
+  ✓ [firefox] › example.spec.ts:3:1 › basic test (2s)
 ```
 
 ## Emulation
@@ -265,7 +342,7 @@ export default config;
 
 Available options to configure networking:
 
-- `acceptDownloads` - Whether to automatically download all the attachments. [Learn more](./downloads.md) about working with downloads.
+- `acceptDownloads` - Whether to automatically download all the attachments, defaults to `true`. [Learn more](./downloads.md) about working with downloads.
 - `extraHTTPHeaders` - An object containing additional HTTP headers to be sent with every request. All header values must be strings.
 - `httpCredentials` - Credentials for [HTTP authentication](./network.md#http-authentication).
 - `ignoreHTTPSErrors` - Whether to ignore HTTPS errors during navigation.
@@ -376,7 +453,7 @@ Playwright Test can record videos for your tests, controlled by the `video` opti
 - `'retain-on-failure'` - Record video for each test, but remove all videos from successful test runs.
 - `'on-first-retry'` - Record video only when retrying a test for the first time.
 
-Video files will appear in the test output directory, typically `test-results`.
+Video files will appear in the test output directory, typically `test-results`. See [`property: TestOptions.video`] for advanced video configuration.
 
 ```js js-flavor=js
 // @ts-check
@@ -410,7 +487,7 @@ Playwright Test can produce test traces while running the tests. Later on, you c
 - `'retain-on-failure'` - Record trace for each test, but remove it from successful test runs.
 - `'on-first-retry'` - Record trace only when retrying a test for the first time.
 
-Trace files will appear in the test output directory, typically `test-results`.
+Trace files will appear in the test output directory, typically `test-results`. See [`property: TestOptions.trace`] for advanced video configuration.
 
 ```js js-flavor=js
 // @ts-check
@@ -437,7 +514,7 @@ export default config;
 
 ## More browser and context options
 
-Any options accepted by [`method: BrowserType.launch`] or [`method: Browser.newContext`] can be put into `launchOptions` or `contextOptions` respectively in the `use` section.
+Any options accepted by [`method: BrowserType.launch`] or [`method: Browser.newContext`] can be put into `launchOptions` or `contextOptions` respectively in the `use` section. Take a look at the [full list of available options][TestOptions].
 
 ```js js-flavor=js
 // @ts-check
@@ -470,7 +547,7 @@ However, most common ones like `headless` or `viewport` are available directly i
 
 ## Testing options
 
-In addition to configuring [Browser] or [BrowserContext], videos or screenshots, Playwright Test has many options to configure how your tests are run. Below are the most common ones, see [advanced configuration](./test-advanced.md) for the full list.
+In addition to configuring [Browser] or [BrowserContext], videos or screenshots, Playwright Test has many options to configure how your tests are run. Below are the most common ones, see [TestConfig] for the full list.
 
 - `forbidOnly`: Whether to exit with an error if any tests are marked as `test.only`. Useful on CI.
 - `globalSetup`: Path to the global setup file. This file will be required and run before all the tests. It must export a single function.
@@ -479,7 +556,7 @@ In addition to configuring [Browser] or [BrowserContext], videos or screenshots,
 - `testDir`: Directory with the test files.
 - `testIgnore`: Glob patterns or regular expressions that should be ignored when looking for the test files. For example, `'**/test-assets'`.
 - `testMatch`: Glob patterns or regular expressions that match test files. For example, `'**/todo-tests/*.spec.ts'`. By default, Playwright Test runs `.*(test|spec)\.(js|ts|mjs)` files.
-- `timeout`: Time in milliseconds given to each test.
+- `timeout`: Time in milliseconds given to each test. Learn more about [various timeouts](./test-timeouts.md).
 - `webServer: { command: string, port: number, timeout?: number, reuseExistingServer?: boolean, cwd?: string, env?: object }` - Launch a process and wait that it's ready before the tests will start. See [launch web server](./test-advanced.md#launching-a-development-web-server-during-the-tests) configuration for examples.
 - `workers`: The maximum number of concurrent worker processes to use for parallelizing tests.
 
@@ -540,113 +617,3 @@ const config: PlaywrightTestConfig = {
 };
 export default config;
 ```
-
-## Different options for each browser
-
-To specify different options per browser, for example command line arguments for Chromium, create multiple projects in your configuration file. Below is an example that runs all tests in three browsers, with different options.
-
-```js js-flavor=js
-// playwright.config.js
-// @ts-check
-
-/** @type {import('@playwright/test').PlaywrightTestConfig} */
-const config = {
-  // Put any shared options on the top level.
-  use: {
-    headless: true,
-  },
-
-  projects: [
-    {
-      name: 'Chromium',
-      use: {
-        // Configure the browser to use.
-        browserName: 'chromium',
-
-        // Any Chromium-specific options.
-        viewport: { width: 600, height: 800 },
-      },
-    },
-
-    {
-      name: 'Firefox',
-      use: { browserName: 'firefox' },
-    },
-
-    {
-      name: 'WebKit',
-      use: { browserName: 'webkit' },
-    },
-  ],
-};
-
-module.exports = config;
-```
-
-```js js-flavor=ts
-// playwright.config.ts
-import { PlaywrightTestConfig } from '@playwright/test';
-
-const config: PlaywrightTestConfig = {
-  // Put any shared options on the top level.
-  use: {
-    headless: true,
-  },
-
-  projects: [
-    {
-      name: 'Chromium',
-      use: {
-        // Configure the browser to use.
-        browserName: 'chromium',
-
-        // Any Chromium-specific options.
-        viewport: { width: 600, height: 800 },
-      },
-    },
-
-    {
-      name: 'Firefox',
-      use: { browserName: 'firefox' },
-    },
-
-    {
-      name: 'WebKit',
-      use: { browserName: 'webkit' },
-    },
-  ],
-};
-export default config;
-```
-
-Playwright Test will run all projects by default.
-
-```bash
-$ npx playwright test
-
-Running 3 tests using 3 workers
-
-  ✓ example.spec.ts:3:1 › [Chromium] should work (2s)
-  ✓ example.spec.ts:3:1 › [Firefox] should work (2s)
-  ✓ example.spec.ts:3:1 › [WebKit] should work (2s)
-```
-
-Use `--project` command line option to run a single project.
-
-```bash
-$ npx playwright test --project=webkit
-
-Running 1 test using 1 worker
-
-  ✓ example.spec.ts:3:1 › [WebKit] should work (2s)
-```
-
-There are many more things you can do with projects:
-- Run a subset of test by specifying different `testDir` for each project.
-- Run tests in multiple configurations, for example with desktop Chromium and emulating Chrome for Android.
-- Run "core" tests without retries to ensure stability of the core functionality, and use `retries` for other tests.
-- And much more! See [advanced configuration](./test-advanced.md) for more details.
-
-:::note
-`--browser` command line option is not compatible with projects. Specify `browserName` in each project instead.
-:::

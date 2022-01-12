@@ -14,35 +14,33 @@
  * limitations under the License.
  */
 
-import { BabelCodeFrameOptions, codeFrameColumns } from '@babel/code-frame';
+import { codeFrameColumns } from '@babel/code-frame';
 import colors from 'colors/safe';
 import fs from 'fs';
 import milliseconds from 'ms';
 import path from 'path';
 import StackUtils from 'stack-utils';
-import { FullConfig, TestCase, Suite, TestResult, TestError, Reporter, FullResult, TestStep } from '../../types/testReporter';
+import { FullConfig, TestCase, Suite, TestResult, TestError, Reporter, FullResult, TestStep, Location } from '../../types/testReporter';
 
 const stackUtils = new StackUtils();
 
 export type TestResultOutput = { chunk: string | Buffer, type: 'stdout' | 'stderr' };
 export const kOutputSymbol = Symbol('output');
-export type PositionInFile = { column: number; line: number };
 
 type Annotation = {
-  filePath: string;
   title: string;
   message: string;
-  position?: PositionInFile;
+  location?: Location;
 };
 
 type FailureDetails = {
   tokens: string[];
-  position?: PositionInFile;
+  location?: Location;
 };
 
 type ErrorDetails = {
   message: string;
-  position?: PositionInFile;
+  location?: Location;
 };
 
 type TestSummary = {
@@ -58,20 +56,23 @@ export class BaseReporter implements Reporter  {
   duration = 0;
   config!: FullConfig;
   suite!: Suite;
+  totalTestCount = 0;
   result!: FullResult;
-  fileDurations = new Map<string, number>();
-  monotonicStartTime: number = 0;
-  private printTestOutput = !process.env.PWTEST_SKIP_TEST_OUTPUT;
-  protected _omitFailures: boolean;
+  private fileDurations = new Map<string, number>();
+  private monotonicStartTime: number = 0;
+  private _omitFailures: boolean;
+  private readonly _ttyWidthForTest: number;
 
   constructor(options: { omitFailures?: boolean } = {}) {
     this._omitFailures = options.omitFailures || false;
+    this._ttyWidthForTest = parseInt(process.env.PWTEST_TTY_WIDTH || '', 10);
   }
 
   onBegin(config: FullConfig, suite: Suite) {
     this.monotonicStartTime = monotonicTime();
     this.config = config;
     this.suite = suite;
+    this.totalTestCount = suite.allTests().length;
   }
 
   onStdOut(chunk: string | Buffer, test?: TestCase, result?: TestResult) {
@@ -98,12 +99,22 @@ export class BaseReporter implements Reporter  {
   }
 
   onError(error: TestError) {
-    console.log(formatError(error, colors.enabled).message);
+    console.log(formatError(this.config, error, colors.enabled).message);
   }
 
   async onEnd(result: FullResult) {
     this.duration = monotonicTime() - this.monotonicStartTime;
     this.result = result;
+  }
+
+  protected ttyWidth() {
+    return this._ttyWidthForTest || (process.env.PWTEST_SKIP_TEST_OUTPUT ? 80 : process.stdout.columns || 0);
+  }
+
+  protected generateStartingMessage() {
+    const jobs = Math.min(this.config.workers, (this.config as any).__testGroupsCount);
+    const shardDetails = this.config.shard ? `, shard ${this.config.shard.current} of ${this.config.shard.total}` : '';
+    return `\nRunning ${this.totalTestCount} test${this.totalTestCount > 1 ? 's' : ''} using ${jobs} worker${jobs > 1 ? 's' : ''}${shardDetails}`;
   }
 
   protected getSlowTests(): [string, number][] {
@@ -184,15 +195,17 @@ export class BaseReporter implements Reporter  {
     failures.forEach((test, index) => {
       console.log(formatFailure(this.config, test, {
         index: index + 1,
-        includeStdio: this.printTestOutput
       }).message);
     });
   }
 
   private _printSlowTests() {
-    this.getSlowTests().forEach(([file, duration]) => {
-      console.log(colors.yellow('  Slow test: ') + file + colors.yellow(` (${milliseconds(duration)})`));
+    const slowTests = this.getSlowTests();
+    slowTests.forEach(([file, duration]) => {
+      console.log(colors.yellow('  Slow test file: ') + file + colors.yellow(` (${milliseconds(duration)})`));
     });
+    if (slowTests.length)
+      console.log(colors.yellow('  Consider splitting slow test files to speed up parallel execution'));
   }
 
   private _printSummary(summary: string) {
@@ -207,11 +220,11 @@ export class BaseReporter implements Reporter  {
   }
 }
 
-export function formatFailure(config: FullConfig, test: TestCase, options: {index?: number, includeStdio?: boolean, includeAttachments?: boolean, filePath?: string} = {}): {
+export function formatFailure(config: FullConfig, test: TestCase, options: {index?: number, includeStdio?: boolean, includeAttachments?: boolean} = {}): {
   message: string,
   annotations: Annotation[]
 } {
-  const { index, includeStdio, includeAttachments = true, filePath } = options;
+  const { index, includeStdio, includeAttachments = true } = options;
   const lines: string[] = [];
   const title = formatTestTitle(config, test);
   const annotations: Annotation[] = [];
@@ -219,7 +232,7 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
   lines.push(colors.red(header));
   for (const result of test.results) {
     const resultLines: string[] = [];
-    const { tokens: resultTokens, position } = formatResultFailure(test, result, '    ', colors.enabled);
+    const { tokens: resultTokens, location } = formatResultFailure(config, test, result, '    ', colors.enabled);
     if (!resultTokens.length)
       continue;
     if (result.retry) {
@@ -264,14 +277,11 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
       resultLines.push('');
       resultLines.push(colors.gray(pad('--- Test output', '-')) + '\n\n' + outputText + '\n' + pad('', '-'));
     }
-    if (filePath) {
-      annotations.push({
-        filePath,
-        position,
-        title,
-        message: [header, ...resultLines].join('\n'),
-      });
-    }
+    annotations.push({
+      location,
+      title,
+      message: [header, ...resultLines].join('\n'),
+    });
     lines.push(...resultLines);
   }
   lines.push('');
@@ -281,7 +291,7 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
   };
 }
 
-export function formatResultFailure(test: TestCase, result: TestResult, initialIndent: string, highlightCode: boolean): FailureDetails {
+export function formatResultFailure(config: FullConfig, test: TestCase, result: TestResult, initialIndent: string, highlightCode: boolean): FailureDetails {
   const resultTokens: string[] = [];
   if (result.status === 'timedOut') {
     resultTokens.push('');
@@ -293,17 +303,21 @@ export function formatResultFailure(test: TestCase, result: TestResult, initialI
   }
   let error: ErrorDetails | undefined = undefined;
   if (result.error !== undefined) {
-    error = formatError(result.error, highlightCode, test.location.file);
+    error = formatError(config, result.error, highlightCode, test.location.file);
     resultTokens.push(indent(error.message, initialIndent));
   }
   return {
     tokens: resultTokens,
-    position: error?.position,
+    location: error?.location,
   };
 }
 
+function relativeFilePath(config: FullConfig, file: string): string {
+  return path.relative(config.rootDir, file) || path.basename(file);
+}
+
 function relativeTestPath(config: FullConfig, test: TestCase): string {
-  return path.relative(config.rootDir, test.location.file) || path.basename(test.location.file);
+  return relativeFilePath(config, test.location.file);
 }
 
 function stepSuffix(step: TestStep | undefined) {
@@ -325,32 +339,38 @@ function formatTestHeader(config: FullConfig, test: TestCase, indent: string, in
   return pad(header, '=');
 }
 
-export function formatError(error: TestError, highlightCode: boolean, file?: string): ErrorDetails {
+export function formatError(config: FullConfig, error: TestError, highlightCode: boolean, file?: string): ErrorDetails {
   const stack = error.stack;
   const tokens = [''];
-  let positionInFile: PositionInFile | undefined;
+  let location: Location | undefined;
   if (stack) {
-    const { message, stackLines, position } = prepareErrorStack(
-        stack,
-        file
-    );
-    positionInFile = position;
-    tokens.push(message);
-
-    const codeFrame = generateCodeFrame({ highlightCode }, file, position);
-    if (codeFrame) {
-      tokens.push('');
-      tokens.push(codeFrame);
+    const parsed = prepareErrorStack(stack, file);
+    tokens.push(parsed.message);
+    location = parsed.location;
+    if (location) {
+      try {
+        const source = fs.readFileSync(location.file, 'utf8');
+        const codeFrame = codeFrameColumns(source, { start: location }, { highlightCode });
+        // Convert /var/folders to /private/var/folders on Mac.
+        if (!file || fs.realpathSync(file) !== location.file) {
+          tokens.push('');
+          tokens.push(colors.gray(`   at `) + `${relativeFilePath(config, location.file)}:${location.line}`);
+        }
+        tokens.push('');
+        tokens.push(codeFrame);
+      } catch (e) {
+        // Failed to read the source file - that's ok.
+      }
     }
     tokens.push('');
-    tokens.push(colors.dim(stackLines.join('\n')));
+    tokens.push(colors.dim(parsed.stackLines.join('\n')));
   } else if (error.message) {
     tokens.push(error.message);
   } else if (error.value) {
     tokens.push(error.value);
   }
   return {
-    position: positionInFile,
+    location,
     message: tokens.join('\n'),
   };
 }
@@ -365,48 +385,33 @@ function indent(lines: string, tab: string) {
   return lines.replace(/^(?=.+$)/gm, tab);
 }
 
-export function generateCodeFrame(options: BabelCodeFrameOptions, file?: string, position?: PositionInFile): string | undefined {
-  if (!position || !file)
-    return;
-
-  const source = fs.readFileSync(file!, 'utf8');
-  const codeFrame = codeFrameColumns(
-      source,
-      { start: position },
-      options
-  );
-
-  return codeFrame;
-}
-
 export function prepareErrorStack(stack: string, file?: string): {
   message: string;
   stackLines: string[];
-  position?: PositionInFile;
+  location?: Location;
 } {
+  if (file) {
+    // Stack will have /private/var/folders instead of /var/folders on Mac.
+    file = fs.realpathSync(file);
+  }
   const lines = stack.split('\n');
   let firstStackLine = lines.findIndex(line => line.startsWith('    at '));
-  if (firstStackLine === -1) firstStackLine = lines.length;
+  if (firstStackLine === -1)
+    firstStackLine = lines.length;
   const message = lines.slice(0, firstStackLine).join('\n');
   const stackLines = lines.slice(firstStackLine);
-  const position = file ? positionInFile(stackLines, file) : undefined;
-  return {
-    message,
-    stackLines,
-    position,
-  };
-}
-
-function positionInFile(stackLines: string[], file: string): PositionInFile | undefined {
-  // Stack will have /private/var/folders instead of /var/folders on Mac.
-  file = fs.realpathSync(file);
+  let location: Location | undefined;
   for (const line of stackLines) {
     const parsed = stackUtils.parseLine(line);
     if (!parsed || !parsed.file)
       continue;
-    if (path.resolve(process.cwd(), parsed.file) === file)
-      return { column: parsed.column || 0, line: parsed.line || 0 };
+    const resolvedFile = path.join(process.cwd(), parsed.file);
+    if (!file || resolvedFile === file) {
+      location = { file: resolvedFile, column: parsed.column || 0, line: parsed.line || 0 };
+      break;
+    }
   }
+  return { message, stackLines, location };
 }
 
 function monotonicTime(): number {
@@ -417,4 +422,23 @@ function monotonicTime(): number {
 const asciiRegex = new RegExp('[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))', 'g');
 export function stripAnsiEscapes(str: string): string {
   return str.replace(asciiRegex, '');
+}
+
+// Leaves enough space for the "suffix" to also fit.
+export function fitToScreen(line: string, width: number, suffix?: string): string {
+  const suffixLength = suffix ? stripAnsiEscapes(suffix).length : 0;
+  width -= suffixLength;
+  if (line.length <= width)
+    return line;
+  let m;
+  let ansiLen = 0;
+  asciiRegex.lastIndex = 0;
+  while ((m = asciiRegex.exec(line)) !== null) {
+    const visibleLen = m.index - ansiLen;
+    if (visibleLen >= width)
+      break;
+    ansiLen += m[0].length;
+  }
+  // Truncate and reset all colors.
+  return line.substr(0, width + ansiLen) + '\u001b[0m';
 }

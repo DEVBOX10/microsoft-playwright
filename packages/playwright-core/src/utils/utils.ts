@@ -40,7 +40,7 @@ const ProxyAgent = require('https-proxy-agent');
 
 export const existsAsync = (path: string): Promise<boolean> => new Promise(resolve => fs.stat(path, err => resolve(!err)));
 
-type HTTPRequestParams = {
+export type HTTPRequestParams = {
   url: string,
   method?: string,
   headers?: http.OutgoingHttpHeaders,
@@ -97,11 +97,11 @@ function httpRequest(params: HTTPRequestParams, onResponse: (r: http.IncomingMes
   request.end(params.data);
 }
 
-export function fetchData(params: HTTPRequestParams, onError?: (response: http.IncomingMessage) => Promise<Error>): Promise<string> {
+export function fetchData(params: HTTPRequestParams, onError?: (params: HTTPRequestParams, response: http.IncomingMessage) => Promise<Error>): Promise<string> {
   return new Promise((resolve, reject) => {
     httpRequest(params, async response => {
       if (response.statusCode !== 200) {
-        const error = onError ? await onError(response) : new Error(`fetch failed: server returned code ${response.statusCode}. URL: ${params.url}`);
+        const error = onError ? await onError(params, response) : new Error(`fetch failed: server returned code ${response.statusCode}. URL: ${params.url}`);
         reject(error);
         return;
       }
@@ -462,7 +462,15 @@ export function constructURLBasedOnBaseURL(baseURL: string | undefined, givenURL
   }
 }
 
-export type HostPlatform = 'win32'|'win64'|'mac10.13'|'mac10.14'|'mac10.15'|'mac11'|'mac11-arm64'|'ubuntu18.04'|'ubuntu20.04';
+export type HostPlatform = 'win64' |
+                           'mac10.13' |
+                           'mac10.14' |
+                           'mac10.15' |
+                           'mac11' | 'mac11-arm64' |
+                           'mac12' | 'mac12-arm64' |
+                           'ubuntu18.04' | 'ubuntu18.04-arm64' |
+                           'ubuntu20.04' | 'ubuntu20.04-arm64';
+
 export const hostPlatform = ((): HostPlatform => {
   const platform = os.platform();
   if (platform === 'darwin') {
@@ -477,7 +485,7 @@ export const hostPlatform = ((): HostPlatform => {
       macVersion = 'mac10.15';
     } else {
       // ver[0] >= 20
-      const LAST_STABLE_MAC_MAJOR_VERSION = 11;
+      const LAST_STABLE_MAC_MAJOR_VERSION = 12;
       // Best-effort support for MacOS beta versions.
       macVersion = 'mac' + Math.min(ver[0] - 9, LAST_STABLE_MAC_MAJOR_VERSION);
       // BigSur is the first version that might run on Apple Silicon.
@@ -488,9 +496,10 @@ export const hostPlatform = ((): HostPlatform => {
   }
   if (platform === 'linux') {
     const ubuntuVersion = getUbuntuVersionSync();
+    const archSuffix = os.arch() === 'arm64' ? '-arm64' : '';
     if (parseInt(ubuntuVersion, 10) <= 19)
-      return 'ubuntu18.04';
-    return 'ubuntu20.04';
+      return ('ubuntu18.04' + archSuffix) as HostPlatform;
+    return ('ubuntu20.04' + archSuffix) as HostPlatform;
   }
   if (platform === 'win32')
     return 'win64';
@@ -518,4 +527,14 @@ export function streamToString(stream: stream.Readable): Promise<string> {
     stream.on('error', reject);
     stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
   });
+}
+
+export async function transformCommandsForRoot(commands: string[]): Promise<{ command: string, args: string[], elevatedPermissions: boolean}> {
+  const isRoot = process.getuid() === 0;
+  if (isRoot)
+    return { command: 'sh', args: ['-c', `${commands.join('&& ')}`], elevatedPermissions: false };
+  const sudoExists = await spawnAsync('which', ['sudo']);
+  if (sudoExists.code === 0)
+    return { command: 'sudo', args: ['--', 'sh', '-c', `${commands.join('&& ')}`], elevatedPermissions: true };
+  return { command: 'su', args: ['root', '-c', `${commands.join('&& ')}`], elevatedPermissions: true };
 }

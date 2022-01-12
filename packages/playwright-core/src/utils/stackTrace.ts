@@ -33,6 +33,12 @@ export function rewriteErrorMessage<E extends Error>(e: E, newMessage: string): 
 const CORE_DIR = path.resolve(__dirname, '..', '..');
 const CLIENT_LIB = path.join(CORE_DIR, 'lib', 'client');
 const CLIENT_SRC = path.join(CORE_DIR, 'src', 'client');
+const UTIL_LIB = path.join(CORE_DIR, 'lib', 'util');
+const UTIL_SRC = path.join(CORE_DIR, 'src', 'util');
+const TEST_DIR_SRC = path.resolve(CORE_DIR, '..', 'playwright-test');
+const TEST_DIR_LIB = path.resolve(CORE_DIR, '..', '@playwright', 'test');
+const COVERAGE_PATH = path.join(CORE_DIR, '..', '..', 'tests', 'config', 'coverage.js');
+const WS_LIB = path.relative(process.cwd(), path.dirname(require.resolve('ws')));
 
 export type ParsedStackTrace = {
   allFrames: StackFrame[];
@@ -41,12 +47,17 @@ export type ParsedStackTrace = {
   apiName: string | undefined;
 };
 
-export function captureStackTrace(): ParsedStackTrace {
+export function captureRawStack(): string {
   const stackTraceLimit = Error.stackTraceLimit;
   Error.stackTraceLimit = 30;
   const error = new Error();
   const stack = error.stack!;
   Error.stackTraceLimit = stackTraceLimit;
+  return stack;
+}
+
+export function captureStackTrace(rawStack?: string): ParsedStackTrace {
+  const stack = rawStack || captureRawStack();
 
   const isTesting = isUnderTest();
   type ParsedFrame = {
@@ -58,12 +69,26 @@ export function captureStackTrace(): ParsedStackTrace {
     const frame = stackUtils.parseLine(line);
     if (!frame || !frame.file)
       return null;
-    if (frame.file.startsWith('internal'))
+    // Node 16+ has node:internal.
+    if (frame.file.startsWith('internal') || frame.file.startsWith('node:'))
       return null;
-    const fileName = path.resolve(process.cwd(), frame.file);
-    if (isTesting && fileName.includes(path.join('playwright', 'tests', 'config', 'coverage.js')))
+    // EventEmitter.emit has 'events.js' file.
+    if (frame.file === 'events.js' && frame.function?.endsWith('.emit'))
       return null;
-    const inClient = fileName.startsWith(CLIENT_LIB) || fileName.startsWith(CLIENT_SRC);
+    // Node 12
+    if (frame.file === '_stream_readable.js' || frame.file === '_stream_writable.js')
+      return null;
+    if (frame.file.startsWith(WS_LIB))
+      return null;
+    // Workaround for https://github.com/tapjs/stack-utils/issues/60
+    let fileName: string;
+    if (frame.file.startsWith('file://'))
+      fileName = new URL(frame.file).pathname;
+    else
+      fileName = path.resolve(process.cwd(), frame.file);
+    if (isTesting && fileName.includes(COVERAGE_PATH))
+      return null;
+    const inClient = fileName.startsWith(CLIENT_LIB) || fileName.startsWith(CLIENT_SRC) || fileName.startsWith(UTIL_LIB) || fileName.startsWith(UTIL_SRC);
     const parsed: ParsedFrame = {
       frame: {
         file: fileName,
@@ -97,12 +122,30 @@ export function captureStackTrace(): ParsedStackTrace {
     for (let i = 0; i < parsedFrames.length - 1; i++) {
       if (parsedFrames[i].inClient && !parsedFrames[i + 1].inClient) {
         const frame = parsedFrames[i].frame;
-        apiName = frame.function ? frame.function[0].toLowerCase() + frame.function.slice(1) : '';
+        apiName = normalizeAPIName(frame.function);
         parsedFrames = parsedFrames.slice(i + 1);
         break;
       }
     }
   }
+
+  function normalizeAPIName(name?: string): string {
+    if (!name)
+      return '';
+    const match = name.match(/(API|JS|CDP|[A-Z])(.*)/);
+    if (!match)
+      return name;
+    return match[1].toLowerCase() + match[2];
+  }
+
+  // Hide all test runner and library frames in the user stack (event handlers produce them).
+  parsedFrames = parsedFrames.filter((f, i) => {
+    if (f.frame.file.startsWith(TEST_DIR_SRC) || f.frame.file.startsWith(TEST_DIR_LIB))
+      return false;
+    if (i && f.frame.file.startsWith(CORE_DIR))
+      return false;
+    return true;
+  });
 
   return {
     allFrames: allFrames.map(p => p.frame),

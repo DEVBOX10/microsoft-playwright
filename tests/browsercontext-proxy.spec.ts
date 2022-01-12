@@ -16,7 +16,15 @@
 
 import { browserTest as it, expect } from './config/browserTest';
 
-it.use({ proxy: { server: 'per-context' } });
+it.use({
+  launchOptions: async ({ launchOptions }, use) => {
+    await use({
+      ...launchOptions,
+      proxy: { server: 'per-context' }
+    });
+  }
+});
+
 
 it.beforeEach(({ server }) => {
   server.setRoute('/target.html', async (req, res) => {
@@ -24,13 +32,12 @@ it.beforeEach(({ server }) => {
   });
 });
 
-it('should throw for missing global proxy on Chromium Windows', async ({ browserName, platform, browserType, browserOptions, server }) => {
+it('should throw for missing global proxy on Chromium Windows', async ({ browserName, platform, browserType, server }) => {
   it.skip(browserName !== 'chromium' || platform !== 'win32');
 
   let browser;
   try {
     browser = await browserType.launch({
-      ...browserOptions,
       proxy: undefined,
     });
     const error = await browser.newContext({ proxy: { server: `localhost:${server.PORT}` } }).catch(e => e);
@@ -40,7 +47,7 @@ it('should throw for missing global proxy on Chromium Windows', async ({ browser
   }
 });
 
-it('should work when passing the proxy only on the context level', async ({ browserName, platform, browserType, browserOptions, contextOptions, server, proxyServer }) => {
+it('should work when passing the proxy only on the context level', async ({ browserName, platform, browserType, server, proxyServer }) => {
   // Currently an upstream bug in the network stack of Chromium which leads that
   // the wrong proxy gets used in the BrowserContext.
   it.fixme(browserName === 'chromium' && platform === 'win32');
@@ -49,11 +56,9 @@ it('should work when passing the proxy only on the context level', async ({ brow
   let browser;
   try {
     browser = await browserType.launch({
-      ...browserOptions,
       proxy: undefined,
     });
     const context = await browser.newContext({
-      ...contextOptions,
       proxy: { server: `localhost:${proxyServer.PORT}` }
     });
 
@@ -85,6 +90,56 @@ it('should use proxy', async ({ contextFactory, server, proxyServer }) => {
   expect(await page.title()).toBe('Served by the proxy');
   await context.close();
 });
+
+it.describe('should proxy local network requests', () => {
+  for (const additionalBypass of [false, true]) {
+    it.describe(additionalBypass ? 'with other bypasses' : 'by default', () => {
+      for (const params of [
+        {
+          target: 'localhost',
+          description: 'localhost',
+        },
+        {
+          target: '127.0.0.1',
+          description: 'loopback address',
+        },
+        {
+          target: '169.254.3.4',
+          description: 'link-local'
+        }
+      ]) {
+        it(`${params.description}`, async ({ platform, browserName, contextFactory, server, proxyServer }) => {
+          it.fail(browserName === 'webkit' && platform === 'darwin' && additionalBypass && ['localhost', '127.0.0.1'].includes(params.target), 'WK fails to proxy 127.0.0.1 and localhost if additional bypasses are present');
+
+          const path = `/target-${additionalBypass}-${params.target}.html`;
+          server.setRoute(path, async (req, res) => {
+            res.end('<html><title>Served by the proxy</title></html>');
+          });
+
+          const url = `http://${params.target}:${server.PORT}${path}`;
+          proxyServer.forwardTo(server.PORT);
+          const context = await contextFactory({
+            proxy: { server: `localhost:${proxyServer.PORT}`, bypass: additionalBypass ? '1.non.existent.domain.for.the.test' : undefined }
+          });
+
+          const page = await context.newPage();
+          await page.goto(url);
+          expect(proxyServer.requestUrls).toContain(url);
+          expect(await page.title()).toBe('Served by the proxy');
+
+          await page.goto('http://1.non.existent.domain.for.the.test/foo.html').catch(() => {});
+          if (additionalBypass)
+            expect(proxyServer.requestUrls).not.toContain('http://1.non.existent.domain.for.the.test/foo.html');
+          else
+            expect(proxyServer.requestUrls).toContain('http://1.non.existent.domain.for.the.test/foo.html');
+
+          await context.close();
+        });
+      }
+    });
+  }
+});
+
 
 it('should use ipv6 proxy', async ({ contextFactory, server, proxyServer, browserName }) => {
   it.fail(browserName === 'firefox', 'page.goto: NS_ERROR_UNKNOWN_HOST');

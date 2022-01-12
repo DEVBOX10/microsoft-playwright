@@ -19,6 +19,7 @@ import * as childProcess from 'child_process';
 import * as readline from 'readline';
 import { eventsHelper } from './eventsHelper';
 import { isUnderTest, removeFolders } from './utils';
+import rimraf from 'rimraf';
 
 export type Env = {[key: string]: string | number | boolean | undefined};
 
@@ -124,7 +125,7 @@ export async function launchProcess(options: LaunchProcessOptions): Promise<Laun
     cleanup().then(fulfillCleanup);
   });
 
-  const listeners = [ eventsHelper.addEventListener(process, 'exit', killProcess) ];
+  const listeners = [ eventsHelper.addEventListener(process, 'exit', killProcessAndCleanup) ];
   if (options.handleSIGINT) {
     listeners.push(eventsHelper.addEventListener(process, 'SIGINT', () => {
       gracefullyClose().then(() => {
@@ -171,8 +172,12 @@ export async function launchProcess(options: LaunchProcessOptions): Promise<Laun
       // Force kill the browser.
       try {
         if (process.platform === 'win32') {
-          const stdout = childProcess.execSync(`taskkill /pid ${spawnedProcess.pid} /T /F /FI "MEMUSAGE gt 0"`);
-          options.log(`[pid=${spawnedProcess.pid}] taskkill output: ${stdout.toString()}`);
+          const taskkillProcess = childProcess.spawnSync(`taskkill /pid ${spawnedProcess.pid} /T /F /FI "MEMUSAGE gt 0"`, { shell: true });
+          const [stderr, stdout] = [taskkillProcess.stdout.toString(), taskkillProcess.stderr.toString()];
+          if (stdout)
+            options.log(`[pid=${spawnedProcess.pid}] taskkill stdout: ${stdout}`);
+          if (stderr)
+            options.log(`[pid=${spawnedProcess.pid}] taskkill stderr: ${stderr}`);
         } else {
           process.kill(-spawnedProcess.pid, 'SIGKILL');
         }
@@ -183,7 +188,19 @@ export async function launchProcess(options: LaunchProcessOptions): Promise<Laun
     } else {
       options.log(`[pid=${spawnedProcess.pid}] <skipped force kill spawnedProcess.killed=${spawnedProcess.killed} processClosed=${processClosed}>`);
     }
-    cleanup();
+  }
+
+  function killProcessAndCleanup() {
+    killProcess();
+    options.log(`[pid=${spawnedProcess.pid || 'N/A'}] starting temporary directories cleanup`);
+    for (const dir of options.tempDirectories) {
+      try {
+        rimraf.sync(dir, { maxBusyTries: 10 });
+      } catch (e) {
+        options.log(`[pid=${spawnedProcess.pid || 'N/A'}] exception while removing ${dir}: ${e}`);
+      }
+    }
+    options.log(`[pid=${spawnedProcess.pid || 'N/A'}] finished temporary directories cleanup`);
   }
 
   function killAndWait() {

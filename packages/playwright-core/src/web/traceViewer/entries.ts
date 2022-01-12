@@ -21,12 +21,16 @@ export type ContextEntry = {
   startTime: number;
   endTime: number;
   browserName: string;
+  platform?: string;
+  wallTime?: number;
+  title?: string;
   options: trace.BrowserContextEventOptions;
   pages: PageEntry[];
   resources: ResourceSnapshot[];
   actions: trace.ActionTraceEvent[];
   events: trace.ActionTraceEvent[];
   objects: { [key: string]: any };
+  hasSource: boolean;
 };
 
 export type PageEntry = {
@@ -46,12 +50,12 @@ export function createEmptyContext(): ContextEntry {
       deviceScaleFactor: 1,
       isMobile: false,
       viewport: { width: 1280, height: 800 },
-      _debugName: '<empty>',
     },
     pages: [],
     resources: [],
     actions: [],
     events: [],
     objects: {},
+    hasSource: false
   };
 }

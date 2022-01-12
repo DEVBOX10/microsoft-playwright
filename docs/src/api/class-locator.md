@@ -1,160 +1,9 @@
 # class: Locator
 
-Locator represents a view to the element(s) on the page. It captures the logic sufficient to retrieve the element at any given moment. Locator can be created with the [`method: Page.locator`] method.
+Locators are the central piece of Playwright's auto-waiting and retry-ability. In a nutshell, locators represent
+a way to find element(s) on the page at any moment. Locator can be created with the [`method: Page.locator`] method.
 
-```js
-const locator = page.locator('text=Submit');
-await locator.click();
-```
-
-```java
-Locator locator = page.locator("text=Submit");
-locator.click();
-```
-
-```python async
-locator = page.locator("text=Submit")
-await locator.click()
-```
-
-```python sync
-locator = page.locator("text=Submit")
-locator.click()
-```
-
-```csharp
-var locator = page.Locator("text=Submit");
-await locator.ClickAsync();
-```
-
-The difference between the Locator and [ElementHandle] is that the latter points to a particular element, while Locator captures the logic of how to retrieve that element.
-
-In the example below, handle points to a particular DOM element on page. If that element changes text or is used by React to render an entirely different component, handle is still pointing to that very DOM element. This can lead to unexpected behaviors.
-
-```js
-const handle = await page.$('text=Submit');
-// ...
-await handle.hover();
-await handle.click();
-```
-
-```java
-ElementHandle handle = page.querySelector("text=Submit");
-handle.hover();
-handle.click();
-```
-
-```python async
-handle = await page.query_selector("text=Submit")
-await handle.hover()
-await handle.click()
-```
-
-```python sync
-handle = page.query_selector("text=Submit")
-handle.hover()
-handle.click()
-```
-
-```csharp
-var handle = await page.QuerySelectorAsync("text=Submit");
-await handle.HoverAsync();
-await handle.ClickAsync();
-```
-
-With the locator, every time the `element` is used, up-to-date DOM element is located in the page using the selector. So in the snippet below, underlying DOM element is going to be located twice.
-
-```js
-const locator = page.locator('text=Submit');
-// ...
-await locator.hover();
-await locator.click();
-```
-
-```java
-Locator locator = page.locator("text=Submit");
-locator.hover();
-locator.click();
-```
-
-```python async
-locator = page.locator("text=Submit")
-await locator.hover()
-await locator.click()
-```
-
-```python sync
-locator = page.locator("text=Submit")
-locator.hover()
-locator.click()
-```
-
-```csharp
-var locator = page.Locator("text=Submit");
-await locator.HoverAsync();
-await locator.ClickAsync();
-```
-
-**Strictness**
-
-Locators are strict. This means that all operations on locators that imply
-some target DOM element will throw if more than one element matches given
-selector.
-
-```js
-// Throws if there are several buttons in DOM:
-await page.locator('button').click();
-
-// Works because we explicitly tell locator to pick the first element:
-await page.locator('button').first().click();
-
-// Works because count knows what to do with multiple matches:
-await page.locator('button').count();
-```
-
-```python async
-# Throws if there are several buttons in DOM:
-await page.locator('button').click()
-
-# Works because we explicitly tell locator to pick the first element:
-await page.locator('button').first.click()
-
-# Works because count knows what to do with multiple matches:
-await page.locator('button').count()
-```
-
-```python sync
-# Throws if there are several buttons in DOM:
-page.locator('button').click()
-
-# Works because we explicitly tell locator to pick the first element:
-page.locator('button').first.click()
-
-# Works because count knows what to do with multiple matches:
-page.locator('button').count()
-```
-
-```java
-// Throws if there are several buttons in DOM:
-page.locator("button").click();
-
-// Works because we explicitly tell locator to pick the first element:
-page.locator("button").first().click();
-
-// Works because count knows what to do with multiple matches:
-page.locator("button").count();
-```
-
-```csharp
-// Throws if there are several buttons in DOM:
-await page.Locator("button").ClickAsync();
-
-// Works because we explicitly tell locator to pick the first element:
-await page.Locator("button").First.ClickAsync();
-
-// Works because Count knows what to do with multiple matches:
-await page.Locator("button").CountAsync();
-```
+[Learn more about locators](./locators.md).
 
 ## async method: Locator.allInnerTexts
 - returns: <[Array]<[string]>>
@@ -380,6 +229,19 @@ Optional event-specific initialization properties.
 
 ### option: Locator.dispatchEvent.timeout = %%-input-timeout-%%
 
+## async method: Locator.dragTo
+### param: Locator.dragTo.target
+- `target` <[Locator]>
+
+Locator of the element to drag to.
+
+### option: Locator.dragTo.force = %%-input-force-%%
+### option: Locator.dragTo.noWaitAfter = %%-input-no-wait-after-%%
+### option: Locator.dragTo.timeout = %%-input-timeout-%%
+### option: Locator.dragTo.trial = %%-input-trial-%%
+### option: Locator.dragTo.sourcePosition = %%-input-source-position-%%
+### option: Locator.dragTo.targetPosition = %%-input-target-position-%%
+
 ## async method: Locator.elementHandle
 - returns: <[ElementHandle]>
 
@@ -426,7 +288,7 @@ assert tweets.evaluate("node => node.innerText") == "10 retweets"
 
 ```csharp
 var tweets = page.Locator(".tweet .retweets");
-Assert.Equals("10 retweets", await tweets.EvaluateAsync("node => node.innerText"));
+Assert.AreEqual("10 retweets", await tweets.EvaluateAsync("node => node.innerText"));
 ```
 
 ### param: Locator.evaluate.expression = %%-evaluate-expression-%%
@@ -532,6 +394,41 @@ Returns locator to the first matching element.
 Calls [focus](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/focus) on the element.
 
 ### option: Locator.focus.timeout = %%-input-timeout-%%
+
+
+## method: Locator.frameLocator
+- returns: <[FrameLocator]>
+
+When working with iframes, you can create a frame locator that will enter the iframe and allow selecting elements
+in that iframe:
+
+```js
+const locator = page.frameLocator('iframe').locator('text=Submit');
+await locator.click();
+```
+
+```java
+Locator locator = page.frameLocator("iframe").locator("text=Submit");
+locator.click();
+```
+
+```python async
+locator = page.frame_locator("iframe").locator("text=Submit")
+await locator.click()
+```
+
+```python sync
+locator = page.frame_locator("text=Submit").locator("text=Submit")
+locator.click()
+```
+
+```csharp
+var locator = page.FrameLocator("iframe").Locator("text=Submit");
+await locator.ClickAsync();
+```
+
+### param: Locator.frameLocator.selector = %%-find-selector-%%
+
 
 ## async method: Locator.getAttribute
 - returns: <[null]|[string]>
@@ -641,10 +538,10 @@ Returns locator to the last matching element.
 ## method: Locator.locator
 - returns: <[Locator]>
 
-The method finds an element matching the specified selector in the `Locator`'s subtree. See
-[Working with selectors](./selectors.md) for more details.
+The method finds an element matching the specified selector in the `Locator`'s subtree.
 
 ### param: Locator.locator.selector = %%-find-selector-%%
+### option: Locator.locator.-inline- = %%-locator-options-list-%%
 
 ## method: Locator.nth
 - returns: <[Locator]>

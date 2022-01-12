@@ -85,12 +85,13 @@ export class RecorderApp extends EventEmitter {
     await mainFrame.goto(internalCallMetadata(), 'https://playwright/index.html');
   }
 
-  static async open(sdkLanguage: string): Promise<RecorderApp> {
+  static async open(sdkLanguage: string, headed: boolean): Promise<RecorderApp> {
     const recorderPlaywright = (require('../../playwright').createPlaywright as typeof import('../../playwright').createPlaywright)('javascript', true);
     const args = [
       '--app=data:text/html,',
       '--window-size=600,600',
       '--window-position=1280,10',
+      '--test-type=',
     ];
     if (process.env.PWTEST_RECORDER_PORT)
       args.push(`--remote-debugging-port=${process.env.PWTEST_RECORDER_PORT}`);
@@ -98,7 +99,8 @@ export class RecorderApp extends EventEmitter {
       channel: findChromiumChannel(sdkLanguage),
       args,
       noDefaultViewport: true,
-      headless: !!process.env.PWTEST_CLI_HEADLESS || (isUnderTest() && !process.env.HEADFUL),
+      ignoreDefaultArgs: ['--enable-automation'],
+      headless: !!process.env.PWTEST_CLI_HEADLESS || (isUnderTest() && !headed),
       useWebSocket: !!process.env.PWTEST_RECORDER_PORT
     });
     const controller = new ProgressController(internalCallMetadata(), context._browser);

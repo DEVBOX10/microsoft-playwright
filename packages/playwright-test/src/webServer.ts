@@ -18,9 +18,9 @@ import net from 'net';
 import os from 'os';
 import stream from 'stream';
 import { monotonicTime } from './util';
-import { raceAgainstDeadline } from 'playwright-core/src/utils/async';
+import { raceAgainstDeadline } from 'playwright-core/lib/utils/async';
 import { WebServerConfig } from './types';
-import { launchProcess } from 'playwright-core/src/utils/processLauncher';
+import { launchProcess } from 'playwright-core/lib/utils/processLauncher';
 
 const DEFAULT_ENVIRONMENT_VARIABLES = {
   'BROWSER': 'none', // Disable that create-react-app will open the page in the browser
@@ -105,9 +105,9 @@ export class WebServer {
 }
 
 async function isPortUsed(port: number): Promise<boolean> {
-  return new Promise<boolean>(resolve => {
+  const innerIsPortUsed = (host: string) => new Promise<boolean>(resolve => {
     const conn = net
-        .connect(port)
+        .connect(port, host)
         .on('error', () => {
           resolve(false);
         })
@@ -116,6 +116,7 @@ async function isPortUsed(port: number): Promise<boolean> {
           resolve(true);
         });
   });
+  return await innerIsPortUsed('127.0.0.1') || await innerIsPortUsed('::1');
 }
 
 async function waitForSocket(port: number, delay: number, cancellationToken: { canceled: boolean }) {

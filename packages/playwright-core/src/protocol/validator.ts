@@ -42,6 +42,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.Metadata = tObject({
     stack: tOptional(tArray(tType('StackFrame'))),
     apiName: tOptional(tString),
+    internal: tOptional(tBoolean),
   });
   scheme.Point = tObject({
     x: tNumber,
@@ -152,17 +153,11 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     value: tOptional(tString),
     file: tOptional(tObject({
       name: tString,
-      mimeType: tString,
+      mimeType: tOptional(tString),
       buffer: tBinary,
     })),
   });
-  scheme.InterceptedResponse = tObject({
-    request: tChannel('Request'),
-    status: tNumber,
-    statusText: tString,
-    headers: tArray(tType('NameValue')),
-  });
-  scheme.FetchRequestFetchParams = tObject({
+  scheme.APIRequestContextFetchParams = tObject({
     url: tString,
     params: tOptional(tArray(tType('NameValue'))),
     method: tOptional(tString),
@@ -175,20 +170,28 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     failOnStatusCode: tOptional(tBoolean),
     ignoreHTTPSErrors: tOptional(tBoolean),
   });
-  scheme.FetchRequestFetchResponseBodyParams = tObject({
+  scheme.APIRequestContextFetchResponseBodyParams = tObject({
     fetchUid: tString,
   });
-  scheme.FetchRequestStorageStateParams = tOptional(tObject({}));
-  scheme.FetchRequestDisposeFetchResponseParams = tObject({
+  scheme.APIRequestContextFetchLogParams = tObject({
     fetchUid: tString,
   });
-  scheme.FetchRequestDisposeParams = tOptional(tObject({}));
-  scheme.FetchResponse = tObject({
+  scheme.APIRequestContextStorageStateParams = tOptional(tObject({}));
+  scheme.APIRequestContextDisposeAPIResponseParams = tObject({
+    fetchUid: tString,
+  });
+  scheme.APIRequestContextDisposeParams = tOptional(tObject({}));
+  scheme.APIResponse = tObject({
     fetchUid: tString,
     url: tString,
     status: tNumber,
     statusText: tString,
     headers: tArray(tType('NameValue')),
+  });
+  scheme.LifecycleEvent = tEnum(['load', 'domcontentloaded', 'networkidle', 'commit']);
+  scheme.LocalUtilsZipParams = tObject({
+    zipFile: tString,
+    entries: tArray(tType('NameValue')),
   });
   scheme.RootInitializeParams = tObject({
     sdkLanguage: tString,
@@ -234,6 +237,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
       origins: tArray(tType('OriginStorage')),
     })),
   });
+  scheme.PlaywrightHideHighlightParams = tOptional(tObject({}));
   scheme.SelectorsRegisterParams = tObject({
     name: tString,
     source: tString,
@@ -327,7 +331,6 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     forcedColors: tOptional(tEnum(['active', 'none'])),
     acceptDownloads: tOptional(tBoolean),
     baseURL: tOptional(tString),
-    _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
       size: tOptional(tObject({
@@ -387,7 +390,6 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     forcedColors: tOptional(tEnum(['active', 'none'])),
     acceptDownloads: tOptional(tBoolean),
     baseURL: tOptional(tString),
-    _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
       size: tOptional(tObject({
@@ -455,10 +457,10 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.BrowserContextNewPageParams = tOptional(tObject({}));
   scheme.BrowserContextSetDefaultNavigationTimeoutNoReplyParams = tObject({
-    timeout: tNumber,
+    timeout: tOptional(tNumber),
   });
   scheme.BrowserContextSetDefaultTimeoutNoReplyParams = tObject({
-    timeout: tNumber,
+    timeout: tOptional(tNumber),
   });
   scheme.BrowserContextSetExtraHTTPHeadersParams = tObject({
     headers: tArray(tType('NameValue')),
@@ -502,18 +504,21 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     name: tOptional(tString),
     snapshots: tOptional(tBoolean),
     screenshots: tOptional(tBoolean),
+    sources: tOptional(tBoolean),
   });
-  scheme.BrowserContextTracingStartChunkParams = tOptional(tObject({}));
+  scheme.BrowserContextTracingStartChunkParams = tObject({
+    title: tOptional(tString),
+  });
   scheme.BrowserContextTracingStopChunkParams = tObject({
-    save: tBoolean,
+    mode: tEnum(['doNotSave', 'compressTrace', 'compressTraceAndSources']),
   });
   scheme.BrowserContextTracingStopParams = tOptional(tObject({}));
   scheme.BrowserContextHarExportParams = tOptional(tObject({}));
   scheme.PageSetDefaultNavigationTimeoutNoReplyParams = tObject({
-    timeout: tNumber,
+    timeout: tOptional(tNumber),
   });
   scheme.PageSetDefaultTimeoutNoReplyParams = tObject({
-    timeout: tNumber,
+    timeout: tOptional(tNumber),
   });
   scheme.PageSetFileChooserInterceptedNoReplyParams = tObject({
     intercepted: tBoolean,
@@ -536,15 +541,15 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   });
   scheme.PageGoBackParams = tObject({
     timeout: tOptional(tNumber),
-    waitUntil: tOptional(tEnum(['load', 'domcontentloaded', 'networkidle'])),
+    waitUntil: tOptional(tType('LifecycleEvent')),
   });
   scheme.PageGoForwardParams = tObject({
     timeout: tOptional(tNumber),
-    waitUntil: tOptional(tEnum(['load', 'domcontentloaded', 'networkidle'])),
+    waitUntil: tOptional(tType('LifecycleEvent')),
   });
   scheme.PageReloadParams = tObject({
     timeout: tOptional(tNumber),
-    waitUntil: tOptional(tEnum(['load', 'domcontentloaded', 'networkidle'])),
+    waitUntil: tOptional(tType('LifecycleEvent')),
   });
   scheme.PageScreenshotParams = tObject({
     timeout: tOptional(tNumber),
@@ -698,6 +703,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     trial: tOptional(tBoolean),
     sourcePosition: tOptional(tType('Point')),
     targetPosition: tOptional(tType('Point')),
+    strict: tOptional(tBoolean),
   });
   scheme.FrameDblclickParams = tObject({
     selector: tString,
@@ -742,6 +748,9 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     timeout: tOptional(tNumber),
   });
   scheme.FrameFrameElementParams = tOptional(tObject({}));
+  scheme.FrameHighlightParams = tObject({
+    selector: tString,
+  });
   scheme.FrameGetAttributeParams = tObject({
     selector: tString,
     strict: tOptional(tBoolean),
@@ -751,7 +760,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.FrameGotoParams = tObject({
     url: tString,
     timeout: tOptional(tNumber),
-    waitUntil: tOptional(tEnum(['load', 'domcontentloaded', 'networkidle'])),
+    waitUntil: tOptional(tType('LifecycleEvent')),
     referer: tOptional(tString),
   });
   scheme.FrameHoverParams = tObject({
@@ -821,6 +830,9 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.FrameQuerySelectorAllParams = tObject({
     selector: tString,
   });
+  scheme.FrameQueryCountParams = tObject({
+    selector: tString,
+  });
   scheme.FrameSelectOptionParams = tObject({
     selector: tString,
     strict: tOptional(tBoolean),
@@ -837,7 +849,7 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
   scheme.FrameSetContentParams = tObject({
     html: tString,
     timeout: tOptional(tNumber),
-    waitUntil: tOptional(tEnum(['load', 'domcontentloaded', 'networkidle'])),
+    waitUntil: tOptional(tType('LifecycleEvent')),
   });
   scheme.FrameSetInputFilesParams = tObject({
     selector: tString,
@@ -1105,17 +1117,14 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     method: tOptional(tString),
     headers: tOptional(tArray(tType('NameValue'))),
     postData: tOptional(tBinary),
-    interceptResponse: tOptional(tBoolean),
   });
   scheme.RouteFulfillParams = tObject({
     status: tOptional(tNumber),
     headers: tOptional(tArray(tType('NameValue'))),
     body: tOptional(tString),
     isBase64: tOptional(tBoolean),
-    useInterceptedResponseBody: tOptional(tBoolean),
     fetchResponseUid: tOptional(tString),
   });
-  scheme.RouteResponseBodyParams = tOptional(tObject({}));
   scheme.ResourceTiming = tObject({
     startTime: tNumber,
     domainLookupStart: tNumber,
@@ -1340,7 +1349,6 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
     reducedMotion: tOptional(tEnum(['reduce', 'no-preference'])),
     forcedColors: tOptional(tEnum(['active', 'none'])),
     acceptDownloads: tOptional(tBoolean),
-    _debugName: tOptional(tString),
     recordVideo: tOptional(tObject({
       dir: tString,
       size: tOptional(tObject({

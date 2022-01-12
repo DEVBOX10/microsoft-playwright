@@ -17,19 +17,19 @@
 import * as http from 'http';
 import * as https from 'https';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { Progress, ProgressController } from './progress';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { pipeline, Readable, Transform } from 'stream';
 import url from 'url';
 import zlib from 'zlib';
 import { HTTPCredentials } from '../../types/types';
 import * as channels from '../protocol/channels';
-import { debugLogger } from '../utils/debugLogger';
 import { TimeoutSettings } from '../utils/timeoutSettings';
 import { assert, createGuid, getPlaywrightVersion, monotonicTime } from '../utils/utils';
 import { BrowserContext } from './browserContext';
 import { CookieStore, domainMatches } from './cookieStore';
 import { MultipartFormData } from './formData';
-import { SdkObject } from './instrumentation';
+import { CallMetadata, SdkObject } from './instrumentation';
 import { Playwright } from './playwright';
 import * as types from './types';
 import { HeadersArray, ProxySettings } from './types';
@@ -44,16 +44,39 @@ type FetchRequestOptions = {
   baseURL?: string;
 };
 
-export abstract class FetchRequest extends SdkObject {
+export type APIRequestEvent = {
+  url: URL,
+  method: string,
+  headers: { [name: string]: string },
+  cookies: types.NameValueList,
+  postData?: Buffer
+};
+
+export type APIRequestFinishedEvent = {
+  requestEvent: APIRequestEvent,
+  httpVersion: string;
+  headers: http.IncomingHttpHeaders;
+  cookies: types.NetworkCookie[];
+  rawHeaders: string[];
+  statusCode: number;
+  statusMessage: string;
+  body?: Buffer;
+};
+
+export abstract class APIRequestContext extends SdkObject {
   static Events = {
     Dispose: 'dispose',
+
+    Request: 'request',
+    RequestFinished: 'requestfinished',
   };
 
   readonly fetchResponses: Map<string, Buffer> = new Map();
-  protected static allInstances: Set<FetchRequest> = new Set();
+  readonly fetchLog: Map<string, string[]> = new Map();
+  protected static allInstances: Set<APIRequestContext> = new Set();
 
   static findResponseBody(guid: string): Buffer | undefined {
-    for (const request of FetchRequest.allInstances) {
+    for (const request of APIRequestContext.allInstances) {
       const body = request.fetchResponses.get(guid);
       if (body)
         return body;
@@ -63,13 +86,19 @@ export abstract class FetchRequest extends SdkObject {
 
   constructor(parent: SdkObject) {
     super(parent, 'fetchRequest');
-    FetchRequest.allInstances.add(this);
+    APIRequestContext.allInstances.add(this);
   }
 
   protected _disposeImpl() {
-    FetchRequest.allInstances.delete(this);
+    APIRequestContext.allInstances.delete(this);
     this.fetchResponses.clear();
-    this.emit(FetchRequest.Events.Dispose);
+    this.fetchLog.clear();
+    this.emit(APIRequestContext.Events.Dispose);
+  }
+
+  disposeResponse(fetchUid: string) {
+    this.fetchResponses.delete(fetchUid);
+    this.fetchLog.delete(fetchUid);
   }
 
   abstract dispose(): void;
@@ -77,7 +106,7 @@ export abstract class FetchRequest extends SdkObject {
   abstract _defaultOptions(): FetchRequestOptions;
   abstract _addCookies(cookies: types.NetworkCookie[]): Promise<void>;
   abstract _cookies(url: URL): Promise<types.NetworkCookie[]>;
-  abstract storageState(): Promise<channels.FetchRequestStorageStateResult>;
+  abstract storageState(): Promise<channels.APIRequestContextStorageStateResult>;
 
   private _storeResponseBody(body: Buffer): string {
     const uid = createGuid();
@@ -85,81 +114,83 @@ export abstract class FetchRequest extends SdkObject {
     return uid;
   }
 
-  async fetch(params: channels.FetchRequestFetchParams): Promise<{fetchResponse?: Omit<types.FetchResponse, 'body'> & { fetchUid: string }, error?: string}> {
-    try {
-      const headers: { [name: string]: string } = {};
-      const defaults = this._defaultOptions();
-      headers['user-agent'] = defaults.userAgent;
-      headers['accept'] = '*/*';
-      headers['accept-encoding'] = 'gzip,deflate,br';
+  async fetch(params: channels.APIRequestContextFetchParams, metadata: CallMetadata): Promise<Omit<types.APIResponse, 'body'> & { fetchUid: string }> {
+    const headers: { [name: string]: string } = {};
+    const defaults = this._defaultOptions();
+    headers['user-agent'] = defaults.userAgent;
+    headers['accept'] = '*/*';
+    headers['accept-encoding'] = 'gzip,deflate,br';
 
-      if (defaults.extraHTTPHeaders) {
-        for (const { name, value } of defaults.extraHTTPHeaders)
-          headers[name.toLowerCase()] = value;
-      }
-
-      if (params.headers) {
-        for (const { name, value } of params.headers)
-          headers[name.toLowerCase()] = value;
-      }
-
-      const method = params.method?.toUpperCase() || 'GET';
-      const proxy = defaults.proxy;
-      let agent;
-      if (proxy) {
-        // TODO: support bypass proxy
-        const proxyOpts = url.parse(proxy.server);
-        if (proxyOpts.protocol?.startsWith('socks')) {
-          agent = new SocksProxyAgent({
-            host: proxyOpts.hostname,
-            port: proxyOpts.port || undefined,
-          });
-        } else {
-          if (proxy.username)
-            proxyOpts.auth = `${proxy.username}:${proxy.password || ''}`;
-          agent = new HttpsProxyAgent(proxyOpts);
-        }
-      }
-
-      const timeout = defaults.timeoutSettings.timeout(params);
-      const deadline = timeout && (monotonicTime() + timeout);
-
-      const options: https.RequestOptions & { maxRedirects: number, deadline: number } = {
-        method,
-        headers,
-        agent,
-        maxRedirects: 20,
-        timeout,
-        deadline
-      };
-      // rejectUnauthorized = undefined is treated as true in node 12.
-      if (params.ignoreHTTPSErrors || defaults.ignoreHTTPSErrors)
-        options.rejectUnauthorized = false;
-
-      const requestUrl = new URL(params.url, defaults.baseURL);
-      if (params.params) {
-        for (const { name, value } of params.params)
-          requestUrl.searchParams.set(name, value);
-      }
-
-      let postData;
-      if (['POST', 'PUT', 'PATCH'].includes(method))
-        postData = serializePostData(params, headers);
-      else if (params.postData || params.jsonData || params.formData || params.multipartData)
-        throw new Error(`Method ${method} does not accept post data`);
-      if (postData)
-        headers['content-length'] = String(postData.byteLength);
-      const fetchResponse = await this._sendRequest(requestUrl, options, postData);
-      const fetchUid = this._storeResponseBody(fetchResponse.body);
-      if (params.failOnStatusCode && (fetchResponse.status < 200 || fetchResponse.status >= 400))
-        return { error: `${fetchResponse.status} ${fetchResponse.statusText}` };
-      return { fetchResponse: { ...fetchResponse, fetchUid } };
-    } catch (e) {
-      return { error: String(e) };
+    if (defaults.extraHTTPHeaders) {
+      for (const { name, value } of defaults.extraHTTPHeaders)
+        headers[name.toLowerCase()] = value;
     }
+
+    if (params.headers) {
+      for (const { name, value } of params.headers)
+        headers[name.toLowerCase()] = value;
+    }
+
+    const method = params.method?.toUpperCase() || 'GET';
+    const proxy = defaults.proxy;
+    let agent;
+    if (proxy) {
+      // TODO: support bypass proxy
+      const proxyOpts = url.parse(proxy.server);
+      if (proxyOpts.protocol?.startsWith('socks')) {
+        agent = new SocksProxyAgent({
+          host: proxyOpts.hostname,
+          port: proxyOpts.port || undefined,
+        });
+      } else {
+        if (proxy.username)
+          proxyOpts.auth = `${proxy.username}:${proxy.password || ''}`;
+        agent = new HttpsProxyAgent(proxyOpts);
+      }
+    }
+
+    const timeout = defaults.timeoutSettings.timeout(params);
+    const deadline = timeout && (monotonicTime() + timeout);
+
+    const options: https.RequestOptions & { maxRedirects: number, deadline: number } = {
+      method,
+      headers,
+      agent,
+      maxRedirects: 20,
+      timeout,
+      deadline
+    };
+    // rejectUnauthorized = undefined is treated as true in node 12.
+    if (params.ignoreHTTPSErrors || defaults.ignoreHTTPSErrors)
+      options.rejectUnauthorized = false;
+
+    const requestUrl = new URL(params.url, defaults.baseURL);
+    if (params.params) {
+      for (const { name, value } of params.params)
+        requestUrl.searchParams.set(name, value);
+    }
+
+    let postData: Buffer | undefined;
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method))
+      postData = serializePostData(params, headers);
+    else if (params.postData || params.jsonData || params.formData || params.multipartData)
+      throw new Error(`Method ${method} does not accept post data`);
+    if (postData)
+      headers['content-length'] = String(postData.byteLength);
+    const controller = new ProgressController(metadata, this);
+    const fetchResponse = await controller.run(progress => {
+      return this._sendRequest(progress, requestUrl, options, postData);
+    });
+    const fetchUid = this._storeResponseBody(fetchResponse.body);
+    this.fetchLog.set(fetchUid, controller.metadata.log);
+    if (params.failOnStatusCode && (fetchResponse.status < 200 || fetchResponse.status >= 400))
+      throw new Error(`${fetchResponse.status} ${fetchResponse.statusText}`);
+    return { ...fetchResponse, fetchUid };
   }
 
-  private async _updateCookiesFromHeader(responseUrl: string, setCookie: string[]) {
+  private _parseSetCookieHeader(responseUrl: string, setCookie: string[] | undefined): types.NetworkCookie[] {
+    if (!setCookie)
+      return [];
     const url = new URL(responseUrl);
     // https://datatracker.ietf.org/doc/html/rfc6265#section-5.1.4
     const defaultPath = '/' + url.pathname.substr(1).split('/').slice(0, -1).join('/');
@@ -181,8 +212,7 @@ export abstract class FetchRequest extends SdkObject {
         cookie.path = defaultPath;
       cookies.push(cookie);
     }
-    if (cookies.length)
-      await this._addCookies(cookies);
+    return cookies;
   }
 
   private async _updateRequestCookieHeader(url: URL, options: http.RequestOptions) {
@@ -195,19 +225,47 @@ export abstract class FetchRequest extends SdkObject {
     }
   }
 
-  private async _sendRequest(url: URL, options: https.RequestOptions & { maxRedirects: number, deadline: number }, postData?: Buffer): Promise<types.FetchResponse>{
+  private async _sendRequest(progress: Progress, url: URL, options: https.RequestOptions & { maxRedirects: number, deadline: number }, postData?: Buffer): Promise<types.APIResponse>{
     await this._updateRequestCookieHeader(url, options);
-    return new Promise<types.FetchResponse>((fulfill, reject) => {
+
+    const requestCookies = (options.headers!['cookie'] as (string | undefined))?.split(';').map(p => {
+      const [name, value] = p.split('=').map(v => v.trim());
+      return { name, value };
+    }) || [];
+    const requestEvent: APIRequestEvent = {
+      url,
+      method: options.method!,
+      headers: options.headers as { [name: string]: string },
+      cookies: requestCookies,
+      postData
+    };
+    this.emit(APIRequestContext.Events.Request, requestEvent);
+
+    return new Promise<types.APIResponse>((fulfill, reject) => {
       const requestConstructor: ((url: URL, options: http.RequestOptions, callback?: (res: http.IncomingMessage) => void) => http.ClientRequest)
         = (url.protocol === 'https:' ? https : http).request;
       const request = requestConstructor(url, options, async response => {
-        if (debugLogger.isEnabled('api')) {
-          debugLogger.log('api', `← ${response.statusCode} ${response.statusMessage}`);
-          for (const [name, value] of Object.entries(response.headers))
-            debugLogger.log('api', `  ${name}: ${value}`);
-        }
-        if (response.headers['set-cookie'])
-          await this._updateCookiesFromHeader(response.url || url.toString(), response.headers['set-cookie']);
+        const notifyRequestFinished = (body?: Buffer) => {
+          const requestFinishedEvent: APIRequestFinishedEvent = {
+            requestEvent,
+            httpVersion: response.httpVersion,
+            statusCode: response.statusCode || 0,
+            statusMessage: response.statusMessage || '',
+            headers: response.headers,
+            rawHeaders: response.rawHeaders,
+            cookies,
+            body
+          };
+          this.emit(APIRequestContext.Events.RequestFinished, requestFinishedEvent);
+        };
+        progress.log(`← ${response.statusCode} ${response.statusMessage}`);
+        for (const [name, value] of Object.entries(response.headers))
+          progress.log(`  ${name}: ${value}`);
+
+        const cookies = this._parseSetCookieHeader(response.url || url.toString(), response.headers['set-cookie']) ;
+        if (cookies.length)
+          await this._addCookies(cookies);
+
         if (redirectStatus.includes(response.statusCode!)) {
           if (!options.maxRedirects) {
             reject(new Error('Max redirect count exceeded'));
@@ -226,11 +284,12 @@ export abstract class FetchRequest extends SdkObject {
             postData = undefined;
             delete headers[`content-encoding`];
             delete headers[`content-language`];
+            delete headers[`content-length`];
             delete headers[`content-location`];
             delete headers[`content-type`];
           }
 
-          const redirectOptions: http.RequestOptions & { maxRedirects: number, deadline: number } = {
+          const redirectOptions: https.RequestOptions & { maxRedirects: number, deadline: number } = {
             method,
             headers,
             agent: options.agent,
@@ -238,11 +297,15 @@ export abstract class FetchRequest extends SdkObject {
             timeout: options.timeout,
             deadline: options.deadline
           };
+          // rejectUnauthorized = undefined is treated as true in node 12.
+          if (options.rejectUnauthorized === false)
+            redirectOptions.rejectUnauthorized = false;
 
           // HTTP-redirect fetch step 4: If locationURL is null, then return response.
           if (response.headers.location) {
             const locationURL = new URL(response.headers.location, url);
-            fulfill(this._sendRequest(locationURL, redirectOptions, postData));
+            notifyRequestFinished();
+            fulfill(this._sendRequest(progress, locationURL, redirectOptions, postData));
             request.destroy();
             return;
           }
@@ -250,11 +313,12 @@ export abstract class FetchRequest extends SdkObject {
         if (response.statusCode === 401 && !options.headers!['authorization']) {
           const auth = response.headers['www-authenticate'];
           const credentials = this._defaultOptions().httpCredentials;
-          if (auth?.trim().startsWith('Basic ') && credentials) {
+          if (auth?.trim().startsWith('Basic') && credentials) {
             const { username, password } = credentials;
             const encoded = Buffer.from(`${username || ''}:${password || ''}`).toString('base64');
             options.headers!['authorization'] = `Basic ${encoded}`;
-            fulfill(this._sendRequest(url, options, postData));
+            notifyRequestFinished();
+            fulfill(this._sendRequest(progress, url, options, postData));
             request.destroy();
             return;
           }
@@ -285,6 +349,7 @@ export abstract class FetchRequest extends SdkObject {
         body.on('data', chunk => chunks.push(chunk));
         body.on('end', () => {
           const body = Buffer.concat(chunks);
+          notifyRequestFinished(body);
           fulfill({
             url: response.url || url.toString(),
             status: response.statusCode || 0,
@@ -301,15 +366,13 @@ export abstract class FetchRequest extends SdkObject {
         reject(new Error('Request context disposed.'));
         request.destroy();
       };
-      this.on(FetchRequest.Events.Dispose, disposeListener);
-      request.on('close', () => this.off(FetchRequest.Events.Dispose, disposeListener));
+      this.on(APIRequestContext.Events.Dispose, disposeListener);
+      request.on('close', () => this.off(APIRequestContext.Events.Dispose, disposeListener));
 
-      if (debugLogger.isEnabled('api')) {
-        debugLogger.log('api', `→ ${options.method} ${url.toString()}`);
-        if (options.headers) {
-          for (const [name, value] of Object.entries(options.headers))
-            debugLogger.log('api', `  ${name}: ${value}`);
-        }
+      progress.log(`→ ${options.method} ${url.toString()}`);
+      if (options.headers) {
+        for (const [name, value] of Object.entries(options.headers))
+          progress.log(`  ${name}: ${value}`);
       }
 
       if (options.deadline) {
@@ -332,7 +395,7 @@ export abstract class FetchRequest extends SdkObject {
   }
 }
 
-export class BrowserContextFetchRequest extends FetchRequest {
+export class BrowserContextAPIRequestContext extends APIRequestContext {
   private readonly _context: BrowserContext;
 
   constructor(context: BrowserContext) {
@@ -365,13 +428,13 @@ export class BrowserContextFetchRequest extends FetchRequest {
     return await this._context.cookies(url.toString());
   }
 
-  override async storageState(): Promise<channels.FetchRequestStorageStateResult> {
+  override async storageState(): Promise<channels.APIRequestContextStorageStateResult> {
     return this._context.storageState();
   }
 }
 
 
-export class GlobalFetchRequest extends FetchRequest {
+export class GlobalAPIRequestContext extends APIRequestContext {
   private readonly _cookieStore: CookieStore = new CookieStore();
   private readonly _options: FetchRequestOptions;
   private readonly _origins: channels.OriginStorage[] | undefined;
@@ -420,7 +483,7 @@ export class GlobalFetchRequest extends FetchRequest {
     return this._cookieStore.cookies(url);
   }
 
-  override async storageState(): Promise<channels.FetchRequestStorageStateResult> {
+  override async storageState(): Promise<channels.APIRequestContextStorageStateResult> {
     return {
       cookies: this._cookieStore.allCookies(),
       origins: this._origins || []
@@ -484,10 +547,24 @@ function parseCookie(header: string): types.NetworkCookie | null {
   return cookie;
 }
 
-function serializePostData(params: channels.FetchRequestFetchParams, headers: { [name: string]: string }): Buffer | undefined {
+function isJsonParsable(value: any) {
+  if (typeof value !== 'string')
+    return false;
+  try {
+    JSON.parse(value);
+    return true;
+  } catch (e) {
+    if (e instanceof SyntaxError)
+      return false;
+    else
+      throw e;
+  }
+}
+
+function serializePostData(params: channels.APIRequestContextFetchParams, headers: { [name: string]: string }): Buffer | undefined {
   assert((params.postData ? 1 : 0) + (params.jsonData ? 1 : 0) + (params.formData ? 1 : 0) + (params.multipartData ? 1 : 0) <= 1, `Only one of 'data', 'form' or 'multipart' can be specified`);
   if (params.jsonData) {
-    const json = JSON.stringify(params.jsonData);
+    const json = isJsonParsable(params.jsonData) ? params.jsonData : JSON.stringify(params.jsonData);
     headers['content-type'] ??= 'application/json';
     return Buffer.from(json, 'utf8');
   } else if (params.formData) {

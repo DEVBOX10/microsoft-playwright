@@ -17,11 +17,11 @@
 import fs from 'fs';
 import path from 'path';
 import { FullConfig, Location, Suite, TestCase, TestResult, TestStatus, TestStep } from '../../types/testReporter';
-import { assert, calculateSha1 } from 'playwright-core/src/utils/utils';
+import { assert, calculateSha1 } from 'playwright-core/lib/utils/utils';
 import { sanitizeForFilePath } from '../util';
 import { formatResultFailure } from './base';
 import { toPosixPath, serializePatterns } from './json';
-import { MultiMap } from 'playwright-core/src/utils/multimap';
+import { MultiMap } from 'playwright-core/lib/utils/multimap';
 import { codeFrameColumns } from '@babel/code-frame';
 
 export type JsonLocation = Location;
@@ -54,6 +54,7 @@ export type JsonSuite = {
   location?: JsonLocation;
   suites: JsonSuite[];
   tests: JsonTestCase[];
+  hooks: JsonTestCase[];
 };
 
 export type JsonTestCase = {
@@ -71,7 +72,7 @@ export type JsonTestCase = {
 
 export type JsonAttachment = {
   name: string;
-  body?: string;
+  body?: string | Buffer;
   path?: string;
   contentType: string;
 };
@@ -96,6 +97,7 @@ export type JsonTestStep = {
   steps: JsonTestStep[];
   location?: Location;
   snippet?: string;
+  count: number;
 };
 
 class RawReporter {
@@ -180,20 +182,21 @@ class RawReporter {
   }
 
   private _serializeSuite(suite: Suite): JsonSuite {
-    const fileId = calculateSha1(suite.location!.file.split(path.sep).join('/'));
     const location = this._relativeLocation(suite.location);
+    const fileId = calculateSha1(location!.file.split(path.sep).join('/'));
     return {
       title: suite.title,
       fileId,
       location,
       suites: suite.suites.map(s => this._serializeSuite(s)),
       tests: suite.tests.map(t => this._serializeTest(t, fileId)),
+      hooks: [],
     };
   }
 
   private _serializeTest(test: TestCase, fileId: string): JsonTestCase {
     const [, projectName, , ...titles] = test.titlePath();
-    const testIdExpression = `project:${projectName}|path:${titles.join('>')}`;
+    const testIdExpression = `project:${projectName}|path:${titles.join('>')}|repeat:${test.repeatEachIndex}`;
     const testId = fileId + '-' + calculateSha1(testIdExpression);
     return {
       testId,
@@ -216,9 +219,9 @@ class RawReporter {
       startTime: result.startTime.toISOString(),
       duration: result.duration,
       status: result.status,
-      error: formatResultFailure(test, result, '', true).tokens.join('').trim(),
+      error: formatResultFailure(this.config, test, result, '', true).tokens.join('').trim(),
       attachments: this._createAttachments(result),
-      steps: result.steps.map(step => this._serializeStep(test, step))
+      steps: dedupeSteps(result.steps.map(step => this._serializeStep(test, step)))
     };
   }
 
@@ -230,7 +233,8 @@ class RawReporter {
       duration: step.duration,
       error: step.error?.message,
       location: this._relativeLocation(step.location),
-      steps: step.steps.map(step => this._serializeStep(test, step)),
+      steps: dedupeSteps(step.steps.map(step => this._serializeStep(test, step))),
+      count: 1
     };
 
     if (step.location)
@@ -245,7 +249,7 @@ class RawReporter {
         attachments.push({
           name: attachment.name,
           contentType: attachment.contentType,
-          body: attachment.body.toString('base64')
+          body: attachment.body
         });
       } else if (attachment.path) {
         attachments.push({
@@ -274,7 +278,7 @@ class RawReporter {
     return {
       name: type,
       contentType: 'application/octet-stream',
-      body: chunk.toString('base64')
+      body: chunk
     };
   }
 
@@ -288,6 +292,22 @@ class RawReporter {
       column: location.column,
     };
   }
+}
+
+function dedupeSteps(steps: JsonTestStep[]): JsonTestStep[] {
+  const result: JsonTestStep[] = [];
+  let lastStep: JsonTestStep | undefined;
+  for (const step of steps) {
+    const canDedupe = !step.error && step.duration >= 0 && step.location?.file && !step.steps.length;
+    if (canDedupe && lastStep && step.category === lastStep.category && step.title === lastStep.title && step.location?.file === lastStep.location?.file && step.location?.line === lastStep.location?.line && step.location?.column === lastStep.location?.column) {
+      ++lastStep.count;
+      lastStep.duration += step.duration;
+      continue;
+    }
+    result.push(step);
+    lastStep = canDedupe ? step : undefined;
+  }
+  return result;
 }
 
 export default RawReporter;

@@ -22,7 +22,7 @@ import * as api from '../../types/types';
 
 type ConsoleMessageLocation = channels.ConsoleMessageInitializer['location'];
 
-export class ConsoleMessage extends ChannelOwner<channels.ConsoleMessageChannel, channels.ConsoleMessageInitializer> implements api.ConsoleMessage {
+export class ConsoleMessage extends ChannelOwner<channels.ConsoleMessageChannel> implements api.ConsoleMessage {
   static from(message: channels.ConsoleMessageChannel): ConsoleMessage {
     return (message as any)._object;
   }
@@ -47,7 +47,7 @@ export class ConsoleMessage extends ChannelOwner<channels.ConsoleMessageChannel,
     return this._initializer.location;
   }
 
-  [(util.inspect as any).custom]() {
+  [util.inspect.custom]() {
     return this.text();
   }
 }

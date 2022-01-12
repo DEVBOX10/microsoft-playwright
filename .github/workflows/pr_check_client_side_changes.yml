@@ -2,9 +2,9 @@ name: "Check client side changes"
 on:
   push:
     branches:
-      - master
+      - main
     paths:
-      - 'src/client/**/*'
+      - 'packages/playwright-core/src/client/**/*'
 jobs:
   check:
     name: Check

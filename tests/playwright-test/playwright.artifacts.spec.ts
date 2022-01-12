@@ -145,6 +145,10 @@ test('should work with screenshot: on', async ({ runInlineTest }, testInfo) => {
     '  test-failed-1.png',
     'artifacts-persistent-passing',
     '  test-finished-1.png',
+    'artifacts-shared-afterAll-worker0',
+    '  test-finished-1.png',
+    'artifacts-shared-beforeAll-worker0',
+    '  test-finished-1.png',
     'artifacts-shared-shared-failing',
     '  test-failed-1.png',
     'artifacts-shared-shared-passing',
@@ -210,6 +214,10 @@ test('should work with trace: on', async ({ runInlineTest }, testInfo) => {
     '  trace.zip',
     'artifacts-persistent-passing',
     '  trace.zip',
+    'artifacts-shared-afterAll-worker0',
+    '  trace.zip',
+    'artifacts-shared-beforeAll-worker0',
+    '  trace.zip',
     'artifacts-shared-shared-failing',
     '  trace.zip',
     'artifacts-shared-shared-passing',
@@ -269,6 +277,8 @@ test('should work with trace: on-first-retry', async ({ runInlineTest }, testInf
     '  trace.zip',
     'artifacts-persistent-failing-retry1',
     '  trace.zip',
+    'artifacts-shared-beforeAll-worker1-retry1',
+    '  trace.zip',
     'artifacts-shared-shared-failing-retry1',
     '  trace.zip',
     'artifacts-two-contexts-failing-retry1',
@@ -276,80 +286,4 @@ test('should work with trace: on-first-retry', async ({ runInlineTest }, testInf
     '  trace.zip',
     'report.json',
   ]);
-});
-
-test('should stop tracing with trace: on-first-retry, when not retrying', async ({ runInlineTest }, testInfo) => {
-  const result = await runInlineTest({
-    'playwright.config.ts': `
-      module.exports = { use: { trace: 'on-first-retry' } };
-    `,
-    'a.spec.ts': `
-      const { test } = pwt;
-
-      test.describe('shared', () => {
-        let page;
-        test.beforeAll(async ({ browser }) => {
-          page = await browser.newPage();
-        });
-
-        test.afterAll(async () => {
-          await page.close();
-        });
-
-        test('flaky', async ({}, testInfo) => {
-          expect(testInfo.retry).toBe(1);
-        });
-
-        test('no tracing', async ({}, testInfo) => {
-          const e = await page.context().tracing.stop({ path: 'ignored' }).catch(e => e);
-          expect(e.message).toContain('Must start tracing before stopping');
-        });
-      });
-    `,
-  }, { workers: 1, retries: 1 });
-
-  expect(result.exitCode).toBe(0);
-  expect(result.passed).toBe(1);
-  expect(result.flaky).toBe(1);
-  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
-    'a-shared-flaky-retry1',
-    '  trace.zip',
-    'report.json',
-  ]);
-});
-
-test('should not throw with trace: on-first-retry and two retries in the same worker', async ({ runInlineTest }, testInfo) => {
-  const files = {};
-  for (let i = 0; i < 6; i++) {
-    files[`a${i}.spec.ts`] = `
-      import { test } from './helper';
-      test('flaky', async ({ myContext }, testInfo) => {
-        await new Promise(f => setTimeout(f, 200 + Math.round(Math.random() * 1000)));
-        expect(testInfo.retry).toBe(1);
-      });
-      test('passing', async ({ myContext }, testInfo) => {
-        await new Promise(f => setTimeout(f, 200 + Math.round(Math.random() * 1000)));
-      });
-    `;
-  }
-  const result = await runInlineTest({
-    ...files,
-    'playwright.config.ts': `
-      module.exports = { use: { trace: 'on-first-retry' } };
-    `,
-    'helper.ts': `
-      const { test: base } = pwt;
-      export const test = base.extend({
-        myContext: [async ({ browser }, use) => {
-          const c = await browser.newContext();
-          await use(c);
-          await c.close();
-        }, { scope: 'worker' }]
-      })
-    `,
-  }, { workers: 3, retries: 1 });
-
-  expect(result.exitCode).toBe(0);
-  expect(result.passed).toBe(6);
-  expect(result.flaky).toBe(6);
 });

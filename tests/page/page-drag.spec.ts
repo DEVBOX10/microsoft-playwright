@@ -22,7 +22,7 @@ it.describe('Drag and drop', () => {
   it.skip(({ isAndroid }) => isAndroid);
   it.skip(({ browserName, browserMajorVersion }) => browserName === 'chromium' && browserMajorVersion < 91);
 
-  it('should work', async ({ page, server }) => {
+  it('should work #smoke', async ({ page, server }) => {
     await page.goto(server.PREFIX + '/drag-n-drop.html');
     await page.hover('#source');
     await page.mouse.down();
@@ -124,7 +124,7 @@ it.describe('Drag and drop', () => {
   it('should respect the drop effect', async ({ page, browserName, platform, trace }) => {
     it.fixme(browserName === 'webkit' && platform !== 'linux', 'WebKit doesn\'t handle the drop effect correctly outside of linux.');
     it.fixme(browserName === 'firefox');
-    it.slow(!!trace);
+    it.slow(trace === 'on');
 
     expect(await testIfDropped('copy', 'copy')).toBe(true);
     expect(await testIfDropped('copy', 'move')).toBe(false);
@@ -268,6 +268,12 @@ it.describe('Drag and drop', () => {
       { type: 'mousedown', x: 34, y: 7 },
       { type: 'mouseup', x: 10, y: 20 },
     ]);
+  });
+
+  it('should work with locators', async ({ page, server }) => {
+    await page.goto(server.PREFIX + '/drag-n-drop.html');
+    await page.locator('#source').dragTo(page.locator('#target'));
+    expect(await page.$eval('#target', target => target.contains(document.querySelector('#source')))).toBe(true); // could not find source in target
   });
 
   async function trackEvents(target: ElementHandle) {

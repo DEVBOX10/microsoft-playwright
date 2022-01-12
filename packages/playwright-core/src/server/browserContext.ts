@@ -28,13 +28,13 @@ import { Progress } from './progress';
 import { Selectors } from './selectors';
 import * as types from './types';
 import path from 'path';
-import { CallMetadata, internalCallMetadata, createInstrumentation, SdkObject } from './instrumentation';
+import { CallMetadata, internalCallMetadata, SdkObject } from './instrumentation';
 import { Debugger } from './supplements/debugger';
 import { Tracing } from './trace/recorder/tracing';
 import { HarRecorder } from './supplements/har/harRecorder';
 import { RecorderSupplement } from './supplements/recorderSupplement';
 import * as consoleApiSource from '../generated/consoleApiSource';
-import { BrowserContextFetchRequest } from './fetch';
+import { BrowserContextAPIRequestContext } from './fetch';
 
 export abstract class BrowserContext extends SdkObject {
   static Events = {
@@ -64,7 +64,8 @@ export abstract class BrowserContext extends SdkObject {
   private _origins = new Set<string>();
   readonly _harRecorder: HarRecorder | undefined;
   readonly tracing: Tracing;
-  readonly fetchRequest: BrowserContextFetchRequest;
+  readonly fetchRequest: BrowserContextAPIRequestContext;
+  private _customCloseHandler?: () => Promise<any>;
 
   constructor(browser: Browser, options: types.BrowserContextOptions, browserContextId: string | undefined) {
     super(browser, 'browser-context');
@@ -75,14 +76,12 @@ export abstract class BrowserContext extends SdkObject {
     this._isPersistentContext = !browserContextId;
     this._closePromise = new Promise(fulfill => this._closePromiseFulfill = fulfill);
 
-    // Create instrumentation per context.
-    this.instrumentation = createInstrumentation();
+    this.fetchRequest = new BrowserContextAPIRequestContext(this);
 
     if (this._options.recordHar)
       this._harRecorder = new HarRecorder(this, { ...this._options.recordHar, path: path.join(this._browser.options.artifactsDir, `${createGuid()}.har`) });
 
     this.tracing = new Tracing(this);
-    this.fetchRequest = new BrowserContextFetchRequest(this);
   }
 
   isPersistentContext(): boolean {
@@ -102,7 +101,7 @@ export abstract class BrowserContext extends SdkObject {
       return;
     // Debugger will pause execution upon page.pause in headed mode.
     const contextDebugger = new Debugger(this);
-    this.instrumentation.addListener(contextDebugger);
+    this.instrumentation.addListener(contextDebugger, this);
 
     // When PWDEBUG=1, show inspector for each context.
     if (debugMode() === 'inspector')
@@ -204,11 +203,11 @@ export abstract class BrowserContext extends SdkObject {
     await this._doClearPermissions();
   }
 
-  setDefaultNavigationTimeout(timeout: number) {
+  setDefaultNavigationTimeout(timeout: number | undefined) {
     this._timeoutSettings.setDefaultNavigationTimeout(timeout);
   }
 
-  setDefaultTimeout(timeout: number) {
+  setDefaultTimeout(timeout: number | undefined) {
     this._timeoutSettings.setDefaultTimeout(timeout);
   }
 
@@ -274,6 +273,10 @@ export abstract class BrowserContext extends SdkObject {
     await Promise.all(Array.from(this._downloads).map(download => download.artifact.deleteOnContextClose()));
   }
 
+  setCustomCloseHandler(handler: (() => Promise<any>) | undefined) {
+    this._customCloseHandler = handler;
+  }
+
   async close(metadata: CallMetadata) {
     if (this._closedStatus === 'open') {
       this.emit(BrowserContext.Events.BeforeClose);
@@ -290,7 +293,9 @@ export abstract class BrowserContext extends SdkObject {
           promises.push(artifact.finishedPromise());
       }
 
-      if (this._isPersistentContext) {
+      if (this._customCloseHandler) {
+        await this._customCloseHandler();
+      } else if (this._isPersistentContext) {
         // Close all the pages instead of the context,
         // because we cannot close the default context.
         await Promise.all(this.pages().map(page => page.close(metadata)));
@@ -303,6 +308,10 @@ export abstract class BrowserContext extends SdkObject {
       // so that browser does not write to the download file anymore.
       promises.push(this._deleteAllDownloads());
       await Promise.all(promises);
+
+      // Custom handler should trigger didCloseInternal itself.
+      if (this._customCloseHandler)
+        return;
 
       // Persistent context should also close the browser.
       if (this._isPersistentContext)
@@ -401,6 +410,8 @@ export function validateBrowserContextOptions(options: types.BrowserContextOptio
     throw new Error(`"deviceScaleFactor" option is not supported with null "viewport"`);
   if (options.noDefaultViewport && options.isMobile !== undefined)
     throw new Error(`"isMobile" option is not supported with null "viewport"`);
+  if (options.acceptDownloads === undefined)
+    options.acceptDownloads = true;
   if (!options.viewport && !options.noDefaultViewport)
     options.viewport = { width: 1280, height: 720 };
   if (options.recordVideo) {
@@ -428,8 +439,6 @@ export function validateBrowserContextOptions(options: types.BrowserContextOptio
   if (debugMode() === 'inspector')
     options.bypassCSP = true;
   verifyGeolocation(options.geolocation);
-  if (!options._debugName)
-    options._debugName = createGuid();
 }
 
 export function verifyGeolocation(geolocation?: types.Geolocation) {

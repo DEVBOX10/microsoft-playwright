@@ -16,7 +16,11 @@
 
 import { contextTest as it, expect } from '../config/browserTest';
 
-it.use({ args: ['--site-per-process'] });
+it.use({
+  launchOptions: async ({ launchOptions }, use) => {
+    await use({ ...launchOptions, args: ['--site-per-process'] });
+  }
+});
 
 it('should report oopif frames', async function({ page, browser, server }) {
   await page.goto(server.PREFIX + '/dynamic-oopif.html');
@@ -227,10 +231,10 @@ it('should click a button when it overlays oopif', async function({ page, browse
   expect(await page.evaluate(() => window['BUTTON_CLICKED'])).toBe(true);
 });
 
-it('should report google.com frame with headed', async ({ browserType, browserOptions, server }) => {
+it('should report google.com frame with headed', async ({ browserType, server }) => {
   // @see https://github.com/GoogleChrome/puppeteer/issues/2548
   // https://google.com is isolated by default in Chromium embedder.
-  const browser = await browserType.launch({ ...browserOptions, headless: false });
+  const browser = await browserType.launch({ headless: false });
   const page = await browser.newPage();
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/*', route => {

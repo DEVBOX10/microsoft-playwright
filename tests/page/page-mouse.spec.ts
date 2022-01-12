@@ -27,7 +27,7 @@ function dimensions() {
   };
 }
 
-it('should click the document', async ({ page, server }) => {
+it('should click the document #smoke', async ({ page, server }) => {
   await page.evaluate(() => {
     window['clickPromise'] = new Promise(resolve => {
       document.addEventListener('click', event => {
@@ -76,6 +76,38 @@ it('should dblclick the div', async ({ page, server }) => {
   expect(event.clientY).toBe(60);
   expect(event.isTrusted).toBe(true);
   expect(event.button).toBe(0);
+});
+
+it('should pointerdown the div with a custom button', async ({ page, server, browserName }) => {
+  await page.setContent(`<div style='width: 100px; height: 100px;'>Click me</div>`);
+  await page.evaluate(() => {
+    window['pointerdownPromise'] = new Promise(resolve => {
+      document.querySelector('div').addEventListener('pointerdown', event => {
+        resolve({
+          type: event.type,
+          detail: event.detail,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          isTrusted: event.isTrusted,
+          button: event.button,
+          buttons: event.buttons,
+          pointerId: event.pointerId,
+        });
+      });
+    });
+  });
+  await page.mouse.click(50, 60, {
+    button: 'middle'
+  });
+  const event = await page.evaluate(() => window['pointerdownPromise']);
+  expect(event.type).toBe('pointerdown');
+  expect(event.detail).toBe(browserName === 'webkit' ? 1 : 0);
+  expect(event.clientX).toBe(50);
+  expect(event.clientY).toBe(60);
+  expect(event.isTrusted).toBe(true);
+  expect(event.button).toBe(1);
+  expect(event.buttons).toBe(4);
+  expect(event.pointerId).toBe(browserName === 'firefox' ? 0 : 1);
 });
 
 it('should select the text with mouse', async ({ page, server }) => {
@@ -163,4 +195,14 @@ it('should tween mouse movement', async ({ page, browserName, isAndroid }) => {
     [180, 260],
     [200, 300]
   ]);
+});
+
+it('should always round down', async ({ page, browserName, isAndroid }) => {
+  await page.evaluate(() => {
+    document.addEventListener('mousedown', event => {
+      window['result'] = [event.clientX, event.clientY];
+    });
+  });
+  await page.mouse.click(50.1, 50.9);
+  expect(await page.evaluate('result')).toEqual([50, 50]);
 });

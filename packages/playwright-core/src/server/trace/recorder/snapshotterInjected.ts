@@ -145,14 +145,15 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       this._staleStyleSheets.add(sheet);
     }
 
-    private _updateStyleElementStyleSheetTextIfNeeded(sheet: CSSStyleSheet): string | undefined {
+    private _updateStyleElementStyleSheetTextIfNeeded(sheet: CSSStyleSheet, forceText?: boolean): string | undefined {
       const data = ensureCachedData(sheet);
-      if (this._staleStyleSheets.has(sheet)) {
+      if (this._staleStyleSheets.has(sheet) || (forceText && data.cssText === undefined)) {
         this._staleStyleSheets.delete(sheet);
         try {
           data.cssText = this._getSheetText(sheet);
         } catch (e) {
           // Sometimes we cannot access cross-origin stylesheets.
+          data.cssText = '';
         }
       }
       return data.cssText;
@@ -193,6 +194,24 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       };
       visitNode(document.documentElement);
       visitNode(this._fakeBase);
+    }
+
+    private __sanitizeMetaAttribute(name: string, value: string, httpEquiv: string) {
+      if (name === 'charset')
+        return 'utf-8';
+
+      if (httpEquiv.toLowerCase() !== 'content-type' || name !== 'content')
+        return value;
+
+      const [type, ...params] = value.split(';');
+      if (type !== 'text/html' || params.length <= 0)
+        return value;
+
+      const charsetParamIdx = params.findIndex(param => param.trim().startsWith('charset='));
+      if (charsetParamIdx > -1)
+        params[charsetParamIdx] = 'charset=utf-8';
+
+      return `${type}; ${params.join('; ')}`;
     }
 
     private _sanitizeUrl(url: string): string {
@@ -264,6 +283,12 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           return;
         if (nodeName === 'SCRIPT')
           return;
+        // Don't preload resources.
+        if (nodeName === 'LINK' && nodeType === Node.ELEMENT_NODE) {
+          const rel = (node as Element).getAttribute('rel')?.toLowerCase();
+          if (rel === 'preload' || rel === 'prefetch')
+            return;
+        }
         if (this._removeNoScript && nodeName === 'NOSCRIPT')
           return;
         if (nodeName === 'META' && (node as HTMLMetaElement).httpEquiv.toLowerCase() === 'content-security-policy')
@@ -410,10 +435,14 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
               continue;
             if (nodeName === 'LINK' && name === 'integrity')
               continue;
-            if (nodeName === 'IFRAME' && name === 'src')
+            if (nodeName === 'IFRAME' && (name === 'src' || name === 'sandbox'))
+              continue;
+            if (nodeName === 'FRAME' && name === 'src')
               continue;
             let value = element.attributes[i].value;
-            if (name === 'src' && (nodeName === 'IMG'))
+            if (nodeName === 'META')
+              value = this.__sanitizeMetaAttribute(name, value, (node as HTMLMetaElement).httpEquiv);
+            else if (name === 'src' && (nodeName === 'IMG'))
               value = this._sanitizeUrl(value);
             else if (name === 'srcset' && (nodeName === 'IMG'))
               value = this._sanitizeSrcSet(value);
@@ -438,7 +467,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       const visitStyleSheet = (sheet: CSSStyleSheet) => {
         const data = ensureCachedData(sheet);
         const oldCSSText = data.cssText;
-        const cssText = this._updateStyleElementStyleSheetTextIfNeeded(sheet) || '';
+        const cssText = this._updateStyleElementStyleSheetTextIfNeeded(sheet, true /* forceText */)!;
         if (cssText === oldCSSText)
           return { equals: true, n: [[ snapshotNumber - data.ref![0], data.ref![1] ]] };
         data.ref = [snapshotNumber, nodeCounter++];

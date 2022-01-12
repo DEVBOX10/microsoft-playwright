@@ -27,7 +27,7 @@ it('should fire', async ({ page, server }) => {
   await page.evaluate(() => alert('yo'));
 });
 
-it('should allow accepting prompts', async ({ page, isElectron }) => {
+it('should allow accepting prompts #smoke', async ({ page, isElectron }) => {
   it.skip(isElectron, 'prompt() is not a thing in electron');
 
   page.on('dialog', dialog => {
@@ -66,7 +66,7 @@ it('should dismiss the confirm prompt', async ({ page }) => {
   expect(result).toBe(false);
 });
 
-it('should be able to close context with open alert', async ({ page, trace }) => {
+it('should be able to close context with open alert', async ({ page }) => {
   const alertPromise = page.waitForEvent('dialog');
   await page.evaluate(() => {
     setTimeout(() => alert('hello'), 0);

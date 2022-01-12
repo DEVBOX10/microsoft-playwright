@@ -849,17 +849,17 @@ export module Protocol {
       range?: SourceRange;
     }
     /**
-     * CSS @media (as well as other users of media queries, like @import, <style>, <link>, etc.) and @supports descriptor.
+     * CSS @media (as well as other users of media queries, like @import, <style>, <link>, etc.), @supports, and @layer descriptor.
      */
     export interface Grouping {
       /**
-       * Media query text.
+       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, "layer-rule" if specified by an @layer rule.
        */
-      text: string;
+      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule"|"layer-rule"|"layer-import-rule";
       /**
-       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, .
+       * Query text if specified by a @media or @supports rule. Layer name (or not present for anonymous layers) for @layer rules.
        */
-      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule";
+      text?: string;
       /**
        * URL of the document containing the CSS grouping.
        */
@@ -5749,21 +5749,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       base64Encoded: boolean;
     }
     /**
-     * Returns content served for the given request. Will wait for the request to finish loading.
-     */
-    export type getInterceptedResponseBodyParameters = {
-      /**
-       * Identifier of the intercepted network response's request.
-       */
-      requestId: RequestId;
-    }
-    export type getInterceptedResponseBodyReturnValue = {
-      /**
-       * Base64 encoded response body.
-       */
-      body: string;
-    }
-    /**
      * Toggles whether the resource cache may be used when loading resources in the inspected page. If <code>true</code>, the resource cache will not be used when loading resources.
      */
     export type setResourceCachingDisabledParameters = {
@@ -5956,21 +5941,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       headers?: Headers;
     }
     export type interceptWithResponseReturnValue = {
-    }
-    /**
-     * Fail response with given error type.
-     */
-    export type interceptResponseWithErrorParameters = {
-      /**
-       * Identifier for the intercepted Network response to fail.
-       */
-      requestId: RequestId;
-      /**
-       * Deliver error reason for the request failure.
-       */
-      errorType: ResourceErrorType;
-    }
-    export type interceptResponseWithErrorReturnValue = {
     }
     /**
      * Provide response for an intercepted request. Request completely bypasses the network in this case and is immediately fulfilled with the provided data.
@@ -6841,6 +6811,18 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     export type insertTextReturnValue = {
     }
     /**
+     * Set the current IME composition.
+     */
+    export type setCompositionParameters = {
+      text: string;
+      selectionStart: number;
+      selectionLength: number;
+      replacementStart?: number;
+      replacementLength?: number;
+    }
+    export type setCompositionReturnValue = {
+    }
+    /**
      * Serializes and returns all of the accessibility nodes of the page.
      */
     export type accessibilitySnapshotParameters = {
@@ -7273,36 +7255,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       browserContextId?: ContextID;
     }
     export type deleteAllCookiesReturnValue = {
-    }
-    /**
-     * Returns all local storage data in the given browser context.
-     */
-    export type getLocalStorageDataParameters = {
-      /**
-       * Browser context id.
-       */
-      browserContextId?: ContextID;
-    }
-    export type getLocalStorageDataReturnValue = {
-      /**
-       * Local storage data.
-       */
-      origins: OriginStorage[];
-    }
-    /**
-     * Populates local storage data in the given browser context.
-     */
-    export type setLocalStorageDataParameters = {
-      /**
-       * Browser context id.
-       */
-      browserContextId?: ContextID;
-      /**
-       * Local storage data.
-       */
-      origins: OriginStorage[];
-    }
-    export type setLocalStorageDataReturnValue = {
     }
     /**
      * Overrides the geolocation position or error.
@@ -8220,7 +8172,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       width: number;
       height: number;
       toolbarHeight: number;
-      scale?: number;
     }
     export type startVideoReturnValue = {
       /**
@@ -9024,7 +8975,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Network.disable": Network.disableParameters;
     "Network.setExtraHTTPHeaders": Network.setExtraHTTPHeadersParameters;
     "Network.getResponseBody": Network.getResponseBodyParameters;
-    "Network.getInterceptedResponseBody": Network.getInterceptedResponseBodyParameters;
     "Network.setResourceCachingDisabled": Network.setResourceCachingDisabledParameters;
     "Network.loadResource": Network.loadResourceParameters;
     "Network.getSerializedCertificate": Network.getSerializedCertificateParameters;
@@ -9035,7 +8985,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Network.interceptContinue": Network.interceptContinueParameters;
     "Network.interceptWithRequest": Network.interceptWithRequestParameters;
     "Network.interceptWithResponse": Network.interceptWithResponseParameters;
-    "Network.interceptResponseWithError": Network.interceptResponseWithErrorParameters;
     "Network.interceptRequestWithResponse": Network.interceptRequestWithResponseParameters;
     "Network.interceptRequestWithError": Network.interceptRequestWithErrorParameters;
     "Network.setEmulateOfflineState": Network.setEmulateOfflineStateParameters;
@@ -9068,6 +9017,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.archive": Page.archiveParameters;
     "Page.setScreenSizeOverride": Page.setScreenSizeOverrideParameters;
     "Page.insertText": Page.insertTextParameters;
+    "Page.setComposition": Page.setCompositionParameters;
     "Page.accessibilitySnapshot": Page.accessibilitySnapshotParameters;
     "Page.setInterceptFileChooserDialog": Page.setInterceptFileChooserDialogParameters;
     "Page.setDefaultBackgroundColorOverride": Page.setDefaultBackgroundColorOverrideParameters;
@@ -9088,8 +9038,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.getAllCookies": Playwright.getAllCookiesParameters;
     "Playwright.setCookies": Playwright.setCookiesParameters;
     "Playwright.deleteAllCookies": Playwright.deleteAllCookiesParameters;
-    "Playwright.getLocalStorageData": Playwright.getLocalStorageDataParameters;
-    "Playwright.setLocalStorageData": Playwright.setLocalStorageDataParameters;
     "Playwright.setGeolocationOverride": Playwright.setGeolocationOverrideParameters;
     "Playwright.setLanguages": Playwright.setLanguagesParameters;
     "Playwright.setDownloadBehavior": Playwright.setDownloadBehaviorParameters;
@@ -9325,7 +9273,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Network.disable": Network.disableReturnValue;
     "Network.setExtraHTTPHeaders": Network.setExtraHTTPHeadersReturnValue;
     "Network.getResponseBody": Network.getResponseBodyReturnValue;
-    "Network.getInterceptedResponseBody": Network.getInterceptedResponseBodyReturnValue;
     "Network.setResourceCachingDisabled": Network.setResourceCachingDisabledReturnValue;
     "Network.loadResource": Network.loadResourceReturnValue;
     "Network.getSerializedCertificate": Network.getSerializedCertificateReturnValue;
@@ -9336,7 +9283,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Network.interceptContinue": Network.interceptContinueReturnValue;
     "Network.interceptWithRequest": Network.interceptWithRequestReturnValue;
     "Network.interceptWithResponse": Network.interceptWithResponseReturnValue;
-    "Network.interceptResponseWithError": Network.interceptResponseWithErrorReturnValue;
     "Network.interceptRequestWithResponse": Network.interceptRequestWithResponseReturnValue;
     "Network.interceptRequestWithError": Network.interceptRequestWithErrorReturnValue;
     "Network.setEmulateOfflineState": Network.setEmulateOfflineStateReturnValue;
@@ -9369,6 +9315,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.archive": Page.archiveReturnValue;
     "Page.setScreenSizeOverride": Page.setScreenSizeOverrideReturnValue;
     "Page.insertText": Page.insertTextReturnValue;
+    "Page.setComposition": Page.setCompositionReturnValue;
     "Page.accessibilitySnapshot": Page.accessibilitySnapshotReturnValue;
     "Page.setInterceptFileChooserDialog": Page.setInterceptFileChooserDialogReturnValue;
     "Page.setDefaultBackgroundColorOverride": Page.setDefaultBackgroundColorOverrideReturnValue;
@@ -9389,8 +9336,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.getAllCookies": Playwright.getAllCookiesReturnValue;
     "Playwright.setCookies": Playwright.setCookiesReturnValue;
     "Playwright.deleteAllCookies": Playwright.deleteAllCookiesReturnValue;
-    "Playwright.getLocalStorageData": Playwright.getLocalStorageDataReturnValue;
-    "Playwright.setLocalStorageData": Playwright.setLocalStorageDataReturnValue;
     "Playwright.setGeolocationOverride": Playwright.setGeolocationOverrideReturnValue;
     "Playwright.setLanguages": Playwright.setLanguagesReturnValue;
     "Playwright.setDownloadBehavior": Playwright.setDownloadBehaviorReturnValue;

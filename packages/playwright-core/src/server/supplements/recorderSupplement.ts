@@ -72,11 +72,11 @@ export class RecorderSupplement implements InstrumentationListener {
     this._contextRecorder = new ContextRecorder(context, params);
     this._context = context;
     this._debugger = Debugger.lookup(context)!;
-    context.instrumentation.addListener(this);
+    context.instrumentation.addListener(this, context);
   }
 
   async install() {
-    const recorderApp = await RecorderApp.open(this._context._browser.options.sdkLanguage);
+    const recorderApp = await RecorderApp.open(this._context._browser.options.sdkLanguage, !!this._context._browser.options.headful);
     this._recorderApp = recorderApp;
     recorderApp.once('close', () => {
       this._debugger.resume(false);
@@ -248,7 +248,7 @@ export class RecorderSupplement implements InstrumentationListener {
   async onBeforeInputAction(sdkObject: SdkObject, metadata: CallMetadata) {
   }
 
-  async onCallLog(logName: string, message: string, sdkObject: SdkObject, metadata: CallMetadata): Promise<void> {
+  async onCallLog(sdkObject: SdkObject, metadata: CallMetadata, logName: string, message: string): Promise<void> {
     this.updateCallLog([metadata]);
   }
 
@@ -257,7 +257,7 @@ export class RecorderSupplement implements InstrumentationListener {
       return;
     const logs: CallLog[] = [];
     for (const metadata of metadatas) {
-      if (!metadata.method)
+      if (!metadata.method || metadata.internal)
         continue;
       let status: CallLogStatus = 'done';
       if (this._currentCallsMetadata.has(metadata))
@@ -440,6 +440,7 @@ class ContextRecorder extends EventEmitter {
         objectId: frame.guid,
         pageId: frame._page.guid,
         frameId: frame.guid,
+        wallTime: Date.now(),
         startTime: monotonicTime(),
         endTime: 0,
         type: 'Frame',

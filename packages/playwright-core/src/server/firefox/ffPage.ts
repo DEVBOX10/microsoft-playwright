@@ -163,6 +163,7 @@ export class FFPage implements PageDelegate {
     else if (!auxData.name)
       worldName = 'main';
     const context = new dom.FrameExecutionContext(delegate, frame, worldName);
+    (context as any)[contextDelegateSymbol] = delegate;
     if (worldName)
       frame._contextCreated(worldName, context);
     this._contextIdToContext.set(executionContextId, context);
@@ -237,7 +238,9 @@ export class FFPage implements PageDelegate {
 
   _onConsole(payload: Protocol.Runtime.consolePayload) {
     const { type, args, executionContextId, location } = payload;
-    const context = this._contextIdToContext.get(executionContextId)!;
+    const context = this._contextIdToContext.get(executionContextId);
+    if (!context)
+      return;
     this._page._addConsoleMessage(type, args.map(arg => context.createHandle(arg)), location);
   }
 
@@ -253,15 +256,19 @@ export class FFPage implements PageDelegate {
   }
 
   async _onBindingCalled(event: Protocol.Page.bindingCalledPayload) {
-    const context = this._contextIdToContext.get(event.executionContextId)!;
     const pageOrError = await this.pageOrError();
-    if (!(pageOrError instanceof Error))
-      await this._page._onBindingCalled(event.payload, context);
+    if (!(pageOrError instanceof Error)) {
+      const context = this._contextIdToContext.get(event.executionContextId);
+      if (context)
+        await this._page._onBindingCalled(event.payload, context);
+    }
   }
 
   async _onFileChooserOpened(payload: Protocol.Page.fileChooserOpenedPayload) {
     const { executionContextId, element } = payload;
-    const context = this._contextIdToContext.get(executionContextId)!;
+    const context = this._contextIdToContext.get(executionContextId);
+    if (!context)
+      return;
     const handle = context.createHandle(element).asElement()!;
     await this._page._onFileChooserOpened(handle);
   }
@@ -394,10 +401,6 @@ export class FFPage implements PageDelegate {
     await this._session.send('Page.close', { runBeforeUnload });
   }
 
-  canScreenshotOutsideViewport(): boolean {
-    return true;
-  }
-
   async setBackgroundColor(color?: { r: number; g: number; b: number; a: number; }): Promise<void> {
     if (color)
       throw new Error('Not implemented');
@@ -421,10 +424,6 @@ export class FFPage implements PageDelegate {
       clip: documentRect,
     });
     return Buffer.from(data, 'base64');
-  }
-
-  async resetViewport(): Promise<void> {
-    assert(false, 'Should not be called');
   }
 
   async getContentFrame(handle: dom.ElementHandle): Promise<frames.Frame | null> {
@@ -494,7 +493,10 @@ export class FFPage implements PageDelegate {
   private _onScreencastFrame(event: Protocol.Page.screencastFramePayload) {
     if (!this._screencastId)
       return;
-    this._session.send('Page.screencastFrameAck', { screencastId: this._screencastId }).catch(e => debugLogger.log('error', e));
+    const screencastId = this._screencastId;
+    this._page.throttleScreencastFrameAck(() => {
+      this._session.send('Page.screencastFrameAck', { screencastId }).catch(e => debugLogger.log('error', e));
+    });
 
     const buffer = Buffer.from(event.data, 'base64');
     this._page.emit(Page.Events.ScreencastFrame, {
@@ -527,7 +529,7 @@ export class FFPage implements PageDelegate {
     const result = await this._session.send('Page.adoptNode', {
       frameId: handle._context.frame._id,
       objectId: handle._objectId,
-      executionContextId: (to._delegate as FFExecutionContext)._executionContextId
+      executionContextId: ((to as any)[contextDelegateSymbol] as FFExecutionContext)._executionContextId
     });
     if (!result.remoteObject)
       throw new Error(dom.kUnableToAdoptErrorMessage);
@@ -545,7 +547,8 @@ export class FFPage implements PageDelegate {
     const parent = frame.parentFrame();
     if (!parent)
       throw new Error('Frame has been detached.');
-    const handles = await this._page.selectors._queryAll(parent, 'frame,iframe', undefined);
+    const info = this._page.parseSelector('frame,iframe');
+    const handles = await this._page.selectors._queryAll(parent, info);
     const items = await Promise.all(handles.map(async handle => {
       const frame = await handle.contentFrame().catch(e => null);
       return { handle, frame };
@@ -561,3 +564,5 @@ export class FFPage implements PageDelegate {
 function webSocketId(frameId: string, wsid: string): string {
   return `${frameId}---${wsid}`;
 }
+
+const contextDelegateSymbol = Symbol('delegate');

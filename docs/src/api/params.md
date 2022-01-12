@@ -1,10 +1,11 @@
 ## navigation-wait-until
-- `waitUntil` <[WaitUntilState]<"load"|"domcontentloaded"|"networkidle">>
+- `waitUntil` <[WaitUntilState]<"load"|"domcontentloaded"|"networkidle"|"commit">>
 
 When to consider operation succeeded, defaults to `load`. Events can be either:
 * `'domcontentloaded'` - consider operation to be finished when the `DOMContentLoaded` event is fired.
 * `'load'` - consider operation to be finished when the `load` event is fired.
 * `'networkidle'` - consider operation to be finished when there are no network connections for at least `500` ms.
+* `'commit'` - consider operation to be finished when network response is received and the document started loading.
 
 ## navigation-timeout
 - `timeout` <[float]>
@@ -249,7 +250,7 @@ state is still returned, but won't be saved to the disk.
 ## context-option-acceptdownloads
 - `acceptDownloads` <[boolean]>
 
-Whether to automatically download all the attachments. Defaults to `false` where all the downloads are canceled.
+Whether to automatically download all the attachments. Defaults to `true` where all the downloads are accepted.
 
 ## context-option-ignorehttpserrors
 - `ignoreHTTPSErrors` <[boolean]>
@@ -267,6 +268,7 @@ Toggles bypassing page's Content-Security-Policy.
 When using [`method: Page.goto`], [`method: Page.route`], [`method: Page.waitForURL`], [`method: Page.waitForRequest`], or [`method: Page.waitForResponse`] it takes the base URL in consideration by using the [`URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor for building the corresponding URL. Examples:
 * baseURL: `http://localhost:3000` and navigating to `/bar.html` results in `http://localhost:3000/bar.html`
 * baseURL: `http://localhost:3000/foo/` and navigating to `./bar.html` results in `http://localhost:3000/foo/bar.html`
+* baseURL: `http://localhost:3000/foo` (without trailing slash) and navigating to `./bar.html` results in `http://localhost:3000/bar.html`
 
 ## context-option-viewport
 * langs: js, java
@@ -302,35 +304,47 @@ Emulates consistent window screen size available inside web page via `window.scr
 
 Target URL.
 
-## fetch-option-params
+## js-python-fetch-option-params
+* langs: js, python
 - `params` <[Object]<[string], [string]|[float]|[boolean]>>
 
-Query parameters to be send with the URL.
+Query parameters to be sent with the URL.
 
-## fetch-option-headers
+## java-fetch-params
+* langs: java
+- `options` <[RequestOptions]>
+
+Optional request parameters.
+
+## js-python-fetch-option-headers
+* langs: js, python
 - `headers` <[Object]<[string], [string]>>
 
 Allows to set HTTP headers.
 
-## fetch-option-timeout
+## js-python-fetch-option-timeout
+* langs: js, python
 - `timeout` <[float]>
 
 Request timeout in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout.
 
-## fetch-option-failonstatuscode
+## js-python-fetch-option-failonstatuscode
+* langs: js, python
 - `failOnStatusCode` <[boolean]>
 
 Whether to throw on response codes other than 2xx and 3xx. By default response object is returned
 for all status codes.
 
-## fetch-option-form
+## js-python-fetch-option-form
+* langs: js, python
 - `form` <[Object]<[string], [string]|[float]|[boolean]>>
 
 Provides an object that will be serialized as html form using `application/x-www-form-urlencoded` encoding and sent as
 this request body. If this parameter is specified `content-type` header will be set to `application/x-www-form-urlencoded`
 unless explicitly provided.
 
-## fetch-option-multipart
+## js-pyhton-fetch-option-multipart
+* langs: js, python
 - `multipart` <[Object]<[string], [string]|[float]|[boolean]|[ReadStream]|[Object]>>
   - `name` <[string]> File name
   - `mimeType` <[string]> File type
@@ -341,13 +355,19 @@ this request body. If this parameter is specified `content-type` header will be 
 unless explicitly provided. File values can be passed either as [`fs.ReadStream`](https://nodejs.org/api/fs.html#fs_class_fs_readstream)
 or as file-like object containing file name, mime-type and its content.
 
-## fetch-option-data
+## js-python-fetch-option-data
+* langs: js, python
 - `data` <[string]|[Buffer]|[Serializable]>
 
 Allows to set post data of the request. If the data parameter is an object, it will be serialized to json string
 and `content-type` header will be set to `application/json` if not explicitly set. Otherwise the `content-type` header will be
 set to `application/octet-stream` if not explicitly set.
 
+## js-python-fetch-option-ignorehttpserrors
+* langs: js, python
+- `ignoreHTTPSErrors` <[boolean]>
+
+Whether to ignore HTTPS errors when sending network requests. Defaults to `false`.
 
 ## evaluate-expression
 - `expression` <[string]>
@@ -688,6 +708,18 @@ The default value can be changed by using the [`method: BrowserContext.setDefaul
 Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
 using the [`method: AndroidDevice.setDefaultTimeout`] method.
 
+## assertions-timeout
+* langs: js
+- `timeout` <[float]>
+
+Time to retry the assertion for. Defaults to `timeout` in [`property: TestConfig.expect`].
+
+## assertions-timeout
+* langs: java, python
+- `timeout` <[float]>
+
+Time to retry the assertion for.
+
 ## shared-context-params-list
 - %%-context-option-acceptdownloads-%%
 - %%-context-option-ignorehttpserrors-%%
@@ -837,3 +869,12 @@ Slows down Playwright operations by the specified amount of milliseconds. Useful
 - %%-browser-option-proxy-%%
 - %%-browser-option-timeout-%%
 - %%-browser-option-tracesdir-%%
+
+## locator-option-has-text
+- `hasText` <[string]|[RegExp]>
+
+Matches elements containing specified text somewhere inside, possibly in a child or a descendant element.
+For example, `"Playwright"` matches `<article><div>Playwright</div></article>`.
+
+## locator-options-list
+- %%-locator-option-has-text-%%

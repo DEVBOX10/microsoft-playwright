@@ -32,13 +32,16 @@ const scopePath = new URL(self.registration.scope).pathname;
 
 const loadedTraces = new Map<string, { traceModel: TraceModel, snapshotServer: SnapshotServer, clientId: string }>();
 
-async function loadTrace(trace: string, clientId: string): Promise<TraceModel> {
+async function loadTrace(trace: string, clientId: string, progress: (done: number, total: number) => void): Promise<TraceModel> {
   const entry = loadedTraces.get(trace);
   if (entry)
     return entry.traceModel;
   const traceModel = new TraceModel();
-  const url = trace.startsWith('http') || trace.startsWith('blob') ? trace : `/file?path=${trace}`;
-  await traceModel.load(url);
+  let url = trace.startsWith('http') || trace.startsWith('blob') ? trace : `file?path=${trace}`;
+  // Dropbox does not support cors.
+  if (url.startsWith('https://www.dropbox.com/'))
+    url = 'https://dl.dropboxusercontent.com/' + url.substring('https://www.dropbox.com/'.length);
+  await traceModel.load(url, progress);
   const snapshotServer = new SnapshotServer(traceModel.storage());
   loadedTraces.set(trace, { traceModel, snapshotServer, clientId });
   return traceModel;
@@ -47,34 +50,51 @@ async function loadTrace(trace: string, clientId: string): Promise<TraceModel> {
 // @ts-ignore
 async function doFetch(event: FetchEvent): Promise<Response> {
   const request = event.request;
-  const snapshotUrl = request.mode === 'navigate' ?
-    request.url : (await self.clients.get(event.clientId))!.url;
-  const traceUrl = new URL(snapshotUrl).searchParams.get('trace')!;
-  const { snapshotServer } = loadedTraces.get(traceUrl) || {};
+  const client = await self.clients.get(event.clientId);
 
   if (request.url.startsWith(self.registration.scope)) {
     const url = new URL(request.url);
-
     const relativePath = url.pathname.substring(scopePath.length - 1);
-    if (relativePath === '/context') {
+    if (relativePath === '/ping') {
       await gc();
-      const traceModel = await loadTrace(traceUrl, event.clientId);
-      return new Response(JSON.stringify(traceModel!.contextEntry), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return new Response(null, { status: 200 });
     }
 
-    if (relativePath.startsWith('/snapshotSize/')) {
+    const traceUrl = url.searchParams.get('trace')!;
+    const { snapshotServer } = loadedTraces.get(traceUrl) || {};
+
+    if (relativePath === '/context') {
+      try {
+        const traceModel = await loadTrace(traceUrl, event.clientId, (done: number, total: number) => {
+          client.postMessage({ method: 'progress', params: { done, total } });
+        });
+        return new Response(JSON.stringify(traceModel!.contextEntry), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error: unknown) {
+        console.error(error);
+        const traceFileName = url.searchParams.get('traceFileName')!;
+        return new Response(JSON.stringify({
+          error: traceFileName ? `Could not load trace from ${traceFileName}. Make sure to upload a valid Playwright trace.` :
+            `Could not load trace from ${traceUrl}. Make sure a valid Playwright Trace is accessible over this url.`,
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    if (relativePath.startsWith('/snapshotInfo/')) {
       if (!snapshotServer)
         return new Response(null, { status: 404 });
-      return snapshotServer.serveSnapshotSize(relativePath, url.searchParams);
+      return snapshotServer.serveSnapshotInfo(relativePath, url.searchParams);
     }
 
     if (relativePath.startsWith('/snapshot/')) {
       if (!snapshotServer)
         return new Response(null, { status: 404 });
-      return snapshotServer.serveSnapshot(relativePath, url.searchParams, snapshotUrl);
+      return snapshotServer.serveSnapshot(relativePath, url.searchParams, request.url);
     }
 
     if (relativePath.startsWith('/sha1/')) {
@@ -91,6 +111,9 @@ async function doFetch(event: FetchEvent): Promise<Response> {
     return fetch(event.request);
   }
 
+  const snapshotUrl = client!.url;
+  const traceUrl = new URL(snapshotUrl).searchParams.get('trace')!;
+  const { snapshotServer } = loadedTraces.get(traceUrl) || {};
   if (!snapshotServer)
     return new Response(null, { status: 404 });
   return snapshotServer.serveResource(request.url, snapshotUrl);

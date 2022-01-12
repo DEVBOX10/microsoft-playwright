@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
+import type { ServerResponse } from '../../utils/testserver';
 import { test as it, expect } from './pageTest';
 
-it('Page.Events.Request', async ({ page, server }) => {
+it('Page.Events.Request #smoke', async ({ page, server }) => {
   const requests = [];
   page.on('request', request => requests.push(request));
   await page.goto(server.EMPTY_PAGE);
@@ -30,7 +31,7 @@ it('Page.Events.Request', async ({ page, server }) => {
   expect(requests[0].frame().url()).toBe(server.EMPTY_PAGE);
 });
 
-it('Page.Events.Response', async ({ page, server }) => {
+it('Page.Events.Response #smoke', async ({ page, server }) => {
   const responses = [];
   page.on('response', response => responses.push(response));
   await page.goto(server.EMPTY_PAGE);
@@ -41,7 +42,7 @@ it('Page.Events.Response', async ({ page, server }) => {
   expect(responses[0].request()).toBeTruthy();
 });
 
-it('Page.Events.RequestFailed', async ({ page, server, browserName, isMac, isWindows }) => {
+it('Page.Events.RequestFailed #smoke', async ({ page, server, browserName, isMac, isWindows }) => {
   server.setRoute('/one-style.css', (req, res) => {
     res.setHeader('Content-Type', 'text/css');
     res.connection.destroy();
@@ -68,7 +69,7 @@ it('Page.Events.RequestFailed', async ({ page, server, browserName, isMac, isWin
   expect(failedRequests[0].frame()).toBeTruthy();
 });
 
-it('Page.Events.RequestFinished', async ({ page, server }) => {
+it('Page.Events.RequestFinished #smoke', async ({ page, server }) => {
   const [response] = await Promise.all([
     page.goto(server.EMPTY_PAGE),
     page.waitForEvent('requestfinished')
@@ -113,4 +114,26 @@ it('should support redirects', async ({ page, server }) => {
   expect(redirectedFrom.url()).toContain('/foo.html');
   expect(redirectedFrom.redirectedFrom()).toBe(null);
   expect(redirectedFrom.redirectedTo()).toBe(response.request());
+});
+
+it('should resolve responses after a navigation', async ({ page, server, browserName }) => {
+  it.fixme(browserName === 'chromium');
+  const responseFromServerPromise = new Promise<ServerResponse>(resolve => {
+    server.setRoute('/foo', (message, response) => {
+      resolve(response);
+    });
+  });
+  await page.goto(server.EMPTY_PAGE);
+  const requestPromise = page.waitForRequest(() => true);
+  // start a long running request and wait until it hits the server
+  await page.evaluate(url => void fetch(url), server.PREFIX + '/foo');
+  const responseFromServer = await responseFromServerPromise;
+  const request = await requestPromise;
+  const responsePromise = request.response();
+  // navigate, which should cancel the request
+  await page.goto(server.CROSS_PROCESS_PREFIX);
+  // make sure we arent stalling this request on the server
+  responseFromServer.end('done');
+  // the response should resolve to null, because the page navigated.
+  expect(await responsePromise).toBe(null);
 });

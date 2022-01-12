@@ -19,7 +19,7 @@ import { test as it, expect } from './pageTest';
 
 const expectedOutput = '<html><head></head><body><div>hello</div></body></html>';
 
-it('should work', async ({ page, server }) => {
+it('should work #smoke', async ({ page, server }) => {
   await page.setContent('<div>hello</div>');
   const result = await page.content();
   expect(result).toBe(expectedOutput);
@@ -27,6 +27,12 @@ it('should work', async ({ page, server }) => {
 
 it('should work with domcontentloaded', async ({ page, server }) => {
   await page.setContent('<div>hello</div>', { waitUntil: 'domcontentloaded' });
+  const result = await page.content();
+  expect(result).toBe(expectedOutput);
+});
+
+it('should work with commit', async ({ page }) => {
+  await page.setContent('<div>hello</div>', { waitUntil: 'commit' });
   const result = await page.content();
   expect(result).toBe(expectedOutput);
 });
@@ -115,4 +121,11 @@ it('content() should throw nice error during navigation', async ({ page, server 
     if (contentOrError !== expectedOutput && contentOrError !== emptyOutput)
       expect(contentOrError?.message).toContain('Unable to retrieve content because the page is navigating and changing the content.');
   }
+});
+
+it('should return empty content there is no iframe src', async ({ page, browserName }) => {
+  it.fixme(browserName === 'firefox' || browserName === 'chromium', 'Hangs in FF && CR because there is no utility context');
+  await page.setContent(`<iframe src="javascript:console.log(1)"></iframe>`);
+  expect(page.frames().length).toBe(2);
+  expect(await page.frames()[1].content()).toBe('<html><head></head><body></body></html>');
 });

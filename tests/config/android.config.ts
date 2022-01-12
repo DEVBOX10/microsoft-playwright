@@ -14,16 +14,15 @@
  * limitations under the License.
  */
 
-import type { Config } from '@playwright/test';
+import type { Config, PlaywrightTestOptions, PlaywrightWorkerOptions } from '@playwright/test';
 import * as path from 'path';
-import { test as pageTest } from '../page/pageTest';
-import { androidFixtures } from '../android/androidTest';
-import { PlaywrightOptions } from './browserTest';
-import { CommonOptions } from './baseTest';
+import { ServerWorkerOptions } from './serverFixtures';
+
+process.env.PWPAGE_IMPL = 'android';
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
-const config: Config<CommonOptions & PlaywrightOptions> = {
+const config: Config<ServerWorkerOptions & PlaywrightWorkerOptions & PlaywrightTestOptions> = {
   testDir,
   outputDir,
   timeout: 120000,
@@ -52,7 +51,6 @@ config.projects.push({
   name: 'android',
   use: {
     loopback: '10.0.2.2',
-    mode: 'default',
     browserName: 'chromium',
   },
   testDir: path.join(testDir, 'android'),
@@ -63,11 +61,9 @@ config.projects.push({
   name: 'android',
   use: {
     loopback: '10.0.2.2',
-    mode: 'default',
     browserName: 'chromium',
   },
   testDir: path.join(testDir, 'page'),
-  define: { test: pageTest, fixtures: androidFixtures },
   metadata,
 });
 

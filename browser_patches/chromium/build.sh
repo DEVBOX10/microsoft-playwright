@@ -6,9 +6,9 @@ trap "cd $(pwd -P)" EXIT
 cd "$(dirname "$0")"
 
 USAGE=$(cat<<EOF
-  usage: $(basename "$0") [--mirror|--mirror-linux|--mirror-win32|--mirror-win64|--mirror-mac|--compile-mac-arm64|--compile-linux|--compile-win32|--compile-win64|--compile-mac]
+  usage: $(basename "$0") [--compile-mac-arm64|--compile-linux|--compile-linux-arm64|--compile-win64|--compile-mac] [--symbols] [--full]
 
-  Either compiles chromium or mirrors it from Chromium Continuous Builds CDN.
+  Compiles chromium.
 EOF
 )
 
@@ -19,10 +19,8 @@ main() {
   if [[ $1 == "--help" || $1 == "-h" ]]; then
     echo "$USAGE"
     exit 0
-  elif [[ $1 == "--mirror"* ]]; then
-    mirror_chromium "$1"
   elif [[ $1 == "--compile"* ]]; then
-    compile_chromium "$1"
+    compile_chromium "$1" "$2" "$3"
   else
     echo "ERROR: unknown first argument. Use --help for details."
     exit 1
@@ -32,11 +30,10 @@ main() {
 
 compile_chromium() {
   if [[ -z "${CR_CHECKOUT_PATH}" ]]; then
-    echo "ERROR: chromium compilation requires CR_CHECKOUT_PATH to be set to reuse checkout."
-    exit 1
+    CR_CHECKOUT_PATH="$HOME/chromium"
   fi
 
-  if [[ -z "${CR_CHECKOUT_PATH}/src" ]]; then
+  if [[ ! -d "${CR_CHECKOUT_PATH}/src" ]]; then
     echo "ERROR: CR_CHECKOUT_PATH does not have src/ subfolder; is this a chromium checkout?"
     exit 1
   fi
@@ -47,7 +44,7 @@ compile_chromium() {
     # As of Jan, 2021 Chromium mac compilation requires Xcode12.2
     selectXcodeVersionOrDie "12.2"
     # As of Jan, 2021 Chromium mac compilation is only possible on Intel macbooks.
-    # See https://chromium.googlesource.com/chromium/src.git/+/master/docs/mac_arm64.md
+    # See https://chromium.googlesource.com/chromium/src.git/+/main/docs/mac_arm64.md
     if [[ $1 == "--compile-mac-arm64" && $(uname -m) != "x86_64" ]]; then
       echo "ERROR: chromium mac arm64 compilation is (ironically) only supported on Intel Macbooks"
       exit 1
@@ -60,7 +57,7 @@ compile_chromium() {
   mkdir -p "./out/Default"
   echo "is_debug = false" > ./out/Default/args.gn
   echo "dcheck_always_on = false" >> ./out/Default/args.gn
-  if [[ $2 == "--symbols" ]]; then
+  if [[ $2 == "--symbols" || $3 == "--symbols" ]]; then
     echo "symbol_level = 1" >> ./out/Default/args.gn
   else
     echo "symbol_level = 0" >> ./out/Default/args.gn
@@ -68,8 +65,8 @@ compile_chromium() {
 
   if [[ $1 == "--compile-mac-arm64" ]]; then
     echo 'target_cpu = "arm64"' >> ./out/Default/args.gn
-  elif [[ $1 == "--compile-win32" ]]; then
-    echo 'target_cpu = "x86"' >> ./out/Default/args.gn
+  elif [[ $1 == "--compile-linux-arm64" ]]; then
+    echo 'target_cpu = "arm64"' >> ./out/Default/args.gn
   fi
 
   if [[ ! -z "$USE_GOMA" ]]; then
@@ -85,6 +82,16 @@ compile_chromium() {
   cat ./out/Default/args.gn
   echo "===== ======= ====="
 
+  if [[ $2 == "--full" || $3 == "--full" ]]; then
+    if [[ $(uname) == "--compile-linux" ]]; then
+      ./build/install-build-deps.sh
+    elif [[ $1 == "--compile-linux-arm64" ]]; then
+      ./build/install-build-deps.sh
+      # Install sysroot image, see https://chromium.googlesource.com/chromium/src/+/refs/heads/main/docs/linux/chromium_arm.md
+      ./build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
+    fi
+  fi
+
   if [[ $1 == "--compile-win"* ]]; then
     if [[ -z "$USE_GOMA" ]]; then
       /c/Windows/System32/cmd.exe "/c $(cygpath -w "${SCRIPT_FOLDER}"/buildwin.bat)"
@@ -93,7 +100,7 @@ compile_chromium() {
     fi
   else
     gn gen out/Default
-    if [[ $1 == "--compile-linux" ]]; then
+    if [[ $1 == "--compile-linux"* ]]; then
       TARGETS="chrome chrome_sandbox clear_key_cdm"
     else
       TARGETS="chrome"
@@ -106,47 +113,4 @@ compile_chromium() {
   fi
 }
 
-mirror_chromium() {
-  cd "$SCRIPT_FOLDER"
-  rm -rf output
-  mkdir -p output
-  cd output
-
-  CHROMIUM_URL=""
-
-  PLATFORM="$1"
-  if [[ "${PLATFORM}" == "--mirror" ]]; then
-    CURRENT_HOST_OS="$(uname)"
-    if [[ "${CURRENT_HOST_OS}" == "Darwin" ]]; then
-      PLATFORM="--mirror-mac"
-    elif [[ "${CURRENT_HOST_OS}" == "Linux" ]]; then
-      PLATFORM="--mirror-linux"
-    elif [[ "${CURRENT_HOST_OS}" == MINGW* ]]; then
-      PLATFORM="--mirror-win64"
-    else
-      echo "ERROR: unsupported host platform - ${CURRENT_HOST_OS}"
-      exit 1
-    fi
-  fi
-
-  CRREV=$(head -1 "${SCRIPT_FOLDER}/BUILD_NUMBER")
-  if [[ "${PLATFORM}" == "--mirror-win32" ]]; then
-    CHROMIUM_URL="https://storage.googleapis.com/chromium-browser-snapshots/Win/${CRREV}/chrome-win.zip"
-  elif [[ "${PLATFORM}" == "--mirror-win64" ]]; then
-    CHROMIUM_URL="https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/${CRREV}/chrome-win.zip"
-  elif [[ "${PLATFORM}" == "--mirror-mac" ]]; then
-    CHROMIUM_URL="https://storage.googleapis.com/chromium-browser-snapshots/Mac/${CRREV}/chrome-mac.zip"
-  elif [[ "${PLATFORM}" == "--mirror-linux" ]]; then
-    CHROMIUM_URL="https://storage.googleapis.com/chromium-browser-snapshots/Linux_x64/${CRREV}/chrome-linux.zip"
-  else
-    echo "ERROR: unknown platform to build: $1"
-    exit 1
-  fi
-
-  echo "--> Pulling Chromium ${CRREV} for ${PLATFORM#--}"
-
-  curl --output chromium-upstream.zip "${CHROMIUM_URL}"
-  unzip chromium-upstream.zip
-}
-
-main "$1"
+main "$1" "$2" "$3"

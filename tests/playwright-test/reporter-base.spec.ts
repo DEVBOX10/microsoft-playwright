@@ -16,7 +16,6 @@
 
 import { test, expect, stripAscii } from './playwright-test-fixtures';
 import * as path from 'path';
-import colors from 'colors/safe';
 
 test('handle long test names', async ({ runInlineTest }) => {
   const title = 'title'.repeat(30);
@@ -64,26 +63,15 @@ test('print should print the error name without a message', async ({ runInlineTe
   expect(result.output).toContain('FooBarError');
 });
 
-test('print an error in a codeframe', async ({ runInlineTest }) => {
+test('should print an error in a codeframe', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'my-lib.ts': `
-    const foobar = () => {
-      const error = new Error('my-message');
-      error.name = 'FooBarError';
-      throw error;
-    }
-    export default () => {
-      foobar();
-    }
-    `,
     'a.spec.ts': `
-    const { test } = pwt;
-    import myLib from './my-lib';
-    test('foobar', async ({}) => {
-      const error = new Error('my-message');
-      error.name = 'FooBarError';
-      throw error;
-    });
+      const { test } = pwt;
+      test('foobar', async ({}) => {
+        const error = new Error('my-message');
+        error.name = 'FooBarError';
+        throw error;
+      });
     `
   }, {}, {
     FORCE_COLOR: '0',
@@ -91,9 +79,35 @@ test('print an error in a codeframe', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.output).toContain('FooBarError: my-message');
-  expect(result.output).toContain('test(\'foobar\', async');
-  expect(result.output).toContain('throw error;');
-  expect(result.output).toContain('import myLib from \'./my-lib\';');
+  expect(result.output).not.toContain('at a.spec.ts:7');
+  expect(result.output).toContain(`   5 |       const { test } = pwt;`);
+  expect(result.output).toContain(`   6 |       test('foobar', async ({}) => {`);
+  expect(result.output).toContain(`>  7 |         const error = new Error('my-message');`);
+});
+
+test('should not print codeframe from a helper', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'helper.ts': `
+      export function ohMy() {
+        throw new Error('oh my');
+      }
+    `,
+    'a.spec.ts': `
+      import { ohMy } from './helper';
+      const { test } = pwt;
+      test('foobar', async ({}) => {
+        ohMy();
+      });
+    `
+  }, {}, {
+    FORCE_COLOR: '0',
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(result.output).toContain('Error: oh my');
+  expect(result.output).toContain(`   7 |       test('foobar', async ({}) => {`);
+  expect(result.output).toContain(`>  8 |         ohMy();`);
+  expect(result.output).toContain(`     |         ^`);
 });
 
 test('should print slow tests', async ({ runInlineTest }) => {
@@ -124,14 +138,15 @@ test('should print slow tests', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(8);
-  expect(stripAscii(result.output)).toContain(`Slow test: [foo] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).toContain(`Slow test: [bar] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).toContain(`Slow test: [baz] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).toContain(`Slow test: [qux] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test: [foo] › dir${path.sep}b.test.js (`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test: [bar] › dir${path.sep}b.test.js (`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test: [baz] › dir${path.sep}b.test.js (`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test: [qux] › dir${path.sep}b.test.js (`);
+  expect(stripAscii(result.output)).toContain(`Slow test file: [foo] › dir${path.sep}a.test.js (`);
+  expect(stripAscii(result.output)).toContain(`Slow test file: [bar] › dir${path.sep}a.test.js (`);
+  expect(stripAscii(result.output)).toContain(`Slow test file: [baz] › dir${path.sep}a.test.js (`);
+  expect(stripAscii(result.output)).toContain(`Slow test file: [qux] › dir${path.sep}a.test.js (`);
+  expect(stripAscii(result.output)).toContain(`Consider splitting slow test files to speed up parallel execution`);
+  expect(stripAscii(result.output)).not.toContain(`Slow test file: [foo] › dir${path.sep}b.test.js (`);
+  expect(stripAscii(result.output)).not.toContain(`Slow test file: [bar] › dir${path.sep}b.test.js (`);
+  expect(stripAscii(result.output)).not.toContain(`Slow test file: [baz] › dir${path.sep}b.test.js (`);
+  expect(stripAscii(result.output)).not.toContain(`Slow test file: [qux] › dir${path.sep}b.test.js (`);
 });
 
 test('should not print slow tests', async ({ runInlineTest }) => {
@@ -158,28 +173,6 @@ test('should not print slow tests', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(4);
   expect(stripAscii(result.output)).not.toContain('Slow test');
-});
-
-test('should print stdio for failures', async ({ runInlineTest }) => {
-  const result = await runInlineTest({
-    'a.test.js': `
-      const { test } = pwt;
-      test('fails', async ({}) => {
-        console.log('my log 1');
-        console.error('my error');
-        console.log('my log 2');
-        expect(1).toBe(2);
-      });
-    `,
-  }, {}, { PWTEST_SKIP_TEST_OUTPUT: '' });
-  expect(result.exitCode).toBe(1);
-  expect(result.failed).toBe(1);
-  expect(result.output).toContain('Test output');
-  expect(result.output).toContain([
-    'my log 1\n',
-    colors.red('my error\n'),
-    'my log 2\n',
-  ].join(''));
 });
 
 test('should print flaky failures', async ({ runInlineTest }) => {
@@ -246,4 +239,10 @@ test('should print errors with inconsistent message/stack', async ({ runInlineTe
   expect(result.failed).toBe(1);
   expect(result.output).toContain('hi!Error: Hello');
   expect(result.output).toContain('at myTest');
+});
+
+test('should print "no tests found" error', async ({ runInlineTest }) => {
+  const result = await runInlineTest({ });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('no tests found.');
 });

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import fs from 'fs';
 import path from 'path';
 import type { Browser, Frame, Locator, Page } from 'playwright-core';
 import { showTraceViewer } from '../../packages/playwright-core/lib/server/trace/viewer/traceViewer';
@@ -103,14 +104,14 @@ const test = playwrightTest.extend<{ showTraceViewer: (trace: string) => Promise
       browser = await playwright.chromium.connectOverCDP({ endpointURL: contextImpl._browser.options.wsEndpoint });
       return new TraceViewerPage(browser.contexts()[0].pages()[0]);
     });
-    await browser.close();
-    await contextImpl._browser.close();
+    await browser?.close();
+    await contextImpl?._browser.close();
   },
 
   runAndTrace: async ({ context, showTraceViewer }, use, testInfo) => {
     await use(async (body: () => Promise<void>) => {
       const traceFile = testInfo.outputPath('trace.zip');
-      await context.tracing.start({ snapshots: true, screenshots: true });
+      await context.tracing.start({ snapshots: true, screenshots: true, sources: true });
       await body();
       await context.tracing.stop({ path: traceFile });
       return showTraceViewer(traceFile);
@@ -118,13 +119,14 @@ const test = playwrightTest.extend<{ showTraceViewer: (trace: string) => Promise
   }
 });
 
-test.skip(({ trace }) => trace);
+test.skip(({ trace }) => trace === 'on');
+test.slow();
 
 let traceFile: string;
 
 test.beforeAll(async function recordTrace({ browser, browserName, browserType, server }, workerInfo) {
   const context = await browser.newContext();
-  await context.tracing.start({ name: 'test', screenshots: true, snapshots: true });
+  await context.tracing.start({ name: 'test', screenshots: true, snapshots: true, sources: true });
   const page = await context.newPage();
   await page.goto('data:text/html,<html>Hello world</html>');
   await page.setContent('<button>Click</button>');
@@ -148,9 +150,14 @@ test.beforeAll(async function recordTrace({ browser, browserName, browserType, s
   }
   await doClick();
 
+  // Make sure resources arrive in a predictable order.
+  const htmlDone = page.waitForEvent('requestfinished', request => request.url().includes('frame.html'));
   const styleDone = page.waitForEvent('requestfinished', request => request.url().includes('style.css'));
+  await page.route(server.PREFIX + '/frames/style.css', async route => {
+    await htmlDone;
+    await route.continue();
+  });
   await page.route(server.PREFIX + '/frames/script.js', async route => {
-    // Make sure script arrives after style for predictable results.
     await styleDone;
     await route.continue();
   });
@@ -174,25 +181,27 @@ test.beforeAll(async function recordTrace({ browser, browserName, browserType, s
 
 test('should show empty trace viewer', async ({ showTraceViewer }, testInfo) => {
   const traceViewer = await showTraceViewer(testInfo.outputPath());
-  expect(await traceViewer.page.title()).toBe('Playwright Trace Viewer');
+  await expect(traceViewer.page).toHaveTitle('Playwright Trace Viewer');
 });
 
 test('should open simple trace viewer', async ({ showTraceViewer }) => {
   const traceViewer = await showTraceViewer(traceFile);
   await expect(traceViewer.actionTitles).toHaveText([
-    /browserContext.newPage— [\d.ms]+/,
-    /page.gotodata:text\/html,<html>Hello world<\/html>— [\d.ms]+/,
-    /page.setContent— [\d.ms]+/,
-    /expect.toHaveTextbutton— [\d.ms]+/,
-    /page.evaluate— [\d.ms]+/,
-    /page.click"Click"— [\d.ms]+/,
-    /page.waitForEvent— [\d.ms]+/,
-    /page.route— [\d.ms]+/,
-    /page.waitForNavigation— [\d.ms]+/,
-    /page.waitForTimeout— [\d.ms]+/,
-    /page.gotohttp:\/\/localhost:\d+\/frames\/frame.html— [\d.ms]+/,
-    /route.continue— [\d.ms]+/,
-    /page.setViewportSize— [\d.ms]+/,
+    /browserContext.newPage/,
+    /page.gotodata:text\/html,<html>Hello world<\/html>/,
+    /page.setContent/,
+    /expect.toHaveTextbutton/,
+    /page.evaluate/,
+    /page.click"Click"/,
+    /page.waitForEvent/,
+    /page.waitForEvent/,
+    /page.route/,
+    /page.waitForNavigation/,
+    /page.waitForTimeout/,
+    /page.gotohttp:\/\/localhost:\d+\/frames\/frame.html/,
+    /route.continue/,
+    /route.continue/,
+    /page.setViewportSize/,
   ]);
 });
 
@@ -235,7 +244,9 @@ test('should show params and return value', async ({ showTraceViewer, browserNam
   const traceViewer = await showTraceViewer(traceFile);
   await traceViewer.selectAction('page.evaluate');
   await expect(traceViewer.callLines).toHaveText([
-    /page.evaluate — [\d.ms]+/,
+    /page.evaluate/,
+    /wall time: [0-9/:,APM ]+/,
+    /duration: [\d]+ms/,
     'expression: "({↵    a↵  }) => {↵    console.log(\'Info\');↵    console.warn(\'Warning\');↵    con…"',
     'isFunction: true',
     'arg: {"a":"paramA","b":4}',
@@ -276,12 +287,19 @@ test('should have network requests', async ({ showTraceViewer }) => {
   ]);
 });
 
-test('should capture iframe', async ({ page, server, browserName, runAndTrace }) => {
-  test.skip(browserName === 'firefox');
+test('should show snapshot URL', async ({ page, runAndTrace, server }) => {
+  const traceViewer = await runAndTrace(async () => {
+    await page.goto(server.EMPTY_PAGE);
+    await page.evaluate('2+2');
+  });
+  await traceViewer.snapshotFrame('page.evaluate');
+  await expect(traceViewer.page.locator('.snapshot-url')).toHaveText(server.EMPTY_PAGE);
+});
 
+test('should capture iframe with sandbox attribute', async ({ page, server, runAndTrace }) => {
   await page.route('**/empty.html', route => {
     route.fulfill({
-      body: '<iframe src="iframe.html"></iframe>',
+      body: '<iframe src="iframe.html" sandBOX="allow-scripts"></iframe>',
       contentType: 'text/html'
     }).catch(() => {});
   });
@@ -305,6 +323,30 @@ test('should capture iframe', async ({ page, server, browserName, runAndTrace })
   const snapshotFrame = await traceViewer.snapshotFrame('page.evaluate', 0, true);
   const button = await snapshotFrame.childFrames()[0].waitForSelector('button');
   expect(await button.textContent()).toBe('Hello iframe');
+});
+
+test('should capture data-url svg iframe', async ({ page, server, runAndTrace }) => {
+  await page.route('**/empty.html', route => {
+    route.fulfill({
+      body: `<iframe src="data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' height='24px' viewBox='0 0 24 24' width='24px' fill='%23000000'%3e%3cpath d='M0 0h24v24H0z' fill='none'/%3e%3cpath d='M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z'/%3e%3c/svg%3e"></iframe>`,
+      contentType: 'text/html'
+    }).catch(() => {});
+  });
+
+  const traceViewer = await runAndTrace(async () => {
+    await page.goto(server.EMPTY_PAGE);
+    if (page.frames().length < 2)
+      await page.waitForEvent('frameattached');
+    await page.frames()[1].waitForSelector('svg');
+    // Force snapshot.
+    await page.evaluate('2+2');
+  });
+
+  // Render snapshot, check expectations.
+  const snapshotFrame = await traceViewer.snapshotFrame('page.evaluate', 0, true);
+  await expect(snapshotFrame.childFrames()[0].locator('svg')).toBeVisible();
+  const content = await snapshotFrame.childFrames()[0].content();
+  expect(content).toContain(`d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"`);
 });
 
 test('should contain adopted style sheets', async ({ page, runAndTrace, browserName }) => {
@@ -394,8 +436,6 @@ test('should work with adopted style sheets and replace/replaceSync', async ({ p
 });
 
 test('should restore scroll positions', async ({ page, runAndTrace, browserName }) => {
-  test.skip(browserName === 'firefox');
-
   const traceViewer = await runAndTrace(async () => {
     await page.setContent(`
       <style>
@@ -428,8 +468,6 @@ test('should restore scroll positions', async ({ page, runAndTrace, browserName 
 });
 
 test('should work with meta CSP', async ({ page, runAndTrace, browserName }) => {
-  test.skip(browserName === 'firefox');
-
   const traceViewer = await runAndTrace(async () => {
     await page.setContent(`
       <head>
@@ -455,8 +493,6 @@ test('should work with meta CSP', async ({ page, runAndTrace, browserName }) => 
 });
 
 test('should handle multiple headers', async ({ page, server, runAndTrace, browserName }) => {
-  test.skip(browserName === 'firefox');
-
   server.setRoute('/foo.css', (req, res) => {
     res.statusCode = 200;
     res.setHeader('vary', ['accepts-encoding', 'accepts-encoding']);
@@ -499,8 +535,6 @@ test('should handle src=blob', async ({ page, server, runAndTrace, browserName }
 });
 
 test('should highlight target elements', async ({ page, runAndTrace, browserName }) => {
-  test.skip(browserName === 'firefox');
-
   const traceViewer = await runAndTrace(async () => {
     await page.setContent(`
       <div>hello</div>
@@ -536,4 +570,59 @@ test('should highlight target elements', async ({ page, runAndTrace, browserName
 
   const frameExpect2 = await traceViewer.snapshotFrame('expect.toHaveText', 1);
   await expect(frameExpect2.locator('[__playwright_target__]')).toHaveText(['hello', 'world']);
+});
+
+test('should show action source', async ({ showTraceViewer }) => {
+  const traceViewer = await showTraceViewer(traceFile);
+  await traceViewer.selectAction('page.click');
+  const page = traceViewer.page;
+
+  await page.click('text=Source');
+  await expect(page.locator('.source-line')).toContainText([
+    /async.*function.*doClick/,
+    /page\.click/
+  ]);
+  await expect(page.locator('.source-line-running')).toContainText('page.click');
+  await expect(page.locator('.stack-trace-frame.selected')).toHaveText(/doClick.*trace-viewer\.spec\.ts:[\d]+/);
+});
+
+test('should follow redirects', async ({ page, runAndTrace, server, asset }) => {
+  server.setRoute('/empty.html', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`<div><img id=img src="image.png"></img></div>`);
+  });
+  server.setRoute('/image.png', (req, res) => {
+    res.writeHead(301, { location: '/image-301.png' });
+    res.end();
+  });
+  server.setRoute('/image-301.png', (req, res) => {
+    res.writeHead(302, { location: '/image-302.png' });
+    res.end();
+  });
+  server.setRoute('/image-302.png', (req, res) => {
+    res.writeHead(200, { 'content-type': 'image/png' });
+    res.end(fs.readFileSync(asset('digits/0.png')));
+  });
+
+  const traceViewer = await runAndTrace(async () => {
+    await page.goto(server.EMPTY_PAGE);
+    expect(await page.evaluate(() => (window as any).img.naturalWidth)).toBe(10);
+  });
+  const snapshotFrame = await traceViewer.snapshotFrame('page.evaluate');
+  await expect(snapshotFrame.locator('img')).toHaveJSProperty('naturalWidth', 10);
+});
+
+test('should include metainfo', async ({ showTraceViewer, browserName }) => {
+  const traceViewer = await showTraceViewer(traceFile);
+  await traceViewer.page.locator('text=Metadata').click();
+  const callLine = traceViewer.page.locator('.call-line');
+  await expect(callLine.locator('text=start time')).toHaveText(/start time: [\d/,: ]+/);
+  await expect(callLine.locator('text=duration')).toHaveText(/duration: [\dms]+/);
+  await expect(callLine.locator('text=engine')).toHaveText(/engine: [\w]+/);
+  await expect(callLine.locator('text=platform')).toHaveText(/platform: [\w]+/);
+  await expect(callLine.locator('text=width')).toHaveText(/width: [\d]+/);
+  await expect(callLine.locator('text=height')).toHaveText(/height: [\d]+/);
+  await expect(callLine.locator('text=pages')).toHaveText(/pages: 1/);
+  await expect(callLine.locator('text=actions')).toHaveText(/actions: [\d]+/);
+  await expect(callLine.locator('text=events')).toHaveText(/events: [\d]+/);
 });

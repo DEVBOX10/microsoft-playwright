@@ -3,6 +3,10 @@
 
 ElementHandle represents an in-page DOM element. ElementHandles can be created with the [`method: Page.querySelector`] method.
 
+:::caution Discouraged
+The use of ElementHandle is discouraged, use [Locator] objects and web-first assertions instead.
+:::
+
 ```js
 const hrefElement = await page.$('a');
 await hrefElement.click();
@@ -32,11 +36,6 @@ ElementHandle prevents DOM element from garbage collection unless the handle is 
 [`method: JSHandle.dispose`]. ElementHandles are auto-disposed when their origin frame gets navigated.
 
 ElementHandle instances can be used as an argument in [`method: Page.evalOnSelector`] and [`method: Page.evaluate`] methods.
-
-:::note
-In most cases, you would want to use the [Locator] object instead. You should only use [ElementHandle] if you want to retain
-a handle to a particular DOM Node that you intend to pass into [`method: Page.evaluate`] as an argument.
-:::
 
 The difference between the [Locator] and ElementHandle is that the ElementHandle points to a particular element, while [Locator] captures the logic of how to retrieve an element.
 
@@ -378,8 +377,8 @@ assert tweet_handle.eval_on_selector(".retweets", "node => node.innerText") = "1
 
 ```csharp
 var tweetHandle = await page.QuerySelectorAsync(".tweet");
-Assert.Equals("100", await tweetHandle.EvalOnSelectorAsync(".like", "node => node.innerText"));
-Assert.Equals("10", await tweetHandle.EvalOnSelectorAsync(".retweets", "node => node.innerText"));
+Assert.AreEqual("100", await tweetHandle.EvalOnSelectorAsync(".like", "node => node.innerText"));
+Assert.AreEqual("10", await tweetHandle.EvalOnSelectorAsync(".retweets", "node => node.innerText"));
 ```
 
 ### param: ElementHandle.evalOnSelector.selector = %%-query-selector-%%
@@ -437,7 +436,7 @@ assert feed_handle.eval_on_selector_all(".tweet", "nodes => nodes.map(n => n.inn
 
 ```csharp
 var feedHandle = await page.QuerySelectorAsync(".feed");
-Assert.Equals(new [] { "Hello!", "Hi!" }, await feedHandle.EvalOnSelectorAllAsync<string[]>(".tweet", "nodes => nodes.map(n => n.innerText)"));
+Assert.AreEqual(new [] { "Hello!", "Hi!" }, await feedHandle.EvalOnSelectorAllAsync<string[]>(".tweet", "nodes => nodes.map(n => n.innerText)"));
 ```
 
 ### param: ElementHandle.evalOnSelectorAll.selector = %%-query-selector-%%

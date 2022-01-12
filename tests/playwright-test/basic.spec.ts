@@ -366,7 +366,7 @@ test('should help with describe() misuse', async ({ runInlineTest }) => {
   ].join('\n'));
 });
 
-test('test.skip should define a skipped test', async ({ runInlineTest }) => {
+test('test.{skip,fixme} should define a skipped test', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.ts': `
       const { test } = pwt;
@@ -375,10 +375,14 @@ test('test.skip should define a skipped test', async ({ runInlineTest }) => {
         console.log('%%dontseethis');
         throw new Error('foo');
       });
+      test.fixme('bar', () => {
+        console.log('%%dontseethis');
+        throw new Error('bar');
+      });
     `,
   });
   expect(result.exitCode).toBe(0);
-  expect(result.skipped).toBe(1);
+  expect(result.skipped).toBe(2);
   expect(result.output).not.toContain('%%dontseethis');
 });
 
@@ -395,4 +399,30 @@ test('should report unhandled rejection during worker shutdown', async ({ runInl
   expect(result.passed).toBe(1);
   expect(result.output).toContain('Error: Unhandled');
   expect(result.output).toContain('a.test.ts:7:33');
+});
+
+test('should not reuse worker after unhandled rejection in test.fail', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      const test = pwt.test.extend({
+        needsCleanup: async ({}, use) => {
+          await use();
+          await new Promise(f => setTimeout(f, 3000));
+        }
+      });
+
+      test('failing', async ({ needsCleanup }) => {
+        test.fail();
+        new Promise(() => { throw new Error('Oh my!') });
+      });
+
+      test('passing', async () => {
+      });
+    `
+  }, { workers: 1 });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(result.skipped).toBe(1);
+  expect(result.output).toContain(`Error: Oh my!`);
+  expect(result.output).not.toContain(`Did not teardown test scope`);
 });

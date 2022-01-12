@@ -28,8 +28,8 @@ export type WaitForElementOptions = TimeoutOptions & StrictOptions & { state?: '
 
 export type WaitForFunctionOptions = TimeoutOptions & { pollingInterval?: number };
 
-export type LifecycleEvent = 'load' | 'domcontentloaded' | 'networkidle';
-export const kLifecycleEvents: Set<LifecycleEvent> = new Set(['load', 'domcontentloaded', 'networkidle']);
+export type LifecycleEvent = 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
+export const kLifecycleEvents: Set<LifecycleEvent> = new Set(['load', 'domcontentloaded', 'networkidle', 'commit']);
 
 export type NavigateOptions = TimeoutOptions & {
   waitUntil?: LifecycleEvent,
@@ -211,7 +211,6 @@ export type NormalizedContinueOverrides = {
   method?: string,
   headers?: HeadersArray,
   postData?: Buffer,
-  interceptResponse?: boolean,
 };
 
 export type NetworkCookie = {
@@ -272,7 +271,6 @@ export type BrowserContextOptions = {
   strictSelectors?: boolean,
   proxy?: ProxySettings,
   baseURL?: string,
-  _debugName?: string,
 };
 
 export type EnvArray = { name: string, value: string }[];
@@ -372,7 +370,7 @@ export type SetStorageState = {
   origins?: OriginStorage[]
 };
 
-export type FetchResponse = {
+export type APIResponse = {
   url: string,
   status: number,
   statusText: string,

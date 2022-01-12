@@ -19,7 +19,7 @@ import { Dispatcher, DispatcherScope, lookupDispatcher } from './dispatcher';
 import { PageDispatcher, BindingCallDispatcher, WorkerDispatcher } from './pageDispatcher';
 import { FrameDispatcher } from './frameDispatcher';
 import * as channels from '../protocol/channels';
-import { RouteDispatcher, RequestDispatcher, ResponseDispatcher, FetchRequestDispatcher } from './networkDispatchers';
+import { RouteDispatcher, RequestDispatcher, ResponseDispatcher, APIRequestContextDispatcher } from './networkDispatchers';
 import { CRBrowserContext } from '../server/chromium/crBrowser';
 import { CDPSessionDispatcher } from './cdpSessionDispatcher';
 import { RecorderSupplement } from '../server/supplements/recorderSupplement';
@@ -28,13 +28,15 @@ import { ArtifactDispatcher } from './artifactDispatcher';
 import { Artifact } from '../server/artifact';
 import { Request, Response } from '../server/network';
 
-export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextInitializer, channels.BrowserContextEvents> implements channels.BrowserContextChannel {
+export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextChannel> implements channels.BrowserContextChannel {
+  _type_EventTarget = true;
+  _type_BrowserContext = true;
   private _context: BrowserContext;
 
   constructor(scope: DispatcherScope, context: BrowserContext) {
     super(scope, context, 'BrowserContext', {
       isChromium: context._browser.options.isChromium,
-      fetchRequest: FetchRequestDispatcher.from(scope, context.fetchRequest),
+      APIRequestContext: APIRequestContextDispatcher.from(scope, context.fetchRequest),
     }, true);
     this._context = context;
     // Note: when launching persistent context, dispatcher is created very late,
@@ -192,12 +194,12 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
   }
 
   async tracingStartChunk(params: channels.BrowserContextTracingStartChunkParams): Promise<channels.BrowserContextTracingStartChunkResult> {
-    await this._context.tracing.startChunk();
+    await this._context.tracing.startChunk(params);
   }
 
   async tracingStopChunk(params: channels.BrowserContextTracingStopChunkParams): Promise<channels.BrowserContextTracingStopChunkResult> {
-    const artifact = await this._context.tracing.stopChunk(params.save);
-    return { artifact: artifact ? new ArtifactDispatcher(this._scope, artifact) : undefined };
+    const { artifact, sourceEntries } = await this._context.tracing.stopChunk(params);
+    return { artifact: artifact ? new ArtifactDispatcher(this._scope, artifact) : undefined, sourceEntries };
   }
 
   async tracingStop(params: channels.BrowserContextTracingStopParams): Promise<channels.BrowserContextTracingStopResult> {

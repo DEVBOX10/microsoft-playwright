@@ -22,7 +22,8 @@ import { parseArgument, serializeResult } from './jsHandleDispatcher';
 import { ResponseDispatcher, RequestDispatcher } from './networkDispatchers';
 import { CallMetadata } from '../server/instrumentation';
 
-export class FrameDispatcher extends Dispatcher<Frame, channels.FrameInitializer, channels.FrameEvents> implements channels.FrameChannel {
+export class FrameDispatcher extends Dispatcher<Frame, channels.FrameChannel> implements channels.FrameChannel {
+  _type_Frame = true;
   private _frame: Frame;
 
   static from(scope: DispatcherScope, frame: Frame): FrameDispatcher {
@@ -97,6 +98,10 @@ export class FrameDispatcher extends Dispatcher<Frame, channels.FrameInitializer
   async querySelectorAll(params: channels.FrameQuerySelectorAllParams, metadata: CallMetadata): Promise<channels.FrameQuerySelectorAllResult> {
     const elements = await this._frame.querySelectorAll(params.selector);
     return { elements: elements.map(e => ElementHandleDispatcher.from(this._scope, e)) };
+  }
+
+  async queryCount(params: channels.FrameQueryCountParams): Promise<channels.FrameQueryCountResult> {
+    return { value: await this._frame.queryCount(params.selector) };
   }
 
   async content(): Promise<channels.FrameContentResult> {
@@ -225,6 +230,10 @@ export class FrameDispatcher extends Dispatcher<Frame, channels.FrameInitializer
 
   async title(params: channels.FrameTitleParams, metadata: CallMetadata): Promise<channels.FrameTitleResult> {
     return { value: await this._frame.title() };
+  }
+
+  async highlight(params: channels.FrameHighlightParams, metadata: CallMetadata): Promise<void> {
+    return await this._frame.highlight(params.selector);
   }
 
   async expect(params: channels.FrameExpectParams, metadata: CallMetadata): Promise<channels.FrameExpectResult> {

@@ -18,7 +18,7 @@ import { test, expect, stripAscii } from './playwright-test-fixtures';
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
-import { registry } from 'playwright-core/src/utils/registry';
+import { registry } from 'playwright-core/lib/utils/registry';
 
 const ffmpeg = registry.findExecutable('ffmpeg')!.executablePath();
 
@@ -213,11 +213,20 @@ test('should respect context options in various contexts', async ({ runInlineTes
         await context.close();
         rimraf.sync(dir);
       });
+
+      test('another browser', async ({ playwright, browserName }) => {
+        const browser = await playwright.webkit.launch();
+        const page = await browser.newPage();
+
+        expect(await page.evaluate(() => navigator.language)).toBe('fr-CH');
+
+        await browser.close();
+      });
     `,
   }, { workers: 1 });
 
   expect(result.exitCode).toBe(0);
-  expect(result.passed).toBe(4);
+  expect(result.passed).toBe(5);
 });
 
 test('should call logger from launchOptions config', async ({ runInlineTest }, testInfo) => {
@@ -234,12 +243,12 @@ test('should call logger from launchOptions config', async ({ runInlineTest }, t
         }
       });
 
-      test('should support config logger', async ({browser}) => {
+      test('should support config logger', async ({browser, context}) => {
         expect(browser.version()).toBeTruthy();
         expect(log.length > 0).toBeTruthy();
         expect(log.filter(item => item.severity === 'info').length > 0).toBeTruthy();
-        expect(log.filter(item => item.message.includes('browserType.launch started')).length > 0).toBeTruthy();
-        expect(log.filter(item => item.message.includes('browserType.launch succeeded')).length > 0).toBeTruthy();
+        expect(log.filter(item => item.message.includes('browser.newContext started')).length > 0).toBeTruthy();
+        expect(log.filter(item => item.message.includes('browser.newContext succeeded')).length > 0).toBeTruthy();
       });
       `,
   }, { workers: 1 });
@@ -294,6 +303,33 @@ test('should report error on timeout with shared page', async ({ runInlineTest }
   expect(result.failed).toBe(1);
   expect(result.output).toContain('waiting for selector "text=Missing"');
   expect(stripAscii(result.output)).toContain(`14 |         await page.click('text=Missing');`);
+});
+
+test('should report error and pending operations from beforeAll timeout', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      const { test } = pwt;
+      test.beforeAll(async ({ browser }) => {
+        const page = await browser.newPage();
+        await page.setContent('<div>Click me</div>');
+        await Promise.all([
+          page.click('text=Missing'),
+          page.textContent('text=More missing'),
+        ]);
+      });
+      test('ignored', () => {});
+    `,
+  }, { workers: 1, timeout: 2000 });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(0);
+  expect(result.failed).toBe(1);
+  expect(result.output).toContain('Timeout of 2000ms exceeded in beforeAll hook.');
+  expect(result.output).toContain('Pending operations:');
+  expect(result.output).toContain('- page.click at a.test.ts:10:16');
+  expect(result.output).toContain('- page.textContent at a.test.ts:11:16');
+  expect(result.output).toContain('waiting for selector');
+  expect(stripAscii(result.output)).toContain(`11 |           page.textContent('text=More missing'),`);
 });
 
 test('should not report waitForEventInfo as pending', async ({ runInlineTest }, testInfo) => {
@@ -456,83 +492,3 @@ test('should work with video size', async ({ runInlineTest }, testInfo) => {
   expect(videoPlayer.videoWidth).toBe(220);
   expect(videoPlayer.videoHeight).toBe(110);
 });
-
-test('should be able to re-use the context when debug mode is used', async ({ runInlineTest }, testInfo) => {
-  const result = await runInlineTest({
-    'a.test.ts': `
-      const { test } = pwt;
-
-      test.use({
-        colorScheme: 'light',
-        viewport: {
-          width: 1920,
-          height: 1080,
-        },
-      })
-      
-      const host1 = 'http://host1.com/foobar';
-      
-      test.beforeEach(async({page, context}) => {
-        context.route(host1, route => route.fulfill({body: '<html></html>', contentType: 'text/html'}, {times: 1}));
-        console.log(page._guid + '|');
-        console.log(context._guid + '|');
-      })
-      
-      test('initial setup', async ({ page }) => {
-        await page.goto(host1);
-        expect(await page.evaluate(() => window.localStorage.getItem('foobar'))).toBe(null);
-        await page.evaluate(() => window.localStorage.setItem('foobar', 'bar'));
-        expect(page.viewportSize()).toStrictEqual({
-          width: 1920,
-          height: 1080,
-        });
-      });
-      
-      test('second run after persistent data has changed', async ({ page }) => {
-        await page.goto(host1);
-        expect(await page.evaluate(() => window.localStorage.getItem('foobar'))).toBe(null);
-        await page.evaluate(() => window.localStorage.setItem('foobar', 'bar'));
-        expect(page.viewportSize()).toStrictEqual({
-          width: 1920,
-          height: 1080,
-        });
-      });
-      
-      test.describe('inside a describe block', () => {
-        test.use({
-          colorScheme: 'dark',
-          viewport: {
-            width: 1000,
-            height: 500,
-          },
-        });
-        test('using different options', async ({ page }) => {
-          await page.goto(host1);
-          expect(await page.evaluate(() => window.localStorage.getItem('foobar'))).toBe(null);
-          expect(page.viewportSize()).toStrictEqual({
-              width: 1000,
-              height: 500,
-          });
-        });
-      });
-      
-      test('after the describe block', async ({ page }) => {
-        await page.goto(host1);
-        expect(await page.evaluate(() => window.localStorage.getItem('foobar'))).toBe(null);
-        expect(page.viewportSize()).toStrictEqual({
-          width: 1920,
-          height: 1080,
-        });
-      });
-    `
-  }, { '--reuse-context': true });
-  expect(result.exitCode).toBe(0);
-  expect(result.passed).toBe(4);
-  const pageIds = result.output.match(/page@(.*)\|/g);
-  const browserContextIds = result.output.match(/browser-context@(.*)\|/g);
-  expect(pageIds.length).toBe(4);
-  expect(new Set(pageIds).size).toBe(1);
-  expect(browserContextIds.length).toBe(4);
-  expect(new Set(browserContextIds).size).toBe(1);
-});
-
