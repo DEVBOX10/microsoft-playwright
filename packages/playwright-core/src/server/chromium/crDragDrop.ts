@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CRPage } from './crPage';
-import * as types from '../types';
-import { assert } from '../../utils/utils';
-import { Protocol } from './protocol';
+import type { CRPage } from './crPage';
+import type * as types from '../types';
+import { assert } from '../../utils';
+import type { Protocol } from './protocol';
 import { toModifiersMask } from './crProtocolHelper';
 
 declare global {
@@ -84,6 +84,7 @@ export class DragManager {
           const val = await didStartDrag;
           window.removeEventListener('mousemove', mouseListener, { capture: true });
           window.removeEventListener('dragstart', dragListener, { capture: true });
+          delete window.__cleanupDrag;
           return val;
         };
       }).toString(), true, 'utility').catch(() => {});

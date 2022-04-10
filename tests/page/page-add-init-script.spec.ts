@@ -31,7 +31,7 @@ it('should work with a path', async ({ page, server, asset }) => {
   expect(await page.evaluate(() => window['result'])).toBe(123);
 });
 
-it('should work with content #smoke', async ({ page, server }) => {
+it('should work with content @smoke', async ({ page, server }) => {
   await page.addInitScript({ content: 'window["injected"] = 123' });
   await page.goto(server.PREFIX + '/tamperable.html');
   expect(await page.evaluate(() => window['result'])).toBe(123);
@@ -41,6 +41,13 @@ it('should throw without path and content', async ({ page }) => {
   // @ts-expect-error foo is not a real option of addInitScript
   const error = await page.addInitScript({ foo: 'bar' }).catch(e => e);
   expect(error.message).toContain('Either path or content property must be present');
+});
+
+it('should work with trailing comments', async ({ page, asset }) => {
+  await page.addInitScript({ content: '// comment' });
+  await page.addInitScript({ content: 'window.secret = 42;' });
+  await page.goto('data:text/html,<html></html>');
+  expect(await page.evaluate('secret')).toBe(42);
 });
 
 it('should support multiple scripts', async ({ page, server }) => {

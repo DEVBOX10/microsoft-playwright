@@ -281,6 +281,29 @@ try {
 
 Emitted when a JavaScript dialog appears, such as `alert`, `prompt`, `confirm` or `beforeunload`. Listener **must** either [`method: Dialog.accept`] or [`method: Dialog.dismiss`] the dialog - otherwise the page will [freeze](https://developer.mozilla.org/en-US/docs/Web/JavaScript/EventLoop#never_blocking) waiting for the dialog, and actions like click will never finish.
 
+```js
+page.on('dialog', dialog => {
+  dialog.accept();
+});
+```
+
+```java
+page.onDialog(dialog -> {
+  dialog.accept();
+});
+```
+
+```python
+page.on("dialog", lambda dialog: dialog.accept())
+```
+
+```csharp
+page.RequestFailed += (_, request) =>
+{
+    Console.WriteLine(request.Url + " " + request.Failure);
+};
+```
+
 :::note
 When no [`event: Page.dialog`] listeners are present, all dialogs are automatically dismissed.
 :::
@@ -351,6 +374,50 @@ Emitted when the JavaScript [`load`](https://developer.mozilla.org/en-US/docs/We
 
 Emitted when an uncaught exception happens within the page.
 
+```js
+// Log all uncaught errors to the terminal
+page.on('pageerror', exception => {
+  console.log(`Uncaught exception: "${exception}"`);
+});
+
+// Navigate to a page with an exception.
+await page.goto('data:text/html,<script>throw new Error("Test")</script>');
+```
+
+```java
+// Log all uncaught errors to the terminal
+page.onPageError(exception -> {
+  System.out.println("Uncaught exception: " + exception);
+});
+
+// Navigate to a page with an exception.
+page.navigate("data:text/html,<script>throw new Error('Test')</script>");
+```
+
+```python async
+# Log all uncaught errors to the terminal
+page.on("pageerror", lambda exc: print(f"uncaught exception: {exc}"))
+
+# Navigate to a page with an exception.
+await page.goto("data:text/html,<script>throw new Error('test')</script>")
+```
+
+```python sync
+# Log all uncaught errors to the terminal
+page.on("pageerror", lambda exc: print(f"uncaught exception: {exc}"))
+
+# Navigate to a page with an exception.
+page.goto("data:text/html,<script>throw new Error('test')</script>")
+```
+
+```csharp
+// Log all uncaught errors to the terminal
+page.PageError += (_, exception) =>
+{
+  Console.WriteLine("Uncaught exception: " + exception);
+};
+```
+
 ## event: Page.pageError
 * langs: csharp, java
 - argument: <[string]>
@@ -366,8 +433,12 @@ popup with `window.open('http://example.com')`, this event will fire when the ne
 done and its response has started loading in the popup.
 
 ```js
+// Note that Promise.all prevents a race condition
+// between evaluating and waiting for the popup.
 const [popup] = await Promise.all([
+  // It is important to call waitForEvent first.
   page.waitForEvent('popup'),
+  // Opens the popup.
   page.evaluate(() => window.open('https://example.com')),
 ]);
 console.log(await popup.evaluate('location.href'));
@@ -417,6 +488,22 @@ Emitted when a page issues a request. The [request] object is read-only. In orde
 - argument: <[Request]>
 
 Emitted when a request fails, for example by timing out.
+
+```js
+page.on('requestfailed', request => {
+  console.log(request.url() + ' ' + request.failure().errorText);
+});
+```
+
+```java
+page.onRequestFailed(request -> {
+  System.out.println(request.url() + " " + request.failure());
+});
+```
+
+```python
+page.on("requestfailed", lambda request: print(request.url + " " + request.failure.error_text))
+```
 
 :::note
 HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will complete
@@ -500,9 +587,9 @@ The order of evaluation of multiple scripts installed via [`method: BrowserConte
 ### param: Page.addInitScript.script
 * langs: js
 - `script` <[function]|[string]|[Object]>
-  - `path` <[path]> Path to the JavaScript file. If `path` is a relative path, then it is resolved relative to the
+  - `path` ?<[path]> Path to the JavaScript file. If `path` is a relative path, then it is resolved relative to the
     current working directory. Optional.
-  - `content` <[string]> Raw script content. Optional.
+  - `content` ?<[string]> Raw script content. Optional.
 
 Script to be evaluated in the page.
 
@@ -514,7 +601,7 @@ Script to be evaluated in all pages in the browser context.
 
 ### param: Page.addInitScript.arg
 * langs: js
-- `arg` <[Serializable]>
+- `arg` ?<[Serializable]>
 
 Optional argument to pass to [`param: script`] (only supported when passing a function).
 
@@ -583,7 +670,7 @@ This method checks an element matching [`param: selector`] by performing the fol
    the DOM.
 1. Ensure that matched element is a checkbox or a radio input. If not, this method throws. If the element is already
    checked, this method returns immediately.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element.
@@ -609,7 +696,7 @@ Shortcut for main frame's [`method: Frame.check`].
 This method clicks an element matching [`param: selector`] by performing the following steps:
 1. Find an element matching [`param: selector`]. If there is none, wait until a matching element is attached to
    the DOM.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element, or the specified [`option: position`].
@@ -678,7 +765,7 @@ Browser-specific Coverage implementation. See [Coverage](#class-coverage) for mo
 This method double clicks an element matching [`param: selector`] by performing the following steps:
 1. Find an element matching [`param: selector`]. If there is none, wait until a matching element is attached to
    the DOM.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to double click in the center of the element, or the specified [`option: position`].
@@ -787,7 +874,7 @@ await page.DispatchEventAsync("#source", "dragstart", new { dataTransfer });
 DOM event type: `"click"`, `"dragstart"`, etc.
 
 ### param: Page.dispatchEvent.eventInit
-- `eventInit` <[EvaluationArgument]>
+- `eventInit` ?<[EvaluationArgument]>
 
 Optional event-specific initialization properties.
 
@@ -1068,7 +1155,7 @@ Shortcut for main frame's [`method: Frame.evalOnSelector`].
 ### param: Page.evalOnSelector.selector = %%-query-selector-%%
 ### param: Page.evalOnSelector.expression = %%-evaluate-expression-%%
 ### param: Page.evalOnSelector.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -1115,7 +1202,7 @@ var divsCount = await page.EvalOnSelectorAllAsync<bool>("div", "(divs, min) => d
 ### param: Page.evalOnSelectorAll.selector = %%-query-selector-%%
 ### param: Page.evalOnSelectorAll.expression = %%-evaluate-expression-%%
 ### param: Page.evalOnSelectorAll.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -1227,7 +1314,7 @@ Shortcut for main frame's [`method: Frame.evaluate`].
 ### param: Page.evaluate.expression = %%-evaluate-expression-%%
 
 ### param: Page.evaluate.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -1285,7 +1372,7 @@ a_handle = page.evaluate_handle("document") # handle for the "document"
 ```
 
 ```csharp
-var docHandle = await page.EvalueHandleAsync("document"); // Handle for the `document`
+var docHandle = await page.EvaluateHandleAsync("document"); // Handle for the `document`
 ```
 
 [JSHandle] instances can be passed as an argument to the [`method: Page.evaluateHandle`]:
@@ -1328,7 +1415,7 @@ await resultHandle.DisposeAsync();
 ### param: Page.evaluateHandle.expression = %%-evaluate-expression-%%
 
 ### param: Page.evaluateHandle.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -1750,7 +1837,7 @@ Callback function which will be called in Playwright's context.
 
 ## async method: Page.fill
 
-This method waits for an element matching [`param: selector`], waits for [actionability](./actionability.md) checks, focuses the element, fills it and triggers an `input` event after filling. Note that you can pass an empty string to clear the input field.
+This method waits for an element matching [`param: selector`], waits for [actionability](../actionability.md) checks, focuses the element, fills it and triggers an `input` event after filling. Note that you can pass an empty string to clear the input field.
 
 If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be filled instead.
 
@@ -1822,8 +1909,8 @@ var frame = page.FrameByUrl(".*domain.*");
 ### param: Page.frame.frameSelector
 * langs: js
 - `frameSelector` <[string]|[Object]>
-  - `name` <[string]> Frame name specified in the `iframe`'s `name` attribute. Optional.
-  - `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]> A glob pattern, regex pattern or predicate receiving
+  - `name` ?<[string]> Frame name specified in the `iframe`'s `name` attribute. Optional.
+  - `url` ?<[string]|[RegExp]|[function]\([URL]\):[boolean]> A glob pattern, regex pattern or predicate receiving
     frame's `url` as a [URL] object. Optional.
 
 Frame name or other frame lookup options.
@@ -1979,7 +2066,7 @@ Referer header value. If provided it will take preference over the referer heade
 This method hovers over an element matching [`param: selector`] by performing the following steps:
 1. Find an element matching [`param: selector`]. If there is none, wait until a matching element is attached to
    the DOM.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to hover over the center of the element, or the specified [`option: position`].
@@ -2048,7 +2135,7 @@ Indicates that the page has been closed.
 ## async method: Page.isDisabled
 - returns: <[boolean]>
 
-Returns whether the element is disabled, the opposite of [enabled](./actionability.md#enabled).
+Returns whether the element is disabled, the opposite of [enabled](../actionability.md#enabled).
 
 ### param: Page.isDisabled.selector = %%-input-selector-%%
 
@@ -2058,7 +2145,7 @@ Returns whether the element is disabled, the opposite of [enabled](./actionabili
 ## async method: Page.isEditable
 - returns: <[boolean]>
 
-Returns whether the element is [editable](./actionability.md#editable).
+Returns whether the element is [editable](../actionability.md#editable).
 
 ### param: Page.isEditable.selector = %%-input-selector-%%
 
@@ -2068,7 +2155,7 @@ Returns whether the element is [editable](./actionability.md#editable).
 ## async method: Page.isEnabled
 - returns: <[boolean]>
 
-Returns whether the element is [enabled](./actionability.md#enabled).
+Returns whether the element is [enabled](../actionability.md#enabled).
 
 ### param: Page.isEnabled.selector = %%-input-selector-%%
 
@@ -2078,7 +2165,7 @@ Returns whether the element is [enabled](./actionability.md#enabled).
 ## async method: Page.isHidden
 - returns: <[boolean]>
 
-Returns whether the element is hidden, the opposite of [visible](./actionability.md#visible).  [`option: selector`] that does not match any elements is considered hidden.
+Returns whether the element is hidden, the opposite of [visible](../actionability.md#visible).  [`option: selector`] that does not match any elements is considered hidden.
 
 ### param: Page.isHidden.selector = %%-input-selector-%%
 
@@ -2091,7 +2178,7 @@ Returns whether the element is hidden, the opposite of [visible](./actionability
 ## async method: Page.isVisible
 - returns: <[boolean]>
 
-Returns whether the element is [visible](./actionability.md#visible). [`option: selector`] that does not match any elements is considered not visible.
+Returns whether the element is [visible](../actionability.md#visible). [`option: selector`] that does not match any elements is considered not visible.
 
 ### param: Page.isVisible.selector = %%-input-selector-%%
 
@@ -2300,20 +2387,20 @@ Paper height, accepts values labeled with units.
 ### option: Page.pdf.margin
 * langs: js, python
 - `margin` <[Object]>
-  - `top` <[string]|[float]> Top margin, accepts values labeled with units. Defaults to `0`.
-  - `right` <[string]|[float]> Right margin, accepts values labeled with units. Defaults to `0`.
-  - `bottom` <[string]|[float]> Bottom margin, accepts values labeled with units. Defaults to `0`.
-  - `left` <[string]|[float]> Left margin, accepts values labeled with units. Defaults to `0`.
+  - `top` ?<[string]|[float]> Top margin, accepts values labeled with units. Defaults to `0`.
+  - `right` ?<[string]|[float]> Right margin, accepts values labeled with units. Defaults to `0`.
+  - `bottom` ?<[string]|[float]> Bottom margin, accepts values labeled with units. Defaults to `0`.
+  - `left` ?<[string]|[float]> Left margin, accepts values labeled with units. Defaults to `0`.
 
 Paper margins, defaults to none.
 
 ### option: Page.pdf.margin
 * langs: csharp, java
 - `margin` <[Object]>
-  - `top` <[string]> Top margin, accepts values labeled with units. Defaults to `0`.
-  - `right` <[string]> Right margin, accepts values labeled with units. Defaults to `0`.
-  - `bottom` <[string]> Bottom margin, accepts values labeled with units. Defaults to `0`.
-  - `left` <[string]> Left margin, accepts values labeled with units. Defaults to `0`.
+  - `top` ?<[string]> Top margin, accepts values labeled with units. Defaults to `0`.
+  - `right` ?<[string]> Right margin, accepts values labeled with units. Defaults to `0`.
+  - `bottom` ?<[string]> Bottom margin, accepts values labeled with units. Defaults to `0`.
+  - `left` ?<[string]> Left margin, accepts values labeled with units. Defaults to `0`.
 
 Paper margins, defaults to none.
 
@@ -2471,7 +2558,8 @@ last redirect.
 * langs: js, java, python
 - type: <[APIRequestContext]>
 
-API testing helper associated with this page. Requests made with this API will use page cookies.
+API testing helper associated with this page. This method returns the same instance as
+[`property: BrowserContext.request`] on the page's context. See [`property: BrowserContext.request`] for more details.
 
 ## async method: Page.route
 
@@ -2644,47 +2732,16 @@ How often a route should be used. By default it will be used every time.
 
 Returns the buffer with the captured screenshot.
 
-### option: Page.screenshot.path
-- `path` <[path]>
+### option: Page.screenshot.-inline- = %%-screenshot-options-common-list-%%
 
-The file path to save the image to. The screenshot type will be inferred from file extension. If [`option: path`] is a
-relative path, then it is resolved relative to the current working directory. If no path is provided, the image won't be
-saved to the disk.
+### option: Page.screenshot.fullPage = %%-screenshot-option-full-page-%%
 
-### option: Page.screenshot.type = %%-screenshot-type-%%
-
-### option: Page.screenshot.quality
-- `quality` <[int]>
-
-The quality of the image, between 0-100. Not applicable to `png` images.
-
-### option: Page.screenshot.fullPage
-- `fullPage` <[boolean]>
-
-When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport. Defaults to
-`false`.
-
-### option: Page.screenshot.clip
-- `clip` <[Object]>
-  - `x` <[float]> x-coordinate of top-left corner of clip area
-  - `y` <[float]> y-coordinate of top-left corner of clip area
-  - `width` <[float]> width of clipping area
-  - `height` <[float]> height of clipping area
-
-An object which specifies clipping of the resulting image. Should have the following fields:
-
-### option: Page.screenshot.omitBackground
-- `omitBackground` <[boolean]>
-
-Hides default white background and allows capturing screenshots with transparency. Not applicable to `jpeg` images.
-Defaults to `false`.
-
-### option: Page.screenshot.timeout = %%-input-timeout-%%
+### option: Page.screenshot.clip = %%-screenshot-option-clip-%%
 
 ## async method: Page.selectOption
 - returns: <[Array]<[string]>>
 
-This method waits for an element matching [`param: selector`], waits for [actionability](./actionability.md) checks, waits until all specified options are present in the `<select>` element and selects these options.
+This method waits for an element matching [`param: selector`], waits for [actionability](../actionability.md) checks, waits until all specified options are present in the `<select>` element and selects these options.
 
 If the target element is not a `<select>` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be used instead.
 
@@ -2756,7 +2813,7 @@ This method checks or unchecks an element matching [`param: selector`] by perfor
    the DOM.
 1. Ensure that matched element is a checkbox or a radio input. If not, this method throws.
 1. If the element already has the right checked state, this method returns immediately.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element.
@@ -2856,7 +2913,7 @@ are resolved relative to the the current working directory. For empty array, cle
 In the case of multiple pages in a single browser, each page can have its own viewport size. However,
 [`method: Browser.newContext`] allows to set viewport size (and more) for all pages in the context at once.
 
-`page.setViewportSize` will resize the page. A lot of websites don't expect phones to change size, so you should set the
+[`method: Page.setViewportSize`] will resize the page. A lot of websites don't expect phones to change size, so you should set the
 viewport size before navigating to the page. [`method: Page.setViewportSize`] will also reset `screen` size, use [`method: Browser.newContext`] with `screen` and `viewport` parameters if you need better control of these properties.
 
 ```js
@@ -2911,7 +2968,7 @@ await page.GotoAsync("https://www.microsoft.com");
 This method taps an element matching [`param: selector`] by performing the following steps:
 1. Find an element matching [`param: selector`]. If there is none, wait until a matching element is attached to
    the DOM.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.touchscreen`] to tap the center of the element, or the specified [`option: position`].
@@ -3013,7 +3070,7 @@ This method unchecks an element matching [`param: selector`] by performing the f
    the DOM.
 1. Ensure that matched element is a checkbox or a radio input. If not, this method throws. If the element is already
    unchecked, this method returns immediately.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element.
@@ -3046,13 +3103,13 @@ A glob pattern, regex pattern or predicate receiving [URL] to match while routin
 
 ### param: Page.unroute.handler
 * langs: js, python
-- `handler` <[function]\([Route], [Request]\)>
+- `handler` ?<[function]\([Route], [Request]\)>
 
 Optional handler function to route the request.
 
 ### param: Page.unroute.handler
 * langs: csharp, java
-- `handler` <[function]\([Route]\)>
+- `handler` ?<[function]\([Route]\)>
 
 Optional handler function to route the request.
 
@@ -3122,9 +3179,13 @@ Waits for event to fire and passes its value into the predicate function. Return
 value. Will throw an error if the page is closed before the event is fired. Returns the event data value.
 
 ```js
+// Note that Promise.all prevents a race condition
+// between clicking and waiting for the event.
 const [frame, _] = await Promise.all([
+  // It is important to call waitForEvent before click to set up waiting.
   page.waitForEvent('framenavigated'),
-  page.click('button')
+  // Triggers the navigation.
+  page.locator('button').click(),
 ]);
 ```
 
@@ -3144,9 +3205,9 @@ frame = event_info.value
 
 ### param: Page.waitForEvent.optionsOrPredicate
 * langs: js
-- `optionsOrPredicate` <[function]|[Object]>
+- `optionsOrPredicate` ?<[function]|[Object]>
   - `predicate` <[function]> receives the event data and resolves to truthy value when the waiting should resolve.
-  - `timeout` <[float]> maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to
+  - `timeout` ?<[float]> maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to
     disable timeout. The default value can be changed by using the [`method: BrowserContext.setDefaultTimeout`].
 
 Either a predicate that receives an event or an options object. Optional.
@@ -3287,7 +3348,7 @@ Shortcut for main frame's [`method: Frame.waitForFunction`].
 ### param: Page.waitForFunction.expression = %%-evaluate-expression-%%
 
 ### param: Page.waitForFunction.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -3331,8 +3392,10 @@ await page.WaitForLoadStateAsync(); // The promise resolves after 'load' event.
 
 ```js
 const [popup] = await Promise.all([
+  // It is important to call waitForEvent before click to set up waiting.
   page.waitForEvent('popup'),
-  page.click('button'), // Click triggers a popup.
+  // Click triggers a popup.
+  page.locator('button').click(),
 ])
 await popup.waitForLoadState('domcontentloaded'); // The promise resolves after 'domcontentloaded' event.
 console.log(await popup.title()); // Popup is ready to use.
@@ -3394,9 +3457,13 @@ cause the page to navigate. e.g. The click target has an `onclick` handler that 
 Consider this example:
 
 ```js
+// Note that Promise.all prevents a race condition
+// between clicking and waiting for the navigation.
 const [response] = await Promise.all([
-  page.waitForNavigation(), // The promise resolves after navigation has finished
-  page.click('a.delayed-navigation'), // Clicking the link will indirectly cause a navigation
+  // It is important to call waitForNavigation before click to set up waiting.
+  page.waitForNavigation(),
+  // Clicking the link will indirectly cause a navigation.
+  page.locator('a.delayed-navigation').click(),
 ]);
 ```
 
@@ -3465,7 +3532,7 @@ Receives the [Page] object and resolves to truthy value when the waiting should 
   * alias-csharp: RunAndWaitForRequest
 - returns: <[Request]>
 
-Waits for the matching request and returns it. See [waiting for event](./events.md#waiting-for-event) for more details about events.
+Waits for the matching request and returns it. See [waiting for event](../events.md#waiting-for-event) for more details about events.
 
 ```js
 // Note that Promise.all prevents a race condition
@@ -3582,7 +3649,7 @@ Receives the [Request] object and resolves to truthy value when the waiting shou
   * alias-csharp: RunAndWaitForResponse
 - returns: <[Response]>
 
-Returns the matched response. See [waiting for event](./events.md#waiting-for-event) for more details about events.
+Returns the matched response. See [waiting for event](../events.md#waiting-for-event) for more details about events.
 
 ```js
 // Note that Promise.all prevents a race condition
@@ -3620,13 +3687,13 @@ Response response = page.waitForResponse(response -> "https://example.com".equal
 ```python async
 async with page.expect_response("https://example.com/resource") as response_info:
     await page.click("input")
-response = response_info.value
+response = await response_info.value
 return response.ok
 
 # or with a lambda
 async with page.expect_response(lambda response: response.url == "https://example.com" and response.status == 200) as response_info:
     await page.click("input")
-response = response_info.value
+response = await response_info.value
 return response.ok
 ```
 
@@ -3637,7 +3704,7 @@ response = response_info.value
 return response.ok
 
 # or with a lambda
-with page.expect_response(lambda response: response.url == "https://example.com" and response.status === 200) as response_info:
+with page.expect_response(lambda response: response.url == "https://example.com" and response.status == 200) as response_info:
     page.click("input")
 response = response_info.value
 return response.ok

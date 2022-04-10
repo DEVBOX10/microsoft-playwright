@@ -20,6 +20,7 @@ import { attachFrame } from '../config/utils';
 
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import formidable from 'formidable';
 
 it('should upload the file', async ({ page, server, asset }) => {
@@ -36,7 +37,54 @@ it('should upload the file', async ({ page, server, asset }) => {
   }, input)).toBe('contents of the file');
 });
 
-it('should work #smoke', async ({ page, asset }) => {
+it('should upload large file', async ({ page, server, browserName, isMac }, testInfo) => {
+  it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
+  it.slow();
+  await page.goto(server.PREFIX + '/input/fileupload.html');
+  const uploadFile = testInfo.outputPath('200MB.zip');
+  const str = 'A'.repeat(4 * 1024);
+  const stream = fs.createWriteStream(uploadFile);
+  for (let i = 0; i < 50 * 1024; i++) {
+    await new Promise<void>((fulfill, reject) => {
+      stream.write(str, err => {
+        if (err)
+          reject(err);
+        else
+          fulfill();
+      });
+    });
+  }
+  await new Promise(f => stream.end(f));
+  const input = page.locator('input[type="file"]');
+  const events = await input.evaluateHandle(e => {
+    const events = [];
+    e.addEventListener('input', () => events.push('input'));
+    e.addEventListener('change', () => events.push('change'));
+    return events;
+  });
+  await input.setInputFiles(uploadFile);
+  expect(await input.evaluate(e => (e as HTMLInputElement).files[0].name)).toBe('200MB.zip');
+  expect(await events.evaluate(e => e)).toEqual(['input', 'change']);
+  const serverFilePromise = new Promise<formidable.File>(fulfill => {
+    server.setRoute('/upload', async (req, res) => {
+      const form = new formidable.IncomingForm({ uploadDir: testInfo.outputPath() });
+      form.parse(req, function(err, fields, f) {
+        res.end();
+        const files = f as Record<string, formidable.File>;
+        fulfill(files.file1);
+      });
+    });
+  });
+  const [file1] = await Promise.all([
+    serverFilePromise,
+    page.click('input[type=submit]')
+  ]);
+  expect(file1.originalFilename).toBe('200MB.zip');
+  expect(file1.size).toBe(200 * 1024 * 1024);
+  await Promise.all([uploadFile, file1.filepath].map(fs.promises.unlink));
+});
+
+it('should work @smoke', async ({ page, asset }) => {
   await page.setContent(`<input type=file>`);
   await page.setInputFiles('input', asset('file-to-upload.txt'));
   expect(await page.$eval('input', input => input.files.length)).toBe(1);
@@ -246,11 +294,11 @@ it('should accept single file', async ({ page, asset }) => {
 it('should detect mime type', async ({ page, server, asset, isAndroid }) => {
   it.fixme(isAndroid);
 
-  let files;
+  let files: Record<string, formidable.File>;
   server.setRoute('/upload', async (req, res) => {
     const form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, f) {
-      files = f;
+      files = f as Record<string, formidable.File>;
       res.end();
     });
   });
@@ -268,13 +316,13 @@ it('should detect mime type', async ({ page, server, asset, isAndroid }) => {
     server.waitForRequest('/upload'),
   ]);
   const { file1, file2 } = files;
-  expect(file1.name).toBe('file-to-upload.txt');
-  expect(file1.type).toBe('text/plain');
-  expect(fs.readFileSync(file1.path).toString()).toBe(
+  expect(file1.originalFilename).toBe('file-to-upload.txt');
+  expect(file1.mimetype).toBe('text/plain');
+  expect(fs.readFileSync(file1.filepath).toString()).toBe(
       fs.readFileSync(asset('file-to-upload.txt')).toString());
-  expect(file2.name).toBe('pptr.png');
-  expect(file2.type).toBe('image/png');
-  expect(fs.readFileSync(file2.path).toString()).toBe(
+  expect(file2.originalFilename).toBe('pptr.png');
+  expect(file2.mimetype).toBe('image/png');
+  expect(fs.readFileSync(file2.filepath).toString()).toBe(
       fs.readFileSync(asset('pptr.png')).toString());
 });
 
@@ -282,11 +330,11 @@ it('should detect mime type', async ({ page, server, asset, isAndroid }) => {
 it('should not trim big uploaded files', async ({ page, server, asset, isAndroid }) => {
   it.fixme(isAndroid);
 
-  let files;
+  let files: Record<string, formidable.File>;
   server.setRoute('/upload', async (req, res) => {
     const form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, f) {
-      files = f;
+      files = f as Record<string, formidable.File>;
       res.end();
     });
   });
@@ -396,4 +444,25 @@ it('should work for "webkitdirectory"', async ({ page, server }) => {
     page.click('input'),
   ]);
   expect(fileChooser.isMultiple()).toBe(true);
+});
+
+it('should emit event after navigation', async ({ page, server, browserName, browserMajorVersion }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/11375' });
+  it.skip(browserName === 'chromium' && browserMajorVersion < 99);
+
+  const logs = [];
+  page.on('filechooser', () => logs.push('filechooser'));
+  await page.goto(server.PREFIX + '/empty.html');
+  await page.setContent(`<input type=file>`);
+  await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.click('input'),
+  ]);
+  await page.goto(server.CROSS_PROCESS_PREFIX + '/empty.html');
+  await page.setContent(`<input type=file>`);
+  await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.click('input'),
+  ]);
+  expect(logs).toEqual(['filechooser', 'filechooser']);
 });

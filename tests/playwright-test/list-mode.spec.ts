@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, stripAnsi } from './playwright-test-fixtures';
+import path from 'path';
+import fs from 'fs';
 
 test('should list tests', async ({ runInlineTest }) => {
   const result = await runInlineTest({
@@ -104,4 +106,48 @@ test('globalSetup and globalTeardown should not run', async ({ runInlineTest }) 
     `  b.test.js:6:7 › should work 2`,
     `Total: 2 tests in 2 files`,
   ].join('\n'));
+});
+
+test('outputDir should not be removed', async ({ runInlineTest }, testInfo) => {
+  const outputDir = testInfo.outputPath('dummy-output-dir');
+
+  const result1 = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = { outputDir: ${JSON.stringify(outputDir)} };
+    `,
+    'a.test.js': `
+      const { test } = pwt;
+      test('my test', async ({}, testInfo) => {
+        console.log(testInfo.outputDir);
+        require('fs').writeFileSync(testInfo.outputPath('myfile.txt'), 'hello');
+      });
+    `,
+  }, {}, {}, { usesCustomOutputDir: true });
+  expect(result1.exitCode).toBe(0);
+  expect(fs.existsSync(path.join(outputDir, 'a-my-test', 'myfile.txt'))).toBe(true);
+
+  const result2 = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = { outputDir: ${JSON.stringify(outputDir)} };
+    `,
+    'a.test.js': `
+      const { test } = pwt;
+      test('my test', async ({}, testInfo) => {
+        console.log(testInfo.outputDir);
+      });
+    `,
+  }, { list: true }, {}, { usesCustomOutputDir: true });
+  expect(result2.exitCode).toBe(0);
+  expect(fs.existsSync(path.join(outputDir, 'a-my-test', 'myfile.txt'))).toBe(true);
+});
+
+test('should report errors', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.js': `
+      const oh = '';
+      oh = 2;
+    `
+  }, { 'list': true });
+  expect(result.exitCode).toBe(1);
+  expect(stripAnsi(result.output)).toContain('> 6 |       oh = 2;');
 });

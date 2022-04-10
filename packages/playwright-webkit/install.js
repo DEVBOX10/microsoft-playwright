@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
-const { installBrowsersForNpmInstall } = require('playwright-core/lib/utils/registry');
+let install;
 
-installBrowsersForNpmInstall(['webkit']);
+try {
+  if (!require('playwright-core/lib/utils').isLikelyNpxGlobal())
+    install = require('playwright-core/lib/server').installBrowsersForNpmInstall;
+} catch (e) {
+  // Dev build, don't install browsers by default.
+}
+
+if (install)
+  install(['webkit']);

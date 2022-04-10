@@ -15,8 +15,10 @@
  */
 
 import type { Expect } from '../types';
-import { expectType } from '../util';
-import { callLogText, currentExpectTimeout } from './toMatchText';
+import { expectTypes } from '../util';
+import { callLogText, currentExpectTimeout } from '../util';
+import type { ParsedStackTrace } from 'playwright-core/lib/utils/stackTrace';
+import { captureStackTrace } from 'playwright-core/lib/utils/stackTrace';
 
 // Omit colon and one or more spaces, so can call getLabelPrinter.
 const EXPECTED_LABEL = 'Expected';
@@ -30,11 +32,11 @@ export async function toEqual<T>(
   matcherName: string,
   receiver: any,
   receiverType: string,
-  query: (isNot: boolean, timeout: number) => Promise<{ matches: boolean, received?: any, log?: string[] }>,
+  query: (isNot: boolean, timeout: number, customStackTrace: ParsedStackTrace) => Promise<{ matches: boolean, received?: any, log?: string[] }>,
   expected: T,
   options: { timeout?: number, contains?: boolean } = {},
 ) {
-  expectType(receiver, receiverType, matcherName);
+  expectTypes(receiver, [receiverType], matcherName);
 
   const matcherOptions = {
     comment: options.contains ? '' : 'deep equality',
@@ -44,7 +46,9 @@ export async function toEqual<T>(
 
   const timeout = currentExpectTimeout(options);
 
-  const { matches: pass, received, log } = await query(this.isNot, timeout);
+  const customStackTrace = captureStackTrace();
+  customStackTrace.apiName = 'expect.' + matcherName;
+  const { matches: pass, received, log } = await query(this.isNot, timeout, customStackTrace);
 
   const message = pass
     ? () =>

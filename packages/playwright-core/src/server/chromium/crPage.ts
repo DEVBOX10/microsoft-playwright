@@ -15,32 +15,35 @@
  * limitations under the License.
  */
 
-import * as dom from '../dom';
-import * as frames from '../frames';
-import { helper } from '../helper';
-import { eventsHelper, RegisteredListener } from '../../utils/eventsHelper';
-import * as network from '../network';
-import { CRSession, CRConnection, CRSessionEvents } from './crConnection';
-import { CRExecutionContext } from './crExecutionContext';
-import { CRNetworkManager } from './crNetworkManager';
-import { Page, Worker, PageBinding } from '../page';
-import { Protocol } from './protocol';
-import { toConsoleMessageLocation, exceptionToError, releaseObject } from './crProtocolHelper';
-import * as dialog from '../dialog';
-import { PageDelegate } from '../page';
 import path from 'path';
-import { RawMouseImpl, RawKeyboardImpl, RawTouchscreenImpl } from './crInput';
-import { getAccessibilityTree } from './crAccessibility';
-import { CRCoverage } from './crCoverage';
-import { CRPDF } from './crPdf';
-import { CRBrowserContext } from './crBrowser';
-import * as types from '../types';
+import type { RegisteredListener } from '../../utils/eventsHelper';
+import { eventsHelper } from '../../utils/eventsHelper';
+import { registry } from '../registry';
 import { rewriteErrorMessage } from '../../utils/stackTrace';
-import { assert, headersArrayToObject, createGuid } from '../../utils/utils';
-import { VideoRecorder } from './videoRecorder';
-import { Progress } from '../progress';
+import { assert, createGuid, headersArrayToObject } from '../../utils';
+import * as dialog from '../dialog';
+import * as dom from '../dom';
+import type * as frames from '../frames';
+import { helper } from '../helper';
+import * as network from '../network';
+import type { PageBinding, PageDelegate } from '../page';
+import { Page, Worker } from '../page';
+import type { Progress } from '../progress';
+import type * as types from '../types';
+import { getAccessibilityTree } from './crAccessibility';
+import { CRBrowserContext } from './crBrowser';
+import type { CRSession } from './crConnection';
+import { CRConnection, CRSessionEvents } from './crConnection';
+import { CRCoverage } from './crCoverage';
 import { DragManager } from './crDragDrop';
-import { registry } from '../../utils/registry';
+import { CRExecutionContext } from './crExecutionContext';
+import { RawKeyboardImpl, RawMouseImpl, RawTouchscreenImpl } from './crInput';
+import { CRNetworkManager } from './crNetworkManager';
+import { CRPDF } from './crPdf';
+import { exceptionToError, releaseObject, toConsoleMessageLocation } from './crProtocolHelper';
+import { platformToFontFamilies } from './defaultFontFamilies';
+import type { Protocol } from './protocol';
+import { VideoRecorder } from './videoRecorder';
 
 
 const UTILITY_WORLD_NAME = '__playwright_utility_world__';
@@ -74,12 +77,12 @@ export class CRPage implements PageDelegate {
     return crPage._mainFrameSession;
   }
 
-  constructor(client: CRSession, targetId: string, browserContext: CRBrowserContext, opener: CRPage | null, hasUIWindow: boolean, isBackgroundPage: boolean) {
+  constructor(client: CRSession, targetId: string, browserContext: CRBrowserContext, opener: CRPage | null, bits: { hasUIWindow: boolean, isBackgroundPage: boolean }) {
     this._targetId = targetId;
     this._opener = opener;
-    this._isBackgroundPage = isBackgroundPage;
+    this._isBackgroundPage = bits.isBackgroundPage;
     const dragManager = new DragManager(this);
-    this.rawKeyboard = new RawKeyboardImpl(client, browserContext._browser._isMac, dragManager);
+    this.rawKeyboard = new RawKeyboardImpl(client, browserContext._browser._platform() === 'mac', dragManager);
     this.rawMouse = new RawMouseImpl(this, client, dragManager);
     this.rawTouchscreen = new RawTouchscreenImpl(client);
     this._pdf = new CRPDF(client);
@@ -97,7 +100,7 @@ export class CRPage implements PageDelegate {
     }
     // Note: it is important to call |reportAsNew| before resolving pageOrError promise,
     // so that anyone who awaits pageOrError got a ready and reported page.
-    this._pagePromise = this._mainFrameSession._initialize(hasUIWindow).then(async r => {
+    this._pagePromise = this._mainFrameSession._initialize(bits.hasUIWindow).then(async r => {
       await this._page.initOpener(this._opener);
       return r;
     }).catch(async e => {
@@ -111,6 +114,10 @@ export class CRPage implements PageDelegate {
       this._reportAsNew(e);
       return e;
     });
+  }
+
+  potentiallyUninitializedPage(): Page {
+    return this._page;
   }
 
   private _reportAsNew(error?: Error) {
@@ -175,6 +182,10 @@ export class CRPage implements PageDelegate {
     await Promise.all(this._page.frames().map(frame => frame.evaluateExpression(binding.source, false, {}).catch(e => {})));
   }
 
+  async removeExposedBindings() {
+    await this._forAllFrameSessions(frame => frame._removeExposedBindings());
+  }
+
   async updateExtraHTTPHeaders(): Promise<void> {
     await this._forAllFrameSessions(frame => frame._updateExtraHTTPHeaders(false));
   }
@@ -209,7 +220,7 @@ export class CRPage implements PageDelegate {
   }
 
   async setFileChooserIntercepted(enabled: boolean) {
-    await this._forAllFrameSessions(frame => frame._setFileChooserIntercepted(enabled));
+    await this._forAllFrameSessions(frame => frame.setFileChooserIntercepted(enabled));
   }
 
   async reload(): Promise<void> {
@@ -233,8 +244,12 @@ export class CRPage implements PageDelegate {
     return this._go(+1);
   }
 
-  async evaluateOnNewDocument(source: string, world: types.World = 'main'): Promise<void> {
+  async addInitScript(source: string, world: types.World = 'main'): Promise<void> {
     await this._forAllFrameSessions(frame => frame._evaluateOnNewDocument(source, world));
+  }
+
+  async removeInitScripts() {
+    await this._forAllFrameSessions(frame => frame._removeEvaluatesOnNewDocument());
   }
 
   async closePage(runBeforeUnload: boolean): Promise<void> {
@@ -248,7 +263,7 @@ export class CRPage implements PageDelegate {
     await this._mainFrameSession._client.send('Emulation.setDefaultBackgroundColorOverride', { color });
   }
 
-  async takeScreenshot(progress: Progress, format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined, fitsViewport: boolean | undefined): Promise<Buffer> {
+  async takeScreenshot(progress: Progress, format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined, fitsViewport: boolean, scale: 'css' | 'device'): Promise<Buffer> {
     const { visualViewport } = await this._mainFrameSession._client.send('Page.getLayoutMetrics');
     if (!documentRect) {
       documentRect = {
@@ -263,6 +278,10 @@ export class CRPage implements PageDelegate {
     // When taking screenshots with documentRect (based on the page content, not viewport),
     // ignore current page scale.
     const clip = { ...documentRect, scale: viewportRect ? visualViewport.scale : 1 };
+    if (scale === 'css') {
+      const deviceScaleFactor = this._browserContext._options.deviceScaleFactor || 1;
+      clip.scale /= deviceScaleFactor;
+    }
     progress.throwIfAborted();
     const result = await this._mainFrameSession._client.send('Page.captureScreenshot', { format, quality, clip, captureBeyondViewport: !fitsViewport });
     return Buffer.from(result.data, 'base64');
@@ -312,6 +331,17 @@ export class CRPage implements PageDelegate {
   async setInputFiles(handle: dom.ElementHandle<HTMLInputElement>, files: types.FilePayload[]): Promise<void> {
     await handle.evaluateInUtility(([injected, node, files]) =>
       injected.setInputFiles(node, files), files);
+  }
+
+  async setInputFilePaths(handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void> {
+    const frame = await handle.ownerFrame();
+    if (!frame)
+      throw new Error('Cannot set input files to detached input element');
+    const parentSession = this._sessionForFrame(frame);
+    await parentSession._client.send('DOM.setFileInputFiles', {
+      objectId: handle._objectId,
+      files
+    });
   }
 
   async adoptElementHandle<T extends Node>(handle: dom.ElementHandle<T>, to: dom.FrameExecutionContext): Promise<dom.ElementHandle<T>> {
@@ -369,6 +399,8 @@ class FrameSession {
   private _videoRecorder: VideoRecorder | null = null;
   private _screencastId: string | null = null;
   private _screencastClients = new Set<any>();
+  private _evaluateOnNewDocumentIdentifiers: string[] = [];
+  private _exposedBindingNames: string[] = [];
 
   constructor(crPage: CRPage, client: CRSession, targetId: string, parentSession: FrameSession | null) {
     this._client = client;
@@ -420,7 +452,8 @@ class FrameSession {
   }
 
   async _initialize(hasUIWindow: boolean) {
-    if (hasUIWindow &&
+    const isSettingStorageState = this._page._browserContext.isSettingStorageState();
+    if (!isSettingStorageState && hasUIWindow &&
       !this._crPage._browserContext._browser.isClank() &&
       !this._crPage._browserContext._options.noDefaultViewport) {
       const { windowId } = await this._client.send('Browser.getWindowForTarget');
@@ -428,7 +461,7 @@ class FrameSession {
     }
 
     let screencastOptions: types.PageScreencastOptions | undefined;
-    if (this._isMainFrame() && this._crPage._browserContext._options.recordVideo && hasUIWindow) {
+    if (!isSettingStorageState && this._isMainFrame() && this._crPage._browserContext._options.recordVideo && hasUIWindow) {
       const screencastId = createGuid();
       const outputFile = path.join(this._crPage._browserContext._options.recordVideo.dir, screencastId + '.webm');
       screencastOptions = {
@@ -467,7 +500,7 @@ class FrameSession {
           });
           for (const binding of this._crPage._browserContext._pageBindings.values())
             frame.evaluateExpression(binding.source, false, undefined).catch(e => {});
-          for (const source of this._crPage._browserContext._evaluateOnNewDocumentSources)
+          for (const source of this._crPage._browserContext.initScripts)
             frame.evaluateExpression(source, false, undefined, 'main').catch(e => {});
         }
         const isInitialEmptyPage = this._isMainFrame() && this._page.mainFrame().url() === ':';
@@ -493,39 +526,43 @@ class FrameSession {
       this._networkManager.initialize(),
       this._client.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }),
     ];
-    if (this._isMainFrame())
-      promises.push(this._client.send('Emulation.setFocusEmulationEnabled', { enabled: true }));
-    const options = this._crPage._browserContext._options;
-    if (options.bypassCSP)
-      promises.push(this._client.send('Page.setBypassCSP', { enabled: true }));
-    if (options.ignoreHTTPSErrors)
-      promises.push(this._client.send('Security.setIgnoreCertificateErrors', { ignore: true }));
-    if (this._isMainFrame())
-      promises.push(this._updateViewport());
-    if (options.hasTouch)
-      promises.push(this._client.send('Emulation.setTouchEmulationEnabled', { enabled: true }));
-    if (options.javaScriptEnabled === false)
-      promises.push(this._client.send('Emulation.setScriptExecutionDisabled', { value: true }));
-    if (options.userAgent || options.locale)
-      promises.push(this._client.send('Emulation.setUserAgentOverride', { userAgent: options.userAgent || '', acceptLanguage: options.locale }));
-    if (options.locale)
-      promises.push(emulateLocale(this._client, options.locale));
-    if (options.timezoneId)
-      promises.push(emulateTimezone(this._client, options.timezoneId));
-    promises.push(this._updateGeolocation(true));
-    promises.push(this._updateExtraHTTPHeaders(true));
-    promises.push(this._updateRequestInterception());
-    promises.push(this._updateOffline(true));
-    promises.push(this._updateHttpCredentials(true));
-    promises.push(this._updateEmulateMedia(true));
-    for (const binding of this._crPage._page.allBindings())
-      promises.push(this._initBinding(binding));
-    for (const source of this._crPage._browserContext._evaluateOnNewDocumentSources)
-      promises.push(this._evaluateOnNewDocument(source, 'main'));
-    for (const source of this._crPage._page._evaluateOnNewDocumentSources)
-      promises.push(this._evaluateOnNewDocument(source, 'main'));
-    if (screencastOptions)
-      promises.push(this._startVideoRecording(screencastOptions));
+    if (!isSettingStorageState) {
+      if (this._isMainFrame())
+        promises.push(this._client.send('Emulation.setFocusEmulationEnabled', { enabled: true }));
+      const options = this._crPage._browserContext._options;
+      if (options.bypassCSP)
+        promises.push(this._client.send('Page.setBypassCSP', { enabled: true }));
+      if (options.ignoreHTTPSErrors)
+        promises.push(this._client.send('Security.setIgnoreCertificateErrors', { ignore: true }));
+      if (this._isMainFrame())
+        promises.push(this._updateViewport());
+      if (options.hasTouch)
+        promises.push(this._client.send('Emulation.setTouchEmulationEnabled', { enabled: true }));
+      if (options.javaScriptEnabled === false)
+        promises.push(this._client.send('Emulation.setScriptExecutionDisabled', { value: true }));
+      if (options.userAgent || options.locale)
+        promises.push(this._client.send('Emulation.setUserAgentOverride', { userAgent: options.userAgent || '', acceptLanguage: options.locale }));
+      if (options.locale)
+        promises.push(emulateLocale(this._client, options.locale));
+      if (options.timezoneId)
+        promises.push(emulateTimezone(this._client, options.timezoneId));
+      if (!this._crPage._browserContext._browser.options.headful)
+        promises.push(this._setDefaultFontFamilies(this._client));
+      promises.push(this._updateGeolocation(true));
+      promises.push(this._updateExtraHTTPHeaders(true));
+      promises.push(this._updateRequestInterception());
+      promises.push(this._updateOffline(true));
+      promises.push(this._updateHttpCredentials(true));
+      promises.push(this._updateEmulateMedia(true));
+      for (const binding of this._crPage._page.allBindings())
+        promises.push(this._initBinding(binding));
+      for (const source of this._crPage._browserContext.initScripts)
+        promises.push(this._evaluateOnNewDocument(source, 'main'));
+      for (const source of this._crPage._page.initScripts)
+        promises.push(this._evaluateOnNewDocument(source, 'main'));
+      if (screencastOptions)
+        promises.push(this._startVideoRecording(screencastOptions));
+    }
     promises.push(this._client.send('Runtime.runIfWaitingForDebugger'));
     promises.push(this._firstNonInitialNavigationCommittedPromise);
     await Promise.all(promises);
@@ -774,10 +811,18 @@ class FrameSession {
   }
 
   async _initBinding(binding: PageBinding) {
-    await Promise.all([
+    const [ , response ] = await Promise.all([
       this._client.send('Runtime.addBinding', { name: binding.name }),
       this._client.send('Page.addScriptToEvaluateOnNewDocument', { source: binding.source })
     ]);
+    this._exposedBindingNames.push(binding.name);
+    this._evaluateOnNewDocumentIdentifiers.push(response.identifier);
+  }
+
+  async _removeExposedBindings() {
+    const names = this._exposedBindingNames;
+    this._exposedBindingNames = [];
+    await Promise.all(names.map(name => this._client.send('Runtime.removeBinding', { name })));
   }
 
   async _onBindingCalled(event: Protocol.Runtime.bindingCalledPayload) {
@@ -1003,8 +1048,6 @@ class FrameSession {
   }
 
   async _updateEmulateMedia(initial: boolean): Promise<void> {
-    if (this._crPage._browserContext._browser.isClank())
-      return;
     const colorScheme = this._page._state.colorScheme === null ? '' : this._page._state.colorScheme;
     const reducedMotion = this._page._state.reducedMotion === null ? '' : this._page._state.reducedMotion;
     const forcedColors = this._page._state.forcedColors === null ? '' : this._page._state.forcedColors;
@@ -1017,17 +1060,29 @@ class FrameSession {
     await this._client.send('Emulation.setEmulatedMedia', { media: this._page._state.mediaType || '', features });
   }
 
+  private async _setDefaultFontFamilies(session: CRSession) {
+    const fontFamilies = platformToFontFamilies[this._crPage._browserContext._browser._platform()];
+    await session.send('Page.setFontFamilies', fontFamilies);
+  }
+
   async _updateRequestInterception(): Promise<void> {
     await this._networkManager.setRequestInterception(this._page._needsRequestInterception());
   }
 
-  async _setFileChooserIntercepted(enabled: boolean) {
+  async setFileChooserIntercepted(enabled: boolean) {
     await this._client.send('Page.setInterceptFileChooserDialog', { enabled }).catch(e => {}); // target can be closed.
   }
 
   async _evaluateOnNewDocument(source: string, world: types.World): Promise<void> {
     const worldName = world === 'utility' ? UTILITY_WORLD_NAME : undefined;
-    await this._client.send('Page.addScriptToEvaluateOnNewDocument', { source, worldName });
+    const { identifier } = await this._client.send('Page.addScriptToEvaluateOnNewDocument', { source, worldName });
+    this._evaluateOnNewDocumentIdentifiers.push(identifier);
+  }
+
+  async _removeEvaluatesOnNewDocument(): Promise<void> {
+    const identifiers = this._evaluateOnNewDocumentIdentifiers;
+    this._evaluateOnNewDocumentIdentifiers = [];
+    await Promise.all(identifiers.map(identifier => this._client.send('Page.removeScriptToEvaluateOnNewDocument', { identifier })));
   }
 
   async _getContentFrame(handle: dom.ElementHandle): Promise<frames.Frame | null> {

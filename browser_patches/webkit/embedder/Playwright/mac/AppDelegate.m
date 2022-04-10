@@ -179,6 +179,9 @@ const NSActivityOptions ActivityOptions =
     if (!dataStore) {
         _WKWebsiteDataStoreConfiguration *configuration = [[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease];
         if (_userDataDir) {
+            // Local storage state should be stored in separate dirs for persistent contexts.
+            [configuration setShouldUseCustomStoragePaths:YES];
+
             NSURL *cookieFile = [NSURL fileURLWithPath:[NSString stringWithFormat:@"%@/cookie.db", _userDataDir]];
             [configuration _setCookieStorageFile:cookieFile];
 
@@ -234,7 +237,6 @@ const NSActivityOptions ActivityOptions =
         configuration.preferences._hiddenPageDOMTimerThrottlingAutoIncreases = NO;
         configuration.preferences._pageVisibilityBasedProcessSuppressionEnabled = NO;
         configuration.preferences._domTimersThrottlingEnabled = NO;
-        configuration.preferences._requestAnimationFrameEnabled = YES;
         _WKProcessPoolConfiguration *processConfiguration = [[[_WKProcessPoolConfiguration alloc] init] autorelease];
         processConfiguration.forceOverlayScrollbars = YES;
         configuration.processPool = [[[WKProcessPool alloc] _initWithConfiguration:processConfiguration] autorelease];
@@ -451,6 +453,16 @@ const NSActivityOptions ActivityOptions =
         decisionHandler(WKNavigationActionPolicyDownload);
         return;
     }
+
+    if (navigationAction.buttonNumber == 1 &&
+        (navigationAction.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagShift)) != 0) {
+        WKWindowFeatures* windowFeatures = [[[WKWindowFeatures alloc] init] autorelease];
+        WKWebView* newView = [self webView:webView createWebViewWithConfiguration:webView.configuration forNavigationAction:navigationAction windowFeatures:windowFeatures];
+        [newView loadRequest:navigationAction.request];
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
+
     if (navigationAction._canHandleRequest) {
         decisionHandler(WKNavigationActionPolicyAllow);
         return;

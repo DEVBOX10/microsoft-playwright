@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import { CSSComplexSelector, CSSSimpleSelector, CSSComplexSelectorList, CSSFunctionArgument } from '../common/cssParser';
-import { customCSSNames } from '../common/selectorParser';
+import type { CSSComplexSelector, CSSSimpleSelector, CSSComplexSelectorList, CSSFunctionArgument } from '../isomorphic/cssParser';
+import { customCSSNames } from '../isomorphic/selectorParser';
 
 export type QueryContext = {
   scope: Element | Document;
@@ -626,9 +626,7 @@ export function isInsideScope(scope: Node, element: Element | undefined): boolea
   while (element) {
     if (scope.contains(element))
       return true;
-    while (element.parentElement)
-      element = element.parentElement;
-    element = parentElementOrShadowHost(element);
+    element = enclosingShadowHost(element);
   }
   return false;
 }
@@ -638,8 +636,31 @@ export function parentElementOrShadowHost(element: Element): Element | undefined
     return element.parentElement;
   if (!element.parentNode)
     return;
-  if (element.parentNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE && (element.parentNode as ShadowRoot).host)
+  if (element.parentNode.nodeType === 11 /* Node.DOCUMENT_FRAGMENT_NODE */ && (element.parentNode as ShadowRoot).host)
     return (element.parentNode as ShadowRoot).host;
+}
+
+export function enclosingShadowRootOrDocument(element: Element): Document | ShadowRoot | undefined {
+  let node: Node = element;
+  while (node.parentNode)
+    node = node.parentNode;
+  if (node.nodeType === 11 /* Node.DOCUMENT_FRAGMENT_NODE */ || node.nodeType === 9 /* Node.DOCUMENT_NODE */)
+    return node as Document | ShadowRoot;
+}
+
+function enclosingShadowHost(element: Element): Element | undefined {
+  while (element.parentElement)
+    element = element.parentElement;
+  return parentElementOrShadowHost(element);
+}
+
+export function closestCrossShadow(element: Element | undefined, css: string): Element | undefined {
+  while (element) {
+    const closest = element.closest(css);
+    if (closest)
+      return closest;
+    element = enclosingShadowHost(element);
+  }
 }
 
 function parentElementOrShadowHostInContext(element: Element, context: QueryContext): Element | undefined {

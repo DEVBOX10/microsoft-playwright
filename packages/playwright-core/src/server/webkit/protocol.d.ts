@@ -162,7 +162,7 @@ export module Protocol {
       animationId: AnimationId;
     }
     export type requestEffectTargetReturnValue = {
-      nodeId: DOM.NodeId;
+      effectTarget: DOM.Styleable;
     }
     /**
      * Resolves JavaScript `WebAnimation` object for given `AnimationId`.
@@ -853,11 +853,11 @@ export module Protocol {
      */
     export interface Grouping {
       /**
-       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, "layer-rule" if specified by an @layer rule.
+       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, "layer-rule" if specified by an @layer rule, "container-rule" if specified by an @container rule.
        */
-      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule"|"layer-rule"|"layer-import-rule";
+      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule"|"layer-rule"|"layer-import-rule"|"container-rule";
       /**
-       * Query text if specified by a @media or @supports rule. Layer name (or not present for anonymous layers) for @layer rules.
+       * Query text if specified by a @media, @supports, or @container rule. Layer name (or not present for anonymous layers) for @layer rules.
        */
       text?: string;
       /**
@@ -906,7 +906,7 @@ export module Protocol {
     /**
      * The layout context type of a node.
      */
-    export type LayoutContextType = "grid";
+    export type LayoutContextType = "flex"|"grid";
     /**
      * The mode for how layout context type changes are handled (default: <code>Observed</code>). <code>Observed</code> limits handling to those nodes already known to the frontend by other means (generally, this means the node is a visible item in the Elements tab). <code>All</code> informs the frontend of all layout context type changes and all nodes with a known layout context are sent to the frontend.
      */
@@ -2086,6 +2086,13 @@ export module Protocol {
       marginColor?: RGBAColor;
     }
     /**
+     * An object referencing a node and a pseudo-element, primarily used to identify an animation effect target.
+     */
+    export interface Styleable {
+      nodeId: NodeId;
+      pseudoId?: CSS.PseudoId;
+    }
+    /**
      * Data to construct File object.
      */
     export interface FilePayload {
@@ -2903,6 +2910,36 @@ export module Protocol {
     export type hideGridOverlayReturnValue = {
     }
     /**
+     * Shows a flex overlay for a node that begins a 'flex' layout context. The command has no effect if <code>nodeId</code> is invalid or the associated node does not begin a 'flex' layout context. A node can only have one flex overlay at a time; subsequent calls with the same <code>nodeId</code> will override earlier calls.
+     */
+    export type showFlexOverlayParameters = {
+      /**
+       * The node for which a flex overlay should be shown.
+       */
+      nodeId: NodeId;
+      /**
+       * The primary color to use for the flex overlay.
+       */
+      flexColor: RGBAColor;
+      /**
+       * Show labels for flex order. If not specified, the default value is false.
+       */
+      showOrderNumbers?: boolean;
+    }
+    export type showFlexOverlayReturnValue = {
+    }
+    /**
+     * Hides a flex overlay for a node that begins a 'flex' layout context. The command has no effect if <code>nodeId</code> is specified and invalid, or if there is not currently an overlay set for the <code>nodeId</code>.
+     */
+    export type hideFlexOverlayParameters = {
+      /**
+       * The node for which a flex overlay should be hidden. If a <code>nodeId</code> is not specified, all flex overlays will be hidden.
+       */
+      nodeId?: NodeId;
+    }
+    export type hideFlexOverlayReturnValue = {
+    }
+    /**
      * Requests that the node is sent to the caller given its path.
      */
     export type pushNodeByPathToFrontendParameters = {
@@ -3094,7 +3131,11 @@ might return multiple quads for inline nodes.
       /**
        * Files to set
        */
-      files: FilePayload[];
+      files?: FilePayload[];
+      /**
+       * File paths to set
+       */
+      paths?: string[];
     }
     export type setInputFilesReturnValue = {
     }
@@ -4055,6 +4096,14 @@ might return multiple quads for inline nodes.
       isRegex?: boolean;
     }
     export type setShouldBlackboxURLReturnValue = {
+    }
+    /**
+     * Sets whether evaluation of breakpoint conditions, ignore counts, and actions happen at the location of the breakpoint or are deferred due to blackboxing.
+     */
+    export type setBlackboxBreakpointEvaluationsParameters = {
+      blackboxBreakpointEvaluations: boolean;
+    }
+    export type setBlackboxBreakpointEvaluationsReturnValue = {
     }
   }
   
@@ -5296,6 +5345,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Connection information for the completed request.
        */
       securityConnection?: Security.Connection;
+      /**
+       * Whether or not the connection was proxied through a server. If <code>true</code>, the <code>remoteAddress</code> will be for the proxy server, not the server that provided the resource to the proxy server.
+       */
+      isProxyConnection?: boolean;
     }
     /**
      * WebSocket request data.
@@ -6404,16 +6457,26 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       appearance: Appearance;
     }
     /**
-     * Fired when page tries to open a new window.
+     * Fired when page is about to check policy for newly triggered navigation.
      */
-    export type willRequestOpenWindowPayload = {
-      url: string;
+    export type willCheckNavigationPolicyPayload = {
+      /**
+       * Id of the frame.
+       */
+      frameId: Network.FrameId;
     }
     /**
-     * Fired after page did try to open a new window.
+     * Fired when page has received navigation policy decision.
      */
-    export type didRequestOpenWindowPayload = {
-      opened: boolean;
+    export type didCheckNavigationPolicyPayload = {
+      /**
+       * Id of the frame.
+       */
+      frameId: Network.FrameId;
+      /**
+       * True if the navigation will not continue in this frame.
+       */
+      cancel?: boolean;
     }
     /**
      * Fired when the page shows file chooser for it's <input type=file>.
@@ -7202,6 +7265,21 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Identifier of the loader associated with the navigation.
        */
       loaderId?: Network.LoaderId;
+    }
+    /**
+     * Grants read access for the specified files to the web process of the page.
+     */
+    export type grantFileReadAccessParameters = {
+      /**
+       * Unique identifier of the page proxy.
+       */
+      pageProxyId: PageProxyID;
+      /**
+       * Id of the frame to navigate.
+       */
+      paths: string[];
+    }
+    export type grantFileReadAccessReturnValue = {
     }
     /**
      * Change whether all certificate errors should be ignored.
@@ -8760,8 +8838,8 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.frameClearedScheduledNavigation": Page.frameClearedScheduledNavigationPayload;
     "Page.navigatedWithinDocument": Page.navigatedWithinDocumentPayload;
     "Page.defaultAppearanceDidChange": Page.defaultAppearanceDidChangePayload;
-    "Page.willRequestOpenWindow": Page.willRequestOpenWindowPayload;
-    "Page.didRequestOpenWindow": Page.didRequestOpenWindowPayload;
+    "Page.willCheckNavigationPolicy": Page.willCheckNavigationPolicyPayload;
+    "Page.didCheckNavigationPolicy": Page.didCheckNavigationPolicyPayload;
     "Page.fileChooserOpened": Page.fileChooserOpenedPayload;
     "Playwright.pageProxyCreated": Playwright.pageProxyCreatedPayload;
     "Playwright.pageProxyDestroyed": Playwright.pageProxyDestroyedPayload;
@@ -8878,6 +8956,8 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.highlightFrame": DOM.highlightFrameParameters;
     "DOM.showGridOverlay": DOM.showGridOverlayParameters;
     "DOM.hideGridOverlay": DOM.hideGridOverlayParameters;
+    "DOM.showFlexOverlay": DOM.showFlexOverlayParameters;
+    "DOM.hideFlexOverlay": DOM.hideFlexOverlayParameters;
     "DOM.pushNodeByPathToFrontend": DOM.pushNodeByPathToFrontendParameters;
     "DOM.resolveNode": DOM.resolveNodeParameters;
     "DOM.getAttributes": DOM.getAttributesParameters;
@@ -8933,6 +9013,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Debugger.setPauseForInternalScripts": Debugger.setPauseForInternalScriptsParameters;
     "Debugger.evaluateOnCallFrame": Debugger.evaluateOnCallFrameParameters;
     "Debugger.setShouldBlackboxURL": Debugger.setShouldBlackboxURLParameters;
+    "Debugger.setBlackboxBreakpointEvaluations": Debugger.setBlackboxBreakpointEvaluationsParameters;
     "Dialog.enable": Dialog.enableParameters;
     "Dialog.disable": Dialog.disableParameters;
     "Dialog.handleJavaScriptDialog": Dialog.handleJavaScriptDialogParameters;
@@ -9034,6 +9115,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.deleteContext": Playwright.deleteContextParameters;
     "Playwright.createPage": Playwright.createPageParameters;
     "Playwright.navigate": Playwright.navigateParameters;
+    "Playwright.grantFileReadAccess": Playwright.grantFileReadAccessParameters;
     "Playwright.setIgnoreCertificateErrors": Playwright.setIgnoreCertificateErrorsParameters;
     "Playwright.getAllCookies": Playwright.getAllCookiesParameters;
     "Playwright.setCookies": Playwright.setCookiesParameters;
@@ -9176,6 +9258,8 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.highlightFrame": DOM.highlightFrameReturnValue;
     "DOM.showGridOverlay": DOM.showGridOverlayReturnValue;
     "DOM.hideGridOverlay": DOM.hideGridOverlayReturnValue;
+    "DOM.showFlexOverlay": DOM.showFlexOverlayReturnValue;
+    "DOM.hideFlexOverlay": DOM.hideFlexOverlayReturnValue;
     "DOM.pushNodeByPathToFrontend": DOM.pushNodeByPathToFrontendReturnValue;
     "DOM.resolveNode": DOM.resolveNodeReturnValue;
     "DOM.getAttributes": DOM.getAttributesReturnValue;
@@ -9231,6 +9315,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Debugger.setPauseForInternalScripts": Debugger.setPauseForInternalScriptsReturnValue;
     "Debugger.evaluateOnCallFrame": Debugger.evaluateOnCallFrameReturnValue;
     "Debugger.setShouldBlackboxURL": Debugger.setShouldBlackboxURLReturnValue;
+    "Debugger.setBlackboxBreakpointEvaluations": Debugger.setBlackboxBreakpointEvaluationsReturnValue;
     "Dialog.enable": Dialog.enableReturnValue;
     "Dialog.disable": Dialog.disableReturnValue;
     "Dialog.handleJavaScriptDialog": Dialog.handleJavaScriptDialogReturnValue;
@@ -9332,6 +9417,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.deleteContext": Playwright.deleteContextReturnValue;
     "Playwright.createPage": Playwright.createPageReturnValue;
     "Playwright.navigate": Playwright.navigateReturnValue;
+    "Playwright.grantFileReadAccess": Playwright.grantFileReadAccessReturnValue;
     "Playwright.setIgnoreCertificateErrors": Playwright.setIgnoreCertificateErrorsReturnValue;
     "Playwright.getAllCookies": Playwright.getAllCookiesReturnValue;
     "Playwright.setCookies": Playwright.setCookiesReturnValue;

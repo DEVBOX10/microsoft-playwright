@@ -20,7 +20,7 @@ const child_process = require('child_process');
 const path = require('path');
 const chokidar = require('chokidar');
 const fs = require('fs');
-const { packages } = require('../list_packages');
+const { workspace } = require('../workspace');
 
 /**
  * @typedef {{
@@ -46,7 +46,10 @@ const { packages } = require('../list_packages');
  *   committed: boolean,
  *   inputs: string[],
  *   mustExist?: string[],
- *   script: string,
+ *   script?: string,
+ *   command?: string,
+ *   args?: string[],
+ *   cwd?: string,
  * }} OnChange
  */
 
@@ -62,24 +65,45 @@ const lintMode = process.argv.slice(2).includes('--lint');
 const ROOT = path.join(__dirname, '..', '..');
 
 /**
- * @param {string} relative 
+ * @param {string} relative
  * @returns {string}
  */
 function filePath(relative) {
   return path.join(ROOT, ...relative.split('/'));
 }
 
+/**
+ * @param {string} path
+ * @returns {string}
+ */
+function quotePath(path) {
+  return "\"" + path + "\"";
+}
+
 async function runWatch() {
-  function runOnChanges(paths, mustExist = [], nodeFile) {
-    nodeFile = filePath(nodeFile);
+  /** @param {OnChange} onChange */
+  function runOnChange(onChange) {
+    const paths = onChange.inputs;
+    const mustExist = onChange.mustExist || [];
+    let timeout;
     function callback() {
+      timeout = undefined;
       for (const fileMustExist of mustExist) {
         if (!fs.existsSync(filePath(fileMustExist)))
           return;
       }
-      child_process.spawnSync('node', [nodeFile], { stdio: 'inherit' });
+      if (onChange.script)
+        child_process.spawnSync('node', [onChange.script], { stdio: 'inherit' });
+      else
+        child_process.spawnSync(onChange.command, onChange.args || [], { stdio: 'inherit', cwd: onChange.cwd, shell: true });
     }
-    chokidar.watch([...paths, ...mustExist, nodeFile].map(filePath)).on('all', callback);
+    // chokidar will report all files as added in a sync loop, throttle those.
+    const reschedule = () => {
+      if (timeout)
+        clearTimeout(timeout);
+      timeout = setTimeout(callback, 500);
+    };
+    chokidar.watch([...paths, ...mustExist, onChange.script].filter(Boolean).map(filePath)).on('all', reschedule);
     callback();
   }
 
@@ -103,12 +127,12 @@ async function runWatch() {
     }));
   process.on('exit', () => spawns.forEach(s => s.kill()));
   for (const onChange of onChanges)
-    runOnChanges(onChange.inputs, onChange.mustExist, onChange.script);
+    runOnChange(onChange);
 }
 
 async function runBuild() {
   /**
-   * @param {Step} step 
+   * @param {Step} step
    */
   function runStep(step) {
     const out = child_process.spawnSync(step.command, step.args, {
@@ -137,15 +161,19 @@ async function runBuild() {
   for (const step of steps)
     runStep(step);
   for (const onChange of onChanges) {
-    if (!onChange.committed)
+    if (onChange.committed)
+      continue;
+    if (onChange.script)
       runStep({ command: 'node', args: [filePath(onChange.script)], shell: false });
+    else
+      runStep({ command: onChange.command, args: onChange.args, shell: true, cwd: onChange.cwd });
   }
 }
 
 /**
- * @param {string} file 
- * @param {string} from 
- * @param {string} to 
+ * @param {string} file
+ * @param {string} from
+ * @param {string} to
  */
 function copyFile(file, from, to) {
   const destination = path.resolve(filePath(to), path.relative(filePath(from), file));
@@ -153,28 +181,24 @@ function copyFile(file, from, to) {
   fs.copyFileSync(file, destination);
 }
 
+// Update test runner.
+steps.push({
+  command: 'npm',
+  args: ['ci', '--save=false', '--fund=false', '--audit=false'],
+  shell: true,
+  cwd: path.join(__dirname, '..', '..', 'tests', 'playwright-test', 'stable-test-runner'),
+});
+
 // Build injected scripts.
-const webPackFiles = [
-  'packages/playwright-core/src/server/injected/webpack.config.js',
-  'packages/playwright-core/src/web/traceViewer/webpack.config.js',
-  'packages/playwright-core/src/web/traceViewer/webpack-sw.config.js',
-  'packages/playwright-core/src/web/recorder/webpack.config.js',
-  'packages/html-reporter/webpack.config.js',
-];
-for (const file of webPackFiles) {
-  steps.push({
-    command: 'npx',
-    args: ['webpack', '--config', filePath(file), ...(watchMode ? ['--watch', '--stats', 'none'] : [])],
-    shell: true,
-    env: {
-      NODE_ENV: watchMode ? 'development' : 'production'
-    }
-  });
-}
+steps.push({
+  command: 'node',
+  args: ['utils/generate_injected.js'],
+  shell: true,
+});
 
 // Run Babel.
-for (const packageDir of packages) {
-  if (!fs.existsSync(path.join(packageDir, 'src')))
+for (const pkg of workspace.packages()) {
+  if (!fs.existsSync(path.join(pkg.path, 'src')))
     continue;
   steps.push({
     command: 'npx',
@@ -182,13 +206,22 @@ for (const packageDir of packages) {
       'babel',
       ...(watchMode ? ['-w', '--source-maps'] : []),
       '--extensions', '.ts',
-      '--out-dir', path.join(packageDir, 'lib'),
+      '--out-dir', quotePath(path.join(pkg.path, 'lib')),
       '--ignore', '"packages/playwright-core/src/server/injected/**/*"',
-      path.join(packageDir, 'src')],
+      quotePath(path.join(pkg.path, 'src'))],
     shell: true,
   });
 }
 
+// Generate injected.
+onChanges.push({
+  committed: false,
+  inputs: [
+    'packages/playwright-core/src/server/injected/**',
+    'utils/generate_injected.js',
+  ],
+  script: 'utils/generate_injected.js',
+});
 
 // Generate channels.
 onChanges.push({
@@ -218,6 +251,23 @@ onChanges.push({
   ],
   script: 'utils/generate_types/index.js',
 });
+
+// Rebuild web projects on change.
+for (const webPackage of ['html-reporter', 'recorder', 'trace-viewer']) {
+  onChanges.push({
+    committed: false,
+    inputs: [
+      `packages/${webPackage}/index.html`,
+      `packages/${webPackage}/pubic/`,
+      `packages/${webPackage}/src/`,
+      `packages/${webPackage}/view.config.ts`,
+      `packages/web/src/`,
+    ],
+    command: 'npx',
+    args: ['vite', 'build'],
+    cwd: path.join(__dirname, '..', '..', 'packages', webPackage),
+  });
+}
 
 // The recorder and trace viewer have an app_icon.png that needs to be copied.
 copyFiles.push({
@@ -252,12 +302,19 @@ copyFiles.push({
 });
 
 if (lintMode) {
-  // Run TypeScript for type chekcing.
+  // Run TypeScript for type checking.
   steps.push({
     command: 'npx',
-    args: ['tsc', ...(watchMode ? ['-w'] : []), '-p', filePath('.')],
+    args: ['tsc', ...(watchMode ? ['-w'] : []), '-p', quotePath(filePath('.'))],
     shell: true,
   });
+  for (const webPackage of ['html-reporter', 'recorder', 'trace-viewer']) {
+    steps.push({
+      command: 'npx',
+      args: ['tsc', ...(watchMode ? ['-w'] : []), '-p', quotePath(filePath(`packages/${webPackage}`))],
+      shell: true,
+    });  
+  }
 }
 
 watchMode ? runWatch() : runBuild();

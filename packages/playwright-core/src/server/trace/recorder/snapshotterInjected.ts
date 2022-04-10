@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { NodeSnapshot } from '../common/snapshotTypes';
+import type { NodeSnapshot } from '../common/snapshotTypes';
 
 export type SnapshotData = {
   doctype?: string,
@@ -38,10 +38,12 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
 
   // Attributes present in the snapshot.
   const kShadowAttribute = '__playwright_shadow_root_';
+  const kValueAttribute = '__playwright_value_';
+  const kCheckedAttribute = '__playwright_checked_';
+  const kSelectedAttribute = '__playwright_selected_';
   const kScrollTopAttribute = '__playwright_scroll_top_';
   const kScrollLeftAttribute = '__playwright_scroll_left_';
   const kStyleSheetAttribute = '__playwright_style_sheet_';
-  const kBlobUrlPrefix = 'http://playwright.bloburl/#';
 
   // Symbols for our own info on Nodes/StyleSheets.
   const kSnapshotFrameId = Symbol('__playwright_snapshot_frameid_');
@@ -217,9 +219,6 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
     private _sanitizeUrl(url: string): string {
       if (url.startsWith('javascript:'))
         return '';
-      // Rewrite blob urls so that Service Worker can intercept them.
-      if (url.startsWith('blob:'))
-        return kBlobUrlPrefix + url;
       return url;
     }
 
@@ -269,6 +268,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       const snapshotNumber = ++this._lastSnapshotNumber;
       let nodeCounter = 0;
       let shadowDomNesting = 0;
+      let headNesting = 0;
 
       // Ensure we are up to date.
       this._handleMutations(this._observer.takeRecords());
@@ -292,6 +292,10 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
         if (this._removeNoScript && nodeName === 'NOSCRIPT')
           return;
         if (nodeName === 'META' && (node as HTMLMetaElement).httpEquiv.toLowerCase() === 'content-security-policy')
+          return;
+        // Skip iframes which are inside document's head as they are not visisble.
+        // See https://github.com/microsoft/playwright/issues/12005.
+        if ((nodeName === 'IFRAME' || nodeName === 'FRAME') && headNesting)
           return;
 
         const data = ensureCachedData(node);
@@ -329,7 +333,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           expectValue(cssText);
           // Compensate for the extra 'cssText' text node.
           extraNodes++;
-          return checkAndReturn(['style', {}, cssText]);
+          return checkAndReturn([nodeName, {}, cssText]);
         }
 
         const attrs: { [attr: string]: string } = {};
@@ -358,15 +362,23 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
 
         if (nodeType === Node.ELEMENT_NODE) {
           const element = node as Element;
-          if (nodeName === 'INPUT') {
+          if (nodeName === 'INPUT' || nodeName === 'TEXTAREA') {
             const value = (element as HTMLInputElement).value;
-            expectValue('value');
+            expectValue(kValueAttribute);
             expectValue(value);
-            attrs['value'] = value;
-            if ((element as HTMLInputElement).checked) {
-              expectValue('checked');
-              attrs['checked'] = '';
-            }
+            attrs[kValueAttribute] = value;
+          }
+          if (nodeName === 'INPUT' && ['checkbox', 'radio'].includes((element as HTMLInputElement).type)) {
+            const value = (element as HTMLInputElement).checked ? 'true' : 'false';
+            expectValue(kCheckedAttribute);
+            expectValue(value);
+            attrs[kCheckedAttribute] = value;
+          }
+          if (nodeName === 'OPTION') {
+            const value = (element as HTMLOptionElement).selected ? 'true' : 'false';
+            expectValue(kSelectedAttribute);
+            expectValue(value);
+            attrs[kSelectedAttribute] = value;
           }
           if (element.scrollTop) {
             expectValue(kScrollTopAttribute);
@@ -385,30 +397,26 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           }
         }
 
-        if (nodeName === 'TEXTAREA') {
-          const value = (node as HTMLTextAreaElement).value;
-          expectValue(value);
-          extraNodes++; // Compensate for the extra text node.
-          result.push(value);
-        } else {
-          if (nodeName === 'HEAD') {
-            // Insert fake <base> first, to ensure all <link> elements use the proper base uri.
-            this._fakeBase.setAttribute('href', document.baseURI);
-            visitChild(this._fakeBase);
-          }
-          for (let child = node.firstChild; child; child = child.nextSibling)
-            visitChild(child);
+        if (nodeName === 'HEAD') {
+          ++headNesting;
+          // Insert fake <base> first, to ensure all <link> elements use the proper base uri.
+          this._fakeBase.setAttribute('href', document.baseURI);
+          visitChild(this._fakeBase);
+        }
+        for (let child = node.firstChild; child; child = child.nextSibling)
+          visitChild(child);
+        if (nodeName === 'HEAD')
+          --headNesting;
+        expectValue(kEndOfList);
+        let documentOrShadowRoot = null;
+        if (node.ownerDocument!.documentElement === node)
+          documentOrShadowRoot = node.ownerDocument;
+        else if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE)
+          documentOrShadowRoot = node;
+        if (documentOrShadowRoot) {
+          for (const sheet of (documentOrShadowRoot as any).adoptedStyleSheets || [])
+            visitChildStyleSheet(sheet);
           expectValue(kEndOfList);
-          let documentOrShadowRoot = null;
-          if (node.ownerDocument!.documentElement === node)
-            documentOrShadowRoot = node.ownerDocument;
-          else if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE)
-            documentOrShadowRoot = node;
-          if (documentOrShadowRoot) {
-            for (const sheet of (documentOrShadowRoot as any).adoptedStyleSheets || [])
-              visitChildStyleSheet(sheet);
-            expectValue(kEndOfList);
-          }
         }
 
         // Process iframe src attribute before bailing out since it depends on a symbol, not the DOM.
@@ -431,8 +439,6 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           const element = node as Element;
           for (let i = 0; i < element.attributes.length; i++) {
             const name = element.attributes[i].name;
-            if (name === 'value' && (nodeName === 'INPUT' || nodeName === 'TEXTAREA'))
-              continue;
             if (nodeName === 'LINK' && name === 'integrity')
               continue;
             if (nodeName === 'IFRAME' && (name === 'src' || name === 'sandbox'))

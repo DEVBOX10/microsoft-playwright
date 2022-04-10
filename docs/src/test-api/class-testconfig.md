@@ -1,7 +1,7 @@
 # class: TestConfig
 * langs: js
 
-Playwright Test provides many options to configure how your tests are collected and executed, for example `timeout` or `testDir`. These options are described in the [TestConfig] object in the [configuration file](./test-configuration.md).
+Playwright Test provides many options to configure how your tests are collected and executed, for example `timeout` or `testDir`. These options are described in the [TestConfig] object in the [configuration file](../test-configuration.md).
 
 Playwright Test supports running multiple test projects at the same time. Project-specific options should be put to [`property: TestConfig.projects`], but top-level [TestConfig] can also define base options shared between all projects.
 
@@ -37,9 +37,11 @@ export default config;
 - type: <[Object]>
   - `timeout` <[int]> Default timeout for async expect matchers in milliseconds, defaults to 5000ms.
   - `toMatchSnapshot` <[Object]>
-    - `threshold` <[float]> Image matching threshold between zero (strict) and one (lax).
+    - `threshold` ?<[float]> an acceptable perceived color difference in the [YIQ color space](https://en.wikipedia.org/wiki/YIQ) between the same pixel in compared images, between zero (strict) and one (lax). Defaults to `0.2`.
+    - `maxDiffPixels` ?<[int]> an acceptable amount of pixels that could be different, unset by default.
+    - `maxDiffPixelRatio` ?<[float]> an acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1` , unset by default.
 
-Configuration for the `expect` assertion library. Learn more about [various timeouts](./test-timeouts.md).
+Configuration for the `expect` assertion library. Learn more about [various timeouts](../test-timeouts.md).
 
 ```js js-flavor=js
 // playwright.config.js
@@ -50,7 +52,7 @@ const config = {
   expect: {
     timeout: 10000,
     toMatchSnapshot: {
-      threshold: 0.3,
+      maxDiffPixels: 10,
     },
   },
 };
@@ -66,7 +68,7 @@ const config: PlaywrightTestConfig = {
   expect: {
     timeout: 10000,
     toMatchSnapshot: {
-      threshold: 0.3,
+      maxDiffPixels: 10,
     },
   },
 };
@@ -100,12 +102,20 @@ const config: PlaywrightTestConfig = {
 export default config;
 ```
 
+## property: TestConfig.fullyParallel
+- type: <[boolean]>
+
+Playwright Test runs tests in parallel. In order to achieve that, it runs several worker processes that run at the same time.
+By default, **test files** are run in parallel. Tests in a single file are run in order, in the same worker process.
+
+You can configure entire test run to concurrently execute all tests in all files using this option.
+
 ## property: TestConfig.globalSetup
 - type: <[string]>
 
 Path to the global setup file. This file will be required and run before all the tests. It must export a single function that takes a [`TestConfig`] argument.
 
-Learn more about [global setup and teardown](./test-advanced.md#global-setup-and-teardown).
+Learn more about [global setup and teardown](../test-advanced.md#global-setup-and-teardown).
 
 ```js js-flavor=js
 // playwright.config.js
@@ -134,7 +144,7 @@ export default config;
 
 Path to the global teardown file. This file will be required and run after all the tests. It must export a single function. See also [`property: TestConfig.globalSetup`].
 
-Learn more about [global setup and teardown](./test-advanced.md#global-setup-and-teardown).
+Learn more about [global setup and teardown](../test-advanced.md#global-setup-and-teardown).
 
 ```js js-flavor=js
 // playwright.config.js
@@ -161,7 +171,7 @@ export default config;
 ## property: TestConfig.globalTimeout
 - type: <[int]>
 
-Maximum time in milliseconds the whole test suite can run. Zero timeout (default) disables this behavior. Useful on CI to prevent broken setup from running too long and wasting resources. Learn more about [various timeouts](./test-timeouts.md).
+Maximum time in milliseconds the whole test suite can run. Zero timeout (default) disables this behavior. Useful on CI to prevent broken setup from running too long and wasting resources. Learn more about [various timeouts](../test-timeouts.md).
 
 ```js js-flavor=js
 // playwright.config.js
@@ -188,17 +198,17 @@ export default config;
 ## property: TestConfig.grep
 - type: <[RegExp]|[Array]<[RegExp]>>
 
-Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available in the [command line](./test-cli.md) with the `-g` option.
+Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available in the [command line](../test-cli.md) with the `-g` option.
 
-`grep` option is also useful for [tagging tests](./test-annotations.md#tag-tests).
+`grep` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
 
 ## property: TestConfig.grepInvert
 - type: <[RegExp]|[Array]<[RegExp]>>
 
-Filter to only run tests with a title **not** matching one of the patterns. This is the opposite of [`property: TestConfig.grep`]. Also available in the [command line](./test-cli.md) with the `--grep-invert` option.
+Filter to only run tests with a title **not** matching one of the patterns. This is the opposite of [`property: TestConfig.grep`]. Also available in the [command line](../test-cli.md) with the `--grep-invert` option.
 
-`grepInvert` option is also useful for [tagging tests](./test-annotations.md#tag-tests).
+`grepInvert` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
 
 ## property: TestConfig.maxFailures
@@ -206,7 +216,7 @@ Filter to only run tests with a title **not** matching one of the patterns. This
 
 The maximum number of test failures for the whole test suite run. After reaching this number, testing will stop and exit with an error. Setting to zero (default) disables this behavior.
 
-Also available in the [command line](./test-cli.md) with the `--max-failures` and `-x` options.
+Also available in the [command line](../test-cli.md) with the `--max-failures` and `-x` options.
 
 ```js js-flavor=js
 // playwright.config.js
@@ -235,10 +245,15 @@ export default config;
 
 Any JSON-serializable metadata that will be put directly to the test report.
 
+## property: TestConfig.name
+- type: <[string]>
+
+Config name is visible in the report and during test execution, unless overridden by [`property: TestProject.name`].
+
 ## property: TestConfig.outputDir
 - type: <[string]>
 
-The output directory for files created during test execution. Defaults to `test-results`.
+The output directory for files created during test execution. Defaults to `<package.json-directory>/test-results`.
 
 ```js js-flavor=js
 // playwright.config.js
@@ -286,6 +301,7 @@ test('example test', async ({}, testInfo) => {
 });
 ```
 
+
 ## property: TestConfig.snapshotDir
 - type: <[string]>
 
@@ -332,7 +348,7 @@ The list of reporters to use. Each reporter can be:
 
 You can pass options to the reporter in a tuple like `['json', { outputFile: './report.json' }]`.
 
-Learn more in the [reporters guide](./test-reporters.md).
+Learn more in the [reporters guide](../test-reporters.md).
 
 ```js js-flavor=js
 // playwright.config.js
@@ -368,7 +384,7 @@ Test files that took more than `threshold` milliseconds are considered slow, and
 ## property: TestConfig.retries
 - type: <[int]>
 
-The maximum number of retry attempts given to failed tests. By default failing tests are not retried. Learn more about [test retries](./test-retries.md#retries).
+The maximum number of retry attempts given to failed tests. By default failing tests are not retried. Learn more about [test retries](../test-retries.md#retries).
 
 ```js js-flavor=js
 // playwright.config.js
@@ -399,7 +415,7 @@ export default config;
 
 Shard tests and execute only the selected shard. Specify in the one-based form like `{ total: 5, current: 2 }`.
 
-Learn more about [parallelism and sharding](./test-parallel.md) with Playwright Test.
+Learn more about [parallelism and sharding](../test-parallel.md) with Playwright Test.
 
 ## property: TestConfig.testDir
 - type: <[string]>
@@ -491,7 +507,7 @@ export default config;
 
 Timeout for each test in milliseconds. Defaults to 30 seconds.
 
-This is a base timeout for all tests. In addition, each test can configure its own timeout with [`method: Test.setTimeout`]. Learn more about [various timeouts](./test-timeouts.md).
+This is a base timeout for all tests. In addition, each test can configure its own timeout with [`method: Test.setTimeout`]. Learn more about [various timeouts](../test-timeouts.md).
 
 ```js js-flavor=js
 // playwright.config.js
@@ -523,12 +539,12 @@ Whether to update expected snapshots with the actual results produced by the tes
 * `'none'` - No snapshots are updated.
 * `'missing'` - Missing snapshots are created, for example when authoring a new test and running it for the first time. This is the default.
 
-Learn more about [snapshots](./test-snapshots.md).
+Learn more about [snapshots](../test-snapshots.md).
 
 ## property: TestConfig.use
 - type: <[TestOptions]>
 
-Global options for all tests, for example [`property: TestOptions.browserName`]. Learn more about [configuration](./test-configuration.md) and see [available options][TestOptions].
+Global options for all tests, for example [`property: TestOptions.browserName`]. Learn more about [configuration](../test-configuration.md) and see [available options][TestOptions].
 
 ```js js-flavor=js
 // playwright.config.js
@@ -559,19 +575,25 @@ export default config;
 ## property: TestConfig.webServer
 - type: <[Object]>
   - `command` <[string]> Command which gets executed
-  - `port` <[int]> Port to wait on for the web server
+  - `port` <[int]> Port to wait on for the web server (exactly one of `port` or `url` is required)
+  - `url` <[string]> URL to wait on for the web server (exactly one of `port` or `url` is required)
+  - `ignoreHTTPSErrors` <[boolean]> Whether to ignore HTTPS errors when fetching the `url`. Defaults to `false`.
   - `timeout` <[int]> Maximum duration to wait on until the web server is ready
   - `reuseExistingServer` <[boolean]> If true, reuse the existing server if it is already running, otherwise it will fail
-  - `cwd` <[boolean]> Working directory to run the command in
+  - `cwd` <[string]> Working directory to run the command in
   - `env` <[Object]<[string], [string]>> Environment variables to set for the command
 
 Launch a development web server during the tests.
 
-The server will wait for it to be available on `127.0.0.1` or `::1` before running the tests. For continuous integration, you may want to use the `reuseExistingServer: !process.env.CI` option which does not use an existing server on the CI.
+If the port is specified, the server will wait for it to be available on `127.0.0.1` or `::1`, before running the tests. If the url is specified, the server will wait for the URL to return a 2xx status code before running the tests.
 
-The port gets then passed over to Playwright as a `baseURL` when creating the context [`method: Browser.newContext`].
-For example `8080` ends up in `baseURL` to be `http://localhost:8080`. If you want to use `https://` you need to manually specify
-the `baseURL` inside `use`.
+For continuous integration, you may want to use the `reuseExistingServer: !process.env.CI` option which does not use an existing server on the CI. To see the stdout, you can set the `DEBUG=pw:webserver` environment variable.
+
+The `port` (but not the `url`) gets passed over to Playwright as a [`property: TestOptions.baseURL`]. For example port `8080` produces `baseURL` equal `http://localhost:8080`.
+
+:::note
+It is also recommended to specify [`property: TestOptions.baseURL`] in the config, so that tests could use relative urls.
+:::
 
 ```js js-flavor=ts
 // playwright.config.ts
@@ -582,6 +604,9 @@ const config: PlaywrightTestConfig = {
     port: 3000,
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,
+  },
+  use: {
+    baseURL: 'http://localhost:3000/',
   },
 };
 export default config;
@@ -598,22 +623,21 @@ const config = {
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,
   },
+  use: {
+    baseURL: 'http://localhost:3000/',
+  },
 };
 module.exports = config;
 ```
 
-Now you can use a relative path when navigating the page, or use `baseURL` fixture:
+Now you can use a relative path when navigating the page:
 
 ```js js-flavor=ts
 // test.spec.ts
 import { test } from '@playwright/test';
-test('test', async ({ page, baseURL }) => {
-  // baseURL is taken directly from your web server,
-  // e.g. http://localhost:3000
-  await page.goto(baseURL + '/bar');
-  // Alternatively, just use relative path, because baseURL is already
-  // set for the default context and page.
-  // For example, this will result in http://localhost:3000/foo
+
+test('test', async ({ page }) => {
+  // This will result in http://localhost:3000/foo
   await page.goto('/foo');
 });
 ```
@@ -621,13 +645,9 @@ test('test', async ({ page, baseURL }) => {
 ```js js-flavor=js
 // test.spec.js
 const { test } = require('@playwright/test');
-test('test', async ({ page, baseURL }) => {
-  // baseURL is taken directly from your web server,
-  // e.g. http://localhost:3000
-  await page.goto(baseURL + '/bar');
-  // Alternatively, just use relative path, because baseURL is already
-  // set for the default context and page.
-  // For example, this will result in http://localhost:3000/foo
+
+test('test', async ({ page }) => {
+  // This will result in http://localhost:3000/foo
   await page.goto('/foo');
 });
 ```
@@ -639,7 +659,7 @@ The maximum number of concurrent worker processes to use for parallelizing tests
 
 Playwright Test uses worker processes to run tests. There is always at least one worker process, but more can be used to speed up test execution.
 
-Defaults to one half of the number of CPU cores. Learn more about [parallelism and sharding](./test-parallel.md) with Playwright Test.
+Defaults to one half of the number of CPU cores. Learn more about [parallelism and sharding](../test-parallel.md) with Playwright Test.
 
 ```js js-flavor=js
 // playwright.config.js

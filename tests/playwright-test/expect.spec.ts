@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, stripAnsi } from './playwright-test-fixtures';
 
 test('should be able to call expect.extend in config', async ({ runInlineTest }) => {
   const result = await runInlineTest({
@@ -67,17 +67,68 @@ test('should not expand huge arrays', async ({ runInlineTest }) => {
   expect(result.output.length).toBeLessThan(100000);
 });
 
-test('should work with default expect prototype functions', async ({ runTSC }) => {
-  const result = await runTSC({
-    'a.spec.ts': `
+test('should include custom error message', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'expect-test.spec.ts': `
       const { test } = pwt;
+      test('custom expect message', () => {
+        test.expect(1+1, 'one plus one is two!').toEqual(3);
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(0);
+  expect(stripAnsi(result.output)).toContain([
+    `    Error: one plus one is two!`,
+    ``,
+    `    Expected: 3`,
+    `    Received: 2`,
+  ].join('\n'));
+});
+
+test('should include custom error message with web-first assertions', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'expect-test.spec.ts': `
+      const { test } = pwt;
+      test('custom expect message', async ({page}) => {
+        await expect(page.locator('x-foo'), { message: 'x-foo must be visible' }).toBeVisible({timeout: 1});
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(0);
+  expect(result.output).toContain([
+    `    Error: x-foo must be visible`,
+    ``,
+    `    Call log:`,
+  ].join('\n'));
+});
+
+test('should work with default expect prototype functions', async ({ runTSC, runInlineTest }) => {
+  const spec = `
+    const { test } = pwt;
+    test('pass', async () => {
       const expected = [1, 2, 3, 4, 5, 6];
       test.expect([4, 1, 6, 7, 3, 5, 2, 5, 4, 6]).toEqual(
         expect.arrayContaining(expected),
       );
-    `
-  });
-  expect(result.exitCode).toBe(0);
+      expect('foo').toEqual(expect.any(String));
+      expect('foo').toEqual(expect.anything());
+    });
+  `;
+  {
+    const result = await runTSC({
+      'a.spec.ts': spec,
+    });
+    expect(result.exitCode).toBe(0);
+  }
+  {
+    const result = await runInlineTest({
+      'a.spec.ts': spec,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.passed).toBe(1);
+  }
 });
 
 test('should work with default expect matchers', async ({ runTSC }) => {
@@ -85,6 +136,16 @@ test('should work with default expect matchers', async ({ runTSC }) => {
     'a.spec.ts': `
       const { test } = pwt;
       test.expect(42).toBe(42);
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test('should work with expect message', async ({ runTSC }) => {
+  const result = await runTSC({
+    'a.spec.ts': `
+      const { test } = pwt;
+      test.expect(42, 'this is expect message').toBe(42);
     `
   });
   expect(result.exitCode).toBe(0);
@@ -118,11 +179,12 @@ test('should work with default expect matchers and esModuleInterop=false', async
 test('should work with custom PlaywrightTest namespace', async ({ runTSC }) => {
   const result = await runTSC({
     'global.d.ts': `
-      // Extracted example from their typings.
-      // Reference: https://github.com/jest-community/jest-extended/blob/master/types/index.d.ts
       declare namespace PlaywrightTest {
         interface Matchers<R> {
           toBeEmpty(): R;
+        }
+        interface Matchers<R, T> {
+          toBeNonEmpty(): R;
         }
       }
     `,
@@ -138,6 +200,7 @@ test('should work with custom PlaywrightTest namespace', async ({ runTSC }) => {
       test.expect(['hello']).not.toBeEmpty();
       test.expect({}).toBeEmpty();
       test.expect({ hello: 'world' }).not.toBeEmpty();
+      test.expect('').toBeNonEmpty();
     `
   });
   expect(result.exitCode).toBe(0);
@@ -171,4 +234,114 @@ test('should propose only the relevant matchers when custom expect matcher class
     `
   });
   expect(result.exitCode).toBe(0);
+});
+
+test('should return void/Promise when appropriate', async ({ runTSC }) => {
+  const result = await runTSC({
+    'a.spec.ts': `
+      type AssertType<T, S> = S extends T ? AssertNotAny<S> : false;
+      type AssertNotAny<S> = {notRealProperty: number} extends S ? false : true;
+
+      pwt.test('example', async ({ page }) => {
+        {
+          const value = expect(1).toBe(2);
+          const assertion: AssertType<void, typeof value> = true;
+        }
+
+        {
+          const value = expect(1).not.toBe(2);
+          const assertion: AssertType<void, typeof value> = true;
+        }
+
+        {
+          const value = expect(page).toHaveURL('');
+          const assertion: AssertType<Promise<void>, typeof value> = true;
+        }
+
+        {
+          const value = expect(Promise.resolve(1)).resolves.toBe(1);
+          const assertion: AssertType<Promise<void>, typeof value> = true;
+        }
+
+        {
+          const value = expect.soft(1).toBe(2);
+          const assertion: AssertType<void, typeof value> = true;
+        }
+
+        {
+          const value = expect.poll(() => true).toBe(2);
+          const assertion: AssertType<Promise<void>, typeof value> = true;
+        }
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test.describe('helpful expect errors', () => {
+  test('top-level', async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'a.spec.ts': `
+        const { test } = pwt;
+        test('explodes', () => {
+          expect(1).nope();
+        });
+      `
+    });
+
+    expect(result.output).toContain(`expect: Property 'nope' not found.`);
+  });
+
+  test('soft', async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'a.spec.ts': `
+        const { test } = pwt;
+        test('explodes', () => {
+          expect.soft(1).nope();
+        });
+      `
+    });
+
+    expect(result.output).toContain(`expect: Property 'nope' not found.`);
+  });
+
+  test('poll', async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'a.spec.ts': `
+        const { test } = pwt;
+        test('explodes', () => {
+          expect.poll(() => {}).nope();
+        });
+      `
+    });
+
+    expect(result.output).toContain(`expect: Property 'nope' not found.`);
+  });
+
+  test('not', async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'a.spec.ts': `
+        const { test } = pwt;
+        test('explodes', () => {
+          expect(1).not.nope();
+        });
+      `
+    });
+
+    expect(result.output).toContain(`expect: Property 'nope' not found.`);
+  });
+
+  test('bare', async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'a.spec.ts': `
+        const { test } = pwt;
+        test('explodes', () => {
+          expect('');
+        });
+      `
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.passed).toBe(1);
+  });
 });

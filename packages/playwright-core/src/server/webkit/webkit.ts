@@ -16,13 +16,15 @@
  */
 
 import { WKBrowser } from '../webkit/wkBrowser';
-import { Env } from '../../utils/processLauncher';
+import type { Env } from '../../utils/processLauncher';
 import path from 'path';
 import { kBrowserCloseMessageId } from './wkConnection';
-import { BrowserType } from '../browserType';
-import { ConnectionTransport } from '../transport';
-import { BrowserOptions, PlaywrightOptions } from '../browser';
-import * as types from '../types';
+import { BrowserType, kNoXServerRunningError } from '../browserType';
+import type { ConnectionTransport } from '../transport';
+import type { BrowserOptions, PlaywrightOptions } from '../browser';
+import type * as types from '../types';
+import { rewriteErrorMessage } from '../../utils/stackTrace';
+import { wrapInASCIIBox } from '../../utils';
 
 export class WebKit extends BrowserType {
   constructor(playwrightOptions: PlaywrightOptions) {
@@ -38,6 +40,8 @@ export class WebKit extends BrowserType {
   }
 
   _rewriteStartupError(error: Error): Error {
+    if (error.message.includes('cannot open display'))
+      return rewriteErrorMessage(error, '\n' + wrapInASCIIBox(kNoXServerRunningError, 1));
     return error;
   }
 
@@ -46,9 +50,7 @@ export class WebKit extends BrowserType {
   }
 
   _defaultArgs(options: types.LaunchOptions, isPersistent: boolean, userDataDir: string): string[] {
-    const { args = [], proxy, devtools, headless } = options;
-    if (devtools)
-      console.warn('devtools parameter as a launch argument in WebKit is not supported. Also starting Web Inspector manually will terminate the execution in WebKit.');
+    const { args = [], proxy, headless } = options;
     const userDataDirArg = args.find(arg => arg.startsWith('--user-data-dir'));
     if (userDataDirArg)
       throw new Error('Pass userDataDir parameter to `browserType.launchPersistentContext(userDataDir, ...)` instead of specifying --user-data-dir argument');

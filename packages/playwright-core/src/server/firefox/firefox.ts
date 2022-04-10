@@ -20,11 +20,13 @@ import fs from 'fs';
 import path from 'path';
 import { FFBrowser } from './ffBrowser';
 import { kBrowserCloseMessageId } from './ffConnection';
-import { BrowserType } from '../browserType';
-import { Env } from '../../utils/processLauncher';
-import { ConnectionTransport } from '../transport';
-import { BrowserOptions, PlaywrightOptions } from '../browser';
-import * as types from '../types';
+import { BrowserType, kNoXServerRunningError } from '../browserType';
+import type { Env } from '../../utils/processLauncher';
+import type { ConnectionTransport } from '../transport';
+import type { BrowserOptions, PlaywrightOptions } from '../browser';
+import type * as types from '../types';
+import { rewriteErrorMessage } from '../../utils/stackTrace';
+import { wrapInASCIIBox } from '../../utils';
 
 export class Firefox extends BrowserType {
   constructor(playwrightOptions: PlaywrightOptions) {
@@ -36,6 +38,8 @@ export class Firefox extends BrowserType {
   }
 
   _rewriteStartupError(error: Error): Error {
+    if (error.message.includes('no DISPLAY environment variable specified'))
+      return rewriteErrorMessage(error, '\n' + wrapInASCIIBox(kNoXServerRunningError, 1));
     return error;
   }
 
@@ -58,9 +62,7 @@ export class Firefox extends BrowserType {
   }
 
   _defaultArgs(options: types.LaunchOptions, isPersistent: boolean, userDataDir: string): string[] {
-    const { args = [], devtools, headless } = options;
-    if (devtools)
-      console.warn('devtools parameter is not supported as a launch argument in Firefox. You can launch the devtools window manually.');
+    const { args = [], headless } = options;
     const userDataDirArg = args.find(arg => arg.startsWith('-profile') || arg.startsWith('--profile'));
     if (userDataDirArg)
       throw new Error('Pass userDataDir parameter to `browserType.launchPersistentContext(userDataDir, ...)` instead of specifying --profile argument');

@@ -888,6 +888,12 @@ export interface Page {
    * [freeze](https://developer.mozilla.org/en-US/docs/Web/JavaScript/EventLoop#never_blocking) waiting for the dialog, and
    * actions like click will never finish.
    *
+   * ```js
+   * page.on('dialog', dialog => {
+   *   dialog.accept();
+   * });
+   * ```
+   *
    * > NOTE: When no [page.on('dialog')](https://playwright.dev/docs/api/class-page#page-event-dialog) listeners are present,
    * all dialogs are automatically dismissed.
    */
@@ -942,6 +948,17 @@ export interface Page {
 
   /**
    * Emitted when an uncaught exception happens within the page.
+   *
+   * ```js
+   * // Log all uncaught errors to the terminal
+   * page.on('pageerror', exception => {
+   *   console.log(`Uncaught exception: "${exception}"`);
+   * });
+   *
+   * // Navigate to a page with an exception.
+   * await page.goto('data:text/html,<script>throw new Error("Test")</script>');
+   * ```
+   *
    */
   on(event: 'pageerror', listener: (error: Error) => void): this;
 
@@ -955,8 +972,12 @@ export interface Page {
    * done and its response has started loading in the popup.
    *
    * ```js
+   * // Note that Promise.all prevents a race condition
+   * // between evaluating and waiting for the popup.
    * const [popup] = await Promise.all([
+   *   // It is important to call waitForEvent first.
    *   page.waitForEvent('popup'),
+   *   // Opens the popup.
    *   page.evaluate(() => window.open('https://example.com')),
    * ]);
    * console.log(await popup.evaluate('location.href'));
@@ -977,6 +998,12 @@ export interface Page {
 
   /**
    * Emitted when a request fails, for example by timing out.
+   *
+   * ```js
+   * page.on('requestfailed', request => {
+   *   console.log(request.url() + ' ' + request.failure().errorText);
+   * });
+   * ```
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#page-event-request-finished) event
@@ -1157,6 +1184,12 @@ export interface Page {
    * [freeze](https://developer.mozilla.org/en-US/docs/Web/JavaScript/EventLoop#never_blocking) waiting for the dialog, and
    * actions like click will never finish.
    *
+   * ```js
+   * page.on('dialog', dialog => {
+   *   dialog.accept();
+   * });
+   * ```
+   *
    * > NOTE: When no [page.on('dialog')](https://playwright.dev/docs/api/class-page#page-event-dialog) listeners are present,
    * all dialogs are automatically dismissed.
    */
@@ -1211,6 +1244,17 @@ export interface Page {
 
   /**
    * Emitted when an uncaught exception happens within the page.
+   *
+   * ```js
+   * // Log all uncaught errors to the terminal
+   * page.on('pageerror', exception => {
+   *   console.log(`Uncaught exception: "${exception}"`);
+   * });
+   *
+   * // Navigate to a page with an exception.
+   * await page.goto('data:text/html,<script>throw new Error("Test")</script>');
+   * ```
+   *
    */
   addListener(event: 'pageerror', listener: (error: Error) => void): this;
 
@@ -1224,8 +1268,12 @@ export interface Page {
    * done and its response has started loading in the popup.
    *
    * ```js
+   * // Note that Promise.all prevents a race condition
+   * // between evaluating and waiting for the popup.
    * const [popup] = await Promise.all([
+   *   // It is important to call waitForEvent first.
    *   page.waitForEvent('popup'),
+   *   // Opens the popup.
    *   page.evaluate(() => window.open('https://example.com')),
    * ]);
    * console.log(await popup.evaluate('location.href'));
@@ -1246,6 +1294,12 @@ export interface Page {
 
   /**
    * Emitted when a request fails, for example by timing out.
+   *
+   * ```js
+   * page.on('requestfailed', request => {
+   *   console.log(request.url() + ' ' + request.failure().errorText);
+   * });
+   * ```
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#page-event-request-finished) event
@@ -2563,8 +2617,17 @@ export interface Page {
    */
   locator(selector: string, options?: {
     /**
-     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. For example,
-     * `"Playwright"` matches `<article><div>Playwright</div></article>`.
+     * Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+     * For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
+     *
+     * Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
+     */
+    has?: Locator;
+
+    /**
+     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. When passed a
+     * [string], matching is case-insensitive and searches for a substring. For example, `"Playwright"` matches
+     * `<article><div>Playwright</div></article>`.
      */
     hasText?: string|RegExp;
   }): Locator;
@@ -2829,7 +2892,10 @@ export interface Page {
   }): Promise<null|Response>;
 
   /**
-   * API testing helper associated with this page. Requests made with this API will use page cookies.
+   * API testing helper associated with this page. This method returns the same instance as
+   * [browserContext.request](https://playwright.dev/docs/api/class-browsercontext#browser-context-request) on the page's
+   * context. See [browserContext.request](https://playwright.dev/docs/api/class-browsercontext#browser-context-request) for
+   * more details.
    */
   request: APIRequestContext;
 
@@ -3188,11 +3254,12 @@ export interface Page {
    * [browser.newContext([options])](https://playwright.dev/docs/api/class-browser#browser-new-context) allows to set
    * viewport size (and more) for all pages in the context at once.
    *
-   * `page.setViewportSize` will resize the page. A lot of websites don't expect phones to change size, so you should set the
-   * viewport size before navigating to the page.
-   * [page.setViewportSize(viewportSize)](https://playwright.dev/docs/api/class-page#page-set-viewport-size) will also reset
-   * `screen` size, use [browser.newContext([options])](https://playwright.dev/docs/api/class-browser#browser-new-context)
-   * with `screen` and `viewport` parameters if you need better control of these properties.
+   * [page.setViewportSize(viewportSize)](https://playwright.dev/docs/api/class-page#page-set-viewport-size) will resize the
+   * page. A lot of websites don't expect phones to change size, so you should set the viewport size before navigating to the
+   * page. [page.setViewportSize(viewportSize)](https://playwright.dev/docs/api/class-page#page-set-viewport-size) will also
+   * reset `screen` size, use
+   * [browser.newContext([options])](https://playwright.dev/docs/api/class-browser#browser-new-context) with `screen` and
+   * `viewport` parameters if you need better control of these properties.
    *
    * ```js
    * const page = await browser.newPage();
@@ -3511,6 +3578,12 @@ export interface Page {
    * [freeze](https://developer.mozilla.org/en-US/docs/Web/JavaScript/EventLoop#never_blocking) waiting for the dialog, and
    * actions like click will never finish.
    *
+   * ```js
+   * page.on('dialog', dialog => {
+   *   dialog.accept();
+   * });
+   * ```
+   *
    * > NOTE: When no [page.on('dialog')](https://playwright.dev/docs/api/class-page#page-event-dialog) listeners are present,
    * all dialogs are automatically dismissed.
    */
@@ -3565,6 +3638,17 @@ export interface Page {
 
   /**
    * Emitted when an uncaught exception happens within the page.
+   *
+   * ```js
+   * // Log all uncaught errors to the terminal
+   * page.on('pageerror', exception => {
+   *   console.log(`Uncaught exception: "${exception}"`);
+   * });
+   *
+   * // Navigate to a page with an exception.
+   * await page.goto('data:text/html,<script>throw new Error("Test")</script>');
+   * ```
+   *
    */
   waitForEvent(event: 'pageerror', optionsOrPredicate?: { predicate?: (error: Error) => boolean | Promise<boolean>, timeout?: number } | ((error: Error) => boolean | Promise<boolean>)): Promise<Error>;
 
@@ -3578,8 +3662,12 @@ export interface Page {
    * done and its response has started loading in the popup.
    *
    * ```js
+   * // Note that Promise.all prevents a race condition
+   * // between evaluating and waiting for the popup.
    * const [popup] = await Promise.all([
+   *   // It is important to call waitForEvent first.
    *   page.waitForEvent('popup'),
+   *   // Opens the popup.
    *   page.evaluate(() => window.open('https://example.com')),
    * ]);
    * console.log(await popup.evaluate('location.href'));
@@ -3600,6 +3688,12 @@ export interface Page {
 
   /**
    * Emitted when a request fails, for example by timing out.
+   *
+   * ```js
+   * page.on('requestfailed', request => {
+   *   console.log(request.url() + ' ' + request.failure().errorText);
+   * });
+   * ```
    *
    * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
    * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#page-event-request-finished) event
@@ -3646,8 +3740,10 @@ export interface Page {
    *
    * ```js
    * const [popup] = await Promise.all([
+   *   // It is important to call waitForEvent before click to set up waiting.
    *   page.waitForEvent('popup'),
-   *   page.click('button'), // Click triggers a popup.
+   *   // Click triggers a popup.
+   *   page.locator('button').click(),
    * ])
    * await popup.waitForLoadState('domcontentloaded'); // The promise resolves after 'domcontentloaded' event.
    * console.log(await popup.title()); // Popup is ready to use.
@@ -3683,9 +3779,13 @@ export interface Page {
    * Consider this example:
    *
    * ```js
+   * // Note that Promise.all prevents a race condition
+   * // between clicking and waiting for the navigation.
    * const [response] = await Promise.all([
-   *   page.waitForNavigation(), // The promise resolves after navigation has finished
-   *   page.click('a.delayed-navigation'), // Clicking the link will indirectly cause a navigation
+   *   // It is important to call waitForNavigation before click to set up waiting.
+   *   page.waitForNavigation(),
+   *   // Clicking the link will indirectly cause a navigation.
+   *   page.locator('a.delayed-navigation').click(),
    * ]);
    * ```
    *
@@ -3709,7 +3809,7 @@ export interface Page {
 
     /**
      * A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if the
-     * parameter is a string without wilcard characters, the method will wait for navigation to URL that is exactly equal to
+     * parameter is a string without wildcard characters, the method will wait for navigation to URL that is exactly equal to
      * the string.
      */
     url?: string|RegExp|((url: URL) => boolean);
@@ -3822,7 +3922,7 @@ export interface Page {
    *
    * Shortcut for main frame's
    * [frame.waitForURL(url[, options])](https://playwright.dev/docs/api/class-frame#frame-wait-for-url).
-   * @param url A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if the parameter is a string without wilcard characters, the method will wait for navigation to URL that is exactly equal to
+   * @param url A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if the parameter is a string without wildcard characters, the method will wait for navigation to URL that is exactly equal to
    * the string.
    * @param options
    */
@@ -5336,8 +5436,17 @@ export interface Frame {
    */
   locator(selector: string, options?: {
     /**
-     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. For example,
-     * `"Playwright"` matches `<article><div>Playwright</div></article>`.
+     * Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+     * For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
+     *
+     * Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
+     */
+    has?: Locator;
+
+    /**
+     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. When passed a
+     * [string], matching is case-insensitive and searches for a substring. For example, `"Playwright"` matches
+     * `<article><div>Playwright</div></article>`.
      */
     hasText?: string|RegExp;
   }): Locator;
@@ -5911,7 +6020,7 @@ export interface Frame {
 
     /**
      * A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if the
-     * parameter is a string without wilcard characters, the method will wait for navigation to URL that is exactly equal to
+     * parameter is a string without wildcard characters, the method will wait for navigation to URL that is exactly equal to
      * the string.
      */
     url?: string|RegExp|((url: URL) => boolean);
@@ -5943,7 +6052,7 @@ export interface Frame {
    * await frame.waitForURL('**\/target.html');
    * ```
    *
-   * @param url A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if the parameter is a string without wilcard characters, the method will wait for navigation to URL that is exactly equal to
+   * @param url A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if the parameter is a string without wildcard characters, the method will wait for navigation to URL that is exactly equal to
    * the string.
    * @param options
    */
@@ -6577,7 +6686,6 @@ export interface BrowserContext {
    * - `'midi'`
    * - `'midi-sysex'` (system-exclusive midi)
    * - `'notifications'`
-   * - `'push'`
    * - `'camera'`
    * - `'microphone'`
    * - `'background-sync'`
@@ -8031,6 +8139,28 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    */
   screenshot(options?: {
     /**
+     * When set to `"disabled"`, stops CSS animations, CSS transitions and Web Animations. Animations get different treatment
+     * depending on their duration:
+     * - finite animations are fast-forwarded to completion, so they'll fire `transitionend` event.
+     * - infinite animations are canceled to initial state, and then played over after the screenshot.
+     *
+     * Defaults to `"allow"` that leaves animations untouched.
+     */
+    animations?: "disabled"|"allow";
+
+    /**
+     * When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, text caret behavior will not be changed.
+     * Defaults to `"hide"`.
+     */
+    caret?: "hide"|"initial";
+
+    /**
+     * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlayed with a pink box
+     * `#FF00FF` that completely covers its bounding box.
+     */
+    mask?: Array<Locator>;
+
+    /**
      * Hides default white background and allows capturing screenshots with transparency. Not applicable to `jpeg` images.
      * Defaults to `false`.
      */
@@ -8047,6 +8177,13 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
      * The quality of the image, between 0-100. Not applicable to `png` images.
      */
     quality?: number;
+
+    /**
+     * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
+     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
+     * high-dpi devices will be twice as large or even larger. Defaults to `"device"`.
+     */
+    scale?: "css"|"device";
 
     /**
      * Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
@@ -8456,8 +8593,8 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
   /**
    * Returns when the element satisfies the `state`.
    *
-   * Depending on the `state` parameter, this method waits for one of the [actionability](https://playwright.dev/docs/actionability) checks to pass.
-   * This method throws when the element is detached while waiting, unless waiting for the `"hidden"` state.
+   * Depending on the `state` parameter, this method waits for one of the [actionability](https://playwright.dev/docs/actionability) checks to
+   * pass. This method throws when the element is detached while waiting, unless waiting for the `"hidden"` state.
    * - `"visible"` Wait until the element is [visible](https://playwright.dev/docs/actionability#visible).
    * - `"hidden"` Wait until the element is [not visible](https://playwright.dev/docs/actionability#visible) or
    *   [not attached](https://playwright.dev/docs/actionability#attached). Note that waiting for hidden does not throw when the element detaches.
@@ -9061,6 +9198,12 @@ export interface Locator {
   }): Promise<null|string>;
 
   /**
+   * Highlight the corresponding element(s) on the screen. Useful for debugging, don't commit the code that uses
+   * [locator.highlight()](https://playwright.dev/docs/api/class-locator#locator-highlight).
+   */
+  highlight(): Promise<void>;
+
+  /**
    * This method hovers over the element by performing the following steps:
    * 1. Wait for [actionability](https://playwright.dev/docs/actionability) checks on the element, unless `force` option is set.
    * 1. Scroll the element into view if needed.
@@ -9249,17 +9392,31 @@ export interface Locator {
    */
   locator(selector: string, options?: {
     /**
-     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. For example,
-     * `"Playwright"` matches `<article><div>Playwright</div></article>`.
+     * Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+     * For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
+     *
+     * Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
+     */
+    has?: Locator;
+
+    /**
+     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. When passed a
+     * [string], matching is case-insensitive and searches for a substring. For example, `"Playwright"` matches
+     * `<article><div>Playwright</div></article>`.
      */
     hasText?: string|RegExp;
   }): Locator;
 
   /**
-   * Returns locator to the n-th matching element.
+   * Returns locator to the n-th matching element. It's zero based, `nth(0)` selects the first element.
    * @param index
    */
   nth(index: number): Locator;
+
+  /**
+   * A page this locator belongs to.
+   */
+  page(): Page;
 
   /**
    * Focuses the element, and then uses [keyboard.down(key)](https://playwright.dev/docs/api/class-keyboard#keyboard-down)
@@ -9313,38 +9470,7 @@ export interface Locator {
    * screenshot. If the element is detached from DOM, the method throws an error.
    * @param options
    */
-  screenshot(options?: {
-    /**
-     * Hides default white background and allows capturing screenshots with transparency. Not applicable to `jpeg` images.
-     * Defaults to `false`.
-     */
-    omitBackground?: boolean;
-
-    /**
-     * The file path to save the image to. The screenshot type will be inferred from file extension. If `path` is a relative
-     * path, then it is resolved relative to the current working directory. If no path is provided, the image won't be saved to
-     * the disk.
-     */
-    path?: string;
-
-    /**
-     * The quality of the image, between 0-100. Not applicable to `png` images.
-     */
-    quality?: number;
-
-    /**
-     * Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
-     * using the
-     * [browserContext.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-browsercontext#browser-context-set-default-timeout)
-     * or [page.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-page#page-set-default-timeout) methods.
-     */
-    timeout?: number;
-
-    /**
-     * Specify screenshot type, defaults to `png`.
-     */
-    type?: "png"|"jpeg";
-  }): Promise<Buffer>;
+  screenshot(options?: LocatorScreenshotOptions): Promise<Buffer>;
 
   /**
    * This method waits for [actionability](https://playwright.dev/docs/actionability) checks, then tries to scroll element into view, unless it is
@@ -9796,7 +9922,7 @@ export interface Locator {
  */
 export interface BrowserType<Unused = {}> {
   /**
-   * This methods attaches Playwright to an existing browser instance using the Chrome DevTools Protocol.
+   * This method attaches Playwright to an existing browser instance using the Chrome DevTools Protocol.
    *
    * The default browser context is accessible via
    * [browser.contexts()](https://playwright.dev/docs/api/class-browser#browser-contexts).
@@ -9811,7 +9937,7 @@ export interface BrowserType<Unused = {}> {
    * @deprecated
    */
   /**
-   * This methods attaches Playwright to an existing browser instance using the Chrome DevTools Protocol.
+   * This method attaches Playwright to an existing browser instance using the Chrome DevTools Protocol.
    *
    * The default browser context is accessible via
    * [browser.contexts()](https://playwright.dev/docs/api/class-browser#browser-contexts).
@@ -9822,7 +9948,7 @@ export interface BrowserType<Unused = {}> {
    */
   connectOverCDP(options: ConnectOverCDPOptions & { wsEndpoint?: string }): Promise<Browser>;
   /**
-   * This methods attaches Playwright to an existing browser instance.
+   * This method attaches Playwright to an existing browser instance.
    * @param wsEndpoint A browser websocket endpoint to connect to.
    * @param options
    */
@@ -9834,7 +9960,7 @@ export interface BrowserType<Unused = {}> {
    * @deprecated
    */
   /**
-   * This methods attaches Playwright to an existing browser instance.
+   * This method attaches Playwright to an existing browser instance.
    * @param wsEndpoint A browser websocket endpoint to connect to.
    * @param options
    */
@@ -10440,8 +10566,8 @@ export interface CDPSession {
   removeListener: <T extends keyof Protocol.Events | symbol>(event: T, listener: (payload: T extends symbol ? any : Protocol.Events[T extends keyof Protocol.Events ? T : never]) => void) => this;
   once: <T extends keyof Protocol.Events | symbol>(event: T, listener: (payload: T extends symbol ? any : Protocol.Events[T extends keyof Protocol.Events ? T : never]) => void) => this;
   /**
-   * @param method protocol method name
-   * @param params Optional method parameters
+   * @param method Protocol method name.
+   * @param params Optional method parameters.
    */
   send<T extends keyof Protocol.CommandParameters>(
     method: T,
@@ -10537,7 +10663,8 @@ export interface Accessibility {
    *     return node;
    *   for (const child of node.children || []) {
    *     const foundNode = findFocusedNode(child);
-   *     return foundNode;
+   *     if (foundNode)
+   *       return foundNode;
    *   }
    *   return null;
    * }
@@ -10545,17 +10672,7 @@ export interface Accessibility {
    *
    * @param options
    */
-  snapshot(options?: {
-    /**
-     * Prune uninteresting nodes from the tree. Defaults to `true`.
-     */
-    interestingOnly?: boolean;
-
-    /**
-     * The root DOM element for the snapshot. Defaults to the whole page.
-     */
-    root?: ElementHandle;
-  }): Promise<null|AccessibilityNode>;
+  snapshot(options?: AccessibilitySnapshotOptions): Promise<null|AccessibilityNode>;
 }
 
 type AccessibilityNode = {
@@ -10674,18 +10791,18 @@ export interface ElectronApplication {
    * The only difference between
    * [electronApplication.evaluate(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate)
    * and
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * is that
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * returns [JSHandle].
    *
    * If the function passed to the
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * returns a [Promise], then
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * would wait for the promise to resolve and return its value.
    * @param pageFunction Function to be evaluated in the worker context.
-   * @param arg
+   * @param arg Optional argument to pass to `pageFunction`.
    */
   evaluateHandle<R, Arg>(pageFunction: PageFunctionOn<ElectronType, Arg, R>, arg: Arg): Promise<SmartHandle<R>>;
   /**
@@ -10694,18 +10811,18 @@ export interface ElectronApplication {
    * The only difference between
    * [electronApplication.evaluate(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate)
    * and
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * is that
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * returns [JSHandle].
    *
    * If the function passed to the
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * returns a [Promise], then
-   * [electronApplication.evaluateHandle(pageFunction, arg)](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
+   * [electronApplication.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-electronapplication#electron-application-evaluate-handle)
    * would wait for the promise to resolve and return its value.
    * @param pageFunction Function to be evaluated in the worker context.
-   * @param arg
+   * @param arg Optional argument to pass to `pageFunction`.
    */
   evaluateHandle<R>(pageFunction: PageFunctionOn<ElectronType, void, R>, arg?: any): Promise<SmartHandle<R>>;
   /**
@@ -10789,6 +10906,11 @@ export interface ElectronApplication {
    *
    */
   firstWindow(): Promise<Page>;
+
+  /**
+   * Returns the main process for this Electron Application.
+   */
+  process(): ChildProcess;
 
   /**
    * This event is issued when the application closes.
@@ -10983,8 +11105,19 @@ export {};
 export interface Android {
   /**
    * Returns the list of detected Android devices.
+   * @param options
    */
-  devices(): Promise<Array<AndroidDevice>>;
+  devices(options?: {
+    /**
+     * Prevents automatic playwright driver installation on attach. Assumes that the drivers have been installed already.
+     */
+    omitDriverInstall?: boolean;
+
+    /**
+     * Optional port to establish ADB server connection.
+     */
+    port?: number;
+  }): Promise<Array<AndroidDevice>>;
 
   /**
    * This setting will change the default maximum time for all the methods accepting `timeout` option.
@@ -10995,7 +11128,7 @@ export interface Android {
 
 /**
  * [AndroidDevice] represents a connected device, either real hardware or emulated. Devices can be obtained using
- * [android.devices()](https://playwright.dev/docs/api/class-android#android-devices).
+ * [android.devices([options])](https://playwright.dev/docs/api/class-android#android-devices).
  */
 export interface AndroidDevice {
   /**
@@ -11594,9 +11727,14 @@ export interface AndroidDevice {
    */
   webView(selector: {
     /**
-     * Package identifier.
+     * Optional Package identifier.
      */
-    pkg: string;
+    pkg?: string;
+
+    /**
+     * Optional webview socket name.
+     */
+    socketName?: string;
   }, options?: {
     /**
      * Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
@@ -11783,9 +11921,10 @@ export interface AndroidWebView {
 }
 
 /**
- * Exposes API that can be used for the Web API testing. Each Playwright browser context has a APIRequestContext instance
- * attached which shares cookies with the page context. Its also possible to create a new APIRequestContext instance
- * manually. For more information see [here](https://playwright.dev/docs/class-apirequestcontext).
+ * Exposes API that can be used for the Web API testing. This class is used for creating [APIRequestContext] instance which
+ * in turn can be used for sending web requests. An instance of this class can be obtained via
+ * [playwright.request](https://playwright.dev/docs/api/class-playwright#playwright-request). For more information see
+ * [APIRequestContext].
  */
 export interface APIRequest {
   /**
@@ -11910,9 +12049,28 @@ export interface APIRequest {
 
 /**
  * This API is used for the Web API testing. You can use it to trigger API endpoints, configure micro-services, prepare
- * environment or the service to your e2e test. When used on [Page] or a [BrowserContext], this API will automatically use
- * the cookies from the corresponding [BrowserContext]. This means that if you log in using this API, your e2e test will be
- * logged in and vice versa.
+ * environment or the service to your e2e test.
+ *
+ * Each Playwright browser context has associated with it [APIRequestContext] instance which shares cookie storage with the
+ * browser context and can be accessed via
+ * [browserContext.request](https://playwright.dev/docs/api/class-browsercontext#browser-context-request) or
+ * [page.request](https://playwright.dev/docs/api/class-page#page-request). It is also possible to create a new
+ * APIRequestContext instance manually by calling
+ * [apiRequest.newContext([options])](https://playwright.dev/docs/api/class-apirequest#api-request-new-context).
+ *
+ * **Cookie management**
+ *
+ * [APIRequestContext] retuned by
+ * [browserContext.request](https://playwright.dev/docs/api/class-browsercontext#browser-context-request) and
+ * [page.request](https://playwright.dev/docs/api/class-page#page-request) shares cookie storage with the corresponding
+ * [BrowserContext]. Each API request will have `Cookie` header populated with the values from the browser context. If the
+ * API response contains `Set-Cookie` header it will automatically update [BrowserContext] cookies and requests made from
+ * the page will pick them up. This means that if you log in using this API, your e2e test will be logged in and vice
+ * versa.
+ *
+ * If you want API requests to not interfere with the browser cookies you shoud create a new [APIRequestContext] by calling
+ * [apiRequest.newContext([options])](https://playwright.dev/docs/api/class-apirequest#api-request-new-context). Such
+ * `APIRequestContext` object will have its own isolated cookie storage.
  *
  */
 export interface APIRequestContext {
@@ -12920,8 +13078,8 @@ export interface Browser extends EventEmitter {
 
   /**
    * > NOTE: This API controls [Chromium Tracing](https://www.chromium.org/developers/how-tos/trace-event-profiling-tool)
-   * which is a low-level chromium-specific debugging tool. API to control [Playwright Tracing](../trace-viewer) could be
-   * found [here](https://playwright.dev/docs/class-tracing).
+   * which is a low-level chromium-specific debugging tool. API to control [Playwright Tracing](https://playwright.dev/docs/trace-viewer) could be
+   * found [here](https://playwright.dev/docs/api/class-tracing).
    *
    * You can use [browser.startTracing([page, options])](https://playwright.dev/docs/api/class-browser#browser-start-tracing)
    * and [browser.stopTracing()](https://playwright.dev/docs/api/class-browser#browser-stop-tracing) to create a trace file
@@ -12955,8 +13113,8 @@ export interface Browser extends EventEmitter {
 
   /**
    * > NOTE: This API controls [Chromium Tracing](https://www.chromium.org/developers/how-tos/trace-event-profiling-tool)
-   * which is a low-level chromium-specific debugging tool. API to control [Playwright Tracing](../trace-viewer) could be
-   * found [here](https://playwright.dev/docs/class-tracing).
+   * which is a low-level chromium-specific debugging tool. API to control [Playwright Tracing](https://playwright.dev/docs/trace-viewer) could be
+   * found [here](https://playwright.dev/docs/api/class-tracing).
    *
    * Returns the buffer with trace data.
    */
@@ -13021,7 +13179,33 @@ export interface BrowserServer {
 
 /**
  * [ConsoleMessage] objects are dispatched by page via the
- * [page.on('console')](https://playwright.dev/docs/api/class-page#page-event-console) event.
+ * [page.on('console')](https://playwright.dev/docs/api/class-page#page-event-console) event. For each console messages
+ * logged in the page there will be corresponding event in the Playwright context.
+ *
+ * ```js
+ * // Listen for all console logs
+ * page.on('console', msg => console.log(msg.text()))
+ *
+ * // Listen for all console events and handle errors
+ * page.on('console', msg => {
+ *   if (msg.type() === 'error')
+ *     console.log(`Error text: "${msg.text()}"`);
+ * });
+ *
+ * // Get the next console log
+ * const [msg] = await Promise.all([
+ *   page.waitForEvent('console'),
+ *   // Issue console.log inside the page
+ *   page.evaluate(() => {
+ *     console.log('hello', 42, { foo: 'bar' });
+ *   }),
+ * ]);
+ *
+ * // Deconstruct console log arguments
+ * await msg.args[0].jsonValue() // hello
+ * await msg.args[1].jsonValue() // 42
+ * ```
+ *
  */
 export interface ConsoleMessage {
   /**
@@ -13078,7 +13262,7 @@ export interface ConsoleMessage {
  *   await page.goto('https://chromium.org');
  *   const coverage = await page.coverage.stopJSCoverage();
  *   for (const entry of coverage) {
- *     const converter = new v8toIstanbul('', 0, { source: entry.source });
+ *     const converter = v8toIstanbul('', 0, { source: entry.source });
  *     await converter.load();
  *     converter.applyCoverage(entry.functions);
  *     console.log(JSON.stringify(converter.toIstanbul()));
@@ -13257,9 +13441,13 @@ export interface Dialog {
  * Download event is emitted once the download starts. Download path becomes available once download completes:
  *
  * ```js
+ * // Note that Promise.all prevents a race condition
+ * // between clicking and waiting for the download.
  * const [ download ] = await Promise.all([
- *   page.waitForEvent('download'), // wait for download to start
- *   page.click('a')
+ *   // It is important to call waitForEvent before click to set up waiting.
+ *   page.waitForEvent('download'),
+ *   // Triggers the download.
+ *   page.locator('text=Download file').click(),
  * ]);
  * // wait for download to complete
  * const path = await download.path();
@@ -13370,6 +13558,10 @@ export interface Download {
  * PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
  * ```
  *
+ * **Supported Electron versions are:**
+ * - v12.2.0+
+ * - v13.4.0+
+ * - v14+
  */
 export interface Electron {
   /**
@@ -13529,9 +13721,13 @@ export interface Electron {
  * [page.on('filechooser')](https://playwright.dev/docs/api/class-page#page-event-file-chooser) event.
  *
  * ```js
+ * // Note that Promise.all prevents a race condition
+ * // between clicking and waiting for the file chooser.
  * const [fileChooser] = await Promise.all([
+ *   // It is important to call waitForEvent before click to set up waiting.
  *   page.waitForEvent('filechooser'),
- *   page.click('upload')
+ *   // Opens the file chooser.
+ *   page.locator('text=Upload').click(),
  * ]);
  * await fileChooser.setFiles('myfile.pdf');
  * ```
@@ -13666,14 +13862,23 @@ export interface FrameLocator {
    */
   locator(selector: string, options?: {
     /**
-     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. For example,
-     * `"Playwright"` matches `<article><div>Playwright</div></article>`.
+     * Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+     * For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
+     *
+     * Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
+     */
+    has?: Locator;
+
+    /**
+     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. When passed a
+     * [string], matching is case-insensitive and searches for a substring. For example, `"Playwright"` matches
+     * `<article><div>Playwright</div></article>`.
      */
     hasText?: string|RegExp;
   }): Locator;
 
   /**
-   * Returns locator to the n-th matching frame.
+   * Returns locator to the n-th matching frame. It's zero based, `nth(0)` selects the first frame.
    * @param index
    */
   nth(index: number): FrameLocator;
@@ -13968,7 +14173,7 @@ export interface Mouse {
    */
   move(x: number, y: number, options?: {
     /**
-     * defaults to 1. Sends intermediate `mousemove` events.
+     * Defaults to 1. Sends intermediate `mousemove` events.
      */
     steps?: number;
   }): Promise<void>;
@@ -14677,7 +14882,9 @@ export interface Tracing {
     screenshots?: boolean;
 
     /**
-     * Whether to capture DOM snapshot on every action.
+     * If this option is true tracing will
+     * - capture DOM snapshot on every action
+     * - record network activity
      */
     snapshots?: boolean;
 
@@ -15333,6 +15540,18 @@ export interface Geolocation {
   accuracy?: number;
 }
 
+interface AccessibilitySnapshotOptions {
+  /**
+   * Prune uninteresting nodes from the tree. Defaults to `true`.
+   */
+  interestingOnly?: boolean;
+
+  /**
+   * The root DOM element for the snapshot. Defaults to the whole page.
+   */
+  root?: ElementHandle;
+}
+
 export interface LaunchOptions {
   /**
    * Additional arguments to pass to the browser instance. The list of Chromium flags can be found
@@ -15507,10 +15726,71 @@ export interface ConnectOptions {
   slowMo?: number;
 
   /**
-   * Maximum time in milliseconds to wait for the connection to be established. Defaults to `30000` (30 seconds). Pass `0` to
-   * disable timeout.
+   * Maximum time in milliseconds to wait for the connection to be established. Defaults to `0` (no timeout).
    */
   timeout?: number;
+}
+
+export interface LocatorScreenshotOptions {
+  /**
+   * When set to `"disabled"`, stops CSS animations, CSS transitions and Web Animations. Animations get different treatment
+   * depending on their duration:
+   * - finite animations are fast-forwarded to completion, so they'll fire `transitionend` event.
+   * - infinite animations are canceled to initial state, and then played over after the screenshot.
+   *
+   * Defaults to `"allow"` that leaves animations untouched.
+   */
+  animations?: "disabled"|"allow";
+
+  /**
+   * When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, text caret behavior will not be changed.
+   * Defaults to `"hide"`.
+   */
+  caret?: "hide"|"initial";
+
+  /**
+   * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlayed with a pink box
+   * `#FF00FF` that completely covers its bounding box.
+   */
+  mask?: Array<Locator>;
+
+  /**
+   * Hides default white background and allows capturing screenshots with transparency. Not applicable to `jpeg` images.
+   * Defaults to `false`.
+   */
+  omitBackground?: boolean;
+
+  /**
+   * The file path to save the image to. The screenshot type will be inferred from file extension. If `path` is a relative
+   * path, then it is resolved relative to the current working directory. If no path is provided, the image won't be saved to
+   * the disk.
+   */
+  path?: string;
+
+  /**
+   * The quality of the image, between 0-100. Not applicable to `png` images.
+   */
+  quality?: number;
+
+  /**
+   * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
+   * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
+   * high-dpi devices will be twice as large or even larger. Defaults to `"device"`.
+   */
+  scale?: "css"|"device";
+
+  /**
+   * Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
+   * using the
+   * [browserContext.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-browsercontext#browser-context-set-default-timeout)
+   * or [page.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-page#page-set-default-timeout) methods.
+   */
+  timeout?: number;
+
+  /**
+   * Specify screenshot type, defaults to `png`.
+   */
+  type?: "png"|"jpeg";
 }
 
 interface ElementHandleWaitForSelectorOptions {
@@ -15605,6 +15885,22 @@ interface PageWaitForFunctionOptions {
 
 export interface PageScreenshotOptions {
   /**
+   * When set to `"disabled"`, stops CSS animations, CSS transitions and Web Animations. Animations get different treatment
+   * depending on their duration:
+   * - finite animations are fast-forwarded to completion, so they'll fire `transitionend` event.
+   * - infinite animations are canceled to initial state, and then played over after the screenshot.
+   *
+   * Defaults to `"allow"` that leaves animations untouched.
+   */
+  animations?: "disabled"|"allow";
+
+  /**
+   * When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, text caret behavior will not be changed.
+   * Defaults to `"hide"`.
+   */
+  caret?: "hide"|"initial";
+
+  /**
    * An object which specifies clipping of the resulting image. Should have the following fields:
    */
   clip?: {
@@ -15636,6 +15932,12 @@ export interface PageScreenshotOptions {
   fullPage?: boolean;
 
   /**
+   * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlayed with a pink box
+   * `#FF00FF` that completely covers its bounding box.
+   */
+  mask?: Array<Locator>;
+
+  /**
    * Hides default white background and allows capturing screenshots with transparency. Not applicable to `jpeg` images.
    * Defaults to `false`.
    */
@@ -15652,6 +15954,13 @@ export interface PageScreenshotOptions {
    * The quality of the image, between 0-100. Not applicable to `png` images.
    */
   quality?: number;
+
+  /**
+   * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
+   * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
+   * high-dpi devices will be twice as large or even larger. Defaults to `"device"`.
+   */
+  scale?: "css"|"device";
 
   /**
    * Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
@@ -15724,6 +16033,8 @@ type Devices = {
   "iPhone 12 Pro landscape": DeviceDescriptor;
   "iPhone 12 Pro Max": DeviceDescriptor;
   "iPhone 12 Pro Max landscape": DeviceDescriptor;
+  "iPhone 12 Mini": DeviceDescriptor;
+  "iPhone 12 Mini landscape": DeviceDescriptor;
   "iPhone 13": DeviceDescriptor;
   "iPhone 13 landscape": DeviceDescriptor;
   "iPhone 13 Pro": DeviceDescriptor;

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Page } from 'playwright-core';
+import type { Page } from 'playwright-core';
 import { test as it, expect } from './pageTest';
 
 async function routeIframe(page: Page) {
@@ -46,7 +46,7 @@ async function routeIframe(page: Page) {
   });
 }
 
-it('should work for iframe #smoke', async ({ page, server }) => {
+it('should work for iframe @smoke', async ({ page, server }) => {
   await routeIframe(page);
   await page.goto(server.EMPTY_PAGE);
   const button = page.locator('iframe >> control=enter-frame >> button');

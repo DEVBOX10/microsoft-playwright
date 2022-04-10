@@ -14,34 +14,34 @@
  * limitations under the License.
  */
 
-import { installTransform } from './transform';
-import type { FullConfig, Config, FullProject, Project, ReporterDescription, PreserveOutput } from './types';
-import { mergeObjects, errorWithFile } from './util';
+import { installTransform, setCurrentlyLoadingTestFile } from './transform';
+import type { Config, Project, ReporterDescription, PreserveOutput, FullProjectInternal, GlobalInfo } from './types';
+import type { FullConfigInternal } from './types';
+import { getPackageJsonPath, mergeObjects, errorWithFile } from './util';
 import { setCurrentlyLoadingFileSuite } from './globals';
 import { Suite } from './test';
-import { SerializedLoaderData } from './ipc';
+import type { SerializedLoaderData } from './ipc';
 import * as path from 'path';
 import * as url from 'url';
 import * as fs from 'fs';
 import { ProjectImpl } from './project';
-import { Reporter } from '../types/testReporter';
-import { BuiltInReporter, builtInReporters } from './runner';
-import { isRegExp } from 'playwright-core/lib/utils/utils';
-import { tsConfigLoader, TsConfigLoaderResult } from './third_party/tsconfig-loader';
+import type { Reporter } from '../types/testReporter';
+import type { BuiltInReporter } from './runner';
+import { builtInReporters } from './runner';
+import { isRegExp } from 'playwright-core/lib/utils';
+import { serializeError } from './util';
 
 // To allow multiple loaders in the same process without clearing require cache,
 // we make these maps global.
 const cachedFileSuites = new Map<string, Suite>();
-const cachedTSConfigs = new Map<string, TsConfigLoaderResult>();
 
 export class Loader {
   private _defaultConfig: Config;
   private _configOverrides: Config;
-  private _fullConfig: FullConfig;
-  private _config: Config = {};
+  private _fullConfig: FullConfigInternal;
+  private _configDir: string = '';
   private _configFile: string | undefined;
   private _projects: ProjectImpl[] = [];
-  private _lastModuleInfo: { rootFolder: string, isModule: boolean } | null = null;
 
   constructor(defaultConfig: Config, configOverrides: Config) {
     this._defaultConfig = defaultConfig;
@@ -54,7 +54,7 @@ export class Loader {
     if ('file' in data.configFile)
       await loader.loadConfigFile(data.configFile.file);
     else
-      loader.loadEmptyConfig(data.configFile.rootDir);
+      loader.loadEmptyConfig(data.configFile.configDir);
     return loader;
   }
 
@@ -64,74 +64,113 @@ export class Loader {
     let config = await this._requireOrImport(file);
     if (config && typeof config === 'object' && ('default' in config))
       config = config['default'];
-    this._config = config;
     this._configFile = file;
     const rawConfig = { ...config };
-    this._processConfigObject(path.dirname(file));
+    this._processConfigObject(config, path.dirname(file));
     return rawConfig;
   }
 
-  loadEmptyConfig(rootDir: string): Config {
-    this._config = {};
-    this._processConfigObject(rootDir);
+  loadEmptyConfig(configDir: string): Config {
+    this._processConfigObject({}, configDir);
     return {};
   }
 
-  private _processConfigObject(rootDir: string) {
-    validateConfig(this._configFile || '<default config>', this._config);
+  private _processConfigObject(config: Config, configDir: string) {
+    this._configDir = configDir;
+    const packageJsonPath = getPackageJsonPath(configDir);
+    const packageJsonDir = packageJsonPath ? path.dirname(packageJsonPath) : undefined;
+    const throwawayArtifactsPath = packageJsonDir || process.cwd();
+    validateConfig(this._configFile || '<default config>', config);
 
     // Resolve script hooks relative to the root dir.
-    if (this._config.globalSetup)
-      this._config.globalSetup = resolveScript(this._config.globalSetup, rootDir);
-    if (this._config.globalTeardown)
-      this._config.globalTeardown = resolveScript(this._config.globalTeardown, rootDir);
+    if (config.globalSetup)
+      config.globalSetup = resolveScript(config.globalSetup, configDir);
+    if (config.globalTeardown)
+      config.globalTeardown = resolveScript(config.globalTeardown, configDir);
+    // Resolve all config dirs relative to configDir.
+    if (config.testDir !== undefined)
+      config.testDir = path.resolve(configDir, config.testDir);
+    if (config.outputDir !== undefined)
+      config.outputDir = path.resolve(configDir, config.outputDir);
+    if ((config as any)._screenshotsDir !== undefined)
+      (config as any)._screenshotsDir = path.resolve(configDir, (config as any)._screenshotsDir);
+    if (config.snapshotDir !== undefined)
+      config.snapshotDir = path.resolve(configDir, config.snapshotDir);
 
-    const configUse = mergeObjects(this._defaultConfig.use, this._config.use);
-    this._config = mergeObjects(mergeObjects(this._defaultConfig, this._config), { use: configUse });
+    const configUse = mergeObjects(this._defaultConfig.use, config.use);
+    config = mergeObjects(mergeObjects(this._defaultConfig, config), { use: configUse });
 
-    if (this._config.testDir !== undefined)
-      this._config.testDir = path.resolve(rootDir, this._config.testDir);
-    const projects: Project[] = ('projects' in this._config) && this._config.projects !== undefined ? this._config.projects : [this._config];
+    this._fullConfig._configDir = configDir;
+    this._fullConfig.rootDir = config.testDir || this._configDir;
+    this._fullConfig._globalOutputDir = takeFirst(config.outputDir, throwawayArtifactsPath, baseFullConfig._globalOutputDir);
+    this._fullConfig.forbidOnly = takeFirst(this._configOverrides.forbidOnly, config.forbidOnly, baseFullConfig.forbidOnly);
+    this._fullConfig.fullyParallel = takeFirst(this._configOverrides.fullyParallel, config.fullyParallel, baseFullConfig.fullyParallel);
+    this._fullConfig.globalSetup = takeFirst(this._configOverrides.globalSetup, config.globalSetup, baseFullConfig.globalSetup);
+    this._fullConfig.globalTeardown = takeFirst(this._configOverrides.globalTeardown, config.globalTeardown, baseFullConfig.globalTeardown);
+    this._fullConfig.globalTimeout = takeFirst(this._configOverrides.globalTimeout, this._configOverrides.globalTimeout, config.globalTimeout, baseFullConfig.globalTimeout);
+    this._fullConfig.grep = takeFirst(this._configOverrides.grep, config.grep, baseFullConfig.grep);
+    this._fullConfig.grepInvert = takeFirst(this._configOverrides.grepInvert, config.grepInvert, baseFullConfig.grepInvert);
+    this._fullConfig.maxFailures = takeFirst(this._configOverrides.maxFailures, config.maxFailures, baseFullConfig.maxFailures);
+    this._fullConfig.preserveOutput = takeFirst<PreserveOutput>(this._configOverrides.preserveOutput, config.preserveOutput, baseFullConfig.preserveOutput);
+    this._fullConfig.reporter = takeFirst(toReporters(this._configOverrides.reporter as any), resolveReporters(config.reporter, configDir), baseFullConfig.reporter);
+    this._fullConfig.reportSlowTests = takeFirst(this._configOverrides.reportSlowTests, config.reportSlowTests, baseFullConfig.reportSlowTests);
+    this._fullConfig.quiet = takeFirst(this._configOverrides.quiet, config.quiet, baseFullConfig.quiet);
+    this._fullConfig.shard = takeFirst(this._configOverrides.shard, config.shard, baseFullConfig.shard);
+    this._fullConfig.updateSnapshots = takeFirst(this._configOverrides.updateSnapshots, config.updateSnapshots, baseFullConfig.updateSnapshots);
+    this._fullConfig.workers = takeFirst(this._configOverrides.workers, config.workers, baseFullConfig.workers);
+    this._fullConfig.webServer = takeFirst(this._configOverrides.webServer, config.webServer, baseFullConfig.webServer);
 
-    this._fullConfig.rootDir = this._config.testDir || rootDir;
-    this._fullConfig.forbidOnly = takeFirst(this._configOverrides.forbidOnly, this._config.forbidOnly, baseFullConfig.forbidOnly);
-    this._fullConfig.globalSetup = takeFirst(this._configOverrides.globalSetup, this._config.globalSetup, baseFullConfig.globalSetup);
-    this._fullConfig.globalTeardown = takeFirst(this._configOverrides.globalTeardown, this._config.globalTeardown, baseFullConfig.globalTeardown);
-    this._fullConfig.globalTimeout = takeFirst(this._configOverrides.globalTimeout, this._configOverrides.globalTimeout, this._config.globalTimeout, baseFullConfig.globalTimeout);
-    this._fullConfig.grep = takeFirst(this._configOverrides.grep, this._config.grep, baseFullConfig.grep);
-    this._fullConfig.grepInvert = takeFirst(this._configOverrides.grepInvert, this._config.grepInvert, baseFullConfig.grepInvert);
-    this._fullConfig.maxFailures = takeFirst(this._configOverrides.maxFailures, this._config.maxFailures, baseFullConfig.maxFailures);
-    this._fullConfig.preserveOutput = takeFirst<PreserveOutput>(this._configOverrides.preserveOutput, this._config.preserveOutput, baseFullConfig.preserveOutput);
-    this._fullConfig.reporter = takeFirst(toReporters(this._configOverrides.reporter as any), resolveReporters(this._config.reporter, rootDir), baseFullConfig.reporter);
-    this._fullConfig.reportSlowTests = takeFirst(this._configOverrides.reportSlowTests, this._config.reportSlowTests, baseFullConfig.reportSlowTests);
-    this._fullConfig.quiet = takeFirst(this._configOverrides.quiet, this._config.quiet, baseFullConfig.quiet);
-    this._fullConfig.shard = takeFirst(this._configOverrides.shard, this._config.shard, baseFullConfig.shard);
-    this._fullConfig.updateSnapshots = takeFirst(this._configOverrides.updateSnapshots, this._config.updateSnapshots, baseFullConfig.updateSnapshots);
-    this._fullConfig.workers = takeFirst(this._configOverrides.workers, this._config.workers, baseFullConfig.workers);
-    this._fullConfig.webServer = takeFirst(this._configOverrides.webServer, this._config.webServer, baseFullConfig.webServer);
-
+    const projects: Project[] = ('projects' in config) && config.projects !== undefined ? config.projects : [config];
     for (const project of projects)
-      this._addProject(project, this._fullConfig.rootDir, rootDir);
+      this._addProject(config, project, throwawayArtifactsPath);
     this._fullConfig.projects = this._projects.map(p => p.config);
   }
 
-  async loadTestFile(file: string) {
+  async loadTestFile(file: string, environment: 'runner' | 'worker') {
     if (cachedFileSuites.has(file))
       return cachedFileSuites.get(file)!;
+    const suite = new Suite(path.relative(this._fullConfig.rootDir, file) || path.basename(file));
+    suite._requireFile = file;
+    suite.location = { file, line: 0, column: 0 };
+
+    setCurrentlyLoadingTestFile(file);
+    setCurrentlyLoadingFileSuite(suite);
     try {
-      const suite = new Suite(path.relative(this._fullConfig.rootDir, file) || path.basename(file));
-      suite._requireFile = file;
-      suite.location = { file, line: 0, column: 0 };
-      setCurrentlyLoadingFileSuite(suite);
       await this._requireOrImport(file);
       cachedFileSuites.set(file, suite);
-      return suite;
+    } catch (e) {
+      if (environment === 'worker')
+        throw e;
+      suite._loadError = serializeError(e);
     } finally {
+      setCurrentlyLoadingTestFile(null);
       setCurrentlyLoadingFileSuite(undefined);
     }
+
+    {
+      // Test locations that we discover potentially have different file name.
+      // This could be due to either
+      //   a) use of source maps or due to
+      //   b) require of one file from another.
+      // Try fixing (a) w/o regressing (b).
+
+      const files = new Set<string>();
+      suite.allTests().map(t => files.add(t.location.file));
+      if (files.size === 1) {
+        // All tests point to one file.
+        const mappedFile = files.values().next().value;
+        if (suite.location.file !== mappedFile) {
+          // The file is different, check for a likely source map case.
+          if (path.extname(mappedFile) !== path.extname(suite.location.file))
+            suite.location.file = mappedFile;
+        }
+      }
+    }
+
+    return suite;
   }
 
-  async loadGlobalHook(file: string, name: string): Promise<(config: FullConfig) => any> {
+  async loadGlobalHook(file: string, name: string): Promise<(config: FullConfigInternal, globalInfo?: GlobalInfo) => any> {
     let hook = await this._requireOrImport(file);
     if (hook && typeof hook === 'object' && ('default' in hook))
       hook = hook['default'];
@@ -149,7 +188,7 @@ export class Loader {
     return func;
   }
 
-  fullConfig(): FullConfig {
+  fullConfig(): FullConfigInternal {
     return this._fullConfig;
   }
 
@@ -160,78 +199,52 @@ export class Loader {
   serialize(): SerializedLoaderData {
     return {
       defaultConfig: this._defaultConfig,
-      configFile: this._configFile ? { file: this._configFile } : { rootDir: this._fullConfig.rootDir },
+      configFile: this._configFile ? { file: this._configFile } : { configDir: this._configDir },
       overrides: this._configOverrides,
     };
   }
 
-  private _addProject(projectConfig: Project, rootDir: string, configDir: string) {
-    let testDir = takeFirst(projectConfig.testDir, rootDir);
-    if (!path.isAbsolute(testDir))
-      testDir = path.resolve(configDir, testDir);
-    let outputDir = takeFirst(this._configOverrides.outputDir, projectConfig.outputDir, this._config.outputDir, path.resolve(process.cwd(), 'test-results'));
-    if (!path.isAbsolute(outputDir))
-      outputDir = path.resolve(configDir, outputDir);
-    let snapshotDir = takeFirst(this._configOverrides.snapshotDir, projectConfig.snapshotDir, this._config.snapshotDir, testDir);
-    if (!path.isAbsolute(snapshotDir))
-      snapshotDir = path.resolve(configDir, snapshotDir);
-    const fullProject: FullProject = {
-      expect: takeFirst(this._configOverrides.expect, projectConfig.expect, this._config.expect, undefined),
+  private _addProject(config: Config, projectConfig: Project, throwawayArtifactsPath: string) {
+    // Resolve all config dirs relative to configDir.
+    if (projectConfig.testDir !== undefined)
+      projectConfig.testDir = path.resolve(this._configDir, projectConfig.testDir);
+    if (projectConfig.outputDir !== undefined)
+      projectConfig.outputDir = path.resolve(this._configDir, projectConfig.outputDir);
+    if ((projectConfig as any)._screenshotsDir !== undefined)
+      (projectConfig as any)._screenshotsDir = path.resolve(this._configDir, (projectConfig as any)._screenshotsDir);
+    if (projectConfig.snapshotDir !== undefined)
+      projectConfig.snapshotDir = path.resolve(this._configDir, projectConfig.snapshotDir);
+
+    const testDir = takeFirst(this._configOverrides.testDir, projectConfig.testDir, config.testDir, this._configDir);
+
+    const outputDir = takeFirst(this._configOverrides.outputDir, projectConfig.outputDir, config.outputDir, path.join(throwawayArtifactsPath, 'test-results'));
+    const snapshotDir = takeFirst(this._configOverrides.snapshotDir, projectConfig.snapshotDir, config.snapshotDir, testDir);
+    const name = takeFirst(this._configOverrides.name, projectConfig.name, config.name, '');
+    const screenshotsDir = takeFirst((this._configOverrides as any)._screenshotsDir, (projectConfig as any)._screenshotsDir, (config as any)._screenshotsDir, path.join(testDir, '__screenshots__', process.platform, name));
+    const fullProject: FullProjectInternal = {
+      fullyParallel: takeFirst(this._configOverrides.fullyParallel, projectConfig.fullyParallel, config.fullyParallel, undefined),
+      expect: takeFirst(this._configOverrides.expect, projectConfig.expect, config.expect, undefined),
+      grep: takeFirst(this._configOverrides.grep, projectConfig.grep, config.grep, baseFullConfig.grep),
+      grepInvert: takeFirst(this._configOverrides.grepInvert, projectConfig.grepInvert, config.grepInvert, baseFullConfig.grepInvert),
       outputDir,
-      repeatEach: takeFirst(this._configOverrides.repeatEach, projectConfig.repeatEach, this._config.repeatEach, 1),
-      retries: takeFirst(this._configOverrides.retries, projectConfig.retries, this._config.retries, 0),
-      metadata: takeFirst(this._configOverrides.metadata, projectConfig.metadata, this._config.metadata, undefined),
-      name: takeFirst(this._configOverrides.name, projectConfig.name, this._config.name, ''),
+      repeatEach: takeFirst(this._configOverrides.repeatEach, projectConfig.repeatEach, config.repeatEach, 1),
+      retries: takeFirst(this._configOverrides.retries, projectConfig.retries, config.retries, 0),
+      metadata: takeFirst(this._configOverrides.metadata, projectConfig.metadata, config.metadata, undefined),
+      name,
       testDir,
       snapshotDir,
-      testIgnore: takeFirst(this._configOverrides.testIgnore, projectConfig.testIgnore, this._config.testIgnore, []),
-      testMatch: takeFirst(this._configOverrides.testMatch, projectConfig.testMatch, this._config.testMatch, '**/?(*.)@(spec|test).*'),
-      timeout: takeFirst(this._configOverrides.timeout, projectConfig.timeout, this._config.timeout, 10000),
-      use: mergeObjects(mergeObjects(this._config.use, projectConfig.use), this._configOverrides.use),
+      _screenshotsDir: screenshotsDir,
+      testIgnore: takeFirst(this._configOverrides.testIgnore, projectConfig.testIgnore, config.testIgnore, []),
+      testMatch: takeFirst(this._configOverrides.testMatch, projectConfig.testMatch, config.testMatch, '**/?(*.)@(spec|test).*'),
+      timeout: takeFirst(this._configOverrides.timeout, projectConfig.timeout, config.timeout, 10000),
+      use: mergeObjects(mergeObjects(config.use, projectConfig.use), this._configOverrides.use),
     };
     this._projects.push(new ProjectImpl(fullProject, this._projects.length));
   }
 
-
   private async _requireOrImport(file: string) {
-    // Respect tsconfig paths.
-    const cwd = path.dirname(file);
-    let tsconfig = cachedTSConfigs.get(cwd);
-    if (!tsconfig) {
-      tsconfig = tsConfigLoader({
-        getEnv: (name: string) => process.env[name],
-        cwd
-      });
-      cachedTSConfigs.set(cwd, tsconfig);
-    }
-
-    const revertBabelRequire = installTransform(tsconfig);
-
-    // Figure out if we are importing or requiring.
-    let isModule: boolean;
-    if (file.endsWith('.mjs')) {
-      isModule = true;
-    } else {
-      if (!this._lastModuleInfo || !file.startsWith(this._lastModuleInfo.rootFolder)) {
-        this._lastModuleInfo = null;
-        try {
-          const pathSegments = file.split(path.sep);
-          for (let i = pathSegments.length - 1; i >= 0; --i) {
-            const rootFolder = pathSegments.slice(0, i).join(path.sep);
-            const packageJson = path.join(rootFolder, 'package.json');
-            if (fs.existsSync(packageJson)) {
-              isModule = require(packageJson).type === 'module';
-              this._lastModuleInfo = { rootFolder, isModule };
-              break;
-            }
-          }
-        } catch {
-          // Silent catch.
-        }
-      }
-      isModule = this._lastModuleInfo?.isModule || false;
-    }
-
+    const revertBabelRequire = installTransform();
+    const isModule = fileIsModule(file);
     try {
       const esmImport = () => eval(`import(${JSON.stringify(url.pathToFileURL(file))})`);
       if (isModule)
@@ -243,8 +256,13 @@ export class Loader {
         if (didYouMean?.endsWith('.ts'))
           throw errorWithFile(file, 'Cannot import a typescript file from an esmodule.');
       }
-      if (error.code === 'ERR_UNKNOWN_FILE_EXTENSION' && error.message.includes('.ts'))
-        throw errorWithFile(file, 'Cannot import a typescript file from an esmodule.');
+      if (error.code === 'ERR_UNKNOWN_FILE_EXTENSION' && error.message.includes('.ts')) {
+        throw errorWithFile(file, `Cannot import a typescript file from an esmodule.\n${'='.repeat(80)}\nMake sure that:
+  - you are using Node.js 16+,
+  - your package.json contains "type": "module",
+  - you are using TypeScript for playwright.config.ts.
+${'='.repeat(80)}\n`);
+      }
 
       if (error instanceof SyntaxError && error.message.includes('Cannot use import statement outside a module'))
         throw errorWithFile(file, 'JavaScript files must end with .mjs to use import.');
@@ -437,8 +455,9 @@ function validateProject(file: string, project: Project, title: string) {
   }
 }
 
-const baseFullConfig: FullConfig = {
+const baseFullConfig: FullConfigInternal = {
   forbidOnly: false,
+  fullyParallel: false,
   globalSetup: null,
   globalTeardown: null,
   globalTimeout: 0,
@@ -456,6 +475,10 @@ const baseFullConfig: FullConfig = {
   version: require('../package.json').version,
   workers: 1,
   webServer: null,
+  _globalOutputDir: path.resolve(process.cwd()),
+  _configDir: '',
+  _testGroupsCount: 0,
+  _screenshotsDir: '',
 };
 
 function resolveReporters(reporters: Config['reporter'], rootDir: string): ReporterDescription[]|undefined {
@@ -471,4 +494,20 @@ function resolveScript(id: string, rootDir: string) {
   if (fs.existsSync(localPath))
     return localPath;
   return require.resolve(id, { paths: [rootDir] });
+}
+
+export function fileIsModule(file: string): boolean {
+  if (file.endsWith('.mjs'))
+    return true;
+
+  const folder = path.dirname(file);
+  return folderIsModule(folder);
+}
+
+export function folderIsModule(folder: string): boolean {
+  const packageJsonPath = getPackageJsonPath(folder);
+  if (!packageJsonPath)
+    return false;
+  // Rely on `require` internal caching logic.
+  return require(packageJsonPath).type === 'module';
 }

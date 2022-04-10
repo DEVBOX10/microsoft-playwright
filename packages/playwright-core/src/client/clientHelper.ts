@@ -15,17 +15,9 @@
  * limitations under the License.
  */
 
-import * as types from './types';
+import type * as types from './types';
 import fs from 'fs';
-import { isString, isRegExp, constructURLBasedOnBaseURL } from '../utils/utils';
-
-const deprecatedHits = new Set();
-export function deprecate(methodName: string, message: string) {
-  if (deprecatedHits.has(methodName))
-    return;
-  deprecatedHits.add(methodName);
-  console.warn(message);
-}
+import { isString, isRegExp, constructURLBasedOnBaseURL } from '../utils';
 
 export function envObjectToArray(env: types.Env): { name: string, value: string }[] {
   const result: { name: string, value: string }[] = [];
@@ -51,7 +43,7 @@ export async function evaluationScript(fun: Function | string | { path?: string,
   if (fun.path !== undefined) {
     let source = await fs.promises.readFile(fun.path, 'utf8');
     if (addSourceUrl)
-      source += '//# sourceURL=' + fun.path.replace(/\n/g, '');
+      source += '\n//# sourceURL=' + fun.path.replace(/\n/g, '');
     return source;
   }
   throw new Error('Either path or content property must be present');

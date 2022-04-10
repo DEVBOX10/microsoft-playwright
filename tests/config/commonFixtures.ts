@@ -15,7 +15,8 @@
  */
 
 import type { Fixtures } from '@playwright/test';
-import { ChildProcess, execSync, spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import net from 'net';
 
 type TestChildParams = {
@@ -100,7 +101,7 @@ export class TestChildProcess {
     if (r.exitCode)
       throw new Error(`Process failed with exit code ${r.exitCode}`);
     if (r.signal)
-      throw new Error(`Process recieved signal: ${r.signal}`);
+      throw new Error(`Process received signal: ${r.signal}`);
   }
 
   async waitForOutput(substring: string) {

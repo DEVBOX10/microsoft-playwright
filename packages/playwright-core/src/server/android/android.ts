@@ -15,26 +15,32 @@
  */
 
 import debug from 'debug';
-import * as types from '../types';
+import type * as types from '../types';
 import { EventEmitter } from 'events';
 import fs from 'fs';
-import * as stream from 'stream';
+import os from 'os';
+import path from 'path';
+import type * as stream from 'stream';
 import * as ws from 'ws';
-import { createGuid, makeWaitForNextTask } from '../../utils/utils';
-import { BrowserOptions, BrowserProcess, PlaywrightOptions } from '../browser';
-import { BrowserContext, validateBrowserContextOptions } from '../browserContext';
+import { createGuid, makeWaitForNextTask, isUnderTest } from '../../utils';
+import { removeFolders } from '../../utils/fileUtils';
+import type { BrowserOptions, BrowserProcess, PlaywrightOptions } from '../browser';
+import type { BrowserContext } from '../browserContext';
+import { validateBrowserContextOptions } from '../browserContext';
 import { ProgressController } from '../progress';
 import { CRBrowser } from '../chromium/crBrowser';
 import { helper } from '../helper';
-import { Transport } from '../../protocol/transport';
-import { RecentLogsCollector } from '../../utils/debugLogger';
-import { TimeoutSettings } from '../../utils/timeoutSettings';
-import { AndroidWebView } from '../../protocol/channels';
-import { CRPage } from '../chromium/crPage';
-import { SdkObject, internalCallMetadata } from '../instrumentation';
+import { PipeTransport } from '../../protocol/transport';
+import { RecentLogsCollector } from '../../common/debugLogger';
+import { gracefullyCloseSet } from '../../utils/processLauncher';
+import { TimeoutSettings } from '../../common/timeoutSettings';
+import type { AndroidWebView } from '../../protocol/channels';
+import { SdkObject, serverSideCallMetadata } from '../instrumentation';
+
+const ARTIFACTS_FOLDER = path.join(os.tmpdir(), 'playwright-artifacts-');
 
 export interface Backend {
-  devices(): Promise<DeviceBackend[]>;
+  devices(options: types.AndroidDeviceOptions): Promise<DeviceBackend[]>;
 }
 
 export interface DeviceBackend {
@@ -69,14 +75,14 @@ export class Android extends SdkObject {
     this._timeoutSettings.setDefaultTimeout(timeout);
   }
 
-  async devices(): Promise<AndroidDevice[]> {
-    const devices = (await this._backend.devices()).filter(d => d.status === 'device');
+  async devices(options: types.AndroidDeviceOptions): Promise<AndroidDevice[]> {
+    const devices = (await this._backend.devices(options)).filter(d => d.status === 'device');
     const newSerials = new Set<string>();
     for (const d of devices) {
       newSerials.add(d.serial);
       if (this._devices.has(d.serial))
         continue;
-      const device = await AndroidDevice.create(this, d);
+      const device = await AndroidDevice.create(this, d, options);
       this._devices.set(d.serial, device);
     }
     for (const d of this._devices.keys()) {
@@ -95,12 +101,13 @@ export class AndroidDevice extends SdkObject {
   readonly _backend: DeviceBackend;
   readonly model: string;
   readonly serial: string;
-  private _driverPromise: Promise<Transport> | undefined;
+  private _options: types.AndroidDeviceOptions;
+  private _driverPromise: Promise<PipeTransport> | undefined;
   private _lastId = 0;
   private _callbacks = new Map<number, { fulfill: (result: any) => void, reject: (error: Error) => void }>();
   private _pollingWebViews: NodeJS.Timeout | undefined;
   readonly _timeoutSettings: TimeoutSettings;
-  private _webViews = new Map<number, AndroidWebView>();
+  private _webViews = new Map<string, AndroidWebView>();
 
   static Events = {
     WebViewAdded: 'webViewAdded',
@@ -112,19 +119,20 @@ export class AndroidDevice extends SdkObject {
   private _android: Android;
   private _isClosed = false;
 
-  constructor(android: Android, backend: DeviceBackend, model: string) {
+  constructor(android: Android, backend: DeviceBackend, model: string, options: types.AndroidDeviceOptions) {
     super(android, 'android-device');
     this._android = android;
     this._backend = backend;
     this.model = model;
     this.serial = backend.serial;
+    this._options = options;
     this._timeoutSettings = new TimeoutSettings(android._timeoutSettings);
   }
 
-  static async create(android: Android, backend: DeviceBackend): Promise<AndroidDevice> {
+  static async create(android: Android, backend: DeviceBackend, options: types.AndroidDeviceOptions): Promise<AndroidDevice> {
     await backend.init();
     const model = await backend.runCommand('shell:getprop ro.product.model');
-    const device = new AndroidDevice(android, backend, model.toString().trim());
+    const device = new AndroidDevice(android, backend, model.toString().trim(), options);
     await device._init();
     return device;
   }
@@ -155,28 +163,33 @@ export class AndroidDevice extends SdkObject {
     return await this._backend.runCommand(`shell:screencap -p`);
   }
 
-  private async _driver(): Promise<Transport> {
+  private async _driver(): Promise<PipeTransport> {
     if (!this._driverPromise)
       this._driverPromise = this._installDriver();
     return this._driverPromise;
   }
 
-  private async _installDriver(): Promise<Transport> {
+  private async _installDriver(): Promise<PipeTransport> {
     debug('pw:android')('Stopping the old driver');
     await this.shell(`am force-stop com.microsoft.playwright.androiddriver`);
 
-    debug('pw:android')('Uninstalling the old driver');
-    await this.shell(`cmd package uninstall com.microsoft.playwright.androiddriver`);
-    await this.shell(`cmd package uninstall com.microsoft.playwright.androiddriver.test`);
+    // uninstall and install driver on every excution
+    if (!this._options.omitDriverInstall) {
+      debug('pw:android')('Uninstalling the old driver');
+      await this.shell(`cmd package uninstall com.microsoft.playwright.androiddriver`);
+      await this.shell(`cmd package uninstall com.microsoft.playwright.androiddriver.test`);
 
-    debug('pw:android')('Installing the new driver');
-    for (const file of ['android-driver.apk', 'android-driver-target.apk'])
-      await this.installApk(await fs.promises.readFile(require.resolve(`../../../bin/${file}`)));
+      debug('pw:android')('Installing the new driver');
+      for (const file of ['android-driver.apk', 'android-driver-target.apk'])
+        await this.installApk(await fs.promises.readFile(require.resolve(`../../../bin/${file}`)));
+    } else {
+      debug('pw:android')('Skipping the driver installation');
+    }
 
     debug('pw:android')('Starting the new driver');
     this.shell('am instrument -w com.microsoft.playwright.androiddriver.test/androidx.test.runner.AndroidJUnitRunner').catch(e => debug('pw:android')(e));
     const socket = await this._waitForLocalAbstract('playwright_android_driver_socket');
-    const transport = new Transport(socket, socket, socket, 'be');
+    const transport = new PipeTransport(socket, socket, socket, 'be');
     transport.onmessage = message => {
       const response = JSON.parse(message);
       const { id, result, error } = response;
@@ -234,8 +247,7 @@ export class AndroidDevice extends SdkObject {
   async launchBrowser(pkg: string = 'com.android.chrome', options: types.BrowserContextOptions): Promise<BrowserContext> {
     debug('pw:android')('Force-stopping', pkg);
     await this._backend.runCommand(`shell:am force-stop ${pkg}`);
-
-    const socketName = 'playwright-' + createGuid();
+    const socketName = isUnderTest() ? 'webview_devtools_remote_playwright_test' : ('playwright-' + createGuid());
     const commandLine = `_ --disable-fre --no-default-browser-check --no-first-run --remote-debugging-socket-name=${socketName}`;
     debug('pw:android')('Starting', pkg, commandLine);
     await this._backend.runCommand(`shell:echo "${commandLine}" > /data/local/tmp/chrome-command-line`);
@@ -243,11 +255,11 @@ export class AndroidDevice extends SdkObject {
     return await this._connectToBrowser(socketName, options);
   }
 
-  async connectToWebView(pid: number): Promise<BrowserContext> {
-    const webView = this._webViews.get(pid);
+  async connectToWebView(socketName: string): Promise<BrowserContext> {
+    const webView = this._webViews.get(socketName);
     if (!webView)
       throw new Error('WebView has been closed');
-    return await this._connectToBrowser(`webview_devtools_remote_${pid}`);
+    return await this._connectToBrowser(socketName);
   }
 
   private async _connectToBrowser(socketName: string, options: types.BrowserContextOptions = {}): Promise<BrowserContext> {
@@ -256,15 +268,26 @@ export class AndroidDevice extends SdkObject {
     await androidBrowser._init();
     this._browserConnections.add(androidBrowser);
 
+    const artifactsDir = await fs.promises.mkdtemp(ARTIFACTS_FOLDER);
+    const cleanupArtifactsDir = async () => {
+      const errors = await removeFolders([artifactsDir]);
+      for (let i = 0; i < (errors || []).length; ++i)
+        debug('pw:android')(`exception while removing ${artifactsDir}: ${errors[i]}`);
+    };
+    gracefullyCloseSet.add(cleanupArtifactsDir);
+    socket.on('close', async () => {
+      gracefullyCloseSet.delete(cleanupArtifactsDir);
+      cleanupArtifactsDir().catch(e => debug('pw:android')(`could not cleanup artifacts dir: ${e}`));
+    });
     const browserOptions: BrowserOptions = {
       ...this._android._playwrightOptions,
       name: 'clank',
       isChromium: true,
       slowMo: 0,
       persistent: { ...options, noDefaultViewport: true },
-      artifactsDir: '',
-      downloadsPath: '',
-      tracesDir: '',
+      artifactsDir,
+      downloadsPath: artifactsDir,
+      tracesDir: artifactsDir,
       browserProcess: new ClankBrowserProcess(androidBrowser),
       proxy: options.proxy,
       protocolLogger: helper.debugProtocolLogger(),
@@ -273,19 +296,11 @@ export class AndroidDevice extends SdkObject {
     validateBrowserContextOptions(options, browserOptions);
 
     const browser = await CRBrowser.connect(androidBrowser, browserOptions);
-    const controller = new ProgressController(internalCallMetadata(), this);
+    const controller = new ProgressController(serverSideCallMetadata(), this);
     const defaultContext = browser._defaultContext!;
     await controller.run(async progress => {
       await defaultContext._loadDefaultContextAsIs(progress);
     });
-    {
-      // TODO: remove after rolling to r838157
-      // Force page scale factor update.
-      const page = defaultContext.pages()[0];
-      const crPage = page._delegate as CRPage;
-      await crPage._mainFrameSession._client.send('Emulation.setDeviceMetricsOverride', { mobile: false, width: 0, height: 0, deviceScaleFactor: 0 });
-      await crPage._mainFrameSession._client.send('Emulation.clearDeviceMetricsOverride', {});
-    }
     return defaultContext;
   }
 
@@ -329,46 +344,58 @@ export class AndroidDevice extends SdkObject {
   }
 
   private async _refreshWebViews() {
+    // possible socketName, eg: webview_devtools_remote_32327, webview_devtools_remote_32327_zeus, webview_devtools_remote_zeus
     const sockets = (await this._backend.runCommand(`shell:cat /proc/net/unix | grep webview_devtools_remote`)).toString().split('\n');
     if (this._isClosed)
       return;
 
-    const newPids = new Set<number>();
+    const socketNames = new Set<string>();
     for (const line of sockets) {
-      const match = line.match(/[^@]+@webview_devtools_remote_(\d+)/);
-      if (!match)
-        continue;
-      const pid = +match[1];
-      newPids.add(pid);
-    }
-    for (const pid of newPids) {
-      if (this._webViews.has(pid))
+      const matchSocketName = line.match(/[^@]+@(.*?webview_devtools_remote_?.*)/);
+      if (!matchSocketName)
         continue;
 
-      const procs = (await this._backend.runCommand(`shell:ps -A | grep ${pid}`)).toString().split('\n');
+      const socketName = matchSocketName[1];
+      socketNames.add(socketName);
+      if (this._webViews.has(socketName))
+        continue;
+
+      // possible line: 0000000000000000: 00000002 00000000 00010000 0001 01 5841881 @webview_devtools_remote_zeus
+      // the result: match[1] = ''
+      const match = line.match(/[^@]+@.*?webview_devtools_remote_?(\d*)/);
+      let pid = -1;
+      if (match && match[1])
+        pid = +match[1];
+
+      const pkg = await this._extractPkg(pid);
       if (this._isClosed)
         return;
-      let pkg = '';
-      for (const proc of procs) {
-        const match = proc.match(/[^\s]+\s+(\d+).*$/);
-        if (!match)
-          continue;
-        const p = match[1];
-        if (+p !== pid)
-          continue;
-        pkg = proc.substring(proc.lastIndexOf(' ') + 1);
-      }
-      const webView = { pid, pkg };
-      this._webViews.set(pid, webView);
+
+      const webView = { pid, pkg, socketName };
+      this._webViews.set(socketName, webView);
       this.emit(AndroidDevice.Events.WebViewAdded, webView);
     }
-
     for (const p of this._webViews.keys()) {
-      if (!newPids.has(p)) {
+      if (!socketNames.has(p)) {
         this._webViews.delete(p);
         this.emit(AndroidDevice.Events.WebViewRemoved, p);
       }
     }
+  }
+
+  private async _extractPkg(pid: number) {
+    let pkg = '';
+    if (pid === -1)
+      return pkg;
+
+    const procs = (await this._backend.runCommand(`shell:ps -A | grep ${pid}`)).toString().split('\n');
+    for (const proc of procs) {
+      const match = proc.match(/[^\s]+\s+(\d+).*$/);
+      if (!match)
+        continue;
+      pkg = proc.substring(proc.lastIndexOf(' ') + 1);
+    }
+    return pkg;
   }
 }
 
@@ -449,3 +476,5 @@ class ClankBrowserProcess implements BrowserProcess {
     await this._browser.close();
   }
 }
+
+

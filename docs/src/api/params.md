@@ -46,23 +46,23 @@ to inaccessible pages. Defaults to `false`.
 ## input-force
 - `force` <[boolean]>
 
-Whether to bypass the [actionability](./actionability.md) checks. Defaults to `false`.
+Whether to bypass the [actionability](../actionability.md) checks. Defaults to `false`.
 
 ## input-selector
 - `selector` <[string]>
 
 A selector to search for an element. If there are multiple elements satisfying the selector, the first will be used. See
-[working with selectors](./selectors.md) for more details.
+[working with selectors](../selectors.md) for more details.
 
 ## input-source
 - `source` <[string]>
 A selector to search for an element to drag. If there are multiple elements satisfying the selector, the first will be used. See
-[working with selectors](./selectors.md) for more details.
+[working with selectors](../selectors.md) for more details.
 
 ## input-target
 - `target` <[string]>
 A selector to search for an element to drop onto. If there are multiple elements satisfying the selector, the first will be used. See
-[working with selectors](./selectors.md) for more details.
+[working with selectors](../selectors.md) for more details.
 
 ## input-position
 - `position` <[Object]>
@@ -102,7 +102,7 @@ defaults to 1. See [UIEvent.detail].
 ## input-trial
 - `trial` <[boolean]>
 
-When set, this method only performs the [actionability](./actionability.md) checks and skips the action. Defaults to `false`. Useful to wait until the element is ready for the action without performing it.
+When set, this method only performs the [actionability](../actionability.md) checks and skips the action. Defaults to `false`. Useful to wait until the element is ready for the action without performing it.
 
 ## input-source-position
 - `sourcePosition` <[Object]>
@@ -128,12 +128,12 @@ Whether to check or uncheck the checkbox.
 ## query-selector
 - `selector` <[string]>
 
-A selector to query for. See [working with selectors](./selectors.md) for more details.
+A selector to query for. See [working with selectors](../selectors.md) for more details.
 
 ## find-selector
 - `selector` <[string]>
 
-A selector to use when resolving DOM element. See [working with selectors](./selectors.md) for more details.
+A selector to use when resolving DOM element. See [working with selectors](../selectors.md) for more details.
 
 ## wait-for-selector-state
 - `state` <[WaitForSelectorState]<"attached"|"detached"|"visible"|"hidden">>
@@ -186,10 +186,10 @@ Dangerous option; use with care. Defaults to `false`.
   - `server` <[string]> Proxy to be used for all requests. HTTP and SOCKS proxies are supported, for example
     `http://myproxy.com:3128` or `socks5://myproxy.com:3128`. Short form `myproxy.com:3128` is considered an HTTP
     proxy.
-  - `bypass` <[string]> Optional comma-separated domains to bypass proxy, for example `".com, chromium.org,
+  - `bypass` ?<[string]> Optional comma-separated domains to bypass proxy, for example `".com, chromium.org,
     .domain.com"`.
-  - `username` <[string]> Optional username to use if HTTP proxy requires authentication.
-  - `password` <[string]> Optional password to use if HTTP proxy requires authentication.
+  - `username` ?<[string]> Optional username to use if HTTP proxy requires authentication.
+  - `password` ?<[string]> Optional password to use if HTTP proxy requires authentication.
 
 Network proxy settings.
 
@@ -456,7 +456,7 @@ for a list of supported timezone IDs.
 - `geolocation` <[Object]>
   - `latitude` <[float]> Latitude between -90 and 90.
   - `longitude` <[float]> Longitude between -180 and 180.
-  - `accuracy` <[float]> Non-negative accuracy value. Defaults to `0`.
+  - `accuracy` ?<[float]> Non-negative accuracy value. Defaults to `0`.
 
 ## context-option-locale
 - `locale` <[string]>
@@ -532,7 +532,7 @@ Logger sink for Playwright logging.
 ## context-option-recordhar
 * langs: js
 - `recordHar` <[Object]>
-  - `omitContent` <[boolean]> Optional setting to control whether to omit request content from the HAR. Defaults to
+  - `omitContent` ?<[boolean]> Optional setting to control whether to omit request content from the HAR. Defaults to
     `false`.
   - `path` <[path]> Path on the filesystem to write the HAR file to.
 
@@ -560,7 +560,7 @@ Optional setting to control whether to omit request content from the HAR. Defaul
 * langs: js
 - `recordVideo` <[Object]>
   - `dir` <[path]> Path to the directory to put videos into.
-  - `size` <[Object]> Optional dimensions of the recorded videos. If not specified the size will be equal to `viewport`
+  - `size` ?<[Object]> Optional dimensions of the recorded videos. If not specified the size will be equal to `viewport`
     scaled down to fit into 800x800. If `viewport` is not configured explicitly the video size defaults to 800x450.
     Actual picture of each page will be scaled down if necessary to fit the specified size.
     - `width` <[int]> Video frame width.
@@ -594,9 +594,9 @@ Actual picture of each page will be scaled down if necessary to fit the specifie
 - `proxy` <[Object]>
   - `server` <[string]> Proxy to be used for all requests. HTTP and SOCKS proxies are supported, for example
     `http://myproxy.com:3128` or `socks5://myproxy.com:3128`. Short form `myproxy.com:3128` is considered an HTTP proxy.
-  - `bypass` <[string]> Optional comma-separated domains to bypass proxy, for example `".com, chromium.org, .domain.com"`.
-  - `username` <[string]> Optional username to use if HTTP proxy requires authentication.
-  - `password` <[string]> Optional password to use if HTTP proxy requires authentication.
+  - `bypass` ?<[string]> Optional comma-separated domains to bypass proxy, for example `".com, chromium.org, .domain.com"`.
+  - `username` ?<[string]> Optional username to use if HTTP proxy requires authentication.
+  - `password` ?<[string]> Optional password to use if HTTP proxy requires authentication.
 
 Network proxy settings to use with this context.
 
@@ -616,9 +616,9 @@ See [Locator] to learn more about the strict mode.
 ## select-options-values
 * langs: java, js, csharp
 - `values` <[null]|[string]|[ElementHandle]|[Array]<[string]>|[Object]|[Array]<[ElementHandle]>|[Array]<[Object]>>
-  - `value` <[string]> Matches by `option.value`. Optional.
-  - `label` <[string]> Matches by `option.label`. Optional.
-  - `index` <[int]> Matches by the index. Optional.
+  - `value` ?<[string]> Matches by `option.value`. Optional.
+  - `label` ?<[string]> Matches by `option.label`. Optional.
+  - `index` ?<[int]> Matches by the index. Optional.
 
 Options to select. If the `<select>` has the `multiple` attribute, all matching options are selected, otherwise only the
 first option matching one of the passed options is selected. String values are equivalent to `{value:'string'}`. Option
@@ -628,7 +628,7 @@ is considered matching if all specified properties match.
 - `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]>
 
 A glob pattern, regex pattern or predicate receiving [URL] to match while waiting for the navigation. Note that if
-the parameter is a string without wilcard characters, the method will wait for navigation to URL that is exactly
+the parameter is a string without wildcard characters, the method will wait for navigation to URL that is exactly
 equal to the string.
 
 ## wait-for-event-event
@@ -638,18 +638,13 @@ equal to the string.
 Event name, same one typically passed into `*.on(event)`.
 
 ## wait-for-load-state-state
-- `state` <[LoadState]<"load"|"domcontentloaded"|"networkidle">>
+- `state` ?<[LoadState]<"load"|"domcontentloaded"|"networkidle">>
 
 Optional load state to wait for, defaults to `load`. If the state has been already reached while loading current document, the
 method resolves immediately. Can be one of:
   * `'load'` - wait for the `load` event to be fired.
   * `'domcontentloaded'` - wait for the `DOMContentLoaded` event to be fired.
   * `'networkidle'` - wait until there are no network connections for at least `500` ms.
-
-## screenshot-type
-- `type` <[ScreenshotType]<"png"|"jpeg">>
-
-Specify screenshot type, defaults to `png`.
 
 ## java-wait-for-event-callback
 * langs: java
@@ -665,26 +660,26 @@ Action that triggers the event.
 
 ## python-select-options-element
 * langs: python
-- `element` <[ElementHandle]|[Array]<[ElementHandle]>>
+- `element` ?<[ElementHandle]|[Array]<[ElementHandle]>>
 
 Option elements to select. Optional.
 
 ## python-select-options-index
 * langs: python
-- `index` <[int]|[Array]<[int]>>
+- `index` ?<[int]|[Array]<[int]>>
 
 Options to select by index. Optional.
 
 ## python-select-options-value
 * langs: python
-- `value` <[string]|[Array]<[string]>>
+- `value` ?<[string]|[Array]<[string]>>
 
 Options to select by value. If the `<select>` has the `multiple` attribute, all given options are selected, otherwise
 only the first option matching one of the passed options is selected. Optional.
 
 ## python-select-options-label
 * langs: python
-- `label` <[string]|[Array]<[string]>>
+- `label` ?<[string]|[Array]<[string]>>
 
 Options to select by label. If the `<select>` has the `multiple` attribute, all given options are selected, otherwise
 only the first option matching one of the passed options is selected. Optional.
@@ -708,17 +703,35 @@ The default value can be changed by using the [`method: BrowserContext.setDefaul
 Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
 using the [`method: AndroidDevice.setDefaultTimeout`] method.
 
-## assertions-timeout
+## js-assertions-timeout
 * langs: js
 - `timeout` <[float]>
 
-Time to retry the assertion for. Defaults to `timeout` in [`property: TestConfig.expect`].
+Time to retry the assertion for. Defaults to `timeout` in `TestConfig.expect`.
 
-## assertions-timeout
-* langs: java, python
+## csharp-java-python-assertions-timeout
+* langs: java, python, csharp
 - `timeout` <[float]>
 
 Time to retry the assertion for.
+
+## assertions-max-diff-pixels
+* langs: js
+- `maxDiffPixels` <[int]>
+
+An acceptable amount of pixels that could be different, default is configurable with `TestConfig.expect`. Default is configurable with `TestConfig.expect`. Unset by default.
+
+## assertions-max-diff-pixel-ratio
+* langs: js
+- `maxDiffPixelRatio` <[float]>
+
+An acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1`. Default is configurable with `TestConfig.expect`. Unset by default.
+
+## assertions-threshold
+* langs: js
+- `threshold` <[float]>
+
+An acceptable perceived color difference in the [YIQ color space](https://en.wikipedia.org/wiki/YIQ) between the same pixel in compared images, between zero (strict) and one (lax), default is configurable with `TestConfig.expect`. Defaults to `0.2`.
 
 ## shared-context-params-list
 - %%-context-option-acceptdownloads-%%
@@ -765,7 +778,7 @@ Additional arguments to pass to the browser instance. The list of Chromium flags
 ## browser-option-channel
 - `channel` <[string]>
 
-Browser distribution channel.  Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", "msedge-canary". Read more about using [Google Chrome and Microsoft Edge](./browsers.md#google-chrome--microsoft-edge).
+Browser distribution channel.  Supported values are "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", "msedge-canary". Read more about using [Google Chrome and Microsoft Edge](../browsers.md#google-chrome--microsoft-edge).
 
 ## browser-option-chromiumsandbox
 - `chromiumSandbox` <[boolean]>
@@ -873,8 +886,97 @@ Slows down Playwright operations by the specified amount of milliseconds. Useful
 ## locator-option-has-text
 - `hasText` <[string]|[RegExp]>
 
-Matches elements containing specified text somewhere inside, possibly in a child or a descendant element.
+Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. When passed a [string], matching is case-insensitive and searches for a substring.
 For example, `"Playwright"` matches `<article><div>Playwright</div></article>`.
+
+## locator-option-has
+- `has` <[Locator]>
+
+Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
+
+Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
 
 ## locator-options-list
 - %%-locator-option-has-text-%%
+- %%-locator-option-has-%%
+
+## screenshot-option-animations
+- `animations` <[ScreenshotAnimations]<"disabled"|"allow">>
+
+When set to `"disabled"`, stops CSS animations, CSS transitions and Web Animations. Animations get different treatment depending on their duration:
+* finite animations are fast-forwarded to completion, so they'll fire `transitionend` event.
+* infinite animations are canceled to initial state, and then played over after the screenshot.
+
+Defaults to `"allow"` that leaves animations untouched.
+
+## screenshot-option-omit-background
+- `omitBackground` <[boolean]>
+
+Hides default white background and allows capturing screenshots with transparency. Not applicable to `jpeg` images.
+Defaults to `false`.
+
+## screenshot-option-quality
+- `quality` <[int]>
+
+The quality of the image, between 0-100. Not applicable to `png` images.
+
+## screenshot-option-path
+- `path` <[path]>
+
+The file path to save the image to. The screenshot type will be inferred from file extension. If [`option: path`] is a
+relative path, then it is resolved relative to the current working directory. If no path is provided, the image won't be
+saved to the disk.
+
+## screenshot-option-type
+- `type` <[ScreenshotType]<"png"|"jpeg">>
+
+Specify screenshot type, defaults to `png`.
+
+## screenshot-option-mask
+- `mask` <[Array]<[Locator]>>
+
+Specify locators that should be masked when the screenshot is taken. Masked elements will be overlayed with
+a pink box `#FF00FF` that completely covers its bounding box.
+
+## screenshot-option-full-page
+- `fullPage` <[boolean]>
+
+When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport. Defaults to
+`false`.
+
+## screenshot-option-clip
+- `clip` <[Object]>
+  - `x` <[float]> x-coordinate of top-left corner of clip area
+  - `y` <[float]> y-coordinate of top-left corner of clip area
+  - `width` <[float]> width of clipping area
+  - `height` <[float]> height of clipping area
+
+An object which specifies clipping of the resulting image. Should have the following fields:
+
+## screenshot-option-scale
+- `scale` <[ScreenshotScale]<"css"|"device">>
+
+When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of high-dpi devices will be twice as large or even larger. Defaults to `"device"`.
+
+## screenshot-option-fonts
+- `fonts` <[ScreenshotFonts]<"ready"|"nowait">>
+
+When set to `"ready"`, screenshot will wait for [`document.fonts.ready`](https://developer.mozilla.org/en-US/docs/Web/API/FontFaceSet/ready) promise to resolve in all frames. Defaults to `"nowait"`.
+
+## screenshot-option-caret
+- `caret` <[ScreenshotCaret]<"hide"|"initial">>
+
+When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, text caret behavior will not be changed.  Defaults to `"hide"`.
+
+## screenshot-options-common-list
+- %%-screenshot-option-animations-%%
+- %%-screenshot-option-omit-background-%%
+- %%-screenshot-option-quality-%%
+- %%-screenshot-option-path-%%
+- %%-screenshot-option-scale-%%
+- %%-screenshot-option-caret-%%
+- %%-screenshot-option-type-%%
+- %%-screenshot-option-mask-%%
+- %%-input-timeout-%%
+

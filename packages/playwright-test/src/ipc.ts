@@ -20,7 +20,7 @@ import type { Config, TestStatus } from './types';
 export type SerializedLoaderData = {
   defaultConfig: Config;
   overrides: Config;
-  configFile: { file: string } | { rootDir: string };
+  configFile: { file: string } | { configDir: string };
 };
 export type WorkerInitParams = {
   workerIndex: number;
@@ -39,7 +39,7 @@ export type TestEndPayload = {
   testId: string;
   duration: number;
   status: TestStatus;
-  error?: TestError;
+  errors: TestError[];
   expectedStatus: TestStatus;
   annotations: { type: string, description?: string }[];
   timeout: number;
@@ -60,6 +60,7 @@ export type StepBeginPayload = {
 export type StepEndPayload = {
   testId: string;
   stepId: string;
+  refinedTitle?: string;
   wallTime: number;  // milliseconds since unix epoch
   error?: TestError;
 };
@@ -75,11 +76,16 @@ export type RunPayload = {
 };
 
 export type DonePayload = {
-  fatalError?: TestError;
+  fatalErrors: TestError[];
+  skipTestsDueToSetupFailure: string[];  // test ids
 };
 
 export type TestOutputPayload = {
   testId?: string;
   text?: string;
   buffer?: string;
+};
+
+export type TeardownErrorsPayload = {
+  fatalErrors: TestError[];
 };

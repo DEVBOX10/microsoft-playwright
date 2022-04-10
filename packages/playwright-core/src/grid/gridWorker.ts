@@ -16,23 +16,22 @@
 
 import WebSocket from 'ws';
 import debug from 'debug';
-import { DispatcherConnection, Root } from '../dispatchers/dispatcher';
-import { PlaywrightDispatcher } from '../dispatchers/playwrightDispatcher';
-import { createPlaywright } from '../server/playwright';
+import { createPlaywright, PlaywrightDispatcher, DispatcherConnection, Root } from '../server';
 import { gracefullyCloseAll } from '../utils/processLauncher';
+import { SocksProxy } from '../common/socksProxy';
 
 function launchGridWorker(gridURL: string, agentId: string, workerId: string) {
-  const log = debug(`[worker ${workerId}]`);
+  const log = debug(`pw:grid:worker:${workerId}`);
   log('created');
-  const ws = new WebSocket(gridURL + `/registerWorker?agentId=${agentId}&workerId=${workerId}`);
+  const ws = new WebSocket(gridURL.replace('http://', 'ws://') + `/registerWorker?agentId=${agentId}&workerId=${workerId}`);
   const dispatcherConnection = new DispatcherConnection();
   dispatcherConnection.onmessage = message => ws.send(JSON.stringify(message));
   ws.once('open', () => {
     new Root(dispatcherConnection, async rootScope => {
       const playwright = createPlaywright('javascript');
-      const dispatcher = new PlaywrightDispatcher(rootScope, playwright);
-      dispatcher.enableSocksProxy();
-      return dispatcher;
+      const socksProxy = new SocksProxy();
+      playwright.options.socksProxyPort = await socksProxy.listen(0);
+      return new PlaywrightDispatcher(rootScope, playwright, socksProxy);
     });
   });
   ws.on('message', message => dispatcherConnection.dispatch(JSON.parse(message.toString())));

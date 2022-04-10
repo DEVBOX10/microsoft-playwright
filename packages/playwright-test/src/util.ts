@@ -14,16 +14,80 @@
  * limitations under the License.
  */
 
+import fs from 'fs';
+import * as mime from 'mime';
 import util from 'util';
 import path from 'path';
 import url from 'url';
+import colors from 'colors/safe';
 import type { TestError, Location } from './types';
 import { default as minimatch } from 'minimatch';
 import debug from 'debug';
-import { calculateSha1, isRegExp } from 'playwright-core/lib/utils/utils';
+import { calculateSha1, isRegExp } from 'playwright-core/lib/utils';
+import { isInternalFileName } from 'playwright-core/lib/utils/stackTrace';
+import { currentTestInfo } from './globals';
+import type { ParsedStackTrace } from 'playwright-core/lib/utils/stackTrace';
+import { captureStackTrace as coreCaptureStackTrace } from 'playwright-core/lib/utils/stackTrace';
+
+export type { ParsedStackTrace };
+
+const PLAYWRIGHT_CORE_PATH = path.dirname(require.resolve('playwright-core'));
+const EXPECT_PATH = path.dirname(require.resolve('expect'));
+const PLAYWRIGHT_TEST_PATH = path.join(__dirname, '..');
+
+function filterStackTrace(e: Error) {
+  // This method filters internal stack frames using Error.prepareStackTrace
+  // hook. Read more about the hook: https://v8.dev/docs/stack-trace-api
+  //
+  // NOTE: Error.prepareStackTrace will only be called if `e.stack` has not
+  // been accessed before. This is the case for Jest Expect and simple throw
+  // statements.
+  //
+  // If `e.stack` has been accessed, this method will be NOOP.
+  const oldPrepare = Error.prepareStackTrace;
+  const stackFormatter = oldPrepare || ((error, structuredStackTrace) => [
+    `${error.name}: ${error.message}`,
+    ...structuredStackTrace.map(callSite => '    at ' + callSite.toString()),
+  ].join('\n'));
+  Error.prepareStackTrace = (error, structuredStackTrace) => {
+    return stackFormatter(error, structuredStackTrace.filter(callSite => {
+      const fileName = callSite.getFileName();
+      const functionName = callSite.getFunctionName() || undefined;
+      if (!fileName)
+        return true;
+      return !fileName.startsWith(PLAYWRIGHT_TEST_PATH) &&
+             !fileName.startsWith(PLAYWRIGHT_CORE_PATH) &&
+             !fileName.startsWith(EXPECT_PATH) &&
+             !isInternalFileName(fileName, functionName);
+    }));
+  };
+  // eslint-disable-next-line
+  e.stack; // trigger Error.prepareStackTrace
+  Error.prepareStackTrace = oldPrepare;
+}
+
+export function captureStackTrace(customApiName?: string): ParsedStackTrace {
+  const stackTrace: ParsedStackTrace = coreCaptureStackTrace();
+  const frames = [];
+  const frameTexts = [];
+  for (let i = 0; i < stackTrace.frames.length; ++i) {
+    const frame = stackTrace.frames[i];
+    if (frame.file.startsWith(EXPECT_PATH))
+      continue;
+    frames.push(frame);
+    frameTexts.push(stackTrace.frameTexts[i]);
+  }
+  return {
+    allFrames: stackTrace.allFrames,
+    frames,
+    frameTexts,
+    apiName: customApiName ?? stackTrace.apiName,
+  };
+}
 
 export function serializeError(error: Error | any): TestError {
   if (error instanceof Error) {
+    filterStackTrace(error);
     return {
       message: error.message,
       stack: error.stack
@@ -44,6 +108,7 @@ export type Matcher = (value: string) => boolean;
 export type FilePatternFilter = {
   re: RegExp;
   line: number | null;
+  column: number | null;
 };
 
 export function createFileMatcher(patterns: string | RegExp | (string | RegExp)[]): Matcher {
@@ -65,7 +130,7 @@ export function createFileMatcher(patterns: string | RegExp | (string | RegExp)[
       if (re.test(filePath))
         return true;
     }
-    // Windows might still recieve unix style paths from Cygwin or Git Bash.
+    // Windows might still receive unix style paths from Cygwin or Git Bash.
     // Check against the file url as well.
     if (path.sep === '\\') {
       const fileURL = url.pathToFileURL(filePath).href;
@@ -106,10 +171,6 @@ export function mergeObjects<A extends object, B extends object>(a: A | undefine
   return result as any;
 }
 
-export async function wrapInPromise(value: any) {
-  return value;
-}
-
 export function forceRegExp(pattern: string): RegExp {
   const match = pattern.match(/^\/(.*)\/([gi]*)$/);
   if (match)
@@ -135,9 +196,13 @@ export function errorWithLocation(location: Location, message: string) {
   return new Error(`${formatLocation(location)}: ${message}`);
 }
 
-export function expectType(receiver: any, type: string, matcherName: string) {
-  if (typeof receiver !== 'object' || receiver.constructor.name !== type)
-    throw new Error(`${matcherName} can be only used with ${type} object`);
+export function expectTypes(receiver: any, types: string[], matcherName: string) {
+  if (typeof receiver !== 'object' || !types.includes(receiver.constructor.name)) {
+    const commaSeparated = types.slice();
+    const lastType = commaSeparated.pop();
+    const typesString = commaSeparated.length ? commaSeparated.join(', ') + ' or ' + lastType : lastType;
+    throw new Error(`${matcherName} can be only used with ${typesString} object${types.length > 1 ? 's' : ''}`);
+  }
 }
 
 export function sanitizeForFilePath(s: string) {
@@ -173,25 +238,61 @@ export function getContainedPath(parentPath: string, subPath: string = ''): stri
 
 export const debugTest = debug('pw:test');
 
-export function prependToTestError(testError: TestError | undefined, message: string | undefined, location?: Location) {
-  if (!message)
-    return testError;
-  if (!testError) {
-    if (!location)
-      return { value: message };
-    let stack = `    at ${location.file}:${location.line}:${location.column}`;
-    if (!message.endsWith('\n'))
-      stack = '\n' + stack;
-    return { message: message, stack: message + stack };
+export function callLogText(log: string[] | undefined): string {
+  if (!log)
+    return '';
+  return `
+Call log:
+  ${colors.dim('- ' + (log || []).join('\n  - '))}
+`;
+}
+
+export function currentExpectTimeout(options: { timeout?: number }) {
+  const testInfo = currentTestInfo();
+  if (options.timeout !== undefined)
+    return options.timeout;
+  let defaultExpectTimeout = testInfo?.project.expect?.timeout;
+  if (typeof defaultExpectTimeout === 'undefined')
+    defaultExpectTimeout = 5000;
+  return defaultExpectTimeout;
+}
+
+const folderToPackageJsonPath = new Map<string, string>();
+
+export function getPackageJsonPath(folderPath: string): string {
+  const cached = folderToPackageJsonPath.get(folderPath);
+  if (cached !== undefined)
+    return cached;
+
+  const packageJsonPath = path.join(folderPath, 'package.json');
+  if (fs.existsSync(packageJsonPath)) {
+    folderToPackageJsonPath.set(folderPath, packageJsonPath);
+    return packageJsonPath;
   }
-  if (testError.message) {
-    const stack = testError.stack ? message + testError.stack : testError.stack;
-    message = message + testError.message;
-    return {
-      value: testError.value,
-      message,
-      stack,
-    };
+
+  const parentFolder = path.dirname(folderPath);
+  if (folderPath === parentFolder) {
+    folderToPackageJsonPath.set(folderPath, '');
+    return '';
   }
-  return testError;
+
+  const result = getPackageJsonPath(parentFolder);
+  folderToPackageJsonPath.set(folderPath, result);
+  return result;
+}
+
+export async function normalizeAndSaveAttachment(outputPath: string, name: string, options: { path?: string, body?: string | Buffer, contentType?: string } = {}): Promise<{ name: string; path?: string | undefined; body?: Buffer | undefined; contentType: string; }>  {
+  if ((options.path !== undefined ? 1 : 0) + (options.body !== undefined ? 1 : 0) !== 1)
+    throw new Error(`Exactly one of "path" and "body" must be specified`);
+  if (options.path !== undefined) {
+    const hash = calculateSha1(options.path);
+    const dest = path.join(outputPath, 'attachments', hash + path.extname(options.path));
+    await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+    await fs.promises.copyFile(options.path, dest);
+    const contentType = options.contentType ?? (mime.getType(path.basename(options.path)) || 'application/octet-stream');
+    return { name, contentType, path: dest };
+  } else {
+    const contentType = options.contentType ?? (typeof options.body === 'string' ? 'text/plain' : 'application/octet-stream');
+    return { name, contentType, body: typeof options.body === 'string' ? Buffer.from(options.body) : options.body };
+  }
 }

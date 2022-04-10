@@ -15,27 +15,33 @@
  * limitations under the License.
  */
 
-import * as channels from '../protocol/channels';
-import { ConsoleMessage } from './console';
+import type * as channels from '../protocol/channels';
+import type { ConsoleMessage } from './console';
 import * as dom from './dom';
 import { helper } from './helper';
-import { eventsHelper, RegisteredListener } from '../utils/eventsHelper';
+import type { RegisteredListener } from '../utils/eventsHelper';
+import { eventsHelper } from '../utils/eventsHelper';
 import * as js from './javascript';
 import * as network from './network';
+import type { Dialog } from './dialog';
 import { Page } from './page';
 import * as types from './types';
 import { BrowserContext } from './browserContext';
-import { Progress, ProgressController } from './progress';
-import { assert, constructURLBasedOnBaseURL, makeWaitForNextTask } from '../utils/utils';
-import { ManualPromise } from '../utils/async';
-import { debugLogger } from '../utils/debugLogger';
-import { CallMetadata, internalCallMetadata, SdkObject } from './instrumentation';
-import type InjectedScript from './injected/injectedScript';
+import type { Progress } from './progress';
+import { ProgressController } from './progress';
+import { assert, constructURLBasedOnBaseURL, makeWaitForNextTask } from '../utils';
+import { ManualPromise } from '../utils/manualPromise';
+import { debugLogger } from '../common/debugLogger';
+import type { CallMetadata } from './instrumentation';
+import { serverSideCallMetadata, SdkObject } from './instrumentation';
+import { type InjectedScript } from './injected/injectedScript';
 import type { ElementStateWithoutStable, FrameExpectParams, InjectedScriptPoll, InjectedScriptProgress } from './injected/injectedScript';
-import { isSessionClosedError } from './common/protocolError';
-import { splitSelectorByFrame, stringifySelector } from './common/selectorParser';
-import { SelectorInfo } from './selectors';
-import { isInvalidSelectorError } from './common/selectorErrors';
+import { isSessionClosedError } from './protocolError';
+import type { ParsedSelector } from './isomorphic/selectorParser';
+import { isInvalidSelectorError, splitSelectorByFrame, stringifySelector } from './isomorphic/selectorParser';
+import type { SelectorInfo } from './selectors';
+import type { ScreenshotOptions } from './screenshotter';
+import type { InputFilesItems } from './dom';
 
 type ContextData = {
   contextPromise: ManualPromise<dom.FrameExecutionContext | Error>;
@@ -86,7 +92,7 @@ export class FrameManager {
   readonly _consoleMessageTags = new Map<string, ConsoleTagHandler>();
   readonly _signalBarriers = new Set<SignalBarrier>();
   private _webSockets = new Map<string, network.WebSocket>();
-  _dialogCounter = 0;
+  _openedDialogs: Set<Dialog> = new Set();
 
   constructor(page: Page) {
     this._page = page;
@@ -276,7 +282,7 @@ export class FrameManager {
         route.continue(request, {});
       return;
     }
-    this._page._browserContext.emit(BrowserContext.Events.Request, request);
+    this._page.emitOnContext(BrowserContext.Events.Request, request);
     if (route)
       this._page._requestStarted(request, route);
   }
@@ -284,14 +290,14 @@ export class FrameManager {
   requestReceivedResponse(response: network.Response) {
     if (response.request()._isFavicon)
       return;
-    this._page._browserContext.emit(BrowserContext.Events.Response, response);
+    this._page.emitOnContext(BrowserContext.Events.Response, response);
   }
 
   reportRequestFinished(request: network.Request, response: network.Response | null) {
     this._inflightRequestFinished(request);
     if (request._isFavicon)
       return;
-    this._page._browserContext.emit(BrowserContext.Events.RequestFinished, { request, response });
+    this._page.emitOnContext(BrowserContext.Events.RequestFinished, { request, response });
   }
 
   requestFailed(request: network.Request, canceled: boolean) {
@@ -305,18 +311,18 @@ export class FrameManager {
     }
     if (request._isFavicon)
       return;
-    this._page._browserContext.emit(BrowserContext.Events.RequestFailed, request);
+    this._page.emitOnContext(BrowserContext.Events.RequestFailed, request);
   }
 
-  dialogDidOpen() {
+  dialogDidOpen(dialog: Dialog) {
     // Any ongoing evaluations will be stalled until the dialog is closed.
     for (const frame of this._frames.values())
       frame._invalidateNonStallingEvaluations('JavaScript dialog interrupted evaluation');
-    this._dialogCounter++;
+    this._openedDialogs.add(dialog);
   }
 
-  dialogWillClose() {
-    this._dialogCounter--;
+  dialogWillClose(dialog: Dialog) {
+    this._openedDialogs.delete(dialog);
   }
 
   removeChildFramesRecursively(frame: Frame) {
@@ -440,7 +446,7 @@ export class Frame extends SdkObject {
   private _setContentCounter = 0;
   readonly _detachedPromise: Promise<void>;
   private _detachedCallback = () => {};
-  private _nonStallingEvaluations = new Set<(error: Error) => void>();
+  private _raceAgainstEvaluationStallingEventsPromises = new Set<ManualPromise<any>>();
 
   constructor(page: Page, id: string, parentFrame: Frame | null) {
     super(page, 'frame');
@@ -499,53 +505,47 @@ export class Frame extends SdkObject {
   }
 
   _invalidateNonStallingEvaluations(message: string) {
-    if (!this._nonStallingEvaluations)
+    if (!this._raceAgainstEvaluationStallingEventsPromises.size)
       return;
     const error = new Error(message);
-    for (const callback of this._nonStallingEvaluations)
-      callback(error);
+    for (const promise of this._raceAgainstEvaluationStallingEventsPromises)
+      promise.reject(error);
   }
 
-  async nonStallingRawEvaluateInExistingMainContext(expression: string): Promise<any> {
+  async raceAgainstEvaluationStallingEvents<T>(cb: () => Promise<T>): Promise<T> {
     if (this._pendingDocument)
       throw new Error('Frame is currently attempting a navigation');
-    if (this._page._frameManager._dialogCounter)
+    if (this._page._frameManager._openedDialogs.size)
       throw new Error('Open JavaScript dialog prevents evaluation');
-    const context = this._existingMainContext();
-    if (!context)
-      throw new Error('Frame does not yet have a main execution context');
 
-    let callback = () => {};
-    const frameInvalidated = new Promise<void>((f, r) => callback = r);
-    this._nonStallingEvaluations.add(callback);
+    const promise = new ManualPromise<T>();
+    this._raceAgainstEvaluationStallingEventsPromises.add(promise);
     try {
       return await Promise.race([
-        context.rawEvaluateJSON(expression),
-        frameInvalidated
+        cb(),
+        promise
       ]);
     } finally {
-      this._nonStallingEvaluations.delete(callback);
+      this._raceAgainstEvaluationStallingEventsPromises.delete(promise);
     }
   }
 
-  async nonStallingEvaluateInExistingContext(expression: string, isFunction: boolean|undefined, world: types.World): Promise<any> {
-    if (this._pendingDocument)
-      throw new Error('Frame is currently attempting a navigation');
-    const context = this._contextData.get(world)?.context;
-    if (!context)
-      throw new Error('Frame does not yet have the execution context');
+  nonStallingRawEvaluateInExistingMainContext(expression: string): Promise<any> {
+    return this.raceAgainstEvaluationStallingEvents(() => {
+      const context = this._existingMainContext();
+      if (!context)
+        throw new Error('Frame does not yet have a main execution context');
+      return context.rawEvaluateJSON(expression);
+    });
+  }
 
-    let callback = () => {};
-    const frameInvalidated = new Promise<void>((f, r) => callback = r);
-    this._nonStallingEvaluations.add(callback);
-    try {
-      return await Promise.race([
-        context.evaluateExpression(expression, isFunction),
-        frameInvalidated
-      ]);
-    } finally {
-      this._nonStallingEvaluations.delete(callback);
-    }
+  nonStallingEvaluateInExistingContext(expression: string, isFunction: boolean|undefined, world: types.World): Promise<any> {
+    return this.raceAgainstEvaluationStallingEvents(() => {
+      const context = this._contextData.get(world)?.context;
+      if (!context)
+        throw new Error('Frame does not yet have the execution context');
+      return context.evaluateExpression(expression, isFunction);
+    });
   }
 
   private _recalculateLifecycle() {
@@ -784,6 +784,14 @@ export class Frame extends SdkObject {
     const result = await arrayHandle.evaluateExpressionAndWaitForSignals(expression, isFunction, true, arg);
     arrayHandle.dispose();
     return result;
+  }
+
+  async maskSelectors(selectors: ParsedSelector[]): Promise<void> {
+    const context = await this._utilityContext();
+    const injectedScript = await context.injectedScript();
+    await injectedScript.evaluate((injected, { parsed }) => {
+      injected.maskSelectors(parsed);
+    }, { parsed: selectors });
   }
 
   async querySelectorAll(selector: string): Promise<dom.ElementHandle<Element>[]> {
@@ -1049,6 +1057,13 @@ export class Frame extends SdkObject {
     });
   }
 
+  async rafrafTimeoutScreenshotElementWithProgress(progress: Progress, selector: string, timeout: number, options: ScreenshotOptions): Promise<Buffer> {
+    return await this._retryWithProgressIfNotConnected(progress, selector, true /* strict */, async handle => {
+      await handle._frame.rafrafTimeout(timeout);
+      return await this._page._screenshotter.screenshotElement(progress, handle, options);
+    });
+  }
+
   async click(metadata: CallMetadata, selector: string, options: types.MouseClickOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions) {
     const controller = new ProgressController(metadata, this);
     return controller.run(async progress => {
@@ -1144,7 +1159,7 @@ export class Frame extends SdkObject {
     const pair = await this.resolveFrameForSelectorNoWait(selector);
     if (!pair)
       return;
-    const context = await this._utilityContext();
+    const context = await pair.frame._utilityContext();
     const injectedScript = await context.injectedScript();
     return await injectedScript.evaluate((injected, { parsed }) => {
       return injected.highlight(parsed);
@@ -1152,10 +1167,12 @@ export class Frame extends SdkObject {
   }
 
   async hideHighlight() {
-    const context = await this._utilityContext();
-    const injectedScript = await context.injectedScript();
-    return await injectedScript.evaluate(injected => {
-      return injected.hideHighlight();
+    return this.raceAgainstEvaluationStallingEvents(async () => {
+      const context = await this._utilityContext();
+      const injectedScript = await context.injectedScript();
+      return await injectedScript.evaluate(injected => {
+        return injected.hideHighlight();
+      });
     });
   }
 
@@ -1213,10 +1230,10 @@ export class Frame extends SdkObject {
     }, this._page._timeoutSettings.timeout(options));
   }
 
-  async setInputFiles(metadata: CallMetadata, selector: string, files: channels.ElementHandleSetInputFilesParams['files'], options: types.NavigatingActionWaitOptions = {}): Promise<void> {
+  async setInputFiles(metadata: CallMetadata, selector: string, items: InputFilesItems, options: types.NavigatingActionWaitOptions = {}): Promise<channels.FrameSetInputFilesResult> {
     const controller = new ProgressController(metadata, this);
     return controller.run(async progress => {
-      return dom.assertDone(await this._retryWithProgressIfNotConnected(progress, selector, options.strict, handle => handle._setInputFiles(progress, files, options)));
+      return dom.assertDone(await this._retryWithProgressIfNotConnected(progress, selector, options.strict, handle => handle._setInputFiles(progress, items, options)));
     }, this._page._timeoutSettings.timeout(options));
   }
 
@@ -1354,13 +1371,28 @@ export class Frame extends SdkObject {
         return result;
       return JSON.stringify(result);
     }`;
-    const handle = await this._waitForFunctionExpression(internalCallMetadata(), expression, true, undefined, { timeout: progress.timeUntilDeadline() }, 'utility');
+    const handle = await this._waitForFunctionExpression(serverSideCallMetadata(), expression, true, undefined, { timeout: progress.timeUntilDeadline() }, 'utility');
     return JSON.parse(handle.rawValue()) as R;
   }
 
   async title(): Promise<string> {
     const context = await this._utilityContext();
     return context.evaluate(() => document.title);
+  }
+
+  async rafrafTimeout(timeout: number): Promise<void> {
+    if (timeout === 0)
+      return;
+    const context = await this._utilityContext();
+    await Promise.all([
+      // wait for double raf
+      context.evaluate(() => new Promise(x => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(x);
+        });
+      })),
+      new Promise(fulfill => setTimeout(fulfill, timeout)),
+    ]);
   }
 
   _onDetached() {

@@ -30,17 +30,19 @@ import { parseError } from '../protocol/serializers';
 import { CDPSession } from './cdpSession';
 import { Playwright } from './playwright';
 import { Electron, ElectronApplication } from './electron';
-import * as channels from '../protocol/channels';
+import type * as channels from '../protocol/channels';
 import { Stream } from './stream';
-import { debugLogger } from '../utils/debugLogger';
+import { WritableStream } from './writableStream';
+import { debugLogger } from '../common/debugLogger';
 import { SelectorsOwner } from './selectors';
 import { Android, AndroidSocket, AndroidDevice } from './android';
-import { ParsedStackTrace } from '../utils/stackTrace';
+import type { ParsedStackTrace } from '../utils/stackTrace';
 import { Artifact } from './artifact';
 import { EventEmitter } from 'events';
 import { JsonPipe } from './jsonPipe';
 import { APIRequestContext } from './fetch';
 import { LocalUtils } from './localUtils';
+import { Tracing } from './tracing';
 
 class Root extends ChannelOwner<channels.RootChannel> {
   constructor(connection: Connection) {
@@ -54,15 +56,19 @@ class Root extends ChannelOwner<channels.RootChannel> {
   }
 }
 
+class DummyChannelOwner<T> extends ChannelOwner<T> {
+}
+
 export class Connection extends EventEmitter {
   readonly _objects = new Map<string, ChannelOwner>();
-  private _waitingForObject = new Map<string, any>();
   onmessage = (message: object): void => {};
   private _lastId = 0;
   private _callbacks = new Map<number, { resolve: (a: any) => void, reject: (a: Error) => void, stackTrace: ParsedStackTrace | null }>();
   private _rootObject: Root;
   private _closedErrorMessage: string | undefined;
   private _isRemote = false;
+  // Some connections allow resolving in-process dispatchers.
+  toImpl: ((client: ChannelOwner) => any) | undefined;
 
   constructor() {
     super();
@@ -254,19 +260,23 @@ export class Connection extends EventEmitter {
       case 'Selectors':
         result = new SelectorsOwner(parent, type, guid, initializer);
         break;
+      case 'SocksSupport':
+        result = new DummyChannelOwner(parent, type, guid, initializer);
+        break;
+      case 'Tracing':
+        result = new Tracing(parent, type, guid, initializer);
+        break;
       case 'WebSocket':
         result = new WebSocket(parent, type, guid, initializer);
         break;
       case 'Worker':
         result = new Worker(parent, type, guid, initializer);
         break;
+      case 'WritableStream':
+        result = new WritableStream(parent, type, guid, initializer);
+        break;
       default:
         throw new Error('Missing type ' + type);
-    }
-    const callback = this._waitingForObject.get(guid);
-    if (callback) {
-      callback(result);
-      this._waitingForObject.delete(guid);
     }
     return result;
   }

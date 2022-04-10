@@ -14,18 +14,20 @@
  * limitations under the License.
  */
 
-import type { FullProject, Fixtures, FixturesWithLocation } from './types';
-import { Suite, TestCase } from './test';
+import type { Fixtures, FixturesWithLocation, FullProjectInternal } from './types';
+import type { TestCase } from './test';
+import { Suite } from './test';
 import { FixturePool, isFixtureOption } from './fixtures';
-import { TestTypeImpl } from './testType';
+import type { TestTypeImpl } from './testType';
+import { calculateSha1 } from 'playwright-core/lib/utils';
 
 export class ProjectImpl {
-  config: FullProject;
+  config: FullProjectInternal;
   private index: number;
   private testTypePools = new Map<TestTypeImpl, FixturePool>();
   private testPools = new Map<TestCase, FixturePool>();
 
-  constructor(project: FullProject, index: number) {
+  constructor(project: FullProjectInternal, index: number) {
     this.config = project;
     this.index = index;
   }
@@ -52,10 +54,8 @@ export class ProjectImpl {
       for (const parent of parents) {
         if (parent._use.length)
           pool = new FixturePool(parent._use, pool, parent._isDescribe);
-        for (const hook of parent._eachHooks)
+        for (const hook of parent._hooks)
           pool.validateFunction(hook.fn, hook.type + ' hook', hook.location);
-        for (const hook of parent.hooks)
-          pool.validateFunction(hook.fn, hook._type + ' hook', hook.location);
         for (const modifier of parent._modifiers)
           pool.validateFunction(modifier.fn, modifier.type + ' modifier', modifier.location);
       }
@@ -66,19 +66,21 @@ export class ProjectImpl {
     return this.testPools.get(test)!;
   }
 
-  private _cloneEntries(from: Suite, to: Suite, repeatEachIndex: number, filter: (test: TestCase) => boolean): boolean {
+  private _cloneEntries(from: Suite, to: Suite, repeatEachIndex: number, filter: (test: TestCase) => boolean, relativeTitlePath: string): boolean {
     for (const entry of from._entries) {
       if (entry instanceof Suite) {
         const suite = entry._clone();
         to._addSuite(suite);
-        if (!this._cloneEntries(entry, suite, repeatEachIndex, filter)) {
+        if (!this._cloneEntries(entry, suite, repeatEachIndex, filter, relativeTitlePath + ' ' + suite.title)) {
           to._entries.pop();
           to.suites.pop();
         }
       } else {
         const test = entry._clone();
         test.retries = this.config.retries;
-        test._id = `${entry._ordinalInFile}@${entry._requireFile}#run${this.index}-repeat${repeatEachIndex}`;
+        // We rely upon relative paths being unique.
+        // See `getClashingTestsPerSuite()` in `runner.ts`.
+        test._id = `${calculateSha1(relativeTitlePath + ' ' + entry.title)}@${entry._requireFile}#run${this.index}-repeat${repeatEachIndex}`;
         test.repeatEachIndex = repeatEachIndex;
         test._projectIndex = this.index;
         to._addTest(test);
@@ -94,21 +96,12 @@ export class ProjectImpl {
     }
     if (!to._entries.length)
       return false;
-    for (const hook of from.hooks) {
-      const clone = hook._clone();
-      clone.retries = 1;
-      clone._pool = this.buildPool(hook);
-      clone._projectIndex = this.index;
-      clone._id = `${hook._ordinalInFile}@${hook._requireFile}#run${this.index}-repeat${repeatEachIndex}`;
-      clone.repeatEachIndex = repeatEachIndex;
-      to._addAllHook(clone);
-    }
     return true;
   }
 
   cloneFileSuite(suite: Suite, repeatEachIndex: number, filter: (test: TestCase) => boolean): Suite | undefined {
     const result = suite._clone();
-    return this._cloneEntries(suite, result, repeatEachIndex, filter) ? result : undefined;
+    return this._cloneEntries(suite, result, repeatEachIndex, filter, '') ? result : undefined;
   }
 
   private resolveFixtures(testType: TestTypeImpl, configUse: Fixtures): FixturesWithLocation[] {

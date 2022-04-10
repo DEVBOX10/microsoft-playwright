@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { SelectorEngine, SelectorRoot } from './selectorEngine';
+import type { SelectorEngine, SelectorRoot } from './selectorEngine';
 import { isInsideScope } from './selectorEvaluator';
-import { checkComponentAttribute, parseComponentSelector } from '../common/componentUtils';
+import { checkComponentAttribute, parseComponentSelector } from './componentUtils';
 
 type ComponentNode = {
   name: string,
@@ -232,7 +232,7 @@ function findVueRoots(root: Document | ShadowRoot, roots: VueRoot[] = []): VueRo
 
 export const VueEngine: SelectorEngine = {
   queryAll(scope: SelectorRoot, selector: string): Element[] {
-    const { name, attributes } = parseComponentSelector(selector);
+    const { name, attributes } = parseComponentSelector(selector, false);
     const vueRoots = findVueRoots(document);
     const trees = vueRoots.map(vueRoot => vueRoot.version === 3 ? buildComponentsTreeVue3(vueRoot.root) : buildComponentsTreeVue2(vueRoot.root));
     const treeNodes = trees.map(tree => filterComponentsTree(tree, treeNode => {

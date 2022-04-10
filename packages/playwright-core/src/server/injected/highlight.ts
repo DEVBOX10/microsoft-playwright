@@ -44,7 +44,7 @@ export class Highlight {
     this._innerGlassPaneElement.appendChild(this._tooltipElement);
 
     // Use a closed shadow root to prevent selectors matching our internal previews.
-    this._glassPaneShadow = this._outerGlassPaneElement.attachShadow({ mode: this._isUnderTest ? 'open' : 'closed' });
+    this._glassPaneShadow = this._outerGlassPaneElement.attachShadow({ mode: isUnderTest ? 'open' : 'closed' });
     this._glassPaneShadow.appendChild(this._innerGlassPaneElement);
     this._glassPaneShadow.appendChild(this._actionPointElement);
     const styleElement = document.createElement('style');
@@ -105,6 +105,8 @@ export class Highlight {
     this._actionPointElement.style.top = y + 'px';
     this._actionPointElement.style.left = x + 'px';
     this._actionPointElement.hidden = false;
+    if (this._isUnderTest)
+      console.error('Action point for test: ' + JSON.stringify({ x, y })); // eslint-disable-line no-console
   }
 
   hideActionPoint() {
@@ -162,6 +164,9 @@ export class Highlight {
       highlightElement.style.height = box.height + 'px';
       highlightElement.style.display = 'block';
       this._highlightElements.push(highlightElement);
+
+      if (this._isUnderTest)
+        console.error('Highlight box for test: ' + JSON.stringify({ x: box.x, y: box.y, width: box.width, height: box.height })); // eslint-disable-line no-console
     }
 
     for (const highlightElement of pool) {
@@ -169,6 +174,28 @@ export class Highlight {
       this._highlightElements.push(highlightElement);
     }
   }
+
+  maskElements(elements: Element[]) {
+    const boxes = elements.map(e => e.getBoundingClientRect());
+    const pool = this._highlightElements;
+    this._highlightElements = [];
+    for (const box of boxes) {
+      const highlightElement = pool.length ? pool.shift()! : this._createHighlightElement();
+      highlightElement.style.backgroundColor = '#F0F';
+      highlightElement.style.left = box.x + 'px';
+      highlightElement.style.top = box.y + 'px';
+      highlightElement.style.width = box.width + 'px';
+      highlightElement.style.height = box.height + 'px';
+      highlightElement.style.display = 'block';
+      this._highlightElements.push(highlightElement);
+    }
+
+    for (const highlightElement of pool) {
+      highlightElement.style.display = 'none';
+      this._highlightElements.push(highlightElement);
+    }
+  }
+
 
   private _createHighlightElement(): HTMLElement {
     const highlightElement = document.createElement('x-pw-highlight');

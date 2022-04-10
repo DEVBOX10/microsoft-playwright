@@ -14,28 +14,50 @@
  * limitations under the License.
  */
 
-import type { Fixtures, TestError, TestInfo } from '../types/test';
+import type { Fixtures, TestError } from '../types/test';
 import type { Location } from '../types/testReporter';
+import type { FullConfig as FullConfigPublic, FullProject as FullProjectPublic } from './types';
 export * from '../types/test';
-export { Location } from '../types/testReporter';
+export type { Location } from '../types/testReporter';
 
 export type FixturesWithLocation = {
   fixtures: Fixtures;
   location: Location;
 };
-export type Annotations = { type: string, description?: string }[];
+export type Annotation = { type: string, description?: string };
 
 export interface TestStepInternal {
-  complete(error?: Error | TestError): void;
+  complete(result: { error?: Error | TestError }): void;
   title: string;
   category: string;
   canHaveChildren: boolean;
   forceNoParent: boolean;
   location?: Location;
+  refinedTitle?: string;
 }
 
-export interface TestInfoImpl extends TestInfo {
-  _addStep: (data: Omit<TestStepInternal, 'complete'>) => TestStepInternal;
+/**
+ * FullConfigInternal allows the plumbing of configuration details throughout the Test Runner without
+ * increasing the surface area of the public API type called FullConfig.
+ */
+export interface FullConfigInternal extends FullConfigPublic {
+  /**
+   * Location for GlobalInfo scoped data. This my differ from the projec-level outputDir
+   * since GlobalInfo (and this config), only respect top-level configurations.
+   */
+  _globalOutputDir: string;
+  _configDir: string;
+  _testGroupsCount: number;
+  _screenshotsDir: string;
+
+  // Overrides the public field.
+  projects: FullProjectInternal[];
 }
 
-export type TestCaseType = 'beforeAll' | 'afterAll' | 'test';
+/**
+ * FullProjectInternal allows the plumbing of configuration details throughout the Test Runner without
+ * increasing the surface area of the public API type called FullProject.
+ */
+export interface FullProjectInternal extends FullProjectPublic {
+  _screenshotsDir: string;
+}

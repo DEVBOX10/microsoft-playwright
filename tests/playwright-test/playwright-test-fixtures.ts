@@ -18,11 +18,15 @@ import type { JSONReport, JSONReportSuite } from '@playwright/test/src/reporters
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { PNG } from 'pngjs';
 import rimraf from 'rimraf';
 import { promisify } from 'util';
-import { CommonFixtures, commonFixtures } from '../config/commonFixtures';
-import { serverFixtures, ServerFixtures, ServerWorkerOptions } from '../config/serverFixtures';
-import { test as base, TestInfo } from './stable-test-runner';
+import type { CommonFixtures } from '../config/commonFixtures';
+import { commonFixtures } from '../config/commonFixtures';
+import type { ServerFixtures, ServerWorkerOptions } from '../config/serverFixtures';
+import { serverFixtures } from '../config/serverFixtures';
+import type { TestInfo } from './stable-test-runner';
+import { test as base } from './stable-test-runner';
 
 const removeFolderAsync = promisify(rimraf);
 
@@ -66,6 +70,12 @@ async function writeFiles(testInfo: TestInfo, files: Files) {
       'playwright.config.ts': `
         module.exports = { projects: [ {} ] };
       `,
+    };
+  }
+  if (!Object.keys(files).some(name => name.includes('package.json'))) {
+    files = {
+      ...files,
+      'package.json': `{ "name": "test-project" }`,
     };
   }
 
@@ -119,12 +129,29 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
       ...process.env,
       PLAYWRIGHT_JSON_OUTPUT_NAME: reportFile,
       PWTEST_CACHE_DIR: cacheDir,
-      PWTEST_SKIP_TEST_OUTPUT: '1',
-      ...env,
+      // BEGIN: Reserved CI
+      CI: undefined,
+      BUILD_URL: undefined,
+      CI_COMMIT_SHA: undefined,
+      CI_JOB_URL: undefined,
+      CI_PROJECT_URL: undefined,
+      GITHUB_REPOSITORY: undefined,
+      GITHUB_RUN_ID: undefined,
+      GITHUB_SERVER_URL: undefined,
+      GITHUB_SHA: undefined,
+      // END: Reserved CI
+      PW_TEST_HTML_REPORT_OPEN: undefined,
       PLAYWRIGHT_DOCKER: undefined,
       PW_GRID: undefined,
+      PW_TEST_REPORTER: undefined,
+      PW_TEST_REPORTER_WS_ENDPOINT: undefined,
+      PW_TEST_SOURCE_TRANSFORM: undefined,
+      PW_TEST_SOURCE_TRANSFORM_SCOPE: undefined,
+      PW_OUT_OF_PROCESS_DRIVER: undefined,
+      NODE_OPTIONS: undefined,
+      ...env,
     },
-    cwd: baseDir,
+    cwd: options.cwd ? path.resolve(baseDir, options.cwd) : baseDir,
   });
   let didSendSigint = false;
   testProcess.onOutput = () => {
@@ -188,10 +215,11 @@ type RunOptions = {
   sendSIGINTAfter?: number;
   usesCustomOutputDir?: boolean;
   additionalArgs?: string[];
+  cwd?: string,
 };
 type Fixtures = {
   writeFiles: (files: Files) => Promise<string>;
-  runInlineTest: (files: Files, params?: Params, env?: Env, options?: RunOptions) => Promise<RunResult>;
+  runInlineTest: (files: Files, params?: Params, env?: Env, options?: RunOptions, beforeRunPlaywrightTest?: ({ baseDir }: { baseDir: string }) => Promise<void>) => Promise<RunResult>;
   runTSC: (files: Files) => Promise<TSCResult>;
 };
 
@@ -204,8 +232,10 @@ export const test = base
       },
 
       runInlineTest: async ({ childProcess }, use, testInfo: TestInfo) => {
-        await use(async (files: Files, params: Params = {}, env: Env = {}, options: RunOptions = {}) => {
+        await use(async (files: Files, params: Params = {}, env: Env = {}, options: RunOptions = {}, beforeRunPlaywrightTest?: ({ baseDir: string }) => Promise<void>) => {
           const baseDir = await writeFiles(testInfo, files);
+          if (beforeRunPlaywrightTest)
+            await beforeRunPlaywrightTest({ baseDir });
           return await runPlaywrightTest(childProcess, baseDir, params, env, options);
         });
       },
@@ -233,7 +263,8 @@ const TSCONFIG = {
     'esModuleInterop': true,
     'allowSyntheticDefaultImports': true,
     'rootDir': '.',
-    'lib': ['esnext', 'dom', 'DOM.Iterable']
+    'lib': ['esnext', 'dom', 'DOM.Iterable'],
+    'noEmit': true,
   },
   'exclude': [
     'node_modules'
@@ -243,11 +274,11 @@ const TSCONFIG = {
 export { expect } from './stable-test-runner';
 
 const asciiRegex = new RegExp('[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))', 'g');
-export function stripAscii(str: string): string {
+export function stripAnsi(str: string): string {
   return str.replace(asciiRegex, '');
 }
 
-function countTimes(s: string, sub: string): number {
+export function countTimes(s: string, sub: string): number {
   let result = 0;
   for (let index = 0; index !== -1;) {
     index = s.indexOf(sub, index);
@@ -257,4 +288,29 @@ function countTimes(s: string, sub: string): number {
     }
   }
   return result;
+}
+
+export function createImage(width: number, height: number, r: number = 0, g: number = 0, b: number = 0, a: number = 255): Buffer {
+  const image = new PNG({ width, height });
+  // Make both images red.
+  for (let i = 0; i < width * height; ++i) {
+    image.data[i * 4 + 0] = r;
+    image.data[i * 4 + 1] = g;
+    image.data[i * 4 + 2] = b;
+    image.data[i * 4 + 3] = a;
+  }
+  return PNG.sync.write(image);
+}
+
+export function createWhiteImage(width: number, height: number) {
+  return createImage(width, height, 255, 255, 255);
+}
+
+export function paintBlackPixels(image: Buffer, blackPixelsCount: number): Buffer {
+  const png = PNG.sync.read(image);
+  for (let i = 0; i < blackPixelsCount; ++i) {
+    for (let j = 0; j < 3; ++j)
+      png.data[i * 4 + j] = 0;
+  }
+  return PNG.sync.write(png);
 }

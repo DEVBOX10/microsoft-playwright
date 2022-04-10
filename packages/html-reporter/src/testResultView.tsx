@@ -14,56 +14,82 @@
   limitations under the License.
 */
 
-import type { TestAttachment, TestCase, TestResult, TestStep } from '@playwright/test/src/reporters/html';
+import type { TestAttachment, TestCase, TestResult, TestStep } from '@playwright-test/reporters/html';
 import ansi2html from 'ansi-to-html';
 import * as React from 'react';
 import { TreeItem } from './treeItem';
-import { TabbedPane } from './tabbedPane';
 import { msToString } from './uiUtils';
 import { AutoChip } from './chip';
 import { traceImage } from './images';
 import { AttachmentLink } from './links';
 import { statusIcon } from './statusIcon';
+import type { ImageDiff } from './imageDiffView';
+import { ImageDiffView } from './imageDiffView';
 import './testResultView.css';
 
-const imageDiffNames = ['expected', 'actual', 'diff'];
+function groupImageDiffs(screenshots: Set<TestAttachment>): ImageDiff[] {
+  const snapshotNameToImageDiff = new Map<string, ImageDiff>();
+  for (const attachment of screenshots) {
+    const match = attachment.name.match(/^(.*)-(expected|actual|diff|previous)(\.[^.]+)?$/);
+    if (!match)
+      continue;
+    const [, name, category, extension = ''] = match;
+    const snapshotName = name + extension;
+    let imageDiff = snapshotNameToImageDiff.get(snapshotName);
+    if (!imageDiff) {
+      imageDiff = { name: snapshotName };
+      snapshotNameToImageDiff.set(snapshotName, imageDiff);
+    }
+    if (category === 'actual')
+      imageDiff.actual = { attachment };
+    if (category === 'expected')
+      imageDiff.expected = { attachment, title: 'Expected' };
+    if (category === 'previous')
+      imageDiff.expected = { attachment, title: 'Previous' };
+    if (category === 'diff')
+      imageDiff.diff = { attachment };
+  }
+  for (const [name, diff] of snapshotNameToImageDiff) {
+    if (!diff.actual || !diff.expected) {
+      snapshotNameToImageDiff.delete(name);
+    } else {
+      screenshots.delete(diff.actual.attachment);
+      screenshots.delete(diff.expected.attachment);
+      screenshots.delete(diff.diff?.attachment!);
+    }
+  }
+  return [...snapshotNameToImageDiff.values()];
+}
 
 export const TestResultView: React.FC<{
   test: TestCase,
   result: TestResult,
 }> = ({ result }) => {
 
-  const { screenshots, videos, traces, otherAttachments, attachmentsMap } = React.useMemo(() => {
-    const attachmentsMap = new Map<string, TestAttachment>();
+  const { screenshots, videos, traces, otherAttachments, diffs } = React.useMemo(() => {
     const attachments = result?.attachments || [];
-    const otherAttachments = new Set<TestAttachment>(attachments);
-    const screenshots = attachments.filter(a => a.contentType.startsWith('image/') && !imageDiffNames.includes(a.name));
+    const screenshots = new Set(attachments.filter(a => a.contentType.startsWith('image/')));
     const videos = attachments.filter(a => a.name === 'video');
     const traces = attachments.filter(a => a.name === 'trace');
-    for (const a of attachments)
-      attachmentsMap.set(a.name, a);
+    const otherAttachments = new Set<TestAttachment>(attachments);
     [...screenshots, ...videos, ...traces].forEach(a => otherAttachments.delete(a));
-    return { attachmentsMap, screenshots, videos, otherAttachments, traces };
+    const diffs = groupImageDiffs(screenshots);
+    return { screenshots: [...screenshots], videos, traces, otherAttachments, diffs };
   }, [ result ]);
 
-  const expected = attachmentsMap.get('expected');
-  const actual = attachmentsMap.get('actual');
-  const diff = attachmentsMap.get('diff');
-  const hasImages = [actual?.contentType, expected?.contentType, diff?.contentType].some(v => v && /^image\//i.test(v));
   return <div className='test-result'>
-    {result.error && <AutoChip header='Errors'>
-      <ErrorMessage key='test-result-error-message' error={result.error}></ErrorMessage>
+    {!!result.errors.length && <AutoChip header='Errors'>
+      {result.errors.map((error, index) => <ErrorMessage key={'test-result-error-message-' + index} error={error}></ErrorMessage>)}
     </AutoChip>}
     {!!result.steps.length && <AutoChip header='Test Steps'>
       {result.steps.map((step, i) => <StepTreeItem key={`step-${i}`} step={step} depth={0}></StepTreeItem>)}
     </AutoChip>}
 
-    {expected && actual && <AutoChip header={`${hasImages ? 'Image' : 'Snapshot'} mismatch`}>
-      {hasImages && <ImageDiff actual={actual} expected={expected} diff={diff}></ImageDiff>}
-      <AttachmentLink key={`expected`} attachment={expected}></AttachmentLink>
-      <AttachmentLink key={`actual`} attachment={actual}></AttachmentLink>
-      {diff && <AttachmentLink key={`diff`} attachment={diff}></AttachmentLink>}
-    </AutoChip>}
+    {diffs.map((diff, index) =>
+      <AutoChip key={`diff-${index}`} header={`Image mismatch: ${diff.name}`}>
+        <ImageDiffView key='image-diff' imageDiff={diff}></ImageDiffView>
+      </AutoChip>
+    )}
 
     {!!screenshots.length && <AutoChip header='Screenshots'>
       {screenshots.map((a, i) => {
@@ -75,12 +101,12 @@ export const TestResultView: React.FC<{
     </AutoChip>}
 
     {!!traces.length && <AutoChip header='Traces'>
-      {traces.map((a, i) => <div key={`trace-${i}`}>
-        <a href={`trace/index.html?trace=${new URL(a.path!, window.location.href)}`}>
+      {<div>
+        <a href={`trace/index.html?${traces.map((a, i) => `trace=${new URL(a.path!, window.location.href)}`).join('&')}`}>
           <img src={traceImage} style={{ width: 192, height: 117, marginLeft: 20 }} />
         </a>
-        <AttachmentLink attachment={a}></AttachmentLink>
-      </div>)}
+        {traces.map((a, i) => <AttachmentLink key={`trace-${i}`} attachment={a} linkName={traces.length === 1 ? 'trace' : `trace-${i + 1}`}></AttachmentLink>)}
+      </div>}
     </AutoChip>}
 
     {!!videos.length && <AutoChip header='Videos'>
@@ -114,42 +140,6 @@ const StepTreeItem: React.FC<{
       children.unshift(<ErrorMessage key='line' error={step.snippet}></ErrorMessage>);
     return children;
   } : undefined} depth={depth}></TreeItem>;
-};
-
-const ImageDiff: React.FunctionComponent<{
- actual: TestAttachment,
- expected: TestAttachment,
- diff?: TestAttachment,
-}> = ({ actual, expected, diff }) => {
-  const [selectedTab, setSelectedTab] = React.useState<string>('actual');
-  const diffElement = React.useRef<HTMLImageElement>(null);
-  const tabs = [];
-  tabs.push({
-    id: 'actual',
-    title: 'Actual',
-    render: () => <img src={actual.path} onLoad={() => {
-      if (diffElement.current)
-        diffElement.current.style.minHeight = diffElement.current.offsetHeight + 'px';
-    }}/>
-  });
-  tabs.push({
-    id: 'expected',
-    title: 'Expected',
-    render: () => <img src={expected.path} onLoad={() => {
-      if (diffElement.current)
-        diffElement.current.style.minHeight = diffElement.current.offsetHeight + 'px';
-    }}/>
-  });
-  if (diff) {
-    tabs.push({
-      id: 'diff',
-      title: 'Diff',
-      render: () => <img src={diff.path}/>
-    });
-  }
-  return <div className='vbox' data-testid='test-result-image-mismatch' ref={diffElement}>
-    <TabbedPane tabs={tabs} selectedTab={selectedTab} setSelectedTab={setSelectedTab} />
-  </div>;
 };
 
 const ErrorMessage: React.FC<{

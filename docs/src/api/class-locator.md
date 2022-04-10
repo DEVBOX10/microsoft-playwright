@@ -3,7 +3,7 @@
 Locators are the central piece of Playwright's auto-waiting and retry-ability. In a nutshell, locators represent
 a way to find element(s) on the page at any moment. Locator can be created with the [`method: Page.locator`] method.
 
-[Learn more about locators](./locators.md).
+[Learn more about locators](../locators.md).
 
 ## async method: Locator.allInnerTexts
 - returns: <[Array]<[string]>>
@@ -67,7 +67,7 @@ await page.Mouse.ClickAsync(box.X + box.Width / 2, box.Y + box.Height / 2);
 This method checks the element by performing the following steps:
 1. Ensure that element is a checkbox or a radio input. If not, this method throws. If the element is already
    checked, this method returns immediately.
-1. Wait for [actionability](./actionability.md) checks on the element, unless [`option: force`] option is set.
+1. Wait for [actionability](../actionability.md) checks on the element, unless [`option: force`] option is set.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element.
 1. Wait for initiated navigations to either succeed or fail, unless [`option: noWaitAfter`] option is set.
@@ -87,7 +87,7 @@ When all steps combined have not finished during the specified [`option: timeout
 ## async method: Locator.click
 
 This method clicks the element by performing the following steps:
-1. Wait for [actionability](./actionability.md) checks on the element, unless [`option: force`] option is set.
+1. Wait for [actionability](../actionability.md) checks on the element, unless [`option: force`] option is set.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element, or the specified [`option: position`].
 1. Wait for initiated navigations to either succeed or fail, unless [`option: noWaitAfter`] option is set.
@@ -117,7 +117,7 @@ Returns the number of elements matching given selector.
   - alias-csharp: DblClickAsync
 
 This method double clicks the element by performing the following steps:
-1. Wait for [actionability](./actionability.md) checks on the element, unless [`option: force`] option is set.
+1. Wait for [actionability](../actionability.md) checks on the element, unless [`option: force`] option is set.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to double click in the center of the element, or the specified [`option: position`].
 1. Wait for initiated navigations to either succeed or fail, unless [`option: noWaitAfter`] option is set. Note that
@@ -223,7 +223,7 @@ await element.DispatchEventAsync("dragstart", new Dictionary<string, object>
 DOM event type: `"click"`, `"dragstart"`, etc.
 
 ### param: Locator.dispatchEvent.eventInit
-- `eventInit` <[EvaluationArgument]>
+- `eventInit` ?<[EvaluationArgument]>
 
 Optional event-specific initialization properties.
 
@@ -294,7 +294,7 @@ Assert.AreEqual("10 retweets", await tweets.EvaluateAsync("node => node.innerTex
 ### param: Locator.evaluate.expression = %%-evaluate-expression-%%
 
 ### param: Locator.evaluate.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -339,7 +339,7 @@ var divsCount = await elements.EvaluateAll<bool>("(divs, min) => divs.length >= 
 ### param: Locator.evaluateAll.expression = %%-evaluate-expression-%%
 
 ### param: Locator.evaluateAll.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -361,7 +361,7 @@ See [`method: Page.evaluateHandle`] for more details.
 ### param: Locator.evaluateHandle.expression = %%-evaluate-expression-%%
 
 ### param: Locator.evaluateHandle.arg
-- `arg` <[EvaluationArgument]>
+- `arg` ?<[EvaluationArgument]>
 
 Optional argument to pass to [`param: expression`].
 
@@ -369,7 +369,7 @@ Optional argument to pass to [`param: expression`].
 
 ## async method: Locator.fill
 
-This method waits for [actionability](./actionability.md) checks, focuses the element, fills it and triggers an `input` event after filling. Note that you can pass an empty string to clear the input field.
+This method waits for [actionability](../actionability.md) checks, focuses the element, fills it and triggers an `input` event after filling. Note that you can pass an empty string to clear the input field.
 
 If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be filled instead.
 
@@ -418,7 +418,7 @@ await locator.click()
 ```
 
 ```python sync
-locator = page.frame_locator("text=Submit").locator("text=Submit")
+locator = page.frame_locator("iframe").locator("text=Submit")
 locator.click()
 ```
 
@@ -442,10 +442,14 @@ Attribute name to get the value for.
 
 ### option: Locator.getAttribute.timeout = %%-input-timeout-%%
 
+## async method: Locator.highlight
+
+Highlight the corresponding element(s) on the screen. Useful for debugging, don't commit the code that uses [`method: Locator.highlight`].
+
 ## async method: Locator.hover
 
 This method hovers over the element by performing the following steps:
-1. Wait for [actionability](./actionability.md) checks on the element, unless [`option: force`] option is set.
+1. Wait for [actionability](../actionability.md) checks on the element, unless [`option: force`] option is set.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to hover over the center of the element, or the specified [`option: position`].
 1. Wait for initiated navigations to either succeed or fail, unless `noWaitAfter` option is set.
@@ -492,28 +496,28 @@ Returns whether the element is checked. Throws if the element is not a checkbox 
 ## async method: Locator.isDisabled
 - returns: <[boolean]>
 
-Returns whether the element is disabled, the opposite of [enabled](./actionability.md#enabled).
+Returns whether the element is disabled, the opposite of [enabled](../actionability.md#enabled).
 
 ### option: Locator.isDisabled.timeout = %%-input-timeout-%%
 
 ## async method: Locator.isEditable
 - returns: <[boolean]>
 
-Returns whether the element is [editable](./actionability.md#editable).
+Returns whether the element is [editable](../actionability.md#editable).
 
 ### option: Locator.isEditable.timeout = %%-input-timeout-%%
 
 ## async method: Locator.isEnabled
 - returns: <[boolean]>
 
-Returns whether the element is [enabled](./actionability.md#enabled).
+Returns whether the element is [enabled](../actionability.md#enabled).
 
 ### option: Locator.isEnabled.timeout = %%-input-timeout-%%
 
 ## async method: Locator.isHidden
 - returns: <[boolean]>
 
-Returns whether the element is hidden, the opposite of [visible](./actionability.md#visible).
+Returns whether the element is hidden, the opposite of [visible](../actionability.md#visible).
 
 ### option: Locator.isHidden.timeout
 - `timeout` <[float]>
@@ -523,7 +527,7 @@ Returns whether the element is hidden, the opposite of [visible](./actionability
 ## async method: Locator.isVisible
 - returns: <[boolean]>
 
-Returns whether the element is [visible](./actionability.md#visible).
+Returns whether the element is [visible](../actionability.md#visible).
 
 ### option: Locator.isVisible.timeout
 - `timeout` <[float]>
@@ -546,10 +550,15 @@ The method finds an element matching the specified selector in the `Locator`'s s
 ## method: Locator.nth
 - returns: <[Locator]>
 
-Returns locator to the n-th matching element.
+Returns locator to the n-th matching element. It's zero based, `nth(0)` selects the first element.
 
 ### param: Locator.nth.index
 - `index` <[int]>
+
+## method: Locator.page
+- returns: <[Page]>
+
+A page this locator belongs to.
 
 ## async method: Locator.press
 
@@ -592,34 +601,14 @@ Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
 
 Returns the buffer with the captured screenshot.
 
-This method waits for the [actionability](./actionability.md) checks, then scrolls element into view before taking a
+This method waits for the [actionability](../actionability.md) checks, then scrolls element into view before taking a
 screenshot. If the element is detached from DOM, the method throws an error.
 
-### option: Locator.screenshot.path
-- `path` <[path]>
-
-The file path to save the image to. The screenshot type will be inferred from file extension. If [`option: path`] is a
-relative path, then it is resolved relative to the current working directory. If no path is provided, the image won't be
-saved to the disk.
-
-### option: Locator.screenshot.type = %%-screenshot-type-%%
-
-### option: Locator.screenshot.quality
-- `quality` <[int]>
-
-The quality of the image, between 0-100. Not applicable to `png` images.
-
-### option: Locator.screenshot.omitBackground
-- `omitBackground` <[boolean]>
-
-Hides default white background and allows capturing screenshots with transparency. Not applicable to `jpeg` images.
-Defaults to `false`.
-
-### option: Locator.screenshot.timeout = %%-input-timeout-%%
+### option: Locator.screenshot.-inline- = %%-screenshot-options-common-list-%%
 
 ## async method: Locator.scrollIntoViewIfNeeded
 
-This method waits for [actionability](./actionability.md) checks, then tries to scroll element into view, unless it is
+This method waits for [actionability](../actionability.md) checks, then tries to scroll element into view, unless it is
 completely visible as defined by
 [IntersectionObserver](https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API)'s `ratio`.
 
@@ -628,7 +617,7 @@ completely visible as defined by
 ## async method: Locator.selectOption
 - returns: <[Array]<[string]>>
 
-This method waits for [actionability](./actionability.md) checks, waits until all specified options are present in the `<select>` element and selects these options.
+This method waits for [actionability](../actionability.md) checks, waits until all specified options are present in the `<select>` element and selects these options.
 
 If the target element is not a `<select>` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be used instead.
 
@@ -706,7 +695,7 @@ await element.SelectOptionAsync(new[] {
 
 ## async method: Locator.selectText
 
-This method waits for [actionability](./actionability.md) checks, then focuses the element and selects all its text
+This method waits for [actionability](../actionability.md) checks, then focuses the element and selects all its text
 content.
 
 ### option: Locator.selectText.force = %%-input-force-%%
@@ -717,7 +706,7 @@ content.
 This method checks or unchecks an element by performing the following steps:
 1. Ensure that matched element is a checkbox or a radio input. If not, this method throws.
 1. If the element already has the right checked state, this method returns immediately.
-1. Wait for [actionability](./actionability.md) checks on the matched element, unless [`option: force`] option is
+1. Wait for [actionability](../actionability.md) checks on the matched element, unless [`option: force`] option is
    set. If the element is detached during the checks, the whole action is retried.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element.
@@ -749,7 +738,7 @@ are resolved relative to the the current working directory. For empty array, cle
 ## async method: Locator.tap
 
 This method taps the element by performing the following steps:
-1. Wait for [actionability](./actionability.md) checks on the element, unless [`option: force`] option is set.
+1. Wait for [actionability](../actionability.md) checks on the element, unless [`option: force`] option is set.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.touchscreen`] to tap the center of the element, or the specified [`option: position`].
 1. Wait for initiated navigations to either succeed or fail, unless [`option: noWaitAfter`] option is set.
@@ -858,7 +847,7 @@ Time to wait between key presses in milliseconds. Defaults to 0.
 This method checks the element by performing the following steps:
 1. Ensure that element is a checkbox or a radio input. If not, this method throws. If the element is already
    unchecked, this method returns immediately.
-1. Wait for [actionability](./actionability.md) checks on the element, unless [`option: force`] option is set.
+1. Wait for [actionability](../actionability.md) checks on the element, unless [`option: force`] option is set.
 1. Scroll the element into view if needed.
 1. Use [`property: Page.mouse`] to click in the center of the element.
 1. Wait for initiated navigations to either succeed or fail, unless [`option: noWaitAfter`] option is set.

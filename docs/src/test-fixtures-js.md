@@ -466,7 +466,46 @@ export const test = base.extend<{ saveLogs: void }>({
 export { expect } from '@playwright/test';
 ```
 
+## Fixture timeout
+
+By default, fixture shares timeout with the test. However, for slow fixtures, especially [worker-scoped](#worker-scoped-fixtures) ones, it is convenient to have a separate timeout. This way you can keep the overall test timeout small, and give the slow fixture more time.
+
+```js js-flavor=js
+const { test: base, expect } = require('@playwright/test');
+
+const test = base.extend({
+  slowFixture: [async ({}, use) => {
+    // ... perform a slow operation ...
+    await use('hello');
+  }, { timeout: 60000 }]
+});
+
+test('example test', async ({ slowFixture }) => {
+  // ...
+});
+```
+
+```js js-flavor=ts
+import { test as base, expect } from '@playwright/test';
+
+const test = base.extend<{ slowFixture: string }>({
+  slowFixture: [async ({}, use) => {
+    // ... perform a slow operation ...
+    await use('hello');
+  }, { timeout: 60000 }]
+});
+
+test('example test', async ({ slowFixture }) => {
+  // ...
+});
+```
+
+
 ## Fixtures-options
+
+:::note
+Overriding custom fixtures in the config file has changed in version 1.18. [Learn more](./release-notes#breaking-change-custom-config-options).
+:::
 
 Playwright Test supports running multiple test projects that can be separately configured. You can use "option" fixtures to make your configuration options declarative and type-checked. Learn more about [parametrizing tests](./test-parameterize.md).
 

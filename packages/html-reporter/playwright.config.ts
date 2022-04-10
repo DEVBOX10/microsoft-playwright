@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-import { PlaywrightTestConfig, devices } from '@playwright/test';
+import type { PlaywrightTestConfig } from '@playwright/test';
+import { devices } from '@playwright/test';
 
 const config: PlaywrightTestConfig = {
   testDir: 'src',
-  snapshotDir: 'snapshots',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [
@@ -26,7 +26,14 @@ const config: PlaywrightTestConfig = {
   ] : [
     ['html', { open: 'on-failure' }]
   ],
+  webServer: {
+    url: 'http://localhost:3101/tests.html',
+    command: 'npm run dev',
+    cwd: __dirname,
+    reuseExistingServer: !process.env.CI,
+  },
   use: {
+    baseURL: 'http://localhost:3101/tests.html',
     trace: 'on-first-retry',
   },
   projects: [

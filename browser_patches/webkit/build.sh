@@ -15,7 +15,7 @@ build_gtk() {
   if [[ -n "${EXPORT_COMPILE_COMMANDS}" ]]; then
     CMAKE_ARGS="--cmakeargs=\"-DCMAKE_EXPORT_COMPILE_COMMANDS=1\""
   fi
-  WEBKIT_JHBUILD=1 WEBKIT_JHBUILD_MODULESET=minimal WEBKIT_OUTPUTDIR=$(pwd)/WebKitBuild/GTK ./Tools/Scripts/build-webkit --gtk --release "${CMAKE_ARGS}" --touch-events --orientation-events --no-bubblewrap-sandbox --no-webxr MiniBrowser
+  WEBKIT_JHBUILD=1 WEBKIT_JHBUILD_MODULESET=minimal WEBKIT_OUTPUTDIR=$(pwd)/WebKitBuild/GTK ./Tools/Scripts/build-webkit --gtk --release "${CMAKE_ARGS}" --touch-events --orientation-events --no-bubblewrap-sandbox --no-webxr --cmakeargs=-DUSE_GSTREAMER_WEBRTC=FALSE --cmakeargs=-DENABLE_INTROSPECTION=OFF MiniBrowser
 }
 
 build_wpe() {
@@ -26,7 +26,7 @@ build_wpe() {
   if [[ -n "${EXPORT_COMPILE_COMMANDS}" ]]; then
     CMAKE_ARGS="--cmakeargs=\"-DCMAKE_EXPORT_COMPILE_COMMANDS=1\""
   fi
-  WEBKIT_JHBUILD=1 WEBKIT_JHBUILD_MODULESET=minimal WEBKIT_OUTPUTDIR=$(pwd)/WebKitBuild/WPE ./Tools/Scripts/build-webkit --wpe --release "${CMAKE_ARGS}" --touch-events --orientation-events --no-bubblewrap-sandbox --no-webxr --cmakeargs=-DENABLE_COG=OFF MiniBrowser
+  WEBKIT_JHBUILD=1 WEBKIT_JHBUILD_MODULESET=minimal WEBKIT_OUTPUTDIR=$(pwd)/WebKitBuild/WPE ./Tools/Scripts/build-webkit --wpe --release "${CMAKE_ARGS}" --touch-events --orientation-events --no-bubblewrap-sandbox --no-webxr --cmakeargs=-DENABLE_COG=OFF --cmakeargs=-DUSE_GSTREAMER_WEBRTC=FALSE --cmakeargs=-DENABLE_INTROSPECTION=OFF MiniBrowser
 }
 
 ensure_linux_deps() {
@@ -48,7 +48,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
   if [[ "${CURRENT_HOST_OS_VERSION}" == "10.15" ]]; then
     selectXcodeVersionOrDie "11.7"
   elif [[ "${CURRENT_HOST_OS_VERSION}" == "11."* ]]; then
-    selectXcodeVersionOrDie "12.2"
+    selectXcodeVersionOrDie "12.5"
   elif [[ "${CURRENT_HOST_OS_VERSION}" == "12."* ]]; then
     selectXcodeVersionOrDie "13.2"
   else
@@ -81,7 +81,7 @@ elif [[ "$(uname)" == "Linux" ]]; then
     echo
     build_wpe
   fi
-elif [[ "$(uname)" == MINGW* ]]; then
+elif [[ "$(uname)" == MINGW* || "$(uname)" == MSYS* ]]; then
   /c/Windows/System32/cmd.exe "/c $(cygpath -w "${SCRIPT_FOLDER}"/buildwin.bat)"
 else
   echo "ERROR: cannot upload on this platform!" 1>&2

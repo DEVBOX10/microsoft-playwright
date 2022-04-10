@@ -14,17 +14,17 @@
  * limitations under the License.
  */
 
-import * as channels from '../protocol/channels';
+import type * as channels from '../protocol/channels';
 import { BrowserContext, prepareBrowserContextParams } from './browserContext';
-import { Page } from './page';
+import type { Page } from './page';
 import { ChannelOwner } from './channelOwner';
 import { Events } from './events';
-import { BrowserContextOptions } from './types';
-import { isSafeCloseError, kBrowserClosedError } from '../utils/errors';
-import * as api from '../../types/types';
+import type { BrowserContextOptions } from './types';
+import { isSafeCloseError, kBrowserClosedError } from '../common/errors';
+import type * as api from '../../types/types';
 import { CDPSession } from './cdpSession';
 import type { BrowserType } from './browserType';
-import { LocalUtils } from './localUtils';
+import type { LocalUtils } from './localUtils';
 
 export class Browser extends ChannelOwner<channels.BrowserChannel> implements api.Browser {
   readonly _contexts = new Set<BrowserContext>();
@@ -64,7 +64,7 @@ export class Browser extends ChannelOwner<channels.BrowserChannel> implements ap
     this._contexts.add(context);
     context._logger = options.logger || this._logger;
     context._setBrowserType(this._browserType);
-    context._localUtils = this._localUtils;
+    context.tracing._localUtils = this._localUtils;
     await this._browserType._onDidCreateContext?.(context);
     return context;
   }

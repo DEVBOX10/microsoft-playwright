@@ -29,7 +29,7 @@ for (const [name, url] of Object.entries(reacts)) {
       await page.goto(server.PREFIX + url);
     });
 
-    it('should work with single-root elements #smoke', async ({ page }) => {
+    it('should work with single-root elements @smoke', async ({ page }) => {
       expect(await page.$$eval(`_react=BookList`, els => els.length)).toBe(1);
       expect(await page.$$eval(`_react=BookItem`, els => els.length)).toBe(3);
       expect(await page.$$eval(`_react=BookList >> _react=BookItem`, els => els.length)).toBe(3);
@@ -58,6 +58,7 @@ for (const [name, url] of Object.entries(reacts)) {
     it('should query by props combinations', async ({ page }) => {
       expect(await page.$$eval(`_react=BookItem[name="The Great Gatsby"]`, els => els.length)).toBe(1);
       expect(await page.$$eval(`_react=BookItem[name="the great gatsby" i]`, els => els.length)).toBe(1);
+      expect(await page.$$eval(`_react=li[key="The Great Gatsby"]`, els => els.length)).toBe(1);
       expect(await page.$$eval(`_react=ColorButton[nested.index = 0]`, els => els.length)).toBe(1);
       expect(await page.$$eval(`_react=ColorButton[nested.nonexisting.index = 0]`, els => els.length)).toBe(0);
       expect(await page.$$eval(`_react=ColorButton[nested.index.nonexisting = 0]`, els => els.length)).toBe(0);
@@ -99,6 +100,15 @@ for (const [name, url] of Object.entries(reacts)) {
       expect(await page.$$eval(`_react=ColorButton[color ~= "e"]`, els => els.length)).toBe(0);
       expect(await page.$$eval(`_react=BookItem[name ~= "gatsby" i]`, els => els.length)).toBe(1);
       expect(await page.$$eval(`_react=BookItem[name *= " gatsby" i]`, els => els.length)).toBe(1);
+    });
+
+    it('should support regex', async ({ page }) => {
+      expect(await page.$$eval(`_react=ColorButton[color = /red/]`, els => els.length)).toBe(3);
+      expect(await page.$$eval(`_react=ColorButton[color = /^red$/]`, els => els.length)).toBe(3);
+      expect(await page.$$eval(`_react=ColorButton[color = /RED/i]`, els => els.length)).toBe(3);
+      expect(await page.$$eval(`_react=ColorButton[color = /[pqr]ed/]`, els => els.length)).toBe(3);
+      expect(await page.$$eval(`_react=ColorButton[color = /[pq]ed/]`, els => els.length)).toBe(0);
+      expect(await page.$$eval(`_react=BookItem[name = /gat.by/i]`, els => els.length)).toBe(1);
     });
 
     it('should support truthy querying', async ({ page }) => {

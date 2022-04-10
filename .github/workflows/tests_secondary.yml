@@ -33,7 +33,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -63,7 +63,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -91,7 +91,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -132,7 +132,8 @@ jobs:
         DEBUG: pw:install
     - run: npm run build
     - run: npx playwright install-deps
-    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- bash installation-tests/installation-tests.sh
+    - name: INSTALLATION TESTS
+      run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- bash installation-tests/run_all_tests.sh
 
   headful_linux:
     name: "Headful Linux"
@@ -146,7 +147,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -177,7 +178,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -207,7 +208,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -228,12 +229,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps chrome
+    - run: npx playwright install --with-deps --force chrome
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
       env:
         PWTEST_CHANNEL: chrome
@@ -253,12 +254,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps chrome
+    - run: npx playwright install --with-deps --force chrome
     - run: npm run ctest
       shell: bash
       env:
@@ -280,12 +281,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps chrome
+    - run: npx playwright install --with-deps --force chrome
     - run: npm run ctest
       env:
         PWTEST_CHANNEL: chrome
@@ -305,7 +306,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -330,7 +331,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -357,7 +358,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -382,12 +383,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge
+    - run: npx playwright install --with-deps --force msedge
     - run: npm run ctest
       env:
         PWTEST_CHANNEL: msedge
@@ -408,12 +409,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge
+    - run: npx playwright install --with-deps --force msedge
     - run: npm run ctest
       shell: bash
       env:
@@ -432,12 +433,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge
+    - run: npx playwright install --with-deps --force msedge
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
       env:
         PWTEST_CHANNEL: msedge
@@ -457,12 +458,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge-beta
+    - run: npx playwright install --with-deps --force msedge-beta
     - run: npm run ctest
       env:
         PWTEST_CHANNEL: msedge-beta
@@ -482,12 +483,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge-beta
+    - run: npx playwright install --with-deps --force msedge-beta
     - run: npm run ctest
       shell: bash
       env:
@@ -506,12 +507,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge-beta
+    - run: npx playwright install --with-deps --force msedge-beta
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
       env:
         PWTEST_CHANNEL: msedge-beta
@@ -531,12 +532,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge-dev
+    - run: npx playwright install --with-deps --force msedge-dev
     - run: npm run ctest
       env:
         PWTEST_CHANNEL: msedge-dev
@@ -556,12 +557,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge-dev
+    - run: npx playwright install --with-deps --force msedge-dev
     - run: npm run ctest
       shell: bash
       env:
@@ -580,12 +581,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps msedge-dev
+    - run: npx playwright install --with-deps --force msedge-dev
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
       env:
         PWTEST_CHANNEL: msedge-dev
@@ -605,12 +606,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps chrome-beta
+    - run: npx playwright install --with-deps --force chrome-beta
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
       env:
         PWTEST_CHANNEL: chrome-beta
@@ -630,12 +631,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps chrome-beta
+    - run: npx playwright install --with-deps --force chrome-beta
     - run: npm run ctest
       shell: bash
       env:
@@ -657,12 +658,12 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps chrome-beta
+    - run: npx playwright install --with-deps --force chrome-beta
     - run: npm run ctest
       env:
         PWTEST_CHANNEL: chrome-beta
@@ -682,7 +683,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -706,7 +707,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
     - run: npm run build
     - run: npx playwright install-deps

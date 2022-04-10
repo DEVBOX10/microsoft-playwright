@@ -15,7 +15,8 @@
  */
 
 import { EventEmitter } from 'events';
-import { createGuid } from '../utils/utils';
+import { createGuid } from '../utils';
+import type { APIRequestContext } from './fetch';
 import type { Browser } from './browser';
 import type { BrowserContext } from './browserContext';
 import type { BrowserType } from './browserType';
@@ -24,16 +25,16 @@ import type { Frame } from './frames';
 import type { Page } from './page';
 
 export type Attribution = {
-  isInternal: boolean,
+  isInternalPlaywright: boolean,
   browserType?: BrowserType;
   browser?: Browser;
-  context?: BrowserContext;
+  context?: BrowserContext | APIRequestContext;
   page?: Page;
   frame?: Frame;
 };
 
-import { CallMetadata } from '../protocol/callMetadata';
-export { CallMetadata } from '../protocol/callMetadata';
+import type { CallMetadata } from '../protocol/callMetadata';
+export type { CallMetadata } from '../protocol/callMetadata';
 
 export class SdkObject extends EventEmitter {
   guid: string;
@@ -50,7 +51,7 @@ export class SdkObject extends EventEmitter {
 }
 
 export interface Instrumentation {
-  addListener(listener: InstrumentationListener, context: BrowserContext | null): void;
+  addListener(listener: InstrumentationListener, context: BrowserContext | APIRequestContext | null): void;
   removeListener(listener: InstrumentationListener): void;
   onBeforeCall(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onBeforeInputAction(sdkObject: SdkObject, metadata: CallMetadata, element: ElementHandle): Promise<void>;
@@ -72,11 +73,11 @@ export interface InstrumentationListener {
 }
 
 export function createInstrumentation(): Instrumentation {
-  const listeners = new Map<InstrumentationListener, BrowserContext | null>();
+  const listeners = new Map<InstrumentationListener, BrowserContext | APIRequestContext | null>();
   return new Proxy({}, {
     get: (obj: any, prop: string) => {
       if (prop === 'addListener')
-        return (listener: InstrumentationListener, context: BrowserContext | null) => listeners.set(listener, context);
+        return (listener: InstrumentationListener, context: BrowserContext | APIRequestContext | null) => listeners.set(listener, context);
       if (prop === 'removeListener')
         return (listener: InstrumentationListener) => listeners.delete(listener);
       if (!prop.startsWith('on'))
@@ -91,7 +92,7 @@ export function createInstrumentation(): Instrumentation {
   });
 }
 
-export function internalCallMetadata(): CallMetadata {
+export function serverSideCallMetadata(): CallMetadata {
   return {
     id: '',
     wallTime: 0,
@@ -101,6 +102,7 @@ export function internalCallMetadata(): CallMetadata {
     method: '',
     params: {},
     log: [],
-    snapshots: []
+    snapshots: [],
+    isServerSide: true,
   };
 }

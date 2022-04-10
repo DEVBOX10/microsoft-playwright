@@ -14,22 +14,23 @@
  * limitations under the License.
  */
 
-import * as structs from '../../types/structs';
-import * as api from '../../types/types';
-import * as channels from '../protocol/channels';
+import type * as structs from '../../types/structs';
+import type * as api from '../../types/types';
+import type * as channels from '../protocol/channels';
+import type { ParsedStackTrace } from '../utils/stackTrace';
 import * as util from 'util';
-import { isRegExp, monotonicTime } from '../utils/utils';
+import { isRegExp, monotonicTime } from '../utils';
 import { ElementHandle } from './elementHandle';
-import { Frame } from './frame';
-import { FilePayload, FrameExpectOptions, Rect, SelectOption, SelectOptionOptions, TimeoutOptions } from './types';
+import type { Frame } from './frame';
+import type { FilePayload, FrameExpectOptions, Rect, SelectOption, SelectOptionOptions, TimeoutOptions } from './types';
 import { parseResult, serializeArgument } from './jsHandle';
-import { escapeWithQuotes } from '../utils/stringUtils';
+import { escapeWithQuotes } from '../utils/isomorphic/stringUtils';
 
 export class Locator implements api.Locator {
-  private _frame: Frame;
-  private _selector: string;
+  _frame: Frame;
+  _selector: string;
 
-  constructor(frame: Frame, selector: string, options?: { hasText?: string | RegExp }) {
+  constructor(frame: Frame, selector: string, options?: { hasText?: string | RegExp, has?: Locator }) {
     this._frame = frame;
     this._selector = selector;
 
@@ -39,6 +40,12 @@ export class Locator implements api.Locator {
         this._selector += ` >> :scope:text-matches(${escapeWithQuotes(text.source, '"')}, "${text.flags}")`;
       else
         this._selector += ` >> :scope:has-text(${escapeWithQuotes(text, '"')})`;
+    }
+
+    if (options?.has) {
+      if (options.has._frame !== frame)
+        throw new Error(`Inner "has" locator must belong to the same frame.`);
+      this._selector += ` >> has=` + JSON.stringify(options.has._selector);
     }
   }
 
@@ -57,6 +64,10 @@ export class Locator implements api.Locator {
         await handle.dispose();
       }
     });
+  }
+
+  page() {
+    return this._frame.page();
   }
 
   async boundingBox(options?: TimeoutOptions): Promise<Rect | null> {
@@ -81,8 +92,8 @@ export class Locator implements api.Locator {
 
   async dragTo(target: Locator, options: channels.FrameDragAndDropOptions = {}) {
     return this._frame.dragAndDrop(this._selector, target._selector, {
-      ...options,
       strict: true,
+      ...options,
     });
   }
 
@@ -103,10 +114,15 @@ export class Locator implements api.Locator {
   }
 
   async _highlight() {
+    // VS Code extension uses this one, keep it for now.
     return this._frame._highlight(this._selector);
   }
 
-  locator(selector: string, options?: { hasText?: string | RegExp }): Locator {
+  async highlight() {
+    return this._frame._highlight(this._selector);
+  }
+
+  locator(selector: string, options?: { hasText?: string | RegExp, has?: Locator }): Locator {
     return new Locator(this._frame, this._selector + ' >> ' + selector, options);
   }
 
@@ -190,7 +206,7 @@ export class Locator implements api.Locator {
     return this._frame.press(this._selector, key, { strict: true, ...options });
   }
 
-  async screenshot(options: channels.ElementHandleScreenshotOptions & { path?: string } = {}): Promise<Buffer> {
+  async screenshot(options: Omit<channels.ElementHandleScreenshotOptions, 'mask'> & { path?: string, mask?: Locator[] } = {}): Promise<Buffer> {
     return this._withElement((h, timeout) => h.screenshot({ ...options, timeout }), options.timeout);
   }
 
@@ -247,14 +263,16 @@ export class Locator implements api.Locator {
     await this._frame._channel.waitForSelector({ selector: this._selector, strict: true, omitReturnValue: true, ...options });
   }
 
-  async _expect(expression: string, options: Omit<FrameExpectOptions, 'expectedValue'> & { expectedValue?: any }): Promise<{ matches: boolean, received?: any, log?: string[] }> {
-    const params: channels.FrameExpectParams = { selector: this._selector, expression, ...options, isNot: !!options.isNot };
-    if (options.expectedValue)
-      params.expectedValue = serializeArgument(options.expectedValue);
-    const result = (await this._frame._channel.expect(params));
-    if (result.received !== undefined)
-      result.received = parseResult(result.received);
-    return result;
+  async _expect(customStackTrace: ParsedStackTrace, expression: string, options: Omit<FrameExpectOptions, 'expectedValue'> & { expectedValue?: any }): Promise<{ matches: boolean, received?: any, log?: string[] }> {
+    return this._frame._wrapApiCall(async () => {
+      const params: channels.FrameExpectParams = { selector: this._selector, expression, ...options, isNot: !!options.isNot };
+      if (options.expectedValue)
+        params.expectedValue = serializeArgument(options.expectedValue);
+      const result = (await this._frame._channel.expect(params));
+      if (result.received !== undefined)
+        result.received = parseResult(result.received);
+      return result;
+    }, false /* isInternal */, customStackTrace);
   }
 
   [util.inspect.custom]() {

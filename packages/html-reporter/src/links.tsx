@@ -14,7 +14,7 @@
   limitations under the License.
 */
 
-import type { TestAttachment } from '@playwright/test/src/reporters/html';
+import type { TestAttachment } from '@playwright-test/reporters/html';
 import * as React from 'react';
 import * as icons from './icons';
 import { TreeItem } from './treeItem';
@@ -68,14 +68,15 @@ export const ProjectLink: React.FunctionComponent<{
 export const AttachmentLink: React.FunctionComponent<{
   attachment: TestAttachment,
   href?: string,
-}> = ({ attachment, href }) => {
+  linkName?: string,
+}> = ({ attachment, href, linkName }) => {
   return <TreeItem title={<span>
     {attachment.contentType === kMissingContentType ? icons.warning() : icons.attachment()}
-    {attachment.path && <a href={href || attachment.path} target='_blank'>{attachment.name}</a>}
+    {attachment.path && <a href={href || attachment.path} target='_blank'>{linkName || attachment.name}</a>}
     {attachment.body && <span>{attachment.name}</span>}
   </span>} loadChildren={attachment.body ? () => {
     return [<div className='attachment-body'>{attachment.body}</div>];
-  } : undefined} depth={0}></TreeItem>;
+  } : undefined} depth={0} style={{ lineHeight: '32px' }}></TreeItem>;
 };
 
 const kMissingContentType = 'x-playwright/missing';

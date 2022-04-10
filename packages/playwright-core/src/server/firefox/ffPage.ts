@@ -17,22 +17,24 @@
 
 import * as dialog from '../dialog';
 import * as dom from '../dom';
-import * as frames from '../frames';
-import { eventsHelper, RegisteredListener } from '../../utils/eventsHelper';
-import { assert } from '../../utils/utils';
-import { Page, PageBinding, PageDelegate, Worker } from '../page';
-import * as types from '../types';
+import type * as frames from '../frames';
+import type { RegisteredListener } from '../../utils/eventsHelper';
+import { eventsHelper } from '../../utils/eventsHelper';
+import { assert } from '../../utils';
+import type { PageBinding, PageDelegate } from '../page';
+import { Page, Worker } from '../page';
+import type * as types from '../types';
 import { getAccessibilityTree } from './ffAccessibility';
-import { FFBrowserContext } from './ffBrowser';
+import type { FFBrowserContext } from './ffBrowser';
 import { FFSession, FFSessionEvents } from './ffConnection';
 import { FFExecutionContext } from './ffExecutionContext';
 import { RawKeyboardImpl, RawMouseImpl, RawTouchscreenImpl } from './ffInput';
 import { FFNetworkManager } from './ffNetworkManager';
-import { Protocol } from './protocol';
-import { Progress } from '../progress';
+import type { Protocol } from './protocol';
+import type { Progress } from '../progress';
 import { splitErrorMessage } from '../../utils/stackTrace';
-import { debugLogger } from '../../utils/debugLogger';
-import { ManualPromise } from '../../utils/async';
+import { debugLogger } from '../../common/debugLogger';
+import { ManualPromise } from '../../utils/manualPromise';
 
 export const UTILITY_WORLD_NAME = '__playwright_utility_world__';
 
@@ -53,6 +55,7 @@ export class FFPage implements PageDelegate {
   private _eventListeners: RegisteredListener[];
   private _workers = new Map<string, { frameId: string, session: FFSession }>();
   private _screencastId: string | undefined;
+  private _initScripts: { script: string, worldName?: string }[] = [];
 
   constructor(session: FFSession, browserContext: FFBrowserContext, opener: FFPage | null) {
     this._session = session;
@@ -112,7 +115,11 @@ export class FFPage implements PageDelegate {
     });
     // Ideally, we somehow ensure that utility world is created before Page.ready arrives, but currently it is racy.
     // Therefore, we can end up with an initialized page without utility world, although very unlikely.
-    this._session.send('Page.addScriptToEvaluateOnNewDocument', { script: '', worldName: UTILITY_WORLD_NAME }).catch(e => this._markAsError(e));
+    this.addInitScript('', UTILITY_WORLD_NAME).catch(e => this._markAsError(e));
+  }
+
+  potentiallyUninitializedPage(): Page {
+    return this._page;
   }
 
   async _markAsError(error: Error) {
@@ -328,6 +335,10 @@ export class FFPage implements PageDelegate {
     await this._session.send('Page.addBinding', { name: binding.name, script: binding.source });
   }
 
+  async removeExposedBindings() {
+    // TODO: implement me.
+  }
+
   didClose() {
     this._session.dispose();
     eventsHelper.removeEventListeners(this._eventListeners);
@@ -393,8 +404,14 @@ export class FFPage implements PageDelegate {
     return success;
   }
 
-  async evaluateOnNewDocument(source: string): Promise<void> {
-    await this._session.send('Page.addScriptToEvaluateOnNewDocument', { script: source });
+  async addInitScript(script: string, worldName?: string): Promise<void> {
+    this._initScripts.push({ script, worldName });
+    await this._session.send('Page.setInitScripts', { scripts: this._initScripts });
+  }
+
+  async removeInitScripts() {
+    this._initScripts = [];
+    await this._session.send('Page.setInitScripts', { scripts: [] });
   }
 
   async closePage(runBeforeUnload: boolean): Promise<void> {
@@ -406,7 +423,7 @@ export class FFPage implements PageDelegate {
       throw new Error('Not implemented');
   }
 
-  async takeScreenshot(progress: Progress, format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined): Promise<Buffer> {
+  async takeScreenshot(progress: Progress, format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined, fitsViewport: boolean, scale: 'css' | 'device'): Promise<Buffer> {
     if (!documentRect) {
       const scrollOffset = await this._page.mainFrame().waitForFunctionValueInUtility(progress, () => ({ x: window.scrollX, y: window.scrollY }));
       documentRect = {
@@ -422,6 +439,7 @@ export class FFPage implements PageDelegate {
     const { data } = await this._session.send('Page.screenshot', {
       mimeType: ('image/' + format) as ('image/png' | 'image/jpeg'),
       clip: documentRect,
+      omitDeviceScaleFactor: scale === 'css',
     });
     return Buffer.from(data, 'base64');
   }
@@ -523,6 +541,18 @@ export class FFPage implements PageDelegate {
   async setInputFiles(handle: dom.ElementHandle<HTMLInputElement>, files: types.FilePayload[]): Promise<void> {
     await handle.evaluateInUtility(([injected, node, files]) =>
       injected.setInputFiles(node, files), files);
+  }
+
+  async setInputFilePaths(handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void> {
+    await Promise.all([
+      this._session.send('Page.setFileInputFiles', {
+        frameId: handle._context.frame._id,
+        objectId: handle._objectId,
+        files
+      }),
+      handle.dispatchEvent('input'),
+      handle.dispatchEvent('change')
+    ]);
   }
 
   async adoptElementHandle<T extends Node>(handle: dom.ElementHandle<T>, to: dom.FrameExecutionContext): Promise<dom.ElementHandle<T>> {

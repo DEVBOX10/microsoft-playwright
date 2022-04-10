@@ -16,18 +16,24 @@
 
 import * as mime from 'mime';
 import * as injectedScriptSource from '../generated/injectedScriptSource';
-import * as channels from '../protocol/channels';
-import { isSessionClosedError } from './common/protocolError';
-import * as frames from './frames';
+import type * as channels from '../protocol/channels';
+import { isSessionClosedError } from './protocolError';
+import type { ScreenshotOptions } from './screenshotter';
+import type * as frames from './frames';
 import type { InjectedScript, InjectedScriptPoll, LogEntry, HitTargetInterceptionResult } from './injected/injectedScript';
-import { CallMetadata } from './instrumentation';
+import type { CallMetadata } from './instrumentation';
 import * as js from './javascript';
-import { Page } from './page';
-import { Progress, ProgressController } from './progress';
-import { SelectorInfo } from './selectors';
-import * as types from './types';
+import type { Page } from './page';
+import type { Progress } from './progress';
+import { ProgressController } from './progress';
+import type { SelectorInfo } from './selectors';
+import type * as types from './types';
+import type { TimeoutOptions } from '../common/types';
+import { experimentalFeaturesEnabled, isUnderTest } from '../utils';
 
 type SetInputFilesFiles = channels.ElementHandleSetInputFilesParams['files'];
+export type InputFilesItems = { files?: SetInputFilesFiles, localPaths?: string[] };
+type ActionName = 'click' | 'hover' | 'dblclick' | 'tap' | 'move and up' | 'move and down';
 
 export class NonRecoverableDOMError extends Error {
 }
@@ -94,10 +100,13 @@ export class FrameExecutionContext extends js.ExecutionContext {
         custom.push(`{ name: '${name}', engine: (${source}) }`);
       const source = `
         (() => {
+        const module = {};
         ${injectedScriptSource.source}
-        return new pwExport(
+        return new module.exports(
+          ${isUnderTest()},
           ${this.frame._page._delegate.rafCountForStablePosition()},
           "${this.frame._page._browserContext._browser.options.name}",
+          ${experimentalFeaturesEnabled()},
           [${custom.join(',\n')}]
         );
         })();
@@ -116,7 +125,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
   declare readonly _context: FrameExecutionContext;
   readonly _page: Page;
   declare readonly _objectId: string;
-  private _frame: frames.Frame;
+  readonly _frame: frames.Frame;
 
   constructor(context: FrameExecutionContext, objectId: string) {
     super(context, 'node', undefined, objectId);
@@ -328,7 +337,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
     };
   }
 
-  async _retryPointerAction(progress: Progress, actionName: string, waitForEnabled: boolean, action: (point: types.Point) => Promise<void>,
+  async _retryPointerAction(progress: Progress, actionName: ActionName, waitForEnabled: boolean, action: (point: types.Point) => Promise<void>,
     options: types.PointerActionOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions): Promise<'error:notconnected' | 'done'> {
     let retry = 0;
     // We progressively wait longer between retries, up to 500ms.
@@ -382,7 +391,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
     return 'done';
   }
 
-  async _performPointerAction(progress: Progress, actionName: string, waitForEnabled: boolean, action: (point: types.Point) => Promise<void>, forceScrollOptions: ScrollIntoViewOptions | undefined, options: types.PointerActionOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions): Promise<'error:notvisible' | 'error:notconnected' | 'error:notinviewport' | { hitTargetDescription: string } | 'done'> {
+  async _performPointerAction(progress: Progress, actionName: ActionName, waitForEnabled: boolean, action: (point: types.Point) => Promise<void>, forceScrollOptions: ScrollIntoViewOptions | undefined, options: types.PointerActionOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions): Promise<'error:notvisible' | 'error:notconnected' | 'error:notinviewport' | { hitTargetDescription: string } | 'done'> {
     const { force = false, position } = options;
     if ((options as any).__testHookBeforeStable)
       await (options as any).__testHookBeforeStable();
@@ -413,52 +422,6 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       return maybePoint;
     const point = roundPoint(maybePoint);
     progress.metadata.point = point;
-
-    if (process.env.PLAYWRIGHT_NO_LAYOUT_SHIFT_CHECK)
-      return this._finishPointerAction(progress, actionName, point, options, action);
-    else
-      return this._finishPointerActionDetectLayoutShift(progress, actionName, point, options, action);
-  }
-
-  private async _finishPointerAction(progress: Progress, actionName: string, point: types.Point, options: types.PointerActionOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions, action: (point: types.Point) => Promise<void>): Promise<'error:notconnected' | { hitTargetDescription: string } | 'done'> {
-    if (!options.force) {
-      if ((options as any).__testHookBeforeHitTarget)
-        await (options as any).__testHookBeforeHitTarget();
-      progress.log(`  checking that element receives pointer events at (${point.x},${point.y})`);
-      const hitTargetResult = await this._checkHitTargetAt(point);
-      if (hitTargetResult !== 'done')
-        return hitTargetResult;
-      progress.log(`  element does receive pointer events`);
-    }
-
-    if (options.trial)  {
-      progress.log(`  trial ${actionName} has finished`);
-      return 'done';
-    }
-
-    await progress.beforeInputAction(this);
-    await this._page._frameManager.waitForSignalsCreatedBy(progress, options.noWaitAfter, async () => {
-      if ((options as any).__testHookBeforePointerAction)
-        await (options as any).__testHookBeforePointerAction();
-      progress.throwIfAborted();  // Avoid action that has side-effects.
-      let restoreModifiers: types.KeyboardModifier[] | undefined;
-      if (options && options.modifiers)
-        restoreModifiers = await this._page.keyboard._ensureModifiers(options.modifiers);
-      progress.log(`  performing ${actionName} action`);
-      await action(point);
-      progress.log(`  ${actionName} action done`);
-      progress.log('  waiting for scheduled navigations to finish');
-      if ((options as any).__testHookAfterPointerAction)
-        await (options as any).__testHookAfterPointerAction();
-      if (restoreModifiers)
-        await this._page.keyboard._ensureModifiers(restoreModifiers);
-    }, 'input');
-    progress.log('  navigations have finished');
-
-    return 'done';
-  }
-
-  private async _finishPointerActionDetectLayoutShift(progress: Progress, actionName: string, point: types.Point, options: types.PointerActionOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions, action: (point: types.Point) => Promise<void>): Promise<'error:notconnected' | { hitTargetDescription: string } | 'done'> {
     await progress.beforeInputAction(this);
 
     let hitTargetInterceptionHandle: js.JSHandle<HitTargetInterceptionResult> | undefined;
@@ -466,18 +429,34 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       if ((options as any).__testHookBeforeHitTarget)
         await (options as any).__testHookBeforeHitTarget();
 
-      const actionType = (actionName === 'hover' || actionName === 'tap') ? actionName : 'mouse';
-      const handle = await this.evaluateHandleInUtility(([injected, node, { actionType, trial }]) => injected.setupHitTargetInterceptor(node, actionType, trial), { actionType, trial: !!options.trial } as const);
-      if (handle === 'error:notconnected')
-        return handle;
-      if (!handle._objectId)
-        return handle.rawValue() as 'error:notconnected';
-      hitTargetInterceptionHandle = handle as any;
-      progress.cleanupWhenAborted(() => {
-        // Do not await here, just in case the renderer is stuck (e.g. on alert)
-        // and we won't be able to cleanup.
-        hitTargetInterceptionHandle!.evaluate(h => h.stop()).catch(e => {});
-      });
+      if (actionName === 'move and up') {
+        // When dropping, the "element that is being dragged" often stays under the cursor,
+        // so hit target check at the moment we receive mousedown does not work -
+        // it finds the "element that is being dragged" instead of the
+        // "element that we drop onto".
+        progress.log(`  checking that element receives pointer events at (${point.x},${point.y})`);
+        const hitTargetResult = await this._checkHitTargetAt(point);
+        if (hitTargetResult !== 'done')
+          return hitTargetResult;
+        progress.log(`  element does receive pointer events`);
+        if (options.trial) {
+          progress.log(`  trial ${actionName} has finished`);
+          return 'done';
+        }
+      } else {
+        const actionType = (actionName === 'hover' || actionName === 'tap') ? actionName : 'mouse';
+        const handle = await this.evaluateHandleInUtility(([injected, node, { actionType, trial }]) => injected.setupHitTargetInterceptor(node, actionType, trial), { actionType, trial: !!options.trial } as const);
+        if (handle === 'error:notconnected')
+          return handle;
+        if (!handle._objectId)
+          return handle.rawValue() as 'error:notconnected';
+        hitTargetInterceptionHandle = handle as any;
+        progress.cleanupWhenAborted(() => {
+          // Do not await here, just in case the renderer is stuck (e.g. on alert)
+          // and we won't be able to cleanup.
+          hitTargetInterceptionHandle!.evaluate(h => h.stop()).catch(e => {});
+        });
+      }
     }
 
     const actionResult = await this._page._frameManager.waitForSignalsCreatedBy(progress, options.noWaitAfter, async () => {
@@ -627,19 +606,23 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
     }, this._page._timeoutSettings.timeout(options));
   }
 
-  async setInputFiles(metadata: CallMetadata, files: SetInputFilesFiles, options: types.NavigatingActionWaitOptions) {
+  async setInputFiles(metadata: CallMetadata, items: InputFilesItems, options: types.NavigatingActionWaitOptions) {
     const controller = new ProgressController(metadata, this);
     return controller.run(async progress => {
-      const result = await this._setInputFiles(progress, files, options);
+      const result = await this._setInputFiles(progress, items, options);
       return assertDone(throwRetargetableDOMError(result));
     }, this._page._timeoutSettings.timeout(options));
   }
 
-  async _setInputFiles(progress: Progress, files: SetInputFilesFiles, options: types.NavigatingActionWaitOptions): Promise<'error:notconnected' | 'done'> {
-    for (const payload of files) {
-      if (!payload.mimeType)
-        payload.mimeType = mime.getType(payload.name) || 'application/octet-stream';
+  async _setInputFiles(progress: Progress, items: InputFilesItems, options: types.NavigatingActionWaitOptions): Promise<'error:notconnected' | 'done'> {
+    const { files, localPaths } = items;
+    if (files) {
+      for (const payload of files) {
+        if (!payload.mimeType)
+          payload.mimeType = mime.getType(payload.name) || 'application/octet-stream';
+      }
     }
+    const multiple = files && files.length > 1 || localPaths && localPaths.length > 1;
     const result = await this.evaluateHandleInUtility(([injected, node, multiple]): Element | undefined => {
       const element = injected.retarget(node, 'follow-label');
       if (!element)
@@ -649,14 +632,17 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       if (multiple && !(element as HTMLInputElement).multiple)
         throw injected.createStacklessError('Non-multiple file input can only accept single file');
       return element;
-    }, files.length > 1);
+    }, multiple);
     if (result === 'error:notconnected' || !result.asElement())
       return 'error:notconnected';
     const retargeted = result.asElement() as ElementHandle<HTMLInputElement>;
     await progress.beforeInputAction(this);
     await this._page._frameManager.waitForSignalsCreatedBy(progress, options.noWaitAfter, async () => {
       progress.throwIfAborted();  // Avoid action that has side-effects.
-      await this._page._delegate.setInputFiles(retargeted, files as types.FilePayload[]);
+      if (localPaths)
+        await this._page._delegate.setInputFilePaths(retargeted, localPaths);
+      else
+        await this._page._delegate.setInputFiles(retargeted, files as types.FilePayload[]);
     });
     await this._page._doSlowMo();
     return 'done';
@@ -755,7 +741,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
     return this._page._delegate.getBoundingBox(this);
   }
 
-  async screenshot(metadata: CallMetadata, options: types.ElementScreenshotOptions = {}): Promise<Buffer> {
+  async screenshot(metadata: CallMetadata, options: ScreenshotOptions & TimeoutOptions = {}): Promise<Buffer> {
     const controller = new ProgressController(metadata, this);
     return controller.run(
         progress => this._page._screenshotter.screenshotElement(progress, this, options),

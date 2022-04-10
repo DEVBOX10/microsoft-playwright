@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-import { Size, Point, Rect, TimeoutOptions } from '../common/types';
-export { Size, Point, Rect, Quad, URLMatch, TimeoutOptions } from '../common/types';
+import type { Size, Point, TimeoutOptions } from '../common/types';
+export type { Size, Point, Rect, Quad, URLMatch, TimeoutOptions } from '../common/types';
 
 export type StrictOptions = {
   strict?: boolean,
@@ -45,17 +45,6 @@ export type ForceOptions = {
 
 export type PointerActionWaitOptions = TimeoutOptions & ForceOptions & StrictOptions & {
   trial?: boolean;
-};
-
-export type ElementScreenshotOptions = TimeoutOptions & {
-  type?: 'png' | 'jpeg',
-  quality?: number,
-  omitBackground?: boolean,
-};
-
-export type ScreenshotOptions = ElementScreenshotOptions & {
-  fullPage?: boolean,
-  clip?: Rect,
 };
 
 export type PageScreencastOptions = {
@@ -268,6 +257,7 @@ export type BrowserContextOptions = {
     omitContent?: boolean,
     path: string
   },
+  storageState?: SetStorageState,
   strictSelectors?: boolean,
   proxy?: ProxySettings,
   baseURL?: string,
@@ -376,4 +366,9 @@ export type APIResponse = {
   statusText: string,
   headers: HeadersArray,
   body: Buffer,
+};
+
+export type AndroidDeviceOptions = {
+  port?: number,
+  omitDriverInstall?: boolean,
 };

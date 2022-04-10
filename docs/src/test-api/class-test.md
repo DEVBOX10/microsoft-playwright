@@ -61,9 +61,9 @@ Test function that takes one or two arguments: an object with fixtures and optio
 
 ## method: Test.afterAll
 
-Declares an `afterAll` hook that is executed once per worker after all tests. When called in the scope of a test file, runs after all tests in the file. When called inside a [`method: Test.describe`] group, runs after all tests in the group.
+Declares an `afterAll` hook that is executed once per worker after all tests. When called in the scope of a test file, runs after all tests in the file. When called inside a [`method: Test.describe`] group, runs after all tests in the group. If multiple `afterAll` hooks are added, they will run in the order of their registration.
 
-Note that worker process is restarted on test failures, and `afterAll` hook runs again in the new worker. Learn more about [workers and failures](./test-retries.md).
+Note that worker process is restarted on test failures, and `afterAll` hook runs again in the new worker. Learn more about [workers and failures](../test-retries.md).
 
 ### param: Test.afterAll.hookFunction
 - `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
@@ -74,7 +74,7 @@ Hook function that takes one or two arguments: an object with worker fixtures an
 
 ## method: Test.afterEach
 
-Declares an `afterEach` hook that is executed after each test. When called in the scope of a test file, runs after each test in the file. When called inside a [`method: Test.describe`] group, runs after each test in the group.
+Declares an `afterEach` hook that is executed after each test. When called in the scope of a test file, runs after each test in the file. When called inside a [`method: Test.describe`] group, runs after each test in the group. If multiple `afterEach` hooks are added, they will run in the order of their registration.
 
 You can access all the same [Fixtures] as the test function itself, and also the [TestInfo] object that gives a lot of useful information. For example, you can check whether the test succeeded or failed.
 
@@ -118,7 +118,7 @@ Hook function that takes one or two arguments: an object with fixtures and optio
 
 ## method: Test.beforeAll
 
-Declares a `beforeAll` hook that is executed once per worker process before all tests. When called in the scope of a test file, runs before all tests in the file. When called inside a [`method: Test.describe`] group, runs before all tests in the group.
+Declares a `beforeAll` hook that is executed once per worker process before all tests. When called in the scope of a test file, runs before all tests in the file. When called inside a [`method: Test.describe`] group, runs before all tests in the group. If multiple `beforeAll` hooks are added, they will run in the order of their registration.
 
 ```js js-flavor=js
 // example.spec.js
@@ -154,7 +154,7 @@ test('my test', async ({ page }) => {
 });
 ```
 
-Note that worker process is restarted on test failures, and `beforeAll` hook runs again in the new worker. Learn more about [workers and failures](./test-retries.md).
+Note that worker process is restarted on test failures, and `beforeAll` hook runs again in the new worker. Learn more about [workers and failures](../test-retries.md).
 
 You can use [`method: Test.afterAll`] to teardown any resources set up in `beforeAll`.
 
@@ -167,7 +167,7 @@ Hook function that takes one or two arguments: an object with worker fixtures an
 
 ## method: Test.beforeEach
 
-Declares a `beforeEach` hook that is executed before each test. When called in the scope of a test file, runs before each test in the file. When called inside a [`method: Test.describe`] group, runs before each test in the group.
+Declares a `beforeEach` hook that is executed before each test. When called in the scope of a test file, runs before each test in the file. When called inside a [`method: Test.describe`] group, runs before each test in the group.  If multiple `beforeEach` hooks are added, they will run in the order of their registration.
 
 You can access all the same [Fixtures] as the test function itself, and also the [TestInfo] object that gives a lot of useful information. For example, you can navigate the page before starting the test.
 
@@ -248,6 +248,50 @@ Group title.
 A callback that is run immediately when calling [`method: Test.describe`]. Any tests added in this callback will belong to the group.
 
 
+## method: Test.describe.configure
+
+Set execution mode of execution for the enclosing scope. Can be executed either on the top level or inside a describe. Configuration applies to the entire scope, regardless of whether it run before or after the test
+declaration.
+
+Learn more about the execution modes [here](../test-parallel.md).
+
+Running tests in parallel:
+
+```js js-flavor=js
+// Run all the tests in the file concurrently using parallel workers.
+test.describe.configure({ mode: 'parallel' });
+test('runs in parallel 1', async ({ page }) => {});
+test('runs in parallel 2', async ({ page }) => {});
+```
+
+```js js-flavor=ts
+// Run all the tests in the file concurrently using parallel workers.
+test.describe.configure({ mode: 'parallel' });
+test('runs in parallel 1', async ({ page }) => {});
+test('runs in parallel 2', async ({ page }) => {});
+```
+
+Running tests sequentially:
+
+```js js-flavor=js
+// Annotate tests as inter-dependent.
+test.describe.configure({ mode: 'serial' });
+test('runs first', async ({ page }) => {});
+test('runs second', async ({ page }) => {});
+```
+
+```js js-flavor=ts
+// Annotate tests as inter-dependent.
+test.describe.configure({ mode: 'serial' });
+test('runs first', async ({ page }) => {});
+test('runs second', async ({ page }) => {});
+```
+
+### option: Test.describe.configure.mode
+- `mode` <[TestMode]<"parallel"|"serial">>
+
+
+
 ## method: Test.describe.only
 
 Declares a focused group of tests. If there are some focused tests or suites, all of them will be run but nothing else.
@@ -290,21 +334,21 @@ A callback that is run immediately when calling [`method: Test.describe.only`]. 
 
 Declares a group of tests that could be run in parallel. By default, tests in a single test file run one after another, but using [`method: Test.describe.parallel`] allows them to run in parallel.
 
+:::note
+See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
+:::
+
 ```js js-flavor=js
 test.describe.parallel('group', () => {
-  test('runs in parallel 1', async ({ page }) => {
-  });
-  test('runs in parallel 2', async ({ page }) => {
-  });
+  test('runs in parallel 1', async ({ page }) => {});
+  test('runs in parallel 2', async ({ page }) => {});
 });
 ```
 
 ```js js-flavor=ts
 test.describe.parallel('group', () => {
-  test('runs in parallel 1', async ({ page }) => {
-  });
-  test('runs in parallel 2', async ({ page }) => {
-  });
+  test('runs in parallel 1', async ({ page }) => {});
+  test('runs in parallel 2', async ({ page }) => {});
 });
 ```
 
@@ -343,24 +387,24 @@ A callback that is run immediately when calling [`method: Test.describe.parallel
 Declares a group of tests that should always be run serially. If one of the tests fails, all subsequent tests are skipped. All tests in a group are retried together.
 
 :::note
+See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
+:::
+
+:::note
 Using serial is not recommended. It is usually better to make your tests isolated, so they can be run independently.
 :::
 
 ```js js-flavor=js
 test.describe.serial('group', () => {
-  test('runs first', async ({ page }) => {
-  });
-  test('runs second', async ({ page }) => {
-  });
+  test('runs first', async ({ page }) => {});
+  test('runs second', async ({ page }) => {});
 });
 ```
 
 ```js js-flavor=ts
 test.describe.serial('group', () => {
-  test('runs first', async ({ page }) => {
-  });
-  test('runs second', async ({ page }) => {
-  });
+  test('runs first', async ({ page }) => {});
+  test('runs second', async ({ page }) => {});
 });
 ```
 
@@ -412,6 +456,38 @@ Group title.
 
 A callback that is run immediately when calling [`method: Test.describe.serial.only`]. Any tests added in this callback will belong to the group.
 
+
+
+
+## method: Test.describe.skip
+
+Declares a skipped test group, similarly to [`method: Test.describe`]. Tests in the skipped group are never run.
+
+```js js-flavor=js
+test.describe.skip('skipped group', () => {
+  test('example', async ({ page }) => {
+    // This test will not run
+  });
+});
+```
+
+```js js-flavor=ts
+test.describe.skip('skipped group', () => {
+  test('example', async ({ page }) => {
+    // This test will not run
+  });
+});
+```
+
+### param: Test.describe.skip.title
+- `title` <[string]>
+
+Group title.
+
+### param: Test.describe.skip.callback
+- `callback` <[function]>
+
+A callback that is run immediately when calling [`method: Test.describe.skip`]. Any tests added in this callback will belong to the group, and will not be run.
 
 
 
@@ -543,22 +619,20 @@ const config: PlaywrightTestConfig<Options> = {
 export default config;
 ```
 
-Learn more about [fixtures](./test-fixtures.md) and [parametrizing tests](./test-parameterize.md).
+Learn more about [fixtures](../test-fixtures.md) and [parametrizing tests](../test-parameterize.md).
 
 ### param: Test.extend.fixtures
 - `fixtures` <[Object]>
 
-An object containing fixtures and/or options. Learn more about [fixtures format](./test-fixtures.md).
+An object containing fixtures and/or options. Learn more about [fixtures format](../test-fixtures.md).
 
 
 
 
 
-## method: Test.fail
+## method: Test.fail#1
 
-Marks a test or a group of tests as "should fail". Playwright Test runs these tests and ensures that they are actually failing. This is useful for documentation purposes to acknowledge that some functionality is broken until it is fixed.
-
-Unconditional fail:
+Unconditonally marks a test as "should fail". Playwright Test runs this test and ensures that it is actually failing. This is useful for documentation purposes to acknowledge that some functionality is broken until it is fixed.
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -578,7 +652,9 @@ test('not yet ready', async ({ page }) => {
 });
 ```
 
-Conditional fail a test with an optional description:
+## method: Test.fail#2
+
+Conditionally mark a test as "should fail" with an optional description.
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -598,45 +674,56 @@ test('fail in WebKit', async ({ page, browserName }) => {
 });
 ```
 
-Conditional fail for all tests in a file or [`method: Test.describe`] group:
+### param: Test.fail#2.condition
+- `condition` <[boolean]>
 
-```js js-flavor=js
-const { test, expect } = require('@playwright/test');
+Test is marked as "should fail" when the condition is `true`.
 
-test.fail(({ browserName }) => browserName === 'webkit');
-
-test('fail in WebKit 1', async ({ page }) => {
-  // ...
-});
-test('fail in WebKit 2', async ({ page }) => {
-  // ...
-});
-```
-
-```js js-flavor=ts
-import { test, expect } from '@playwright/test';
-
-test.fail(({ browserName }) => browserName === 'webkit');
-
-test('fail in WebKit 1', async ({ page }) => {
-  // ...
-});
-test('fail in WebKit 2', async ({ page }) => {
-  // ...
-});
-```
-
-### param: Test.fail.condition
-- `condition` <[void]|[boolean]|[function]\([Fixtures]\):[boolean]>
-
-Optional condition - either a boolean value, or a function that takes a fixtures object and returns a boolean. Test or tests are marked as "should fail" when the condition is `true`.
-
-### param: Test.fail.description
-- `description` <[void]|[string]>
+### param: Test.fail#2.description
+- `description` ?<[string]>
 
 Optional description that will be reflected in a test report.
 
 
+## method: Test.fail#3
+
+Conditionally mark all tests in a file or [`method: Test.describe`] group as "should fail".
+
+```js js-flavor=js
+const { test, expect } = require('@playwright/test');
+
+test.fail(({ browserName }) => browserName === 'webkit');
+
+test('fail in WebKit 1', async ({ page }) => {
+  // ...
+});
+test('fail in WebKit 2', async ({ page }) => {
+  // ...
+});
+```
+
+```js js-flavor=ts
+import { test, expect } from '@playwright/test';
+
+test.fail(({ browserName }) => browserName === 'webkit');
+
+test('fail in WebKit 1', async ({ page }) => {
+  // ...
+});
+test('fail in WebKit 2', async ({ page }) => {
+  // ...
+});
+```
+
+### param: Test.fail#3.condition
+- `callback` <[function]\([Fixtures]\):[boolean]>
+
+A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as "should fail" when the return value is `true`.
+
+### param: Test.fail#3.description
+- `description` ?<[string]>
+
+Optional description that will be reflected in a test report.
 
 
 ## method: Test.fixme#1
@@ -748,12 +835,12 @@ test('broken in WebKit', async ({ page, browserName }) => {
 ### param: Test.fixme#3.condition
 - `condition` <[boolean]>
 
-Test or tests are marked as "fixme" when the condition is `true`.
+Test is marked as "fixme" when the condition is `true`.
 
 ### param: Test.fixme#3.description
-- `description` <[void]|[string]>
+- `description` ?<[string]>
 
-An optional description that will be reflected in a test report.
+Optional description that will be reflected in a test report.
 
 
 
@@ -795,9 +882,9 @@ test('broken in WebKit 2', async ({ page }) => {
 A function that returns whether to mark as "fixme", based on test fixtures. Test or tests are marked as "fixme" when the return value is `true`.
 
 ### param: Test.fixme#4.description
-- `description` <[void]|[string]>
+- `description` ?<[string]>
 
-An optional description that will be reflected in a test report.
+Optional description that will be reflected in a test report.
 
 
 ## method: Test.info
@@ -836,7 +923,7 @@ Test function that takes one or two arguments: an object with fixtures and optio
 
 ## method: Test.setTimeout
 
-Changes the timeout for the test. Learn more about [various timeouts](./test-timeouts.md).
+Changes the timeout for the test. Zero means no timeout. Learn more about [various timeouts](../test-timeouts.md).
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -1013,12 +1100,12 @@ test.beforeEach(async ({ page }) => {
 ### param: Test.skip#3.condition
 - `condition` <[boolean]>
 
-A skip condition. Test or tests are skipped when the condition is `true`.
+A skip condition. Test is skipped when the condition is `true`.
 
 ### param: Test.skip#3.description
-- `description` <[void]|[string]>
+- `description` ?<[void]|[string]>
 
-An optional description that will be reflected in a test report.
+Optional description that will be reflected in a test report.
 
 
 
@@ -1060,17 +1147,15 @@ test('skip in WebKit 2', async ({ page }) => {
 A function that returns whether to skip, based on test fixtures. Test or tests are skipped when the return value is `true`.
 
 ### param: Test.skip#4.description
-- `description` <[void]|[string]>
+- `description` ?<[string]>
 
-An optional description that will be reflected in a test report.
+Optional description that will be reflected in a test report.
 
 
 
-## method: Test.slow
+## method: Test.slow#1
 
-Marks a test or a group of tests as "slow". Slow tests will be given triple the default timeout.
-
-Unconditional slow:
+Unconditionally marks a test as "slow". Slow test will be given triple the default timeout.
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -1090,7 +1175,9 @@ test('slow test', async ({ page }) => {
 });
 ```
 
-Conditional slow a test with an optional description:
+## method: Test.slow#2
+
+Conditionally mark a test as "slow" with an optional description. Slow test will be given triple the default timeout.
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -1110,7 +1197,20 @@ test('slow in WebKit', async ({ page, browserName }) => {
 });
 ```
 
-Conditional slow for all tests in a file or [`method: Test.describe`] group:
+### param: Test.slow#2.condition
+- `condition` <[boolean]>
+
+Test is marked as "slow" when the condition is `true`.
+
+### param: Test.slow#2.description
+- `description` ?<[string]>
+
+Optional description that will be reflected in a test report.
+
+
+## method: Test.slow#3
+
+Conditionally mark all tests in a file or [`method: Test.describe`] group as "slow". Slow tests will be given triple the default timeout.
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -1138,13 +1238,13 @@ test('fail in WebKit 2', async ({ page }) => {
 });
 ```
 
-### param: Test.slow.condition
-- `condition` <[void]|[boolean]|[function]\([Fixtures]\):[boolean]>
+### param: Test.slow#3.condition
+- `callback` <[function]\([Fixtures]\):[boolean]>
 
-Optional condition - either a boolean value, or a function that takes a fixtures object and returns a boolean. Test or tests are marked as "slow" when the condition is `true`.
+A function that returns whether to mark as "slow", based on test fixtures. Test or tests are marked as "slow" when the return value is `true`.
 
-### param: Test.slow.description
-- `description` <[void]|[string]>
+### param: Test.slow#3.description
+- `description` ?<[string]>
 
 Optional description that will be reflected in a test report.
 

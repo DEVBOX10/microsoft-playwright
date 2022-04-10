@@ -3,7 +3,7 @@
 
 Playwright Test supports running multiple test projects at the same time. This is useful for running tests in multiple configurations. For example, consider running tests against multiple browsers.
 
-`TestProject` encapsulates configuration specific to a single project. Projects are configured in [`property: TestConfig.projects`] specified in the [configuration file](./test-configuration.md). Note that all properties of [TestProject] are available in the top-level [TestConfig], in which case they are shared between all projects.
+`TestProject` encapsulates configuration specific to a single project. Projects are configured in [`property: TestConfig.projects`] specified in the [configuration file](../test-configuration.md). Note that all properties of [TestProject] are available in the top-level [TestConfig], in which case they are shared between all projects.
 
 Here is an example configuration that runs every test in Chromium, Firefox and WebKit, both Desktop and Mobile versions.
 
@@ -108,11 +108,35 @@ export default config;
 - type: <[Object]>
   - `timeout` <[int]> Default timeout for async expect matchers in milliseconds, defaults to 5000ms.
   - `toMatchSnapshot` <[Object]>
-    - `threshold` <[float]> Image matching threshold between zero (strict) and one (lax).
+    - `threshold` <[float]> an acceptable perceived color difference in the [YIQ color space](https://en.wikipedia.org/wiki/YIQ) between the same pixel in compared images, between zero (strict) and one (lax). Defaults to `0.2`.
+    - `maxDiffPixels` <[int]> an acceptable amount of pixels that could be different, unset by default.
+    - `maxDiffPixelRatio` <[float]> an acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1` , unset by default.
 
 Configuration for the `expect` assertion library.
 
 Use [`property: TestConfig.expect`] to change this option for all projects.
+
+## property: TestProject.fullyParallel
+- type: <[boolean]>
+
+Playwright Test runs tests in parallel. In order to achieve that, it runs several worker processes that run at the same time.
+By default, **test files** are run in parallel. Tests in a single file are run in order, in the same worker process.
+
+You can configure entire test project to concurrently run all tests in all files using this option.
+
+## property: TestProject.grep
+- type: <[RegExp]|[Array]<[RegExp]>>
+
+Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available globally and in the [command line](../test-cli.md) with the `-g` option.
+
+`grep` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
+
+## property: TestProject.grepInvert
+- type: <[RegExp]|[Array]<[RegExp]>>
+
+Filter to only run tests with a title **not** matching one of the patterns. This is the opposite of [`property: TestProject.grep`]. Also available globally and in the [command line](../test-cli.md) with the `--grep-invert` option.
+
+`grepInvert` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
 ## property: TestProject.metadata
 - type: <[Object]>
@@ -123,6 +147,7 @@ Any JSON-serializable metadata that will be put directly to the test report.
 - type: <[string]>
 
 Project name is visible in the report and during test execution.
+
 
 ## property: TestProject.snapshotDir
 - type: <[string]>
@@ -136,7 +161,7 @@ This path will serve as the base directory for each test file snapshot directory
 ## property: TestProject.outputDir
 - type: <[string]>
 
-The output directory for files created during test execution. Defaults to `test-results`.
+The output directory for files created during test execution. Defaults to `<package.json-directory>/test-results`.
 
 This directory is cleaned at the start. When running a test, a unique subdirectory inside the [`property: TestProject.outputDir`] is created, guaranteeing that test running in parallel do not conflict. This directory can be accessed by [`property: TestInfo.outputDir`] and [`method: TestInfo.outputPath`].
 
@@ -174,7 +199,7 @@ Use [`property: TestConfig.repeatEach`] to change this option for all projects.
 ## property: TestProject.retries
 - type: <[int]>
 
-The maximum number of retry attempts given to failed tests. Learn more about [test retries](./test-retries.md#retries).
+The maximum number of retry attempts given to failed tests. Learn more about [test retries](../test-retries.md#retries).
 
 Use [`property: TestConfig.retries`] to change this option for all projects.
 
@@ -299,7 +324,7 @@ Use [`property: TestConfig.timeout`] to change this option for all projects.
 ## property: TestProject.use
 - type: <[Fixtures]>
 
-Options for all tests in this project, for example [`property: TestOptions.browserName`]. Learn more about [configuration](./test-configuration.md) and see [available options][TestOptions].
+Options for all tests in this project, for example [`property: TestOptions.browserName`]. Learn more about [configuration](../test-configuration.md) and see [available options][TestOptions].
 
 ```js js-flavor=js
 // playwright.config.js

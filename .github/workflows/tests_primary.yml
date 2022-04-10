@@ -13,6 +13,12 @@ on:
       - main
       - release-*
 
+concurrency:
+  # For pull requests, cancel all currently-running jobs for this workflow
+  # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#concurrency
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 env:
   # Force terminal colors. @see https://www.npmjs.com/package/colors
   FORCE_COLOR: 1
@@ -32,7 +38,7 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: 12
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -56,16 +62,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node-version: [12]
-        include:
-        - os: ubuntu-latest
-          node-version: 16
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-node@v2
       with:
         node-version: ${{matrix.node-version}}
-    - run: npm i -g npm@8
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -75,22 +78,48 @@ jobs:
       if: matrix.os != 'ubuntu-latest'
     - run: xvfb-run npm run ttest
       if: matrix.os == 'ubuntu-latest'
+    - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
+      if: always()
+      shell: bash
 
-  test_html_report:
-    name: HTML Report
-    runs-on: ubuntu-latest
+  test_test_runner_esm:
+    name: Test Runner ESM
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-node@v2
       with:
-        node-version: 12
-    - run: npm i -g npm@8
+        node-version: 16
+    - run: npm i -g npm@8.3
     - run: npm ci
       env:
         DEBUG: pw:install
     - run: npm run build
     - run: npx playwright install --with-deps
-    - run: npm run htest
-      if: matrix.os != 'ubuntu-latest'
-    - run: xvfb-run npm run htest
-      if: matrix.os == 'ubuntu-latest'
+    - run: npm run ttest -- esm.spec.ts
+
+  test_web_components:
+    name: Web Components
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v2
+      with:
+        node-version: 16
+    - run: npm ci
+      env:
+        DEBUG: pw:install
+    - run: npm run build
+    - run: npx playwright install --with-deps
+    - run: npm run test-html-reporter
+      if: always() && matrix.os != 'ubuntu-latest'
+    - run: xvfb-run npm run test-html-reporter
+      if: always() && matrix.os == 'ubuntu-latest'
+    - run: npm run test-web
+      if: always() && matrix.os != 'ubuntu-latest'
+    - run: xvfb-run npm run test-web
+      if: always() && matrix.os == 'ubuntu-latest'

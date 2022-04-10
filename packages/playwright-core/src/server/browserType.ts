@@ -17,21 +17,29 @@
 import fs from 'fs';
 import * as os from 'os';
 import path from 'path';
-import { BrowserContext, normalizeProxySettings, validateBrowserContextOptions } from './browserContext';
-import { registry, BrowserName } from '../utils/registry';
-import { ConnectionTransport, WebSocketTransport } from './transport';
-import { BrowserOptions, Browser, BrowserProcess, PlaywrightOptions } from './browser';
-import { launchProcess, Env, envArrayToObject } from '../utils/processLauncher';
+import type { BrowserContext } from './browserContext';
+import { normalizeProxySettings, validateBrowserContextOptions } from './browserContext';
+import type { BrowserName } from './registry';
+import { registry } from './registry';
+import type { ConnectionTransport } from './transport';
+import { WebSocketTransport } from './transport';
+import type { BrowserOptions, Browser, BrowserProcess, PlaywrightOptions } from './browser';
+import type { Env } from '../utils/processLauncher';
+import { launchProcess, envArrayToObject } from '../utils/processLauncher';
 import { PipeTransport } from './pipeTransport';
-import { Progress, ProgressController } from './progress';
-import * as types from './types';
-import { DEFAULT_TIMEOUT, TimeoutSettings } from '../utils/timeoutSettings';
-import { debugMode, existsAsync } from '../utils/utils';
+import type { Progress } from './progress';
+import { ProgressController } from './progress';
+import type * as types from './types';
+import { DEFAULT_TIMEOUT, TimeoutSettings } from '../common/timeoutSettings';
+import { debugMode } from '../utils';
+import { existsAsync } from '../utils/fileUtils';
 import { helper } from './helper';
-import { RecentLogsCollector } from '../utils/debugLogger';
-import { CallMetadata, SdkObject } from './instrumentation';
+import { RecentLogsCollector } from '../common/debugLogger';
+import type { CallMetadata } from './instrumentation';
+import { SdkObject } from './instrumentation';
 
-const ARTIFACTS_FOLDER = path.join(os.tmpdir(), 'playwright-artifacts-');
+export const kNoXServerRunningError = 'Looks like you launched a headed browser without having a XServer running.\n' +
+  'Set either \'headless: false\' or use \'xvfb-run <your-playwright-app>\' before running Playwright.\n\n<3 Playwright Team';
 
 export abstract class BrowserType extends SdkObject {
   private _name: BrowserName;
@@ -78,7 +86,7 @@ export abstract class BrowserType extends SdkObject {
 
   async _innerLaunchWithRetries(progress: Progress, options: types.LaunchOptions, persistent: types.BrowserContextOptions | undefined, protocolLogger: types.ProtocolLogger, userDataDir?: string): Promise<Browser> {
     try {
-      return this._innerLaunch(progress, options, persistent, protocolLogger, userDataDir);
+      return await this._innerLaunch(progress, options, persistent, protocolLogger, userDataDir);
     } catch (error) {
       // @see https://github.com/microsoft/playwright/issues/5214
       const errorMessage = typeof error === 'object' && typeof error.message === 'string' ? error.message : '';
@@ -143,7 +151,7 @@ export abstract class BrowserType extends SdkObject {
     if (options.tracesDir)
       await fs.promises.mkdir(options.tracesDir, { recursive: true });
 
-    const artifactsDir = await fs.promises.mkdtemp(ARTIFACTS_FOLDER);
+    const artifactsDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'playwright-artifacts-'));
     tempDirectories.push(artifactsDir);
 
     if (userDataDir) {

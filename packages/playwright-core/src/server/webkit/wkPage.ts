@@ -19,29 +19,32 @@ import * as jpeg from 'jpeg-js';
 import path from 'path';
 import * as png from 'pngjs';
 import { splitErrorMessage } from '../../utils/stackTrace';
-import { assert, createGuid, debugAssert, headersArrayToObject, headersObjectToArray, hostPlatform } from '../../utils/utils';
-import * as accessibility from '../accessibility';
+import { assert, createGuid, debugAssert, headersArrayToObject, headersObjectToArray } from '../../utils';
+import { hostPlatform } from '../../utils/hostPlatform';
+import type * as accessibility from '../accessibility';
 import * as dialog from '../dialog';
 import * as dom from '../dom';
-import * as frames from '../frames';
-import { eventsHelper, RegisteredListener } from '../../utils/eventsHelper';
+import type * as frames from '../frames';
+import type { RegisteredListener } from '../../utils/eventsHelper';
+import { eventsHelper } from '../../utils/eventsHelper';
 import { helper } from '../helper';
-import { JSHandle } from '../javascript';
+import type { JSHandle } from '../javascript';
 import * as network from '../network';
-import { Page, PageBinding, PageDelegate } from '../page';
-import { Progress } from '../progress';
-import * as types from '../types';
-import { Protocol } from './protocol';
+import type { PageBinding, PageDelegate } from '../page';
+import { Page } from '../page';
+import type { Progress } from '../progress';
+import type * as types from '../types';
+import type { Protocol } from './protocol';
 import { getAccessibilityTree } from './wkAccessibility';
-import { WKBrowserContext } from './wkBrowser';
+import type { WKBrowserContext } from './wkBrowser';
 import { WKSession } from './wkConnection';
 import { WKExecutionContext } from './wkExecutionContext';
 import { RawKeyboardImpl, RawMouseImpl, RawTouchscreenImpl } from './wkInput';
 import { WKInterceptableRequest, WKRouteImpl } from './wkInterceptableRequest';
 import { WKProvisionalPage } from './wkProvisionalPage';
 import { WKWorkers } from './wkWorkers';
-import { debugLogger } from '../../utils/debugLogger';
-import { ManualPromise } from '../../utils/async';
+import { debugLogger } from '../../common/debugLogger';
+import { ManualPromise } from '../../utils/manualPromise';
 
 const UTILITY_WORLD_NAME = '__playwright_utility_world__';
 const BINDING_CALL_MESSAGE = '__playwright_binding_call__';
@@ -75,6 +78,7 @@ export class WKPage implements PageDelegate {
   private _nextWindowOpenPopupFeatures?: string[];
   private _recordingVideoFile: string | null = null;
   private _screencastGeneration: number = 0;
+  private _interceptingFileChooser = false;
 
   constructor(browserContext: WKBrowserContext, pageProxySession: WKSession, opener: WKPage | null) {
     this._pageProxySession = pageProxySession;
@@ -108,7 +112,13 @@ export class WKPage implements PageDelegate {
     }
   }
 
+  potentiallyUninitializedPage(): Page {
+    return this._page;
+  }
+
   private async _initializePageProxySession() {
+    if (this._page._browserContext.isSettingStorageState())
+      return;
     const promises: Promise<any>[] = [
       this._pageProxySession.send('Dialog.enable'),
       this._pageProxySession.send('Emulation.setActiveAndFocused', { active: true }),
@@ -178,6 +188,10 @@ export class WKPage implements PageDelegate {
       promises.push(session.send('Network.setInterceptionEnabled', { enabled: true }));
       promises.push(session.send('Network.addInterception', { url: '.*', stage: 'request', isRegex: true }));
     }
+    if (this._page._browserContext.isSettingStorageState()) {
+      await Promise.all(promises);
+      return;
+    }
 
     const contextOptions = this._browserContext._options;
     if (contextOptions.userAgent)
@@ -205,6 +219,8 @@ export class WKPage implements PageDelegate {
       promises.push(session.send('Page.setTimeZone', { timeZone: contextOptions.timezoneId }).
           catch(e => { throw new Error(`Invalid timezone ID: ${contextOptions.timezoneId}`); }));
     }
+    if (this._interceptingFileChooser)
+      promises.push(session.send('Page.setInterceptFileChooserDialog', { enabled: true }));
     promises.push(session.send('Page.overrideSetting', { setting: 'DeviceOrientationEventEnabled' as any, value: contextOptions.isMobile }));
     promises.push(session.send('Page.overrideSetting', { setting: 'FullScreenEnabled' as any, value: !contextOptions.isMobile }));
     promises.push(session.send('Page.overrideSetting', { setting: 'NotificationsEnabled' as any, value: !contextOptions.isMobile }));
@@ -355,12 +371,13 @@ export class WKPage implements PageDelegate {
   }
 
   private _addSessionListeners() {
-    // TODO: remove Page.willRequestOpenWindow and Page.didRequestOpenWindow from the protocol.
     this._sessionListeners = [
       eventsHelper.addEventListener(this._session, 'Page.frameNavigated', event => this._onFrameNavigated(event.frame, false)),
       eventsHelper.addEventListener(this._session, 'Page.navigatedWithinDocument', event => this._onFrameNavigatedWithinDocument(event.frameId, event.url)),
       eventsHelper.addEventListener(this._session, 'Page.frameAttached', event => this._onFrameAttached(event.frameId, event.parentFrameId)),
       eventsHelper.addEventListener(this._session, 'Page.frameDetached', event => this._onFrameDetached(event.frameId)),
+      eventsHelper.addEventListener(this._session, 'Page.willCheckNavigationPolicy', event => this._onWillCheckNavigationPolicy(event.frameId)),
+      eventsHelper.addEventListener(this._session, 'Page.didCheckNavigationPolicy', event => this._onDidCheckNavigationPolicy(event.frameId, event.cancel)),
       eventsHelper.addEventListener(this._session, 'Page.frameScheduledNavigation', event => this._onFrameScheduledNavigation(event.frameId)),
       eventsHelper.addEventListener(this._session, 'Page.frameStoppedLoading', event => this._onFrameStoppedLoading(event.frameId)),
       eventsHelper.addEventListener(this._session, 'Page.loadEventFired', event => this._onLifecycleEvent(event.frameId, 'load')),
@@ -400,6 +417,31 @@ export class WKPage implements PageDelegate {
     if (this._provisionalPage)
       sessions.push(this._provisionalPage._session);
     await Promise.all(sessions.map(session => callback(session).catch(e => {})));
+  }
+
+  private _onWillCheckNavigationPolicy(frameId: string) {
+    // It may happen that new policy check occurs while there is an ongoing
+    // provisional load, in this case it should be safe to ignore it as it will
+    // either:
+    // - end up canceled, e.g. ctrl+click opening link in new tab, having no effect
+    //   on this page
+    // - start new provisional load which we will miss in our signal trackers but
+    //   we certainly won't hang waiting for it to finish and there is high chance
+    //   that the current provisional page will commit navigation canceling the new
+    //   one.
+    if (this._provisionalPage)
+      return;
+    this._page._frameManager.frameRequestedNavigation(frameId);
+  }
+
+  private _onDidCheckNavigationPolicy(frameId: string, cancel?: boolean) {
+    if (!cancel)
+      return;
+    // This is a cross-process navigation that is canceled in the original page and continues in
+    // the provisional page. Bail out as we are tracking it.
+    if (this._provisionalPage)
+      return;
+    this._page._frameManager.frameAbortedNavigation(frameId, 'Navigation canceled by policy check');
   }
 
   private _onFrameScheduledNavigation(frameId: string) {
@@ -685,6 +727,7 @@ export class WKPage implements PageDelegate {
   }
 
   async setFileChooserIntercepted(enabled: boolean) {
+    this._interceptingFileChooser = enabled;
     await this._session.send('Page.setInterceptFileChooserDialog', { enabled }).catch(e => {}); // target can be closed.
   }
 
@@ -713,12 +756,20 @@ export class WKPage implements PageDelegate {
     await this._evaluateBindingScript(binding);
   }
 
+  async removeExposedBindings(): Promise<void> {
+    await this._updateBootstrapScript();
+  }
+
   private async _evaluateBindingScript(binding: PageBinding): Promise<void> {
     const script = this._bindingToScript(binding);
     await Promise.all(this._page.frames().map(frame => frame.evaluateExpression(script, false, {}).catch(e => {})));
   }
 
-  async evaluateOnNewDocument(script: string): Promise<void> {
+  async addInitScript(script: string): Promise<void> {
+    await this._updateBootstrapScript();
+  }
+
+  async removeInitScripts() {
     await this._updateBootstrapScript();
   }
 
@@ -728,11 +779,16 @@ export class WKPage implements PageDelegate {
 
   private _calculateBootstrapScript(): string {
     const scripts: string[] = [];
+    if (!this._page.context()._options.isMobile) {
+      scripts.push('delete window.orientation');
+      scripts.push('delete window.ondevicemotion');
+      scripts.push('delete window.ondeviceorientation');
+    }
     for (const binding of this._page.allBindings())
       scripts.push(this._bindingToScript(binding));
-    scripts.push(...this._browserContext._evaluateOnNewDocumentSources);
-    scripts.push(...this._page._evaluateOnNewDocumentSources);
-    return scripts.join(';');
+    scripts.push(...this._browserContext.initScripts);
+    scripts.push(...this._page.initScripts);
+    return scripts.join(';\n');
   }
 
   async _updateBootstrapScript(): Promise<void> {
@@ -776,9 +832,9 @@ export class WKPage implements PageDelegate {
     this._recordingVideoFile = null;
   }
 
-  async takeScreenshot(progress: Progress, format: string, documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined): Promise<Buffer> {
+  async takeScreenshot(progress: Progress, format: string, documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, quality: number | undefined, fitsViewport: boolean, scale: 'css' | 'device'): Promise<Buffer> {
     const rect = (documentRect || viewportRect)!;
-    const result = await this._session.send('Page.snapshotRect', { ...rect, coordinateSystem: documentRect ? 'Page' : 'Viewport' });
+    const result = await this._session.send('Page.snapshotRect', { ...rect, coordinateSystem: documentRect ? 'Page' : 'Viewport', omitDeviceScaleFactor: scale === 'css' });
     const prefix = 'data:image/png;base64,';
     let buffer = Buffer.from(result.dataURL.substr(prefix.length), 'base64');
     if (format === 'jpeg')
@@ -889,6 +945,15 @@ export class WKPage implements PageDelegate {
       data: file.buffer,
     }));
     await this._session.send('DOM.setInputFiles', { objectId, files: protocolFiles });
+  }
+
+  async setInputFilePaths(handle: dom.ElementHandle<HTMLInputElement>, paths: string[]): Promise<void> {
+    const pageProxyId = this._pageProxySession.sessionId;
+    const objectId = handle._objectId;
+    await Promise.all([
+      this._pageProxySession.connection.browserSession.send('Playwright.grantFileReadAccess', { pageProxyId, paths }),
+      this._session.send('DOM.setInputFiles', { objectId, paths })
+    ]);
   }
 
   async adoptElementHandle<T extends Node>(handle: dom.ElementHandle<T>, to: dom.FrameExecutionContext): Promise<dom.ElementHandle<T>> {

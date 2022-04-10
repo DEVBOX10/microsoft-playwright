@@ -285,9 +285,8 @@ Documentation.Member = class {
    * @param {!Array<!Documentation.Member>} argsArray
    * @param {MarkdownNode[]=} spec
    * @param {boolean=} required
-   * @param {string[]=} templates
    */
-  constructor(kind, langs, name, type, argsArray, spec = undefined, required = true, templates = []) {
+  constructor(kind, langs, name, type, argsArray, spec = undefined, required = true) {
     this.kind = kind;
     this.langs = langs;
     this.name = name;
@@ -448,7 +447,11 @@ Documentation.Type = class {
    * @return {Documentation.Type}
    */
   static fromParsedType(parsedType, inUnion = false) {
-    if (!inUnion && parsedType.union) {
+    if (!inUnion && !parsedType.unionName && isStringUnion(parsedType) ) {
+      throw new Error('Enum must have a name:\n' + JSON.stringify(parsedType, null, 2));
+    }
+
+    if (!inUnion && (parsedType.union || parsedType.unionName)) {
       const type = new Documentation.Type(parsedType.unionName || '');
       type.union = [];
       for (let t = parsedType; t; t = t.union) {
@@ -568,8 +571,6 @@ Documentation.Type = class {
  * @returns {boolean}
  */
 function isStringUnion(type) {
-  if (!type.union)
-    return false;
   while (type) {
     if (!type.name.startsWith('"') || !type.name.endsWith('"'))
       return false;

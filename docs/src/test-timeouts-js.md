@@ -11,11 +11,12 @@ Playwright Test has multiple configurable timeouts for various tasks.
 
 |Timeout    |Default             |Description                      |
 |:----------|:----------------|:--------------------------------|
-|Test timeout|30000 ms|Timeout for each test, includes test, hooks and fixtures:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/><code>{`config = { timeout: 60000 }`}</code><br/><span style={{textTransform: 'uppercase',fontSize: 'smaller', fontWeight: 'bold', opacity: '0.6'}}>Override</span><br/>```test.setTimeout(120000)``` |
-|Expect timeout|5000 ms|Timeout for each assertion:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/>```config = { expect: { timeout: 10000 } }```<br/><span >Override</span><br/>```expect(locator).toBeVisible({ timeout: 10000 })```|
-|Action timeout| no timeout |Timeout for each action:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/>```config = { use: { actionTimeout: 10000 } }```<br/><span >Override</span><br/>```locator.click({ timeout: 10000 })```|
-|Navigation timeout| no timeout |Timeout for each navigation action:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/>```config = { use: { navigationTimeout: 30000 } }```<br/><span >Override</span><br/>```page.goto('/', { timeout: 30000 })```|
-|Global timeout|no timeout |Global timeout for the whole test run:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set in config</span><br/>```config = { globalTimeout: 60*60*1000 }```<br/>|
+|Test timeout|30000 ms|Timeout for each test, includes test, hooks and fixtures:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/><code>{`config = { timeout: 60000 }`}</code><br/><span style={{textTransform: 'uppercase',fontSize: 'smaller', fontWeight: 'bold', opacity: '0.6'}}>Override</span><br/>`test.setTimeout(120000)` |
+|Expect timeout|5000 ms|Timeout for each assertion:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/><code>{`config = { expect: { timeout: 10000 } }`}</code><br/><span style={{textTransform: 'uppercase',fontSize: 'smaller', fontWeight: 'bold', opacity: '0.6'}}>Override</span><br/>`expect(locator).toBeVisible({ timeout: 10000 })` |
+|Action timeout| no timeout |Timeout for each action:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/><code>{`config = { use: { actionTimeout: 10000 } }`}</code><br/><span style={{textTransform: 'uppercase',fontSize: 'smaller', fontWeight: 'bold', opacity: '0.6'}}>Override</span><br/>`locator.click({ timeout: 10000 })` |
+|Navigation timeout| no timeout |Timeout for each navigation action:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set default</span><br/><code>{`config = { use: { navigationTimeout: 30000 } }`}</code><br/><span style={{textTransform: 'uppercase',fontSize: 'smaller', fontWeight: 'bold', opacity: '0.6'}}>Override</span><br/>`page.goto('/', { timeout: 30000 })` |
+|Global timeout|no timeout |Global timeout for the whole test run:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set in config</span><br/>`config = { globalTimeout: 60*60*1000 }`<br/> |
+|Fixture timeout|no timeout |Timeout for an individual fixture:<br/><span style={{textTransform:'uppercase',fontSize:'smaller',fontWeight:'bold',opacity:'0.6'}}>Set in fixture</span><br/>`{ scope: 'test', timeout: 30000 }`<br/> |
 
 ## Test timeout
 
@@ -87,9 +88,9 @@ test('very slow test', async ({ page }) => {
 });
 ```
 
-API reference: [`method: Test.setTimeout`] and [`method: Test.slow`].
+API reference: [`method: Test.setTimeout`] and [`method: Test.slow#1`].
 
-### Change timeout from a hook or fixture
+### Change timeout from a hook
 
 ```js js-flavor=js
 const { test, expect } = require('@playwright/test');
@@ -279,3 +280,39 @@ export default config;
 ```
 
 API reference: [`property: TestConfig.globalTimeout`].
+
+## Fixture timeout
+
+By default, [fixture](./test-fixtures) shares timeout with the test. However, for slow fixtures, especially [worker-scoped](./test-fixtures#worker-scoped-fixtures) ones, it is convenient to have a separate timeout. This way you can keep the overall test timeout small, and give the slow fixture more time.
+
+```js js-flavor=js
+const { test: base, expect } = require('@playwright/test');
+
+const test = base.extend({
+  slowFixture: [async ({}, use) => {
+    // ... perform a slow operation ...
+    await use('hello');
+  }, { timeout: 60000 }]
+});
+
+test('example test', async ({ slowFixture }) => {
+  // ...
+});
+```
+
+```js js-flavor=ts
+import { test as base, expect } from '@playwright/test';
+
+const test = base.extend<{ slowFixture: string }>({
+  slowFixture: [async ({}, use) => {
+    // ... perform a slow operation ...
+    await use('hello');
+  }, { timeout: 60000 }]
+});
+
+test('example test', async ({ slowFixture }) => {
+  // ...
+});
+```
+
+API reference: [`method: Test.extend`].

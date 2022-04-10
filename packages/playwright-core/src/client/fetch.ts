@@ -17,18 +17,20 @@
 import fs from 'fs';
 import path from 'path';
 import * as util from 'util';
-import { Serializable } from '../../types/structs';
-import * as api from '../../types/types';
-import { HeadersArray } from '../common/types';
-import * as channels from '../protocol/channels';
-import { kBrowserOrContextClosedError } from '../utils/errors';
-import { assert, headersObjectToArray, isFilePayload, isString, mkdirIfNeeded, objectToArray } from '../utils/utils';
+import type { Serializable } from '../../types/structs';
+import type * as api from '../../types/types';
+import type { HeadersArray } from '../common/types';
+import type * as channels from '../protocol/channels';
+import { kBrowserOrContextClosedError } from '../common/errors';
+import { assert, headersObjectToArray, isFilePayload, isString, objectToArray } from '../utils';
+import { mkdirIfNeeded } from '../utils/fileUtils';
 import { ChannelOwner } from './channelOwner';
 import * as network from './network';
 import { RawHeaders } from './network';
-import { FilePayload, Headers, StorageState } from './types';
-import { Playwright } from './playwright';
+import type { FilePayload, Headers, StorageState } from './types';
+import type { Playwright } from './playwright';
 import { createInstrumentation } from './clientInstrumentation';
+import { Tracing } from './tracing';
 
 export type FetchOptions = {
   params?: { [key: string]: string; },
@@ -71,14 +73,17 @@ export class APIRequest implements api.APIRequest {
       extraHTTPHeaders: options.extraHTTPHeaders ? headersObjectToArray(options.extraHTTPHeaders) : undefined,
       storageState,
     })).request);
+    context._tracing._localUtils = this._playwright._utils;
     this._contexts.add(context);
+    context._request = this;
     await this._onDidCreateContext?.(context);
     return context;
   }
 }
 
 export class APIRequestContext extends ChannelOwner<channels.APIRequestContextChannel> implements api.APIRequestContext {
-  private _request?: APIRequest;
+  _request?: APIRequest;
+  readonly _tracing: Tracing;
 
   static from(channel: channels.APIRequestContextChannel): APIRequestContext {
     return (channel as any)._object;
@@ -86,8 +91,7 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.APIRequestContextInitializer) {
     super(parent, type, guid, initializer, createInstrumentation());
-    if (parent instanceof APIRequest)
-      this._request = parent;
+    this._tracing = Tracing.from(initializer.tracing);
   }
 
   async dispose(): Promise<void> {
@@ -217,7 +221,7 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
 export class APIResponse implements api.APIResponse {
   private readonly _initializer: channels.APIResponse;
   private readonly _headers: RawHeaders;
-  private readonly _request: APIRequestContext;
+  readonly _request: APIRequestContext;
 
   constructor(context: APIRequestContext, initializer: channels.APIResponse) {
     this._request = context;

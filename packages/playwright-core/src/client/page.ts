@@ -16,38 +16,42 @@
  */
 
 import { Events } from './events';
-import { assert } from '../utils/utils';
-import { TimeoutSettings } from '../utils/timeoutSettings';
-import * as channels from '../protocol/channels';
+import { assert } from '../utils';
+import { TimeoutSettings } from '../common/timeoutSettings';
+import type { ParsedStackTrace } from '../utils/stackTrace';
+import type * as channels from '../protocol/channels';
 import { parseError, serializeError } from '../protocol/serializers';
 import { Accessibility } from './accessibility';
-import { BrowserContext } from './browserContext';
+import type { BrowserContext } from './browserContext';
 import { ChannelOwner } from './channelOwner';
 import { ConsoleMessage } from './consoleMessage';
 import { Dialog } from './dialog';
 import { Download } from './download';
 import { ElementHandle, determineScreenshotType } from './elementHandle';
-import { Locator, FrameLocator } from './locator';
+import type { Locator, FrameLocator } from './locator';
 import { Worker } from './worker';
-import { Frame, verifyLoadState, WaitForNavigationOptions } from './frame';
+import type { WaitForNavigationOptions } from './frame';
+import { Frame, verifyLoadState } from './frame';
 import { Keyboard, Mouse, Touchscreen } from './input';
 import { assertMaxArguments, serializeArgument, parseResult, JSHandle } from './jsHandle';
-import { Request, Response, Route, RouteHandlerCallback, WebSocket, validateHeaders, RouteHandler } from './network';
+import type { RouteHandlerCallback } from './network';
+import { Request, Response, Route, WebSocket, validateHeaders, RouteHandler } from './network';
 import { FileChooser } from './fileChooser';
 import { Buffer } from 'buffer';
 import { Coverage } from './coverage';
 import { Waiter } from './waiter';
-import * as api from '../../types/types';
-import * as structs from '../../types/structs';
+import type * as api from '../../types/types';
+import type * as structs from '../../types/structs';
 import fs from 'fs';
 import path from 'path';
-import { Size, URLMatch, Headers, LifecycleEvent, WaitForEventOptions, SelectOption, SelectOptionOptions, FilePayload, WaitForFunctionOptions } from './types';
+import type { Size, URLMatch, Headers, LifecycleEvent, WaitForEventOptions, SelectOption, SelectOptionOptions, FilePayload, WaitForFunctionOptions } from './types';
 import { evaluationScript, urlMatches } from './clientHelper';
-import { isString, isRegExp, isObject, mkdirIfNeeded, headersObjectToArray } from '../utils/utils';
-import { isSafeCloseError } from '../utils/errors';
+import { isString, isRegExp, isObject, headersObjectToArray } from '../utils';
+import { mkdirIfNeeded } from '../utils/fileUtils';
+import { isSafeCloseError } from '../common/errors';
 import { Video } from './video';
 import { Artifact } from './artifact';
-import { APIRequestContext } from './fetch';
+import type { APIRequestContext } from './fetch';
 
 type PDFOptions = Omit<channels.PagePdfParams, 'width' | 'height' | 'margin'> & {
   width?: string | number,
@@ -61,6 +65,13 @@ type PDFOptions = Omit<channels.PagePdfParams, 'width' | 'height' | 'margin'> & 
   path?: string,
 };
 type Listener = (...args: any[]) => void;
+
+type ExpectScreenshotOptions = Omit<channels.PageExpectScreenshotOptions, 'screenshotOptions' | 'locator' | 'expected'> & {
+  expected?: Buffer,
+  locator?: Locator,
+  isNot: boolean,
+  screenshotOptions: Omit<channels.PageExpectScreenshotOptions['screenshotOptions'], 'mask'> & { mask?: Locator[] }
+};
 
 export class Page extends ChannelOwner<channels.PageChannel> implements api.Page {
   private _browserContext: BrowserContext;
@@ -170,10 +181,14 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
   private _onRoute(route: Route, request: Request) {
     for (const routeHandler of this._routes) {
       if (routeHandler.matches(request.url())) {
-        if (routeHandler.handle(route, request)) {
-          this._routes.splice(this._routes.indexOf(routeHandler), 1);
-          if (!this._routes.length)
-            this._wrapApiCall(() => this._disableInterception(), true).catch(() => {});
+        try {
+          routeHandler.handle(route, request);
+        } finally {
+          if (!routeHandler.isActive()) {
+            this._routes.splice(this._routes.indexOf(routeHandler), 1);
+            if (!this._routes.length)
+              this._wrapApiCall(() => this._disableInterception(), true).catch(() => {});
+          }
         }
         return;
       }
@@ -317,6 +332,11 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     this._bindings.set(name, callback);
   }
 
+  async _removeExposedBindings() {
+    this._bindings.clear();
+    await this._channel.removeExposedBindings();
+  }
+
   async setExtraHTTPHeaders(headers: Headers) {
     validateHeaders(headers);
     await this._channel.setExtraHTTPHeaders({ headers: headersObjectToArray(headers) });
@@ -437,6 +457,10 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     await this._channel.addInitScript({ source });
   }
 
+  async _removeInitScripts() {
+    await this._channel.removeInitScripts();
+  }
+
   async route(url: URLMatch, handler: RouteHandlerCallback, options: { times?: number } = {}): Promise<void> {
     this._routes.unshift(new RouteHandler(this._browserContext._options.baseURL, url, handler, options.times));
     if (this._routes.length === 1)
@@ -449,14 +473,26 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
       await this._disableInterception();
   }
 
+  async _unrouteAll() {
+    this._routes = [];
+    await this._disableInterception();
+  }
+
   private async _disableInterception() {
     await this._channel.setNetworkInterceptionEnabled({ enabled: false });
   }
 
-  async screenshot(options: channels.PageScreenshotOptions & { path?: string } = {}): Promise<Buffer> {
-    const copy = { ...options };
+  async screenshot(options: Omit<channels.PageScreenshotOptions, 'mask'> & { path?: string, mask?: Locator[] } = {}): Promise<Buffer> {
+    const copy: channels.PageScreenshotOptions = { ...options, mask: undefined };
     if (!copy.type)
       copy.type = determineScreenshotType(options);
+    if (options.mask) {
+      copy.mask = options.mask.map(locator => ({
+        frame: locator._frame._channel,
+        selector: locator._selector,
+      }));
+    }
+    copy.fonts = (options as any)._fonts;
     const result = await this._channel.screenshot(copy);
     const buffer = Buffer.from(result.binary, 'base64');
     if (options.path) {
@@ -464,6 +500,38 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
       await fs.promises.writeFile(options.path, buffer);
     }
     return buffer;
+  }
+
+  async _expectScreenshot(customStackTrace: ParsedStackTrace, options: ExpectScreenshotOptions): Promise<{ actual?: Buffer, previous?: Buffer, diff?: Buffer, errorMessage?: string, log?: string[]}> {
+    return this._wrapApiCall(async () => {
+      const mask = options.screenshotOptions?.mask ? options.screenshotOptions?.mask.map(locator => ({
+        frame: locator._frame._channel,
+        selector: locator._selector,
+      })) : undefined;
+      const locator = options.locator ? {
+        frame: options.locator._frame._channel,
+        selector: options.locator._selector,
+      } : undefined;
+      const expected = options.expected ? options.expected.toString('base64') : undefined;
+
+      const result = await this._channel.expectScreenshot({
+        ...options,
+        isNot: !!options.isNot,
+        expected,
+        locator,
+        screenshotOptions: {
+          ...options.screenshotOptions,
+          mask,
+        }
+      });
+      return {
+        log: result.log,
+        actual: result.actual ? Buffer.from(result.actual, 'base64') : undefined,
+        previous: result.previous ? Buffer.from(result.previous, 'base64') : undefined,
+        diff: result.diff ? Buffer.from(result.diff, 'base64') : undefined,
+        errorMessage: result.errorMessage,
+      };
+    }, false /* isInternal */, customStackTrace);
   }
 
   async title(): Promise<string> {
@@ -511,7 +579,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return this._mainFrame.fill(selector, value, options);
   }
 
-  locator(selector: string, options?: { hasText?: string | RegExp }): Locator {
+  locator(selector: string, options?: { hasText?: string | RegExp, has?: Locator }): Locator {
     return this.mainFrame().locator(selector, options);
   }
 
@@ -640,7 +708,8 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
   }
 
   async pause() {
-    await this.context()._channel.pause();
+    if (!require('inspector').url())
+      await this.context()._channel.pause();
   }
 
   async pdf(options: PDFOptions = {}): Promise<Buffer> {
@@ -663,6 +732,12 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
       await fs.promises.writeFile(options.path, buffer);
     }
     return buffer;
+  }
+
+  async _resetForReuse() {
+    await this._unrouteAll();
+    await this._removeInitScripts();
+    await this._removeExposedBindings();
   }
 }
 

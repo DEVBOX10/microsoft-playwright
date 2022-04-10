@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import { TimeoutError } from '../utils/errors';
-import { SerializedError, SerializedValue } from './channels';
+import { TimeoutError } from '../common/errors';
+import type { SerializedError, SerializedValue } from './channels';
 
 export function serializeError(e: any): SerializedError {
   if (isError(e))
@@ -113,7 +113,7 @@ export function serializeValue(value: any, handleSerializer: (value: any) => Han
     return { s: value };
   if (isError(value)) {
     const error = value;
-    if ('captureStackTrace' in global.Error) {
+    if ('captureStackTrace' in globalThis.Error) {
       // v8
       return { s: error.stack || '' };
     }

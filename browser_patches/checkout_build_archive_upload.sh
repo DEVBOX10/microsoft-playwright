@@ -91,35 +91,30 @@ elif [[ "$BUILD_FLAVOR" == "ffmpeg-cross-compile-win64" ]]; then
 # ===========================
 elif [[ "$BUILD_FLAVOR" == "chromium-win64" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--compile-win64 --full"
-  EXTRA_ARCHIVE_ARGS="--compile-win64"
+  EXTRA_BUILD_ARGS="--full --goma"
   EXPECTED_HOST_OS="MINGW"
   BUILD_BLOB_NAME="chromium-win64.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-mac" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--compile-mac --full"
-  EXTRA_ARCHIVE_ARGS="--compile-mac"
+  EXTRA_BUILD_ARGS="--full --goma"
   EXPECTED_HOST_OS="Darwin"
-  EXPECTED_HOST_OS_VERSION="10.15"
+  EXPECTED_HOST_OS_VERSION="12.2"
   BUILD_BLOB_NAME="chromium-mac.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-mac-arm64" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--compile-mac-arm64 --full"
-  EXTRA_ARCHIVE_ARGS="--compile-mac-arm64"
+  EXTRA_BUILD_ARGS="--arm64 --full --goma"
   EXPECTED_HOST_OS="Darwin"
-  EXPECTED_HOST_OS_VERSION="10.15"
+  EXPECTED_HOST_OS_VERSION="12.2"
   BUILD_BLOB_NAME="chromium-mac-arm64.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-linux" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--compile-linux --full"
-  EXTRA_ARCHIVE_ARGS="--compile-linux"
+  EXTRA_BUILD_ARGS="--full --goma"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="18.04"
   BUILD_BLOB_NAME="chromium-linux.zip"
 elif [[ "$BUILD_FLAVOR" == "chromium-linux-arm64" ]]; then
   BROWSER_NAME="chromium"
-  EXTRA_BUILD_ARGS="--compile-linux-arm64 --full"
-  EXTRA_ARCHIVE_ARGS="--compile-linux-arm64"
+  EXTRA_BUILD_ARGS="--arm64 --full --goma"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="20.04"
   BUILD_BLOB_NAME="chromium-linux-arm64.zip"
@@ -130,34 +125,30 @@ elif [[ "$BUILD_FLAVOR" == "chromium-linux-arm64" ]]; then
 elif [[ "$BUILD_FLAVOR" == "chromium-with-symbols-win64" ]]; then
   BROWSER_NAME="chromium"
   BROWSER_DISPLAY_NAME="chromium-with-symbols"
-  EXTRA_BUILD_ARGS="--compile-win64 --symbols --full"
-  EXTRA_ARCHIVE_ARGS="--compile-win64"
+  EXTRA_BUILD_ARGS="--symbols --full --goma"
   EXPECTED_HOST_OS="MINGW"
   BUILD_BLOB_NAME="chromium-with-symbols-win64.zip"
   BUILDS_LIST="EXPECTED_BUILDS_WITH_SYMBOLS"
 elif [[ "$BUILD_FLAVOR" == "chromium-with-symbols-mac" ]]; then
   BROWSER_NAME="chromium"
   BROWSER_DISPLAY_NAME="chromium-with-symbols"
-  EXTRA_BUILD_ARGS="--compile-mac --symbols --full"
-  EXTRA_ARCHIVE_ARGS="--compile-mac"
+  EXTRA_BUILD_ARGS="--symbols --full --goma"
   EXPECTED_HOST_OS="Darwin"
-  EXPECTED_HOST_OS_VERSION="10.15"
+  EXPECTED_HOST_OS_VERSION="12.2"
   BUILD_BLOB_NAME="chromium-with-symbols-mac.zip"
   BUILDS_LIST="EXPECTED_BUILDS_WITH_SYMBOLS"
 elif [[ "$BUILD_FLAVOR" == "chromium-with-symbols-mac-arm64" ]]; then
   BROWSER_NAME="chromium"
   BROWSER_DISPLAY_NAME="chromium-with-symbols"
-  EXTRA_BUILD_ARGS="--compile-mac-arm64 --symbols --full"
-  EXTRA_ARCHIVE_ARGS="--compile-mac-arm64"
+  EXTRA_BUILD_ARGS="--arm64 --symbols --full --goma"
   EXPECTED_HOST_OS="Darwin"
-  EXPECTED_HOST_OS_VERSION="10.15"
+  EXPECTED_HOST_OS_VERSION="12.2"
   BUILD_BLOB_NAME="chromium-with-symbols-mac-arm64.zip"
   BUILDS_LIST="EXPECTED_BUILDS_WITH_SYMBOLS"
 elif [[ "$BUILD_FLAVOR" == "chromium-with-symbols-linux" ]]; then
   BROWSER_NAME="chromium"
   BROWSER_DISPLAY_NAME="chromium-with-symbols"
-  EXTRA_BUILD_ARGS="--compile-linux --symbols --full"
-  EXTRA_ARCHIVE_ARGS="--compile-linux"
+  EXTRA_BUILD_ARGS="--symbols --full --goma"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="18.04"
   BUILD_BLOB_NAME="chromium-with-symbols-linux.zip"
@@ -165,8 +156,7 @@ elif [[ "$BUILD_FLAVOR" == "chromium-with-symbols-linux" ]]; then
 elif [[ "$BUILD_FLAVOR" == "chromium-with-symbols-linux-arm64" ]]; then
   BROWSER_NAME="chromium"
   BROWSER_DISPLAY_NAME="chromium-with-symbols-arm64"
-  EXTRA_BUILD_ARGS="--compile-linux-arm64 --symbols --full"
-  EXTRA_ARCHIVE_ARGS="--compile-linux-arm64"
+  EXTRA_BUILD_ARGS="--arm64 --symbols --full --goma"
   EXPECTED_HOST_OS="Ubuntu"
   EXPECTED_HOST_OS_VERSION="20.04"
   BUILD_BLOB_NAME="chromium-with-symbols-linux-arm64.zip"
@@ -213,6 +203,8 @@ elif [[ "$BUILD_FLAVOR" == "firefox-win64" ]]; then
   EXTRA_BUILD_ARGS="--full"
   EXPECTED_HOST_OS="MINGW"
   BUILD_BLOB_NAME="firefox-win64.zip"
+  # This is the architecture that is set by mozilla-build bash.
+  EXPECTED_ARCH="i686"
 
 
 # ===============================
@@ -249,6 +241,8 @@ elif [[ "$BUILD_FLAVOR" == "firefox-beta-win64" ]]; then
   EXTRA_BUILD_ARGS="--full"
   EXPECTED_HOST_OS="MINGW"
   BUILD_BLOB_NAME="firefox-beta-win64.zip"
+  # This is the architecture that is set by mozilla-build bash.
+  EXPECTED_ARCH="i686"
 
 # ===========================
 #    WEBKIT COMPILATION
@@ -284,14 +278,19 @@ elif [[ "$BUILD_FLAVOR" == "webkit-mac-10.15" ]]; then
 elif [[ "$BUILD_FLAVOR" == "webkit-mac-12" ]]; then
   BROWSER_NAME="webkit"
   EXPECTED_HOST_OS="Darwin"
-  EXPECTED_HOST_OS_VERSION="12.1"
+  EXPECTED_HOST_OS_VERSION="12.2"
   BUILD_BLOB_NAME="webkit-mac-12.zip"
 elif [[ "$BUILD_FLAVOR" == "webkit-mac-12-arm64" ]]; then
   BROWSER_NAME="webkit"
   EXPECTED_HOST_OS="Darwin"
-  EXPECTED_HOST_OS_VERSION="12.1"
+  EXPECTED_HOST_OS_VERSION="12.2"
   EXPECTED_ARCH="arm64"
   BUILD_BLOB_NAME="webkit-mac-12-arm64.zip"
+elif [[ "$BUILD_FLAVOR" == "webkit-mac-11" ]]; then
+  BROWSER_NAME="webkit"
+  EXPECTED_HOST_OS="Darwin"
+  EXPECTED_HOST_OS_VERSION="11.6"
+  BUILD_BLOB_NAME="webkit-mac-11.zip"
 elif [[ "$BUILD_FLAVOR" == "webkit-mac-11-arm64" ]]; then
   BROWSER_NAME="webkit"
   EXPECTED_HOST_OS="Darwin"
@@ -333,7 +332,7 @@ if [[ "$CURRENT_HOST_OS_VERSION" != "$EXPECTED_HOST_OS_VERSION" ]]; then
   exit 1
 fi
 
-if [[ $(uname) == MINGW* ]]; then
+if [[ $(uname) == MINGW* || "$(uname)" == MSYS* ]]; then
   ZIP_PATH="$PWD/archive-$BROWSER_NAME.zip"
   LOG_PATH="$PWD/log-$BROWSER_NAME.zip"
 else
@@ -421,7 +420,8 @@ if generate_and_upload_browser_build 2>&1 | ./sanitize_and_compress_log.js $LOG_
       fi
     done;
     LAST_COMMIT_MESSAGE=$(git log --format=%s -n 1 HEAD -- "./${BROWSER_NAME}/BUILD_NUMBER")
-    send_telegram_message "<b>${BROWSER_DISPLAY_NAME} r${BUILD_NUMBER} COMPLETE! ✅</b> ${LAST_COMMIT_MESSAGE}"
+    CHECKMARK_CHAR=$(printf '\xe2\x9c\x85')
+    send_telegram_message "<b>${BROWSER_DISPLAY_NAME} r${BUILD_NUMBER} COMPLETE! ${CHECKMARK_CHAR}</b> ${LAST_COMMIT_MESSAGE}"
     if [[ "${BROWSER_DISPLAY_NAME}" != "chromium-with-symbols" ]]; then
       create_roll_into_playwright_pr $BROWSER_NAME $BUILD_NUMBER
     fi
@@ -447,7 +447,8 @@ else
   fi
   # Upload logs only in case of failure and report failure.
   ./upload.sh "${LOG_BLOB_PATH}" ${LOG_PATH} || true
-  send_telegram_message "$BUILD_ALIAS -- ${FAILED_STEP} failed! ❌ <a href='https://playwright.azureedge.net/builds/${LOG_BLOB_PATH}'>${LOG_BLOB_NAME}</a> -- <a href='$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID'>GitHub Action Logs</a>"
+  CROSS_CHAR=$(printf '\xe2\x9d\x8c')
+  send_telegram_message "$BUILD_ALIAS -- ${FAILED_STEP} failed! ${CROSS_CHAR} <a href='https://playwright.azureedge.net/builds/${LOG_BLOB_PATH}'>${LOG_BLOB_NAME}</a> -- <a href='$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID'>GitHub Action Logs</a>"
   exit 1
 fi
 

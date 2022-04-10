@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-import { CRSession } from './crConnection';
-import { Protocol } from './protocol';
+import type { CRSession } from './crConnection';
+import type { Protocol } from './protocol';
 import fs from 'fs';
-import * as types from '../types';
-import { mkdirIfNeeded } from '../../utils/utils';
+import type * as types from '../types';
+import { mkdirIfNeeded } from '../../utils/fileUtils';
 import { splitErrorMessage } from '../../utils/stackTrace';
 
 export function getExceptionMessage(exceptionDetails: Protocol.Runtime.ExceptionDetails): string {
@@ -100,5 +100,16 @@ export function toModifiersMask(modifiers: Set<types.KeyboardModifier>): number 
     mask |= 4;
   if (modifiers.has('Shift'))
     mask |= 8;
+  return mask;
+}
+
+export function toButtonsMask(buttons: Set<types.MouseButton>): number {
+  let mask = 0;
+  if (buttons.has('left'))
+    mask |= 1;
+  if (buttons.has('right'))
+    mask |= 2;
+  if (buttons.has('middle'))
+    mask |= 4;
   return mask;
 }

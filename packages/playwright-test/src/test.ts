@@ -15,10 +15,9 @@
  */
 
 import type { FixturePool } from './fixtures';
-import * as reporterTypes from '../types/testReporter';
+import type * as reporterTypes from '../types/testReporter';
 import type { TestTypeImpl } from './testType';
-import { Annotations, FixturesWithLocation, Location, TestCaseType } from './types';
-import { FullProject } from './types';
+import type { Annotation, FixturesWithLocation, FullProject, FullProjectInternal, Location } from './types';
 
 class Base {
   title: string;
@@ -40,18 +39,20 @@ export type Modifier = {
 export class Suite extends Base implements reporterTypes.Suite {
   suites: Suite[] = [];
   tests: TestCase[] = [];
+  attachments: reporterTypes.Suite['attachments'] = [];
   location?: Location;
   parent?: Suite;
   _use: FixturesWithLocation[] = [];
   _isDescribe = false;
+  _skipped = false;
   _entries: (Suite | TestCase)[] = [];
-  hooks: TestCase[] = [];
-  _eachHooks: { type: 'beforeEach' | 'afterEach', fn: Function, location: Location }[] = [];
+  _hooks: { type: 'beforeEach' | 'afterEach' | 'beforeAll' | 'afterAll', fn: Function, location: Location }[] = [];
   _timeout: number | undefined;
-  _annotations: Annotations = [];
+  _annotations: Annotation[] = [];
   _modifiers: Modifier[] = [];
   _parallelMode: 'default' | 'serial' | 'parallel' = 'default';
-  _projectConfig: FullProject | undefined;
+  _projectConfig: FullProjectInternal | undefined;
+  _loadError?: reporterTypes.TestError;
 
   _addTest(test: TestCase) {
     test.parent = this;
@@ -63,11 +64,6 @@ export class Suite extends Base implements reporterTypes.Suite {
     suite.parent = this;
     this.suites.push(suite);
     this._entries.push(suite);
-  }
-
-  _addAllHook(hook: TestCase) {
-    hook.parent = this;
-    this.hooks.push(hook);
   }
 
   allTests(): TestCase[] {
@@ -106,13 +102,14 @@ export class Suite extends Base implements reporterTypes.Suite {
     suite.location = this.location;
     suite._requireFile = this._requireFile;
     suite._use = this._use.slice();
-    suite._eachHooks = this._eachHooks.slice();
+    suite._hooks = this._hooks.slice();
     suite._timeout = this._timeout;
     suite._annotations = this._annotations.slice();
     suite._modifiers = this._modifiers.slice();
     suite._isDescribe = this._isDescribe;
     suite._parallelMode = this._parallelMode;
     suite._projectConfig = this._projectConfig;
+    suite._skipped = this._skipped;
     return suite;
   }
 
@@ -129,23 +126,19 @@ export class TestCase extends Base implements reporterTypes.TestCase {
 
   expectedStatus: reporterTypes.TestStatus = 'passed';
   timeout = 0;
-  annotations: Annotations = [];
+  annotations: Annotation[] = [];
   retries = 0;
   repeatEachIndex = 0;
 
-  _type: TestCaseType;
-  _ordinalInFile: number;
   _testType: TestTypeImpl;
   _id = '';
   _workerHash = '';
   _pool: FixturePool | undefined;
   _projectIndex = 0;
 
-  constructor(type: TestCaseType, title: string, fn: Function, ordinalInFile: number, testType: TestTypeImpl, location: Location) {
+  constructor(title: string, fn: Function, testType: TestTypeImpl, location: Location) {
     super(title);
-    this._type = type;
     this.fn = fn;
-    this._ordinalInFile = ordinalInFile;
     this._testType = testType;
     this.location = location;
   }
@@ -173,7 +166,7 @@ export class TestCase extends Base implements reporterTypes.TestCase {
   }
 
   _clone(): TestCase {
-    const test = new TestCase(this._type, this.title, this.fn, this._ordinalInFile, this._testType, this.location);
+    const test = new TestCase(this.title, this.fn, this._testType, this.location);
     test._only = this._only;
     test._requireFile = this._requireFile;
     test.expectedStatus = this.expectedStatus;
@@ -183,14 +176,15 @@ export class TestCase extends Base implements reporterTypes.TestCase {
   _appendTestResult(): reporterTypes.TestResult {
     const result: reporterTypes.TestResult = {
       retry: this.results.length,
-      workerIndex: 0,
+      workerIndex: -1,
       duration: 0,
       startTime: new Date(),
       stdout: [],
       stderr: [],
       attachments: [],
       status: 'skipped',
-      steps: []
+      steps: [],
+      errors: [],
     };
     this.results.push(result);
     return result;

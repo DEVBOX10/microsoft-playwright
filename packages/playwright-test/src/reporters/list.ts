@@ -17,8 +17,8 @@
 /* eslint-disable no-console */
 import colors from 'colors/safe';
 import milliseconds from 'ms';
-import { BaseReporter, fitToScreen, formatTestTitle } from './base';
-import { FullConfig, FullResult, Suite, TestCase, TestResult, TestStep } from '../../types/testReporter';
+import { BaseReporter, formatTestTitle } from './base';
+import type { FullConfig, FullResult, Suite, TestCase, TestResult, TestStep } from '../../types/testReporter';
 
 // Allow it in the Visual Studio Code Terminal and the new Windows Terminal
 const DOES_NOT_SUPPORT_UTF8_IN_TERMINAL = process.platform === 'win32' && process.env.TERM_PROGRAM !== 'vscode' && !process.env.WT_SESSION;
@@ -33,7 +33,7 @@ class ListReporter extends BaseReporter {
 
   constructor(options: { omitFailures?: boolean } = {}) {
     super(options);
-    this._liveTerminal = process.stdout.isTTY || process.env.PWTEST_SKIP_TEST_OUTPUT || !!process.env.PWTEST_TTY_WIDTH;
+    this._liveTerminal = process.stdout.isTTY || !!process.env.PWTEST_TTY_WIDTH;
   }
 
   printsToStdio() {
@@ -55,7 +55,7 @@ class ListReporter extends BaseReporter {
       }
       const line = '     ' + colors.gray(formatTestTitle(this.config, test));
       const suffix = this._retrySuffix(result);
-      process.stdout.write(this._fitToScreen(line, suffix) + suffix + '\n');
+      process.stdout.write(this.fitToScreen(line, suffix) + suffix + '\n');
     }
     this._testRows.set(test, this._lastRow++);
   }
@@ -129,7 +129,7 @@ class ListReporter extends BaseReporter {
   }
 
   private _updateTestLine(test: TestCase, line: string, suffix: string) {
-    if (process.env.PWTEST_SKIP_TEST_OUTPUT)
+    if (process.env.PW_TEST_DEBUG_REPORTERS)
       this._updateTestLineForTest(test, line, suffix);
     else
       this._updateTestLineForTTY(test, line, suffix);
@@ -142,7 +142,7 @@ class ListReporter extends BaseReporter {
       process.stdout.write(`\u001B[${this._lastRow - testRow}A`);
     // Erase line, go to the start
     process.stdout.write('\u001B[2K\u001B[0G');
-    process.stdout.write(this._fitToScreen(line, suffix) + suffix);
+    process.stdout.write(this.fitToScreen(line, suffix) + suffix);
     // Go down if needed.
     if (testRow !== this._lastRow)
       process.stdout.write(`\u001B[${this._lastRow - testRow}E`);
@@ -150,13 +150,6 @@ class ListReporter extends BaseReporter {
 
   private _retrySuffix(result: TestResult) {
     return (result.retry ? colors.yellow(` (retry #${result.retry})`) : '');
-  }
-
-  private _fitToScreen(line: string, suffix?: string): string {
-    const ttyWidth = this.ttyWidth();
-    if (!ttyWidth)
-      return line;
-    return fitToScreen(line, ttyWidth, suffix);
   }
 
   private _updateTestLineForTest(test: TestCase, line: string, suffix: string) {

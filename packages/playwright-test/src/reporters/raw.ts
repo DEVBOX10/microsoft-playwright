@@ -16,8 +16,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import { FullConfig, Location, Suite, TestCase, TestResult, TestStatus, TestStep } from '../../types/testReporter';
-import { assert, calculateSha1 } from 'playwright-core/lib/utils/utils';
+import type { FullConfig, Location, Suite, TestCase, TestResult, TestStatus, TestStep } from '../../types/testReporter';
+import { assert, calculateSha1 } from 'playwright-core/lib/utils';
 import { sanitizeForFilePath } from '../util';
 import { formatResultFailure } from './base';
 import { toPosixPath, serializePatterns } from './json';
@@ -30,11 +30,12 @@ export type JsonStackFrame = { file: string, line: number, column: number };
 
 export type JsonReport = {
   config: JsonConfig,
+  attachments: JsonAttachment[],
   project: JsonProject,
   suites: JsonSuite[],
 };
 
-export type JsonConfig = Omit<FullConfig, 'projects'>;
+export type JsonConfig = Omit<FullConfig, 'projects' | 'attachments'>;
 
 export type JsonProject = {
   metadata: any,
@@ -54,7 +55,6 @@ export type JsonSuite = {
   location?: JsonLocation;
   suites: JsonSuite[];
   tests: JsonTestCase[];
-  hooks: JsonTestCase[];
 };
 
 export type JsonTestCase = {
@@ -83,7 +83,7 @@ export type JsonTestResult = {
   startTime: string;
   duration: number;
   status: TestStatus;
-  error?: JsonError;
+  errors: JsonError[];
   attachments: JsonAttachment[];
   steps: JsonTestStep[];
 };
@@ -112,6 +112,7 @@ class RawReporter {
 
   async onEnd() {
     const projectSuites = this.suite.suites;
+    const globalAttachments = this.generateAttachments(this.suite.attachments);
     for (const suite of projectSuites) {
       const project = suite.project();
       assert(project, 'Internal Error: Invalid project structure');
@@ -129,17 +130,46 @@ class RawReporter {
       }
       if (!reportFile)
         throw new Error('Internal error, could not create report file');
-      const report = this.generateProjectReport(this.config, suite);
+      const report = this.generateProjectReport(this.config, suite, globalAttachments);
       fs.writeFileSync(reportFile, JSON.stringify(report, undefined, 2));
     }
   }
 
-  generateProjectReport(config: FullConfig, suite: Suite): JsonReport {
+  generateAttachments(attachments: TestResult['attachments'], ioStreams?: Pick<TestResult, 'stdout' | 'stderr'>): JsonAttachment[] {
+    const out: JsonAttachment[] = [];
+    for (const attachment of attachments) {
+      if (attachment.body) {
+        out.push({
+          name: attachment.name,
+          contentType: attachment.contentType,
+          body: attachment.body
+        });
+      } else if (attachment.path) {
+        out.push({
+          name: attachment.name,
+          contentType: attachment.contentType,
+          path: attachment.path
+        });
+      }
+    }
+
+    if (ioStreams) {
+      for (const chunk of ioStreams.stdout)
+        out.push(this._stdioAttachment(chunk, 'stdout'));
+      for (const chunk of ioStreams.stderr)
+        out.push(this._stdioAttachment(chunk, 'stderr'));
+    }
+
+    return out;
+  }
+
+  generateProjectReport(config: FullConfig, suite: Suite, attachments: JsonAttachment[]): JsonReport {
     this.config = config;
     const project = suite.project();
     assert(project, 'Internal Error: Invalid project structure');
     const report: JsonReport = {
       config,
+      attachments,
       project: {
         metadata: project.metadata,
         name: project.name,
@@ -151,7 +181,13 @@ class RawReporter {
         testMatch: serializePatterns(project.testMatch),
         timeout: project.timeout,
       },
-      suites: suite.suites.map(s => this._serializeSuite(s))
+      suites: suite.suites.map(fileSuite => {
+        // fileId is based on the location of the enclosing file suite.
+        // Don't use the file in test/suite location, it can be different
+        // due to the source map / require.
+        const fileId = calculateSha1(fileSuite.location!.file.split(path.sep).join('/'));
+        return this._serializeSuite(fileSuite, fileId);
+      })
     };
     for (const file of this.stepsInFile.keys()) {
       let source: string;
@@ -181,16 +217,14 @@ class RawReporter {
     return report;
   }
 
-  private _serializeSuite(suite: Suite): JsonSuite {
+  private _serializeSuite(suite: Suite, fileId: string): JsonSuite {
     const location = this._relativeLocation(suite.location);
-    const fileId = calculateSha1(location!.file.split(path.sep).join('/'));
     return {
       title: suite.title,
       fileId,
       location,
-      suites: suite.suites.map(s => this._serializeSuite(s)),
+      suites: suite.suites.map(s => this._serializeSuite(s, fileId)),
       tests: suite.tests.map(t => this._serializeTest(t, fileId)),
-      hooks: [],
     };
   }
 
@@ -219,8 +253,8 @@ class RawReporter {
       startTime: result.startTime.toISOString(),
       duration: result.duration,
       status: result.status,
-      error: formatResultFailure(this.config, test, result, '', true).tokens.join('').trim(),
-      attachments: this._createAttachments(result),
+      errors: formatResultFailure(this.config, test, result, '', true).map(error => error.message),
+      attachments: this.generateAttachments(result.attachments, result),
       steps: dedupeSteps(result.steps.map(step => this._serializeStep(test, step)))
     };
   }
@@ -240,31 +274,6 @@ class RawReporter {
     if (step.location)
       this.stepsInFile.set(step.location.file, result);
     return result;
-  }
-
-  private _createAttachments(result: TestResult): JsonAttachment[] {
-    const attachments: JsonAttachment[] = [];
-    for (const attachment of result.attachments) {
-      if (attachment.body) {
-        attachments.push({
-          name: attachment.name,
-          contentType: attachment.contentType,
-          body: attachment.body
-        });
-      } else if (attachment.path) {
-        attachments.push({
-          name: attachment.name,
-          contentType: attachment.contentType,
-          path: attachment.path
-        });
-      }
-    }
-
-    for (const chunk of result.stdout)
-      attachments.push(this._stdioAttachment(chunk, 'stdout'));
-    for (const chunk of result.stderr)
-      attachments.push(this._stdioAttachment(chunk, 'stderr'));
-    return attachments;
   }
 
   private _stdioAttachment(chunk: Buffer | string, type: 'stdout' | 'stderr'): JsonAttachment {

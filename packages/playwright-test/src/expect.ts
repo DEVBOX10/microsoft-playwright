@@ -15,6 +15,7 @@
  */
 
 import expectLibrary from 'expect';
+import { raceAgainstTimeout } from 'playwright-core/lib/utils/timeoutRunner';
 import path from 'path';
 import {
   INVERTED_COLOR,
@@ -43,14 +44,17 @@ import {
   toHaveURL,
   toHaveValue
 } from './matchers/matchers';
-import { toMatchSnapshot } from './matchers/toMatchSnapshot';
-import type { Expect, TestError } from './types';
-import matchers from 'expect/build/matchers';
+import { toMatchSnapshot, toHaveScreenshot as _toHaveScreenshot } from './matchers/toMatchSnapshot';
+import type { Expect } from './types';
 import { currentTestInfo } from './globals';
-import { serializeError } from './util';
-import StackUtils from 'stack-utils';
+import { serializeError, captureStackTrace, currentExpectTimeout } from './util';
+import { monotonicTime } from 'playwright-core/lib/utils';
 
-const stackUtils = new StackUtils();
+// from expect/build/types
+export type SyncExpectationResult = {
+  pass: boolean;
+  message: () => string;
+};
 
 // #region
 // Mirrored from https://github.com/facebook/jest/blob/f13abff8df9a0e1148baf3584bcde6d1b479edc7/packages/expect/src/print.ts
@@ -92,7 +96,29 @@ export const printReceivedStringContainExpectedResult = (
 
 // #endregion
 
-export const expect: Expect = expectLibrary as any;
+type ExpectMessageOrOptions = undefined | string | { message?: string, timeout?: number };
+
+function createExpect(actual: unknown, messageOrOptions: ExpectMessageOrOptions, isSoft: boolean, isPoll: boolean, generator?: Generator) {
+  return new Proxy(expectLibrary(actual), new ExpectMetaInfoProxyHandler(messageOrOptions, isSoft, isPoll, generator));
+}
+
+export const expect: Expect = new Proxy(expectLibrary as any, {
+  apply: function(target: any, thisArg: any, argumentsList: [actual: unknown, messageOrOptions: ExpectMessageOrOptions]) {
+    const [actual, messageOrOptions] = argumentsList;
+    return createExpect(actual, messageOrOptions, false /* isSoft */, false /* isPoll */);
+  }
+});
+
+expect.soft = (actual: unknown, messageOrOptions: ExpectMessageOrOptions) => {
+  return createExpect(actual, messageOrOptions, true /* isSoft */, false /* isPoll */);
+};
+
+expect.poll = (actual: unknown, messageOrOptions: ExpectMessageOrOptions) => {
+  if (typeof actual !== 'function')
+    throw new Error('`expect.poll()` accepts only function as a first argument');
+  return createExpect(actual, messageOrOptions, false /* isSoft */, true /* isPoll */, actual as any);
+};
+
 expectLibrary.setState({ expand: false });
 const customMatchers = {
   toBeChecked,
@@ -116,62 +142,144 @@ const customMatchers = {
   toHaveURL,
   toHaveValue,
   toMatchSnapshot,
+  _toHaveScreenshot,
 };
 
-function wrap(matcherName: string, matcher: any) {
-  const result = function(this: any, ...args: any[]) {
-    const testInfo = currentTestInfo();
-    if (!testInfo)
-      return matcher.call(this, ...args);
+type Generator = () => any;
 
-    const INTERNAL_STACK_LENGTH = 3;
-    // at Object.__PWTRAP__[expect.toHaveText] (...)
-    // at __EXTERNAL_MATCHER_TRAP__ (...)
-    // at Object.throwingMatcher [as toHaveText] (...)
-    // at <test function> (...)
-    const stackLines = new Error().stack!.split('\n').slice(INTERNAL_STACK_LENGTH + 1);
-    const frame = stackLines[0] ? stackUtils.parseLine(stackLines[0]) : undefined;
-    const step = testInfo._addStep({
-      location: frame && frame.file ? { file: path.resolve(process.cwd(), frame.file), line: frame.line || 0, column: frame.column || 0 } : undefined,
-      category: 'expect',
-      title: `expect${this.isNot ? '.not' : ''}.${matcherName}`,
-      canHaveChildren: true,
-      forceNoParent: false
-    });
+type ExpectMetaInfo = {
+  message?: string;
+  isNot: boolean;
+  isSoft: boolean;
+  isPoll: boolean;
+  pollTimeout?: number;
+  generator?: Generator;
+};
 
-    const reportStepEnd = (result: any) => {
-      const success = result.pass !== this.isNot;
-      let error: TestError | undefined;
-      if (!success) {
-        const message = result.message();
-        error = { message, stack: message + '\n' + stackLines.join('\n') };
-      }
-      step.complete(error);
-      return result;
-    };
+class ExpectMetaInfoProxyHandler {
+  private _info: ExpectMetaInfo;
 
-    const reportStepError = (error: Error) => {
-      step.complete(serializeError(error));
-      throw error;
-    };
-
-    try {
-      const result = matcher.call(this, ...args);
-      if (result instanceof Promise)
-        return result.then(reportStepEnd).catch(reportStepError);
-      return reportStepEnd(result);
-    } catch (e) {
-      reportStepError(e);
+  constructor(messageOrOptions: ExpectMessageOrOptions, isSoft: boolean, isPoll: boolean, generator?: Generator) {
+    this._info = { isSoft, isPoll, generator, isNot: false };
+    if (typeof messageOrOptions === 'string') {
+      this._info.message = messageOrOptions;
+    } else {
+      this._info.message = messageOrOptions?.message;
+      this._info.pollTimeout = messageOrOptions?.timeout;
     }
-  };
-  Object.defineProperty(result, 'name', { value: '__PWTRAP__[expect.' + matcherName + ']' });
-  return result;
+  }
+
+  get(target: any, matcherName: any, receiver: any): any {
+    const matcher = Reflect.get(target, matcherName, receiver);
+    if (matcher === undefined)
+      throw new Error(`expect: Property '${matcherName}' not found.`);
+    if (typeof matcher !== 'function') {
+      if (matcherName === 'not')
+        this._info.isNot = !this._info.isNot;
+      return new Proxy(matcher, this);
+    }
+    return (...args: any[]) => {
+      const testInfo = currentTestInfo();
+      if (!testInfo)
+        return matcher.call(target, ...args);
+
+      const stackTrace = captureStackTrace();
+      const stackLines = stackTrace.frameTexts;
+      const frame = stackTrace.frames[0];
+      const customMessage = this._info.message || '';
+      const defaultTitle = `expect${this._info.isPoll ? '.poll' : ''}${this._info.isSoft ? '.soft' : ''}${this._info.isNot ? '.not' : ''}.${matcherName}`;
+      const step = testInfo._addStep({
+        location: frame && frame.file ? { file: path.resolve(process.cwd(), frame.file), line: frame.line || 0, column: frame.column || 0 } : undefined,
+        category: 'expect',
+        title: customMessage || defaultTitle,
+        canHaveChildren: true,
+        forceNoParent: false
+      });
+      testInfo.currentStep = step;
+
+      const reportStepError = (jestError: Error) => {
+        const message = jestError.message;
+        if (customMessage) {
+          const messageLines = message.split('\n');
+          // Jest adds something like the following error to all errors:
+          //    expect(received).toBe(expected); // Object.is equality
+          const uselessMatcherLineIndex = messageLines.findIndex((line: string) => /expect.*\(.*received.*\)/.test(line));
+          if (uselessMatcherLineIndex !== -1) {
+            // if there's a newline after the matcher text, then remove it as well.
+            if (uselessMatcherLineIndex + 1 < messageLines.length && messageLines[uselessMatcherLineIndex + 1].trim() === '')
+              messageLines.splice(uselessMatcherLineIndex, 2);
+            else
+              messageLines.splice(uselessMatcherLineIndex, 1);
+          }
+          const newMessage = [
+            'Error: ' + customMessage,
+            '',
+            ...messageLines,
+          ].join('\n');
+          jestError.message = newMessage;
+          jestError.stack = newMessage + '\n' + stackLines.join('\n');
+        }
+
+        const serializerError = serializeError(jestError);
+        step.complete({ error: serializerError });
+        if (this._info.isSoft)
+          testInfo._failWithError(serializerError, false /* isHardError */);
+        else
+          throw jestError;
+      };
+
+      try {
+        let result;
+        if (this._info.isPoll) {
+          if ((customMatchers as any)[matcherName] || matcherName === 'resolves' || matcherName === 'rejects')
+            throw new Error(`\`expect.poll()\` does not support "${matcherName}" matcher.`);
+          result = pollMatcher(matcherName, this._info.isNot, currentExpectTimeout({ timeout: this._info.pollTimeout }), this._info.generator!, ...args);
+        } else {
+          result = matcher.call(target, ...args);
+        }
+        if ((result instanceof Promise))
+          return result.then(() => step.complete({})).catch(reportStepError);
+        else
+          step.complete({});
+      } catch (e) {
+        reportStepError(e);
+      }
+    };
+  }
 }
 
-const wrappedMatchers: any = {};
-for (const matcherName in matchers)
-  wrappedMatchers[matcherName] = wrap(matcherName, matchers[matcherName]);
-for (const matcherName in customMatchers)
-  wrappedMatchers[matcherName] = wrap(matcherName, (customMatchers as any)[matcherName]);
+async function pollMatcher(matcherName: any, isNot: boolean, timeout: number, generator: () => any, ...args: any[]) {
+  let matcherError;
+  const startTime = monotonicTime();
+  const pollIntervals = [100, 250, 500];
+  while (true) {
+    const elapsed = monotonicTime() - startTime;
+    if (timeout !== 0 && elapsed > timeout)
+      break;
+    const received = timeout !== 0 ? await raceAgainstTimeout(generator, timeout - elapsed) : await generator();
+    if (received.timedOut)
+      break;
+    try {
+      let expectInstance = expectLibrary(received.result) as any;
+      if (isNot)
+        expectInstance = expectInstance.not;
+      expectInstance[matcherName].call(expectInstance, ...args);
+      return;
+    } catch (e) {
+      matcherError = e;
+    }
+    await new Promise(x => setTimeout(x, pollIntervals.shift() ?? 1000));
+  }
 
-expectLibrary.extend(wrappedMatchers);
+  const timeoutMessage = `Timeout ${timeout}ms exceeded while waiting on the predicate`;
+  const message = matcherError ? [
+    matcherError.message,
+    '',
+    `Call Log:`,
+    `- ${timeoutMessage}`,
+  ].join('\n') : timeoutMessage;
+
+  throw new Error(message);
+}
+
+expectLibrary.extend(customMatchers);

@@ -15,16 +15,17 @@
  * limitations under the License.
  */
 
-import { CRSession } from './crConnection';
-import { Page } from '../page';
+import type { CRSession } from './crConnection';
+import type { Page } from '../page';
 import { helper } from '../helper';
-import { eventsHelper, RegisteredListener } from '../../utils/eventsHelper';
-import { Protocol } from './protocol';
+import type { RegisteredListener } from '../../utils/eventsHelper';
+import { eventsHelper } from '../../utils/eventsHelper';
+import type { Protocol } from './protocol';
 import * as network from '../network';
-import * as frames from '../frames';
-import * as types from '../types';
-import { CRPage } from './crPage';
-import { assert, headersObjectToArray } from '../../utils/utils';
+import type * as frames from '../frames';
+import type * as types from '../types';
+import type { CRPage } from './crPage';
+import { assert, headersObjectToArray } from '../../utils';
 
 export class CRNetworkManager {
   private _client: CRSession;
@@ -53,6 +54,7 @@ export class CRNetworkManager {
       eventsHelper.addEventListener(session, 'Fetch.authRequired', this._onAuthRequired.bind(this)),
       eventsHelper.addEventListener(session, 'Network.requestWillBeSent', this._onRequestWillBeSent.bind(this, workerFrame)),
       eventsHelper.addEventListener(session, 'Network.requestWillBeSentExtraInfo', this._onRequestWillBeSentExtraInfo.bind(this)),
+      eventsHelper.addEventListener(session, 'Network.requestServedFromCache', this._onRequestServedFromCache.bind(this)),
       eventsHelper.addEventListener(session, 'Network.responseReceived', this._onResponseReceived.bind(this)),
       eventsHelper.addEventListener(session, 'Network.responseReceivedExtraInfo', this._onResponseReceivedExtraInfo.bind(this)),
       eventsHelper.addEventListener(session, 'Network.loadingFinished', this._onLoadingFinished.bind(this)),
@@ -132,6 +134,10 @@ export class CRNetworkManager {
     } else {
       this._onRequest(workerFrame, event, null);
     }
+  }
+
+  _onRequestServedFromCache(event: Protocol.Network.requestServedFromCachePayload) {
+    this._responseExtraInfoTracker.requestServedFromCache(event);
   }
 
   _onRequestWillBeSentExtraInfo(event: Protocol.Network.requestWillBeSentExtraInfoPayload) {
@@ -556,6 +562,7 @@ type RequestInfo = {
   loadingFinished?: Protocol.Network.loadingFinishedPayload,
   loadingFailed?: Protocol.Network.loadingFailedPayload,
   sawResponseWithoutConnectionId: boolean
+  requestServedFromCache: boolean;
 };
 
 // This class aligns responses with response headers from extra info:
@@ -585,10 +592,13 @@ class ResponseExtraInfoTracker {
 
   requestWillBeSentExtraInfo(event: Protocol.Network.requestWillBeSentExtraInfoPayload) {
     const info = this._getOrCreateEntry(event.requestId);
-    if (!info)
-      return;
     info.requestWillBeSentExtraInfo.push(event);
     this._patchHeaders(info, info.requestWillBeSentExtraInfo.length - 1);
+  }
+
+  requestServedFromCache(event: Protocol.Network.requestServedFromCachePayload) {
+    const info = this._getOrCreateEntry(event.requestId);
+    info.requestServedFromCache = true;
   }
 
   responseReceived(event: Protocol.Network.responseReceivedPayload) {
@@ -630,7 +640,8 @@ class ResponseExtraInfoTracker {
     const info = this._requests.get(requestId);
     if (!info || info.sawResponseWithoutConnectionId)
       return;
-    response.setWillReceiveExtraHeaders();
+    if (!info.requestServedFromCache)
+      response.setWillReceiveExtraHeaders();
     info.responses.push(response);
     this._patchHeaders(info, info.responses.length - 1);
   }
@@ -659,7 +670,8 @@ class ResponseExtraInfoTracker {
         requestWillBeSentExtraInfo: [],
         responseReceivedExtraInfo: [],
         responses: [],
-        sawResponseWithoutConnectionId: false
+        sawResponseWithoutConnectionId: false,
+        requestServedFromCache: false
       };
       this._requests.set(requestId, info);
     }

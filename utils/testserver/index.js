@@ -87,7 +87,7 @@ class TestServer {
     });
     this._server.listen(port);
     this._dirPath = dirPath;
-    this.debugServer = require('debug')('pw:server');
+    this.debugServer = require('debug')('pw:testserver');
 
     this._startTime = new Date();
     this._cachedPathPrefix = null;
@@ -235,9 +235,11 @@ class TestServer {
         throw error;
     });
     request.postBody = new Promise(resolve => {
-      let body = Buffer.from([]);
-      request.on('data', chunk => body = Buffer.concat([body, chunk]));
-      request.on('end', () => resolve(body));
+      const chunks = [];
+      request.on('data', chunk => {
+        chunks.push(chunk);
+      });
+      request.on('end', () => resolve(Buffer.concat(chunks)));
     });
     const path = url.parse(request.url).path;
     this.debugServer(`request ${request.method} ${path}`);

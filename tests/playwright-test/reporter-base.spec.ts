@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect, stripAscii } from './playwright-test-fixtures';
+import { test, expect, stripAnsi } from './playwright-test-fixtures';
 import * as path from 'path';
 
 test('handle long test names', async ({ runInlineTest }) => {
@@ -27,7 +27,7 @@ test('handle long test names', async ({ runInlineTest }) => {
       });
     `,
   });
-  expect(stripAscii(result.output)).toContain('expect(1).toBe');
+  expect(stripAnsi(result.output)).toContain('expect(1).toBe');
   expect(result.exitCode).toBe(1);
 });
 
@@ -138,15 +138,39 @@ test('should print slow tests', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(8);
-  expect(stripAscii(result.output)).toContain(`Slow test file: [foo] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).toContain(`Slow test file: [bar] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).toContain(`Slow test file: [baz] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).toContain(`Slow test file: [qux] › dir${path.sep}a.test.js (`);
-  expect(stripAscii(result.output)).toContain(`Consider splitting slow test files to speed up parallel execution`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test file: [foo] › dir${path.sep}b.test.js (`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test file: [bar] › dir${path.sep}b.test.js (`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test file: [baz] › dir${path.sep}b.test.js (`);
-  expect(stripAscii(result.output)).not.toContain(`Slow test file: [qux] › dir${path.sep}b.test.js (`);
+  expect(stripAnsi(result.output)).toContain(`Slow test file: [foo] › dir${path.sep}a.test.js (`);
+  expect(stripAnsi(result.output)).toContain(`Slow test file: [bar] › dir${path.sep}a.test.js (`);
+  expect(stripAnsi(result.output)).toContain(`Slow test file: [baz] › dir${path.sep}a.test.js (`);
+  expect(stripAnsi(result.output)).toContain(`Slow test file: [qux] › dir${path.sep}a.test.js (`);
+  expect(stripAnsi(result.output)).toContain(`Consider splitting slow test files to speed up parallel execution`);
+  expect(stripAnsi(result.output)).not.toContain(`Slow test file: [foo] › dir${path.sep}b.test.js (`);
+  expect(stripAnsi(result.output)).not.toContain(`Slow test file: [bar] › dir${path.sep}b.test.js (`);
+  expect(stripAnsi(result.output)).not.toContain(`Slow test file: [baz] › dir${path.sep}b.test.js (`);
+  expect(stripAnsi(result.output)).not.toContain(`Slow test file: [qux] › dir${path.sep}b.test.js (`);
+});
+
+test('should not print slow parallel tests', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        reportSlowTests: { max: 0, threshold: 500 },
+      };
+    `,
+    'dir/a.test.js': `
+      const { test } = pwt;
+      test.describe.parallel('suite', () => {
+        test('inner slow test', async ({}) => {
+          await new Promise(f => setTimeout(f, 1000));
+        });
+        test('inner fast test', async ({}) => {
+          await new Promise(f => setTimeout(f, 100));
+        });
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(2);
+  expect(stripAnsi(result.output)).not.toContain('Slow test file');
 });
 
 test('should not print slow tests', async ({ runInlineTest }) => {
@@ -172,7 +196,7 @@ test('should not print slow tests', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(4);
-  expect(stripAscii(result.output)).not.toContain('Slow test');
+  expect(stripAnsi(result.output)).not.toContain('Slow test');
 });
 
 test('should print flaky failures', async ({ runInlineTest }) => {
@@ -186,7 +210,7 @@ test('should print flaky failures', async ({ runInlineTest }) => {
   }, { retries: '1', reporter: 'list' });
   expect(result.exitCode).toBe(0);
   expect(result.flaky).toBe(1);
-  expect(stripAscii(result.output)).toContain('expect(testInfo.retry).toBe(1)');
+  expect(stripAnsi(result.output)).toContain('expect(testInfo.retry).toBe(1)');
 });
 
 test('should print flaky timeouts', async ({ runInlineTest }) => {
@@ -201,7 +225,7 @@ test('should print flaky timeouts', async ({ runInlineTest }) => {
   }, { retries: '1', reporter: 'list', timeout: '1000' });
   expect(result.exitCode).toBe(0);
   expect(result.flaky).toBe(1);
-  expect(stripAscii(result.output)).toContain('Timeout of 1000ms exceeded.');
+  expect(stripAnsi(result.output)).toContain('Timeout of 1000ms exceeded.');
 });
 
 test('should print stack-less errors', async ({ runInlineTest }) => {
@@ -245,4 +269,23 @@ test('should print "no tests found" error', async ({ runInlineTest }) => {
   const result = await runInlineTest({ });
   expect(result.exitCode).toBe(1);
   expect(result.output).toContain('no tests found.');
+});
+
+test('should not crash on undefined body with manual attachments', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.js': `
+      const { test } = pwt;
+      test('one', async ({}, testInfo) => {
+        testInfo.attachments.push({
+          name: 'foo.txt',
+          body: undefined,
+          contentType: 'text/plain'
+        });
+        expect(1).toBe(2);
+      });
+    `,
+  });
+  expect(stripAnsi(result.output)).not.toContain('Error in reporter');
+  expect(result.failed).toBe(1);
+  expect(result.exitCode).toBe(1);
 });

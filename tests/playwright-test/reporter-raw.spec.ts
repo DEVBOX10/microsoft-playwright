@@ -155,7 +155,7 @@ test(`testInfo.attach should save attachments via path`, async ({ runInlineTest 
     expect(result.attachments[0].name).toBe('foo');
     expect(result.attachments[0].contentType).toBe('application/json');
     const p = result.attachments[0].path;
-    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.json$/);
+    expect(p).toMatch(/[/\\]attachments[/\\][0-9a-f]+\.json$/);
     const contents = fs.readFileSync(p);
     expect(contents.toString()).toBe('We <3 Playwright!');
   }
@@ -164,7 +164,7 @@ test(`testInfo.attach should save attachments via path`, async ({ runInlineTest 
     expect(result.attachments[0].name).toBe('foo');
     expect(result.attachments[0].contentType).toBe('image/png');
     const p = result.attachments[0].path;
-    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.json$/);
+    expect(p).toMatch(/[/\\]attachments[/\\][0-9a-f]+\.json$/);
     const contents = fs.readFileSync(p);
     expect(contents.toString()).toBe('We <3 Playwright!');
   }
@@ -173,7 +173,7 @@ test(`testInfo.attach should save attachments via path`, async ({ runInlineTest 
     expect(result.attachments[0].name).toBe('example.png');
     expect(result.attachments[0].contentType).toBe('x-playwright/custom');
     const p = result.attachments[0].path;
-    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.json$/);
+    expect(p).toMatch(/[/\\]attachments[/\\][0-9a-f]+\.json$/);
     const contents = fs.readFileSync(p);
     expect(contents.toString()).toBe('We <3 Playwright!');
   }
@@ -182,7 +182,7 @@ test(`testInfo.attach should save attachments via path`, async ({ runInlineTest 
     expect(result.attachments[0].name).toBe('foo');
     expect(result.attachments[0].contentType).toBe('application/octet-stream');
     const p = result.attachments[0].path;
-    expect(p).toMatch(/[/\\]attachments[/\\]01a5667d100fac2200bf40cf43083fae0580c58e\.this-extension-better-not-map-to-an-actual-mimetype$/);
+    expect(p).toMatch(/[/\\]attachments[/\\][0-9a-f]+\.this-extension-better-not-map-to-an-actual-mimetype$/);
     const contents = fs.readFileSync(p);
     expect(contents.toString()).toBe('We <3 Playwright!');
   }
@@ -235,6 +235,58 @@ test(`testInfo.attach should save attachments via inline attachment`, async ({ r
     expect(result.attachments[0].name).toBe('example.json');
     expect(result.attachments[0].contentType).toBe('x-playwright/custom');
     expect(Buffer.from(result.attachments[0].body, 'base64')).toEqual(Buffer.from('We <3 Playwright!'));
+  }
+});
+
+test(`GlobalInfo.attach works`, async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'globalSetup.ts': `
+      import fs from 'fs';
+      import { FullConfig, GlobalInfo } from '@playwright/test';
+
+      async function globalSetup(config: FullConfig, globalInfo: GlobalInfo) {
+        const external = 'external.txt';
+        await fs.promises.writeFile(external, 'external');
+        await globalInfo.attach('inline.txt', { body: Buffer.from('inline'), contentType: 'text/plain' });
+        await globalInfo.attach('external.txt', { path: external, contentType: 'text/plain' });
+        // The attach call above should have saved it to a safe place
+        await fs.promises.unlink(external);
+      };
+
+      export default globalSetup;
+    `,
+    'playwright.config.ts': `
+      import path from 'path';
+      const config = {
+        globalSetup: path.join(__dirname, './globalSetup'),
+      }
+
+      export default config;
+    `,
+    'example.spec.ts': `
+      const { test } = pwt;
+      test('sample', async ({}) => { expect(2).toBe(2); });
+    `,
+  }, { reporter: 'dot,' + kRawReporterPath, workers: 1 }, {}, { usesCustomOutputDir: true });
+
+  expect(result.exitCode).toBe(0);
+  const outputPath = testInfo.outputPath('test-results', 'report', 'project.report');
+  const json = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+  {
+    const attachment = json.attachments[0];
+    expect(attachment.name).toBe('inline.txt');
+    expect(attachment.contentType).toBe('text/plain');
+    expect(attachment.path).toBeUndefined();
+    expect(Buffer.from(attachment.body, 'base64').toString()).toEqual('inline');
+  }
+  {
+    const attachment = json.attachments[1];
+    expect(attachment.name).toBe('external.txt');
+    expect(attachment.contentType).toBe('text/plain');
+    const contents = fs.readFileSync(attachment.path);
+    expect(attachment.path.startsWith(path.join(testInfo.outputDir, 'attachments')), 'Attachment should be in our output directory.').toBeTruthy();
+    expect(contents.toString()).toEqual('external');
+    expect(attachment.body).toBeUndefined();
   }
 });
 

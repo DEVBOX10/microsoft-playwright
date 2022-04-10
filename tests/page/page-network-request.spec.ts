@@ -35,7 +35,7 @@ it('should work for subframe navigation request', async ({ page, server }) => {
   expect(requests[0].frame()).toBe(page.frames()[1]);
 });
 
-it('should work for fetch requests #smoke', async ({ page, server }) => {
+it('should work for fetch requests @smoke', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const requests = [];
   page.on('request', request => requests.push(request));
@@ -112,6 +112,64 @@ it('should get the same headers as the server CORS', async ({ page, server, brow
   const response = await responsePromise;
   const headers = await response.request().allHeaders();
   expect(headers).toEqual(serverRequest.headers);
+});
+
+it('should not get preflight CORS requests when intercepting', async ({ page, server, browserName }) => {
+  await page.goto(server.PREFIX + '/empty.html');
+
+  const requests = [];
+  server.setRoute('/something', (request, response) => {
+    requests.push(request.method);
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, DELETE',
+        'Access-Control-Allow-Headers': '*',
+        'Cache-Control': 'no-cache'
+      });
+      response.end();
+      return;
+    }
+    response.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+    response.end('done');
+  });
+  // First check the browser will send preflight request when interception is OFF.
+  {
+    const text = await page.evaluate(async url => {
+      const data = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'X-PINGOTHER': 'pingpong' }
+      });
+      return data.text();
+    }, server.CROSS_PROCESS_PREFIX + '/something');
+    expect(text).toBe('done');
+    expect(requests).toEqual(['OPTIONS', 'DELETE']);
+  }
+
+  // Now check the browser will NOT send preflight request when interception is ON.
+  {
+    requests.length = 0;
+    const routed = [];
+    await page.route('**/something', route => {
+      routed.push(route.request().method());
+      route.continue();
+    });
+
+    const text = await page.evaluate(async url => {
+      const data = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'X-PINGOTHER': 'pingpong' }
+      });
+      return data.text();
+    }, server.CROSS_PROCESS_PREFIX + '/something');
+    expect(text).toBe('done');
+    // Check that there was no preflight (OPTIONS) request.
+    expect(routed).toEqual(['DELETE']);
+    if (browserName === 'firefox')
+      expect(requests).toEqual(['OPTIONS', 'DELETE']);
+    else
+      expect(requests).toEqual(['DELETE']);
+  }
 });
 
 it('should return postData', async ({ page, server, isAndroid }) => {
@@ -272,8 +330,21 @@ it('should report raw headers', async ({ page, server, browserName, platform }) 
     expectedHeaders = [];
     for (let i = 0; i < req.rawHeaders.length; i += 2)
       expectedHeaders.push({ name: req.rawHeaders[i], value: req.rawHeaders[i + 1] });
-    if (browserName === 'webkit' && platform === 'win32')
-      expectedHeaders = expectedHeaders.filter(({ name }) => name.toLowerCase() !== 'accept-encoding' && name.toLowerCase() !== 'accept-language');
+    if (browserName === 'webkit' && platform === 'win32') {
+      expectedHeaders = expectedHeaders.filter(({ name }) => name.toLowerCase() !== 'accept-encoding');
+      // Convert "value": "en-US, en-US" => "en-US"
+      expectedHeaders = expectedHeaders.map(e => {
+        const { name, value } = e;
+        if (name.toLowerCase() !== 'accept-language')
+          return e;
+        const values = value.split(',').map(v => v.trim());
+        if (values.length === 1)
+          return e;
+        if (values[0] !== values[1])
+          return e;
+        return { name, value: values[0] };
+      });
+    }
     res.end();
   });
   await page.goto(server.EMPTY_PAGE);

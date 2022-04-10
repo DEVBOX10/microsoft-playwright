@@ -14,15 +14,16 @@
   limitations under the License.
 */
 
-import type { TestCase, TestFile } from '@playwright/test/src/reporters/html';
+import type { TestCase, TestFile } from '@playwright-test/reporters/html';
 import * as React from 'react';
 import './colors.css';
 import './common.css';
 import { Filter } from './filter';
 import { HeaderView } from './headerView';
 import { Route } from './links';
-import { LoadedReport } from './loadedReport';
+import type { LoadedReport } from './loadedReport';
 import './reportView.css';
+import { MetadataView } from './metadataView';
 import { TestCaseView } from './testCaseView';
 import { TestFilesView } from './testFilesView';
 import './theme.css';
@@ -42,9 +43,10 @@ export const ReportView: React.FC<{
 
   const filter = React.useMemo(() => Filter.parse(filterText), [filterText]);
 
-  return <div className='htmlreport vbox px-4'>
-    {report?.json() && <HeaderView stats={report.json().stats} filterText={filterText} setFilterText={setFilterText}></HeaderView>}
-    {<>
+  return <div className='htmlreport vbox px-4 pb-4'>
+    <main>
+      {report?.json() && <HeaderView stats={report.json().stats} filterText={filterText} setFilterText={setFilterText}></HeaderView>}
+      {report?.json().metadata && <MetadataView {...report?.json().metadata!} />}
       <Route params=''>
         <TestFilesView report={report?.json()} filter={filter} expandedFiles={expandedFiles} setExpandedFiles={setExpandedFiles}></TestFilesView>
       </Route>
@@ -54,7 +56,7 @@ export const ReportView: React.FC<{
       <Route params='testId'>
         {!!report && <TestCaseViewLoader report={report}></TestCaseViewLoader>}
       </Route>
-    </>}
+    </main>
   </div>;
 };
 
@@ -72,7 +74,7 @@ const TestCaseViewLoader: React.FC<{
       if (!fileId)
         return;
       const file = await report.entry(`${fileId}.json`) as TestFile;
-      for (const t of [...file.tests, ...file.hooks]) {
+      for (const t of file.tests) {
         if (t.testId === testId) {
           setTest(t);
           break;

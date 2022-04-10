@@ -15,12 +15,11 @@
  */
 
 
-import colors from 'colors/safe';
 import type { ExpectedTextValue } from 'playwright-core/lib/protocol/channels';
-import { isRegExp, isString } from 'playwright-core/lib/utils/utils';
-import { currentTestInfo } from '../globals';
+import { isRegExp, isString } from 'playwright-core/lib/utils';
 import type { Expect } from '../types';
-import { expectType } from '../util';
+import type { ParsedStackTrace } from '../util';
+import { expectTypes, callLogText, currentExpectTimeout, captureStackTrace } from '../util';
 import {
   printReceivedStringContainExpectedResult,
   printReceivedStringContainExpectedSubstring
@@ -31,11 +30,11 @@ export async function toMatchText(
   matcherName: string,
   receiver: any,
   receiverType: string,
-  query: (isNot: boolean, timeout: number) => Promise<{ matches: boolean, received?: string, log?: string[] }>,
+  query: (isNot: boolean, timeout: number, customStackTrace: ParsedStackTrace) => Promise<{ matches: boolean, received?: string, log?: string[] }>,
   expected: string | RegExp,
   options: { timeout?: number, matchSubstring?: boolean } = {},
 ) {
-  expectType(receiver, receiverType, matcherName);
+  expectTypes(receiver, [receiverType], matcherName);
 
   const matcherOptions = {
     isNot: this.isNot,
@@ -59,7 +58,7 @@ export async function toMatchText(
 
   const timeout = currentExpectTimeout(options);
 
-  const { matches: pass, received, log } = await query(this.isNot, timeout);
+  const { matches: pass, received, log } = await query(this.isNot, timeout, captureStackTrace('expect.' + matcherName));
   const stringSubstring = options.matchSubstring ? 'substring' : 'string';
   const receivedString = received || '';
   const message = pass
@@ -110,25 +109,4 @@ export function toExpectedTextValues(items: (string | RegExp)[], options: { matc
     matchSubstring: options.matchSubstring,
     normalizeWhiteSpace: options.normalizeWhiteSpace,
   }));
-}
-
-export function callLogText(log: string[] | undefined): string {
-  if (!log)
-    return '';
-  return `
-Call log:
-  ${colors.dim('- ' + (log || []).join('\n  - '))}
-`;
-}
-
-export function currentExpectTimeout(options: { timeout?: number }) {
-  const testInfo = currentTestInfo();
-  if (testInfo && !testInfo.timeout)
-    return 0;
-  if (options.timeout !== undefined)
-    return options.timeout;
-  let defaultExpectTimeout = testInfo?.project.expect?.timeout;
-  if (typeof defaultExpectTimeout === 'undefined')
-    defaultExpectTimeout = 5000;
-  return defaultExpectTimeout;
 }
