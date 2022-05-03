@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-import type { JSONReport, JSONReportSuite } from '@playwright/test/src/reporters/json';
+import type { JSONReport, JSONReportSuite } from '@playwright/test/reporter';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { PNG } from 'pngjs';
-import rimraf from 'rimraf';
+import { rimraf, PNG } from 'playwright-core/lib/utilsBundle';
 import { promisify } from 'util';
 import type { CommonFixtures } from '../config/commonFixtures';
 import { commonFixtures } from '../config/commonFixtures';
@@ -141,8 +140,6 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
       GITHUB_SHA: undefined,
       // END: Reserved CI
       PW_TEST_HTML_REPORT_OPEN: undefined,
-      PLAYWRIGHT_DOCKER: undefined,
-      PW_GRID: undefined,
       PW_TEST_REPORTER: undefined,
       PW_TEST_REPORTER_WS_ENDPOINT: undefined,
       PW_TEST_SOURCE_TRANSFORM: undefined,
@@ -218,6 +215,7 @@ type RunOptions = {
   cwd?: string,
 };
 type Fixtures = {
+  legacyConfigLoader: boolean;
   writeFiles: (files: Files) => Promise<string>;
   runInlineTest: (files: Files, params?: Params, env?: Env, options?: RunOptions, beforeRunPlaywrightTest?: ({ baseDir }: { baseDir: string }) => Promise<void>) => Promise<RunResult>;
   runTSC: (files: Files) => Promise<TSCResult>;
@@ -227,15 +225,19 @@ export const test = base
     .extend<CommonFixtures>(commonFixtures)
     .extend<ServerFixtures, ServerWorkerOptions>(serverFixtures)
     .extend<Fixtures>({
+      legacyConfigLoader: [false, { option: true }],
+
       writeFiles: async ({}, use, testInfo) => {
         await use(files => writeFiles(testInfo, files));
       },
 
-      runInlineTest: async ({ childProcess }, use, testInfo: TestInfo) => {
+      runInlineTest: async ({ childProcess, legacyConfigLoader }, use, testInfo: TestInfo) => {
         await use(async (files: Files, params: Params = {}, env: Env = {}, options: RunOptions = {}, beforeRunPlaywrightTest?: ({ baseDir: string }) => Promise<void>) => {
           const baseDir = await writeFiles(testInfo, files);
           if (beforeRunPlaywrightTest)
             await beforeRunPlaywrightTest({ baseDir });
+          if (legacyConfigLoader)
+            env = { ...env, PLAYWRIGHT_LEGACY_CONFIG_MODE: '1' };
           return await runPlaywrightTest(childProcess, baseDir, params, env, options);
         });
       },

@@ -16,12 +16,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { LaunchOptions, BrowserContextOptions, Page, BrowserContext, Video, APIRequestContext, Tracing } from 'playwright-core';
+import type { LaunchOptions, BrowserContextOptions, Page, Browser, BrowserContext, Video, APIRequestContext, Tracing } from 'playwright-core';
 import type { TestType, PlaywrightTestArgs, PlaywrightTestOptions, PlaywrightWorkerArgs, PlaywrightWorkerOptions, TestInfo } from '../types/test';
 import { rootTestType } from './testType';
 import { createGuid, debugMode } from 'playwright-core/lib/utils';
 import { removeFolders } from 'playwright-core/lib/utils/fileUtils';
-import { GridClient } from 'playwright-core/lib/grid/gridClient';
 export { expect } from './expect';
 export const _baseTest: TestType<{}, {}> = rootTestType.test;
 import * as outOfProcess from 'playwright-core/lib/outofprocess';
@@ -44,6 +43,7 @@ type TestFixtures = PlaywrightTestArgs & PlaywrightTestOptions & {
   _contextFactory: (options?: BrowserContextOptions) => Promise<BrowserContext>;
 };
 type WorkerFixtures = PlaywrightWorkerArgs & PlaywrightWorkerOptions & {
+  _connectedBrowser: Browser | undefined,
   _browserOptions: LaunchOptions;
   _artifactsDir: () => string;
   _snapshotSuffix: string;
@@ -52,12 +52,8 @@ type WorkerFixtures = PlaywrightWorkerArgs & PlaywrightWorkerOptions & {
 export const test = _baseTest.extend<TestFixtures, WorkerFixtures>({
   defaultBrowserType: [ 'chromium', { scope: 'worker', option: true } ],
   browserName: [ ({ defaultBrowserType }, use) => use(defaultBrowserType), { scope: 'worker', option: true } ],
-  playwright: [async ({}, use, workerInfo) => {
-    if (process.env.PW_GRID) {
-      const gridClient = await GridClient.connect(process.env.PW_GRID);
-      await use(gridClient.playwright() as any);
-      gridClient.close();
-    } else if (process.env.PW_OUT_OF_PROCESS_DRIVER) {
+  playwright: [async ({ }, use) => {
+    if (process.env.PW_OUT_OF_PROCESS_DRIVER) {
       const impl = await outOfProcess.start({
         NODE_OPTIONS: undefined  // Hide driver process while debugging.
       });
@@ -86,12 +82,12 @@ export const test = _baseTest.extend<TestFixtures, WorkerFixtures>({
     });
     if (dir)
       await removeFolders([dir]);
-  }, { scope: 'worker' }],
+  }, { scope: 'worker', _title: 'built-in playwright configuration' } as any],
 
   _browserOptions: [async ({ playwright, headless, channel, launchOptions }, use) => {
     const options: LaunchOptions = {
       handleSIGINT: false,
-      timeout: 30000,  // 30 seconds
+      timeout: 0,
       ...launchOptions,
     };
     if (headless !== undefined)
@@ -106,27 +102,37 @@ export const test = _baseTest.extend<TestFixtures, WorkerFixtures>({
       (browserType as any)._defaultLaunchOptions = undefined;
   }, { scope: 'worker', auto: true }],
 
-  browser: [async ({ playwright, browserName, channel, headless, connectOptions }, use) => {
+  _connectedBrowser: [async ({ playwright, browserName, channel, headless, connectOptions }, use) => {
+    if (!connectOptions) {
+      await use(undefined);
+      return;
+    }
     if (!['chromium', 'firefox', 'webkit'].includes(browserName))
       throw new Error(`Unexpected browserName "${browserName}", must be one of "chromium", "firefox" or "webkit"`);
-    if (connectOptions) {
-      const browser = await playwright[browserName].connect(connectOptions.wsEndpoint, {
-        headers: {
-          'x-playwright-browser': channel || browserName,
-          'x-playwright-headless': headless ? '1' : '0',
-          ...connectOptions.headers,
-        },
-        timeout: connectOptions.timeout ?? 3 * 60 * 1000, // 3 minutes
-      });
-      await use(browser);
-      await browser.close();
+    const browser = await playwright[browserName].connect(connectOptions.wsEndpoint, {
+      headers: {
+        'x-playwright-browser': channel || browserName,
+        'x-playwright-headless': headless ? '1' : '0',
+        ...connectOptions.headers,
+      },
+      timeout: connectOptions.timeout ?? 3 * 60 * 1000, // 3 minutes
+    });
+    await use(browser);
+    await browser.close();
+  }, { scope: 'worker', timeout: 0, _title: 'remote connection' } as any],
+
+  browser: [async ({ playwright, browserName, _connectedBrowser }, use) => {
+    if (_connectedBrowser) {
+      await use(_connectedBrowser);
       return;
     }
 
+    if (!['chromium', 'firefox', 'webkit'].includes(browserName))
+      throw new Error(`Unexpected browserName "${browserName}", must be one of "chromium", "firefox" or "webkit"`);
     const browser = await playwright[browserName].launch();
     await use(browser);
     await browser.close();
-  }, { scope: 'worker', timeout: 0 } ],
+  }, { scope: 'worker' } ],
 
   acceptDownloads: [ undefined, { option: true } ],
   bypassCSP: [ undefined, { option: true } ],
@@ -224,7 +230,7 @@ export const test = _baseTest.extend<TestFixtures, WorkerFixtures>({
     });
   },
 
-  _snapshotSuffix: [process.env.PLAYWRIGHT_DOCKER ? 'docker' : process.platform, { scope: 'worker' }],
+  _snapshotSuffix: [process.platform, { scope: 'worker' }],
 
   _setupContextOptionsAndArtifacts: [async ({ playwright, _snapshotSuffix, _combinedContextOptions, _browserOptions, _artifactsDir, trace, screenshot, actionTimeout, navigationTimeout }, use, testInfo) => {
     testInfo.snapshotSuffix = _snapshotSuffix;
@@ -422,9 +428,9 @@ export const test = _baseTest.extend<TestFixtures, WorkerFixtures>({
       else
         await fs.promises.unlink(file).catch(() => {});
     }));
-  }, { auto: true }],
+  }, { auto: true,  _title: 'built-in playwright configuration' } as any],
 
-  _contextFactory: async ({ browser, video, _artifactsDir }, use, testInfo) => {
+  _contextFactory: [async ({ browser, video, _artifactsDir }, use, testInfo) => {
     let videoMode = typeof video === 'string' ? video : video.mode;
     if (videoMode === 'retry-with-video')
       videoMode = 'on-first-retry';
@@ -476,7 +482,7 @@ export const test = _baseTest.extend<TestFixtures, WorkerFixtures>({
 
     if (prependToError)
       testInfo.errors.push({ message: prependToError });
-  },
+  }, { scope: 'test',  _title: 'context' } as any],
 
   context: async ({ _contextFactory }, use) => {
     await use(await _contextFactory());

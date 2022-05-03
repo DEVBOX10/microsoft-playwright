@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// eslint-disable-next-line spaced-comment
+/// <reference path="./experimental.d.ts" />
+
 import type { Fixtures } from '@playwright/test';
 import type { ChildProcess } from 'child_process';
 import { execSync, spawn } from 'child_process';
@@ -138,7 +141,7 @@ export const commonFixtures: Fixtures<CommonFixtures, {}> = {
     await use(async port => {
       while (!token.canceled) {
         const promise = new Promise<boolean>(resolve => {
-          const conn = net.connect(port)
+          const conn = net.connect(port, '127.0.0.1')
               .on('error', () => resolve(false))
               .on('connect', () => {
                 conn.end();

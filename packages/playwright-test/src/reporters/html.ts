@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import colors from 'colors/safe';
+import { colors } from 'playwright-core/lib/utilsBundle';
 import fs from 'fs';
-import open from 'open';
+import { open } from '../utilsBundle';
 import path from 'path';
 import type { TransformCallback } from 'stream';
 import { Transform } from 'stream';
@@ -26,10 +26,11 @@ import { assert, calculateSha1 } from 'playwright-core/lib/utils';
 import { removeFolders } from 'playwright-core/lib/utils/fileUtils';
 import type { JsonAttachment, JsonReport, JsonSuite, JsonTestCase, JsonTestResult, JsonTestStep } from './raw';
 import RawReporter from './raw';
-import yazl from 'yazl';
 import { stripAnsiEscapes } from './base';
 import { getPackageJsonPath } from '../util';
-import type { FullConfigInternal } from '../types';
+import type { FullConfigInternal, Metadata } from '../types';
+import type { ZipFile } from 'playwright-core/lib/zipBundle';
+import { yazl } from 'playwright-core/lib/zipBundle';
 
 export type Stats = {
   total: number;
@@ -48,7 +49,7 @@ export type Location = {
 };
 
 export type HTMLReport = {
-  attachments: TestAttachment[];
+  metadata: Metadata;
   files: TestFileSummary[];
   stats: Stats;
   projectNames: string[];
@@ -158,12 +159,12 @@ class HtmlReporter implements Reporter {
     const projectSuites = this.suite.suites;
     const reports = projectSuites.map(suite => {
       const rawReporter = new RawReporter();
-      const report = rawReporter.generateProjectReport(this.config, suite, []);
+      const report = rawReporter.generateProjectReport(this.config, suite);
       return report;
     });
     await removeFolders([outputFolder]);
     const builder = new HtmlBuilder(outputFolder);
-    const { ok, singleTestId } = await builder.build(new RawReporter().generateAttachments(this.suite.attachments), reports);
+    const { ok, singleTestId } = await builder.build(this.config.metadata, reports);
 
     if (process.env.CI)
       return;
@@ -245,7 +246,7 @@ class HtmlBuilder {
   private _reportFolder: string;
   private _tests = new Map<string, JsonTestCase>();
   private _testPath = new Map<string, string[]>();
-  private _dataZipFile: yazl.ZipFile;
+  private _dataZipFile: ZipFile;
   private _hasTraces = false;
 
   constructor(outputDir: string) {
@@ -254,7 +255,7 @@ class HtmlBuilder {
     this._dataZipFile = new yazl.ZipFile();
   }
 
-  async build(testReportAttachments: JsonAttachment[], rawReports: JsonReport[]): Promise<{ ok: boolean, singleTestId: string | undefined }> {
+  async build(metadata: Metadata, rawReports: JsonReport[]): Promise<{ ok: boolean, singleTestId: string | undefined }> {
 
     const data = new Map<string, { testFile: TestFile, testFileSummary: TestFileSummary }>();
     for (const projectJson of rawReports) {
@@ -310,7 +311,7 @@ class HtmlBuilder {
       this._addDataFile(fileId + '.json', testFile);
     }
     const htmlReport: HTMLReport = {
-      attachments: this._serializeAttachments(testReportAttachments),
+      metadata,
       files: [...data.values()].map(e => e.testFileSummary),
       projectNames: rawReports.map(r => r.project.name),
       stats: [...data.values()].reduce((a, e) => addStats(a, e.testFileSummary.stats), emptyStats())

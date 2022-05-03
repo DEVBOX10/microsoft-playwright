@@ -32,10 +32,24 @@ test('should close the browser when the node process closes', async ({ startRemo
   expect(await remoteServer.childExitCode()).toBe(isWindows ? 1 : 0);
 });
 
-test.describe('signals', () => {
-  test.skip(({ platform, headless }) => platform === 'win32' || !headless);
+test('should remove temp dir on process.exit', async ({ startRemoteServer, server }, testInfo) => {
+  const file = testInfo.outputPath('exit.file');
+  const remoteServer = await startRemoteServer({ url: server.EMPTY_PAGE, exitOnFile: file });
+  const tempDir = await remoteServer.out('tempDir');
+  const before = fs.existsSync(tempDir);
+  fs.writeFileSync(file, 'data', 'utf-8');
+  expect(await remoteServer.childExitCode()).toBe(42);
+  const after = fs.existsSync(tempDir);
+  expect(before).toBe(true);
+  expect(after).toBe(false);
+});
 
-  test('should report browser close signal', async ({ startRemoteServer, server }) => {
+test.describe('signals', () => {
+  test.skip(({ platform }) => platform === 'win32');
+
+  test('should report browser close signal', async ({ startRemoteServer, server, headless }) => {
+    test.skip(!headless, 'Wrong exit code in headed');
+
     const remoteServer = await startRemoteServer({ url: server.EMPTY_PAGE });
     const pid = await remoteServer.out('pid');
     process.kill(-pid, 'SIGTERM');

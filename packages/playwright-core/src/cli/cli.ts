@@ -21,8 +21,8 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import type { Command } from 'commander';
-import { program } from 'commander';
+import type { Command } from '../utilsBundle';
+import { program } from '../utilsBundle';
 import { runDriver, runServer, printApiJson, launchBrowserServer } from './driver';
 import { showTraceViewer } from '../server/trace/viewer/traceViewer';
 import * as playwright from '../..';
@@ -33,7 +33,7 @@ import type { BrowserType } from '../client/browserType';
 import type { BrowserContextOptions, LaunchOptions } from '../client/types';
 import { spawn } from 'child_process';
 import { getPlaywrightVersion } from '../common/userAgent';
-import { wrapInASCIIBox, isLikelyNpxGlobal } from '../utils';
+import { wrapInASCIIBox, isLikelyNpxGlobal, assert } from '../utils';
 import { spawnAsync } from '../utils/spawnAsync';
 import { launchGridAgent } from '../grid/gridAgent';
 import type { GridFactory } from '../grid/gridServer';
@@ -48,11 +48,12 @@ program
     .name(buildBasePlaywrightCLICommand(process.env.PW_LANG_NAME));
 
 program
-    .command('mark-docker-image > [args...]', { hidden: true })
+    .command('mark-docker-image [dockerImageNameTemplate]', { hidden: true })
     .description('mark docker image')
     .allowUnknownOption(true)
     .action(function(dockerImageNameTemplate) {
-      writeDockerVersion(dockerImageNameTemplate);
+      assert(dockerImageNameTemplate, 'dockerImageNameTemplate is required');
+      writeDockerVersion(dockerImageNameTemplate).catch(logErrorAndExit);
     });
 
 commandWithOpenOptions('open [url]', 'open page in browser specified via -b, --browser', [])
@@ -251,8 +252,9 @@ program
     .command('experimental-grid-agent', { hidden: true })
     .requiredOption('--agent-id <agentId>', 'agent ID')
     .requiredOption('--grid-url <gridURL>', 'grid URL')
+    .option('--run-id <github run_id>', 'Workflow run_id')
     .action(function(options) {
-      launchGridAgent(options.agentId, options.gridUrl);
+      launchGridAgent(options.agentId, options.gridUrl, options.runId);
     });
 
 program
@@ -595,6 +597,7 @@ function lookupBrowserType(options: Options): BrowserType {
   if (browserType)
     return browserType;
   program.help();
+  process.exit(1);
 }
 
 function validateOptions(options: Options) {

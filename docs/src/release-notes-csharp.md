@@ -5,6 +5,38 @@ title: "Release notes"
 
 <!-- TOC -->
 
+## Version 1.21
+
+### Highlights
+
+- New role selectors that allow selecting elements by their [ARIA role](https://www.w3.org/TR/wai-aria-1.2/#roles), [ARIA attributes](https://www.w3.org/TR/wai-aria-1.2/#aria-attributes) and [accessible name](https://w3c.github.io/accname/#dfn-accessible-name).
+
+  ```csharp
+  // Click a button with accessible name "log in"
+  await page.ClickAsync("role=button[name='log in']")
+  ```
+
+  Read more in [our documentation](./selectors#role-selector).
+- New `scale` option in [`method: Page.screenshot`] for smaller sized screenshots.
+- New `caret` option in [`method: Page.screenshot`] to control text caret. Defaults to `"hide"`.
+- We now ship a designated .NET docker image `mcr.microsoft.com/playwright/dotnet`. Read more in [our documentation](./docker).
+
+### Behavior Changes
+
+- Playwright now supports large file uploads (100s of MBs) via [`method: Locator.setInputFiles`] API.
+
+### Browser Versions
+
+- Chromium 101.0.4951.26
+- Mozilla Firefox 98.0.2
+- WebKit 15.4
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 100
+- Microsoft Edge 100
+
+
 ## Version 1.20
 
 ### Web-First Assertions
@@ -18,15 +50,14 @@ using System.Threading.Tasks;
 using Microsoft.Playwright.NUnit;
 using NUnit.Framework;
 
-namespace Playwright.TestingHarnessTest.NUnit
+namespace Playwright.TestingHarnessTest.NUnit;
+
+public class ExampleTests : PageTest
 {
-    public class ExampleTests : PageTest
+    [Test]
+    public async Task StatusBecomesSubmitted()
     {
-        [Test]
-        public async Task StatusBecomesSubmitted()
-        {
-            await Expect(Page.Locator(".status")).ToHaveTextAsync("Submitted");
-        }
+        await Expect(Page.Locator(".status")).ToHaveTextAsync("Submitted");
     }
 }
 ```

@@ -14,10 +14,8 @@
  * limitations under the License.
  */
 
-import type { APIRequestContext, Browser, BrowserContext, BrowserContextOptions, Page, LaunchOptions, ViewportSize, Geolocation, HTTPCredentials } from 'playwright-core';
-import type { Expect } from './testExpect';
-
-export type { Expect } from './testExpect';
+import type { APIRequestContext, Browser, BrowserContext, BrowserContextOptions, Page, LaunchOptions, ViewportSize, Geolocation, HTTPCredentials, Locator, APIResponse } from 'playwright-core';
+export * from 'playwright-core';
 
 export type ReporterDescription =
   ['dot'] |
@@ -30,134 +28,45 @@ export type ReporterDescription =
   ['null'] |
   [string] | [string, any];
 
-export type Shard = { total: number, current: number } | null;
-export type ReportSlowTests = { max: number, threshold: number } | null;
-export type PreserveOutput = 'always' | 'never' | 'failures-only';
-export type UpdateSnapshots = 'all' | 'none' | 'missing';
-
 type UseOptions<TestArgs, WorkerArgs> = { [K in keyof WorkerArgs]?: WorkerArgs[K] } & { [K in keyof TestArgs]?: TestArgs[K] };
-
-type ExpectSettings = {
-  /**
-   * Default timeout for async expect matchers in milliseconds, defaults to 5000ms.
-   */
-  timeout?: number;
-  toMatchSnapshot?: {
-    /** An acceptable perceived color difference in the [YIQ color space](https://en.wikipedia.org/wiki/YIQ) between pixels in compared images, between zero (strict) and one (lax). Defaults to `0.2`.
-     */
-    threshold?: number,
-    /**
-     * An acceptable amount of pixels that could be different, unset by default.
-     */
-    maxDiffPixels?: number,
-    /**
-     * An acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1` , unset by default.
-     */
-    maxDiffPixelRatio?: number,
-  }
-};
-
-interface TestProject {
-  expect?: ExpectSettings;
-  fullyParallel?: boolean;
-  grep?: RegExp | RegExp[];
-  grepInvert?: RegExp | RegExp[] | null;
-  metadata?: any;
-  name?: string;
-  snapshotDir?: string;
-  outputDir?: string;
-  repeatEach?: number;
-  retries?: number;
-  testDir?: string;
-  testIgnore?: string | RegExp | (string | RegExp)[];
-  testMatch?: string | RegExp | (string | RegExp)[];
-  timeout?: number;
-}
 
 export interface Project<TestArgs = {}, WorkerArgs = {}> extends TestProject {
   use?: UseOptions<TestArgs, WorkerArgs>;
 }
 
-export type FullProject<TestArgs = {}, WorkerArgs = {}> = Required<Project<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>>;
-
-export type WebServerConfig = {
-  /**
-   * Shell command to start. For example `npm run start`.
-   */
-  command: string,
-  /**
-   * The port that your http server is expected to appear on. It does wait until it accepts connections.
-   * Exactly one of `port` or `url` is required.
-   */
-  port?: number,
-  /**
-   * The url on your http server that is expected to return a 2xx status code when the server is ready to accept connections.
-   * Exactly one of `port` or `url` is required.
-   */
-  url?: string,
-  /**
-   * Whether to ignore HTTPS errors when fetching the `url`. Defaults to `false`.
-   */
-   ignoreHTTPSErrors?: boolean,
-  /**
-   * How long to wait for the process to start up and be available in milliseconds. Defaults to 60000.
-   */
-  timeout?: number,
-  /**
-   * If true, it will re-use an existing server on the port or url when available. If no server is running
-   * on that port or url, it will run the command to start a new server.
-   * If false, it will throw if an existing process is listening on the port or url.
-   * This should commonly set to !process.env.CI to allow the local dev server when running tests locally.
-   */
-  reuseExistingServer?: boolean
-  /**
-   * Environment variables, process.env by default
-   */
-  env?: Record<string, string>,
-  /**
-   * Current working directory of the spawned process. Default is process.cwd().
-   */
-  cwd?: string,
-};
+// [internal] !!! DO NOT ADD TO THIS !!!
+// [internal] It is part of the public API and is computed from the user's config.
+// [internal] If you need new fields internally, add them to FullConfigInternal instead.
+export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
+  grep: RegExp | RegExp[];
+  grepInvert: RegExp | RegExp[] | null;
+  metadata: any;
+  name: string;
+  snapshotDir: string;
+  outputDir: string;
+  repeatEach: number;
+  retries: number;
+  testDir: string;
+  testIgnore: string | RegExp | (string | RegExp)[];
+  testMatch: string | RegExp | (string | RegExp)[];
+  timeout: number;
+  use: UseOptions<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
+  // [internal] !!! DO NOT ADD TO THIS !!! See prior note.
+}
 
 type LiteralUnion<T extends U, U = string> = T | (U & { zz_IGNORE_ME?: never });
 
 interface TestConfig {
-  forbidOnly?: boolean;
-  fullyParallel?: boolean;
-  globalSetup?: string;
-  globalTeardown?: string;
-  globalTimeout?: number;
-  grep?: RegExp | RegExp[];
-  grepInvert?: RegExp | RegExp[];
-  maxFailures?: number;
-  preserveOutput?: PreserveOutput;
-  projects?: Project[];
-  quiet?: boolean;
   reporter?: LiteralUnion<'list'|'dot'|'line'|'github'|'json'|'junit'|'null'|'html', string> | ReporterDescription[];
-  reportSlowTests?: ReportSlowTests;
-  shard?: Shard;
-  updateSnapshots?: UpdateSnapshots;
-  webServer?: WebServerConfig;
-  workers?: number;
-
-  expect?: ExpectSettings;
-  metadata?: any;
-  name?: string;
-  snapshotDir?: string;
-  outputDir?: string;
-  repeatEach?: number;
-  retries?: number;
-  testDir?: string;
-  testIgnore?: string | RegExp | (string | RegExp)[];
-  testMatch?: string | RegExp | (string | RegExp)[];
-  timeout?: number;
+  webServer?: TestConfigWebServer;
 }
 
 export interface Config<TestArgs = {}, WorkerArgs = {}> extends TestConfig {
   projects?: Project<TestArgs, WorkerArgs>[];
   use?: UseOptions<TestArgs, WorkerArgs>;
 }
+
+export type Metadata = { [key: string]: string | number | boolean };
 
 // [internal] !!! DO NOT ADD TO THIS !!!
 // [internal] It is part of the public API and is computed from the user's config.
@@ -171,17 +80,18 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
   grep: RegExp | RegExp[];
   grepInvert: RegExp | RegExp[] | null;
   maxFailures: number;
+  metadata: Metadata;
   version: string;
-  preserveOutput: PreserveOutput;
+  preserveOutput: 'always' | 'never' | 'failures-only';
   projects: FullProject<TestArgs, WorkerArgs>[];
   reporter: ReporterDescription[];
-  reportSlowTests: ReportSlowTests;
+  reportSlowTests: { max: number, threshold: number } | null;
   rootDir: string;
   quiet: boolean;
-  shard: Shard;
-  updateSnapshots: UpdateSnapshots;
+  shard: { total: number, current: number } | null;
+  updateSnapshots: 'all' | 'none' | 'missing';
   workers: number;
-  webServer: WebServerConfig | null;
+  webServer: TestConfigWebServer | null;
   // [internal] !!! DO NOT ADD TO THIS !!! See prior note.
 }
 
@@ -195,13 +105,6 @@ export interface WorkerInfo {
 export interface TestInfo {
   config: FullConfig;
   project: FullProject;
-  expectedStatus: TestStatus;
-  status?: TestStatus;
-}
-
-export interface GlobalInfo {
-  attachments(): { name: string, path?: string, body?: Buffer, contentType: string }[];
-  attach(name: string, options?: { contentType?: string, path?: string, body?: string | Buffer }): Promise<void>;
 }
 
 interface SuiteFunction {
@@ -332,7 +235,7 @@ export interface PlaywrightTestOptions {
 
 
 export interface PlaywrightWorkerArgs {
-  playwright: typeof import('..');
+  playwright: typeof import('playwright-core');
   browser: Browser;
 }
 
@@ -344,6 +247,74 @@ export interface PlaywrightTestArgs {
 
 export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
 export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
+
+import type * as expectType from '@playwright/test/types/expect-types';
+import type { Suite } from '@playwright/test/types/testReporter';
+
+type AsymmetricMatcher = Record<string, any>;
+
+type IfAny<T, Y, N> = 0 extends (1 & T) ? Y : N;
+type ExtraMatchers<T, Type, Matchers> = T extends Type ? Matchers : IfAny<T, Matchers, {}>;
+
+type BaseMatchers<R, T> = expectType.Matchers<R> & PlaywrightTest.Matchers<R, T>;
+
+type MakeMatchers<R, T> = BaseMatchers<R, T> & {
+    /**
+     * If you know how to test something, `.not` lets you test its opposite.
+     */
+    not: MakeMatchers<R, T>;
+    /**
+     * Use resolves to unwrap the value of a fulfilled promise so any other
+     * matcher can be chained. If the promise is rejected the assertion fails.
+     */
+    resolves: MakeMatchers<Promise<R>, Awaited<T>>;
+    /**
+    * Unwraps the reason of a rejected promise so any other matcher can be chained.
+    * If the promise is fulfilled the assertion fails.
+    */
+    rejects: MakeMatchers<Promise<R>, Awaited<T>>;
+  } & ScreenshotAssertions &
+  ExtraMatchers<T, Page, PageAssertions> &
+  ExtraMatchers<T, Locator, LocatorAssertions> &
+  ExtraMatchers<T, APIResponse, APIResponseAssertions>;
+
+export type Expect = {
+  <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }): MakeMatchers<void, T>;
+  soft: <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }) => MakeMatchers<void, T>;
+  poll: <T = unknown>(actual: () => T | Promise<T>, messageOrOptions?: string | { message?: string, timeout?: number, intervals?: number[] }) => BaseMatchers<Promise<void>, T> & {
+    /**
+     * If you know how to test something, `.not` lets you test its opposite.
+     */
+     not: BaseMatchers<Promise<void>, T>;
+  };
+
+  extend(arg0: any): void;
+  getState(): expectType.MatcherState;
+  setState(state: Partial<expectType.MatcherState>): void;
+  any(expectedObject: any): AsymmetricMatcher;
+  anything(): AsymmetricMatcher;
+  arrayContaining(sample: Array<unknown>): AsymmetricMatcher;
+  objectContaining(sample: Record<string, unknown>): AsymmetricMatcher;
+  stringContaining(expected: string): AsymmetricMatcher;
+  stringMatching(expected: string | RegExp): AsymmetricMatcher;
+  /**
+   * Removed following methods because they rely on a test-runner integration from Jest which we don't support:
+   * - assertions()
+   * - extractExpectedAssertionsErrors()
+   * – hasAssertions()
+   */
+};
+
+type Awaited<T> = T extends PromiseLike<infer U> ? U : T;
+
+// --- BEGINGLOBAL ---
+declare global {
+  export namespace PlaywrightTest {
+    export interface Matchers<R, T = unknown> {
+    }
+  }
+}
+// --- ENDGLOBAL ---
 
 /**
  * These tests are executed in Playwright environment that launches the browser

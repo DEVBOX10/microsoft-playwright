@@ -21,7 +21,7 @@ import { JSHandle, serializeArgument, parseResult } from './jsHandle';
 import type { ChannelOwner } from './channelOwner';
 import type { SelectOption, FilePayload, Rect, SelectOptionOptions } from './types';
 import fs from 'fs';
-import * as mime from 'mime';
+import { mime } from '../utilsBundle';
 import path from 'path';
 import { assert, isString } from '../utils';
 import { mkdirIfNeeded } from '../utils/fileUtils';
@@ -201,7 +201,6 @@ export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements
         selector: locator._selector,
       }));
     }
-    copy.fonts = (options as any)._fonts;
     const result = await this._elementChannel.screenshot(copy);
     const buffer = Buffer.from(result.binary, 'base64');
     if (options.path) {
@@ -285,7 +284,7 @@ export async function convertInputFiles(files: string | FilePayload | string[] |
       }));
       return { streams };
     }
-    return { localPaths: items as string[] };
+    return { localPaths: items.map(f => path.resolve(f as string)) as string[] };
   }
 
   const filePayloads: SetInputFilesFiles = await Promise.all(items.map(async item => {

@@ -42,7 +42,7 @@ The list of files or buffers attached to the current test. Some reporters show t
 
 To add an attachment, use [`method: TestInfo.attach`] instead of directly pushing onto this array.
 
-## method: TestInfo.attach
+## async method: TestInfo.attach
 
 Attach a value or a file from disk to the current test. Some reporters show test attachments. Either [`option: path`] or [`option: body`] must be specified, but not both.
 
@@ -97,16 +97,24 @@ after awaiting the attach call.
 :::
 
 ### param: TestInfo.attach.name
-- `name` <[string]> Attachment name.
+- `name` <[string]>
+
+Attachment name.
 
 ### option: TestInfo.attach.body
-- `body` <[string]|[Buffer]> Attachment body. Mutually exclusive with [`option: path`].
+- `body` <[string]|[Buffer]>
+
+Attachment body. Mutually exclusive with [`option: path`].
 
 ### option: TestInfo.attach.contentType
-- `contentType` <[string]> Content type of this attachment to properly present in the report, for example `'application/json'` or `'image/png'`. If omitted, content type is inferred based on the [`option: path`], or defaults to `text/plain` for [string] attachments and `application/octet-stream` for [Buffer] attachments.
+- `contentType` <[string]>
+
+Content type of this attachment to properly present in the report, for example `'application/json'` or `'image/png'`. If omitted, content type is inferred based on the [`option: path`], or defaults to `text/plain` for [string] attachments and `application/octet-stream` for [Buffer] attachments.
 
 ### option: TestInfo.attach.path
-- `path` <[string]> Path on the filesystem to the attached file. Mutually exclusive with [`option: body`].
+- `path` <[string]>
+
+Path on the filesystem to the attached file. Mutually exclusive with [`option: body`].
 
 
 ## property: TestInfo.column
@@ -406,7 +414,7 @@ The name of the snapshot or the path segments to define the snapshot file path. 
 Suffix used to differentiate snapshots between multiple test configurations. For example, if snapshots depend on the platform, you can set `testInfo.snapshotSuffix` equal to `process.platform`. In this case `expect(value).toMatchSnapshot(snapshotName)` will use different snapshots depending on the platform. Learn more about [snapshots](../test-snapshots.md).
 
 ## property: TestInfo.status
-- type: <[void]|[TestStatus]<"passed"|"failed"|"timedOut"|"skipped">>
+- type: ?<[TestStatus]<"passed"|"failed"|"timedOut"|"skipped">>
 
 Actual status for the currently running test. Available after the test has finished in [`method: Test.afterEach`] hook and fixtures.
 

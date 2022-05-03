@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-import type { FullConfig, FullProject, TestStatus, TestError } from './test';
-export type { FullConfig, TestStatus, TestError } from './test';
+import type { FullConfig, FullProject, TestStatus, TestError } from '@playwright/test';
+export type { FullConfig, TestStatus, TestError } from '@playwright/test';
 
 /**
  * `Suite` is a group of tests. All tests in Playwright Test form the following hierarchy:
@@ -84,33 +84,7 @@ export interface Suite {
   /**
    * Returns a list of titles from the root down to this suite.
    */
-  titlePath(): Array<string>;
-
-  /**
-   * The list of files or buffers attached to the suite. Root suite has attachments populated by
-   * [globalInfo.attach(name[, options])](https://playwright.dev/docs/api/class-globalinfo#global-info-attach).
-   */
-  attachments: Array<{
-    /**
-     * Attachment name.
-     */
-    name: string;
-
-    /**
-     * Content type of this attachment to properly present in the report, for example `'application/json'` or `'image/png'`.
-     */
-    contentType: string;
-
-    /**
-     * Optional path on the filesystem to the attached file.
-     */
-    path?: string;
-
-    /**
-     * Optional attachment body used instead of a file.
-     */
-    body?: Buffer;
-  }>;}
+  titlePath(): Array<string>;}
 
 /**
  * `TestCase` corresponds to every [test.(call)(title, testFunction)](https://playwright.dev/docs/api/class-test#test-call)
@@ -456,6 +430,79 @@ export interface Reporter {
    * experience.
    */
   printsToStdio?(): boolean;}
+
+export interface JSONReport {
+  config: Omit<FullConfig, 'projects'> & {
+    projects: {
+      outputDir: string,
+      repeatEach: number,
+      retries: number,
+      metadata: any,
+      name: string,
+      testDir: string,
+      testIgnore: string[],
+      testMatch: string[],
+      timeout: number,
+    }[],
+  };
+  suites: JSONReportSuite[];
+  errors: TestError[];
+}
+
+export interface JSONReportSuite {
+  title: string;
+  file: string;
+  column: number;
+  line: number;
+  specs: JSONReportSpec[];
+  suites?: JSONReportSuite[];
+}
+
+export interface JSONReportSpec {
+  tags: string[],
+  title: string;
+  ok: boolean;
+  tests: JSONReportTest[];
+  file: string;
+  line: number;
+  column: number;
+}
+
+export interface JSONReportTest {
+  timeout: number;
+  annotations: { type: string, description?: string }[],
+  expectedStatus: TestStatus;
+  projectName: string;
+  results: JSONReportTestResult[];
+  status: 'skipped' | 'expected' | 'unexpected' | 'flaky';
+}
+
+export interface JSONReportTestResult {
+  workerIndex: number;
+  status: TestStatus | undefined;
+  duration: number;
+  error: TestError | undefined;
+  stdout: JSONReportSTDIOEntry[];
+  stderr: JSONReportSTDIOEntry[];
+  retry: number;
+  steps?: JSONReportTestStep[];
+  attachments: {
+    name: string;
+    path?: string;
+    body?: string;
+    contentType: string;
+  }[];
+  errorLocation?: Location;
+}
+
+export interface JSONReportTestStep {
+  title: string;
+  duration: number;
+  error: TestError | undefined;
+  steps?: JSONReportTestStep[];
+}
+
+export type JSONReportSTDIOEntry = { text: string } | { buffer: string };
 
 // This is required to not export everything by default. See https://github.com/Microsoft/TypeScript/issues/19545#issuecomment-340490459
 export {};

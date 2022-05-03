@@ -15,7 +15,8 @@
  */
 
 import type { LaunchServerOptions, Logger } from './client/types';
-import { EventEmitter } from 'ws';
+import { ws } from './utilsBundle';
+import type { WebSocketEventEmitter } from './utilsBundle';
 import type { BrowserServerLauncher, BrowserServer } from './client/browserType';
 import { envObjectToArray } from './client/clientHelper';
 import { createGuid } from './utils';
@@ -57,13 +58,13 @@ export class BrowserServerLauncherImpl implements BrowserServerLauncher {
     const wsEndpoint = await server.listen(options.port);
 
     // 3. Return the BrowserServer interface
-    const browserServer = new EventEmitter() as (BrowserServer & EventEmitter);
+    const browserServer = new ws.EventEmitter() as (BrowserServer & WebSocketEventEmitter);
     browserServer.process = () => browser.options.browserProcess.process!;
     browserServer.wsEndpoint = () => wsEndpoint;
     browserServer.close = () => browser.options.browserProcess.close();
     browserServer.kill = () => browser.options.browserProcess.kill();
     (browserServer as any)._disconnectForTest = () => server.close();
-    (browserServer as any)._artifactsDirForTest = browser.options.artifactsDir;
+    (browserServer as any)._userDataDirForTest = (browser as any)._userDataDirForTest;
     browser.options.browserProcess.onclose = async (exitCode, signal) => {
       server.close();
       browserServer.emit('close', exitCode, signal);

@@ -1,4 +1,5 @@
 import { PlaywrightTestConfig, devices } from '@playwright/test';
+import viteCT from '@playwright/experimental-ct-vue/vitePlugin';
 
 const config: PlaywrightTestConfig = {
   testDir: 'src',
@@ -9,13 +10,10 @@ const config: PlaywrightTestConfig = {
   ] : [
     ['html', { open: 'on-failure' }]
   ],
-  webServer: {
-    url: 'http://localhost:3000/tests.html',
-    command: 'npm run dev',
-    reuseExistingServer: !process.env.CI,
-  },
+  plugins: [
+    viteCT()
+  ],
   use: {
-    baseURL: 'http://localhost:3000/tests.html',
     trace: 'on-first-retry',
   },
   projects: [

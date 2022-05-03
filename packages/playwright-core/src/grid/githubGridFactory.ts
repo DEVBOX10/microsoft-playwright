@@ -16,7 +16,7 @@
 
 import type { GridAgentLaunchOptions, GridFactory } from './gridServer';
 import https from 'https';
-import debug from 'debug';
+import { debug } from '../utilsBundle';
 
 const repoName = process.env.GITHUB_AGENT_REPO;
 if (!repoName)
@@ -30,15 +30,23 @@ const log = debug(`pw:grid:server`);
 
 const githubFactory: GridFactory = {
   name: 'Agents hosted on Github',
-  capacity: 10,
-  launchTimeout: 30000,
-  retireTimeout: 600000,
+  // Standard VM is 3-core on mac and 2-core on win and lin
+  capacity: 4,
+  launchTimeout: 10 * 60_000,
+  retireTimeout: 1 * 60 * 60_000,
+  statusUrl: (runId: string) => {
+    return `https://github.com/${repoName}/actions/runs/${runId}`;
+  },
   launch: async (options: GridAgentLaunchOptions) => {
     await createWorkflow(options);
   },
 };
 
 async function createWorkflow(inputs: GridAgentLaunchOptions): Promise<boolean> {
+  if (!['windows', 'linux', 'macos'].includes(inputs.os)) {
+    log(`unsupported OS: ${inputs.os}`);
+    return false;
+  }
   return new Promise(fulfill => {
     log(`triggering workflow ${JSON.stringify(inputs)}`);
     const req = https.request(`https://api.github.com/repos/${repoName}/actions/workflows/agent.yml/dispatches`, {

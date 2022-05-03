@@ -6,6 +6,8 @@ trap "cd $(pwd -P)" EXIT
 cd "$(dirname "$0")"
 SCRIPT_PATH=$(pwd -P)
 
+source "${SCRIPT_PATH}/utils.sh"
+
 REMOTE_BROWSER_UPSTREAM="browser_upstream"
 BUILD_BRANCH="playwright-build"
 
@@ -28,7 +30,7 @@ if [[ $# == 0 ]]; then
 fi
 
 function maybe_cmd {
-  if [[ $(uname) == MINGW* || "$(uname)" == MSYS* ]]; then
+  if is_win; then
     local args="$@"
     /c/Windows/System32/cmd.exe "/c $args"
   else
@@ -39,7 +41,14 @@ function maybe_cmd {
 function prepare_chromium_checkout {
   cd "${SCRIPT_PATH}"
 
-  source "${SCRIPT_PATH}/chromium/UPSTREAM_CONFIG.sh"
+  if [[ $1 == "chromium" ]]; then
+    source "${SCRIPT_PATH}/chromium/UPSTREAM_CONFIG.sh"
+  elif [[ "$1" == "chromium-tot" ]]; then
+    source "${SCRIPT_PATH}/chromium-tip-of-tree/UPSTREAM_CONFIG.sh"
+  else
+    echo "ERROR: unknown type of checkout to prepare - $1"
+    exit 1
+  fi
   source "${SCRIPT_PATH}/chromium/ensure_depot_tools.sh"
 
   if [[ -z "${CR_CHECKOUT_PATH}" ]]; then
@@ -55,7 +64,7 @@ function prepare_chromium_checkout {
     cd "${CR_CHECKOUT_PATH}"
     maybe_cmd fetch --nohooks chromium
     cd src
-    if [[ $(uname) == "Linux" ]]; then
+    if is_linux; then
       ./build/install-build-deps.sh
     fi
     maybe_cmd gclient runhooks
@@ -80,7 +89,10 @@ BUILD_NUMBER=""
 WEBKIT_EXTRA_FOLDER_PATH=""
 FIREFOX_EXTRA_FOLDER_PATH=""
 if [[ ("$1" == "chromium") || ("$1" == "chromium/") || ("$1" == "cr") ]]; then
-  prepare_chromium_checkout
+  prepare_chromium_checkout chromium
+  exit 0
+elif [[ ("$1" == "chromium-tip-of-tree") || ("$1" == "chromium-tot") || ("$1" == "cr-tot") ]]; then
+  prepare_chromium_checkout chromium-tot
   exit 0
 elif [[ ("$1" == "ffmpeg") || ("$1" == "ffmpeg/") ]]; then
   echo "FYI: ffmpeg checkout is not supported. Use '//browser_patches/ffmpeg/build.sh' instead"

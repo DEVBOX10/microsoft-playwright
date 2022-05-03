@@ -45,7 +45,7 @@ test('should compile', async ({ runTSC }) => {
   const result = await runTSC({
     'a.spec.ts': `
       const { test } = pwt;
-      test('should poll sync predicate', () => {
+      test('should poll sync predicate', async ({ page }) => {
         let i = 0;
         test.expect.poll(() => ++i).toBe(3);
         test.expect.poll(() => ++i, 'message').toBe(3);
@@ -57,6 +57,11 @@ test('should compile', async ({ runTSC }) => {
           return ++i;
         }).toBe(3);
         test.expect.poll(() => Promise.resolve(++i)).toBe(3);
+
+        // @ts-expect-error
+        await test.expect.poll(() => page.locator('foo')).toBeEnabled();
+        // @ts-expect-error
+        await test.expect.poll(() => page.locator('foo')).not.toBeEnabled();
       });
     `
   });
@@ -177,4 +182,19 @@ test('should support custom matchers', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
+});
+
+test('should respect interval', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      const { test } = pwt;
+      test('should fail', async () => {
+        let probes = 0;
+        await test.expect.poll(() => ++probes, { timeout: 1000, intervals: [600] }).toBe(3).catch(() => {});
+        // Probe at 0s, at 0.6s.
+        expect(probes).toBe(2);
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
 });

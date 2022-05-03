@@ -482,7 +482,9 @@ Returns the `element.innerText`.
 ## async method: Locator.inputValue
 - returns: <[string]>
 
-Returns `input.value` for `<input>` or `<textarea>` or `<select>` element. Throws for non-input elements.
+Returns `input.value` for the selected `<input>` or `<textarea>` or `<select>` element.
+
+Throws for non-input elements. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), returns the value of the control.
 
 ### option: Locator.inputValue.timeout = %%-input-timeout-%%
 
@@ -599,10 +601,12 @@ Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
 ## async method: Locator.screenshot
 - returns: <[Buffer]>
 
-Returns the buffer with the captured screenshot.
+This method captures a screenshot of the page, clipped to the size and position of a particular element matching the locator. If the element is covered by other elements, it will not be actually visible on the screenshot. If the element is a scrollable container, only the currently scrolled content will be visible on the screenshot.
 
 This method waits for the [actionability](../actionability.md) checks, then scrolls element into view before taking a
 screenshot. If the element is detached from DOM, the method throws an error.
+
+Returns the buffer with the captured screenshot.
 
 ### option: Locator.screenshot.-inline- = %%-screenshot-options-common-list-%%
 
@@ -698,6 +702,8 @@ await element.SelectOptionAsync(new[] {
 This method waits for [actionability](../actionability.md) checks, then focuses the element and selects all its text
 content.
 
+If the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), focuses and selects text in the control instead.
+
 ### option: Locator.selectText.force = %%-input-force-%%
 ### option: Locator.selectText.timeout = %%-input-timeout-%%
 
@@ -725,11 +731,11 @@ When all steps combined have not finished during the specified [`option: timeout
 
 ## async method: Locator.setInputFiles
 
-This method expects `element` to point to an
-[input element](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input).
-
 Sets the value of the file input to these file paths or files. If some of the `filePaths` are relative paths, then they
-are resolved relative to the the current working directory. For empty array, clears the selected files.
+are resolved relative to the current working directory. For empty array, clears the selected files.
+
+This method expects [Locator] to point to an
+[input element](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input). However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), targets the control instead.
 
 ### param: Locator.setInputFiles.files = %%-input-files-%%
 ### option: Locator.setInputFiles.noWaitAfter = %%-input-no-wait-after-%%
@@ -765,6 +771,13 @@ When all steps combined have not finished during the specified [`option: timeout
 Returns the `node.textContent`.
 
 ### option: Locator.textContent.timeout = %%-input-timeout-%%
+
+## method: Locator.that
+- returns: <[Locator]>
+
+This method narrows existing locator according to the options, for example filters by text.
+
+### option: Locator.that.-inline- = %%-locator-options-list-%%
 
 ## async method: Locator.type
 

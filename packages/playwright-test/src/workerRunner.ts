@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-import colors from 'colors/safe';
-import rimraf from 'rimraf';
+import { colors, rimraf } from 'playwright-core/lib/utilsBundle';
 import util from 'util';
 import { EventEmitter } from 'events';
 import { relativeFilePath, serializeError } from './util';
@@ -24,7 +23,7 @@ import { setCurrentTestInfo } from './globals';
 import { Loader } from './loader';
 import type { Suite, TestCase } from './test';
 import type { Annotation, TestError, TestStepInternal } from './types';
-import type { ProjectImpl } from './project';
+import { ProjectImpl } from './project';
 import { FixtureRunner } from './fixtures';
 import { ManualPromise } from 'playwright-core/lib/utils/manualPromise';
 import { TestInfoImpl } from './testInfo';
@@ -152,12 +151,13 @@ export class WorkerRunner extends EventEmitter {
       return;
 
     this._loader = await Loader.deserialize(this._params.loader);
-    this._project = this._loader.projects()[this._params.projectIndex];
+    this._project = new ProjectImpl(this._loader.fullConfig().projects[this._params.projectIndex], this._params.projectIndex);
   }
 
   async runTestGroup(runPayload: RunPayload) {
     this._runFinished = new ManualPromise<void>();
     const entries = new Map(runPayload.entries.map(e => [ e.testId, e ]));
+    let fatalUnknownTestIds;
     try {
       await this._loadIfNeeded();
       const fileSuite = await this._loader.loadTestFile(runPayload.file, 'worker');
@@ -179,6 +179,9 @@ export class WorkerRunner extends EventEmitter {
           entries.delete(tests[i]._id);
           await this._runTest(tests[i], entry.retry, tests[i + 1]);
         }
+      } else {
+        fatalUnknownTestIds = runPayload.entries.map(e => e.testId);
+        this.stop();
       }
     } catch (e) {
       // In theory, we should run above code without any errors.
@@ -189,6 +192,7 @@ export class WorkerRunner extends EventEmitter {
       const donePayload: DonePayload = {
         fatalErrors: this._fatalErrors,
         skipTestsDueToSetupFailure: [],
+        fatalUnknownTestIds
       };
       for (const test of this._skipRemainingTestsInSuite?.allTests() || []) {
         if (entries.has(test._id))
@@ -203,7 +207,7 @@ export class WorkerRunner extends EventEmitter {
 
   private async _runTest(test: TestCase, retry: number, nextTest: TestCase | undefined) {
     let lastStepId = 0;
-    const testInfo = new TestInfoImpl(this._loader, this._params, test, retry, data => {
+    const testInfo = new TestInfoImpl(this._loader, this._project, this._params, test, retry, data => {
       const stepId = `${data.category}@${data.title}@${++lastStepId}`;
       let callbackHandled = false;
       const step: TestStepInternal = {

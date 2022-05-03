@@ -97,7 +97,6 @@ it('should accept userDataDir', async ({ createUserDataDir, browserType }) => {
 });
 
 it('should restore state from userDataDir', async ({ browserType, server, createUserDataDir, isMac, browserName }) => {
-  it.skip(isMac && browserName === 'webkit', 'Started failing after roll https://github.com/microsoft/playwright/issues/13433');
   it.slow();
 
   const userDataDir = await createUserDataDir();
@@ -251,4 +250,36 @@ it('should connect to a browser with the default page', async ({ browserType,cre
   const context = await browserType.launchPersistentContext(await createUserDataDir(), options);
   expect(context.pages().length).toBe(1);
   await context.close();
+});
+
+it('route.continue should delete the origin header', async ({ launchPersistent, server, isAndroid, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/13106' });
+  it.skip(isAndroid, 'No cross-process on Android');
+  it.fail(browserName === 'webkit', 'Does not delete origin in webkit');
+
+  const { page } = await launchPersistent();
+
+  await page.goto(server.PREFIX + '/empty.html');
+  server.setRoute('/something', (request, response) => {
+    response.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+    response.end('done');
+  });
+  let interceptedRequest;
+  await page.route(server.CROSS_PROCESS_PREFIX + '/something', async (route, request) => {
+    interceptedRequest = request;
+    const headers = await request.allHeaders();
+    delete headers['origin'];
+    route.continue({ headers });
+  });
+
+  const [text, serverRequest] = await Promise.all([
+    page.evaluate(async url => {
+      const data = await fetch(url);
+      return data.text();
+    }, server.CROSS_PROCESS_PREFIX + '/something'),
+    server.waitForRequest('/something')
+  ]);
+  expect(text).toBe('done');
+  expect(interceptedRequest.headers()['origin']).toEqual(server.PREFIX);
+  expect(serverRequest.headers.origin).toBeFalsy();
 });

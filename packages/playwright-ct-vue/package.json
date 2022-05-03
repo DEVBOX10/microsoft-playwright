@@ -1,8 +1,8 @@
 {
   "name": "@playwright/experimental-ct-vue",
   "private": true,
-  "version": "0.0.2",
-  "description": "Playwright Component Testing for Svelte",
+  "version": "0.0.5",
+  "description": "Playwright Component Testing for Vue",
   "repository": "github:Microsoft/playwright",
   "homepage": "https://playwright.dev",
   "engines": {
@@ -14,7 +14,12 @@
   "license": "Apache-2.0",
   "exports": {
     "./register": "./register.mjs",
-    "./test": "./test.js"
+    "./test": "./test.js",
+    "./vitePlugin": "./vitePlugin.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "^2.3.1",
+    "vite": "^2.9.5"
   },
   "devDependencies": {
     "@playwright/test": "1.22.0-next"

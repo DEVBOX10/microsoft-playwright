@@ -16,8 +16,6 @@
 
 import * as http from 'http';
 import * as https from 'https';
-import { HttpsProxyAgent } from 'https-proxy-agent';
-import { SocksProxyAgent } from 'socks-proxy-agent';
 import type { Readable, TransformCallback } from 'stream';
 import { pipeline, Transform } from 'stream';
 import url from 'url';
@@ -38,6 +36,7 @@ import { ProgressController } from './progress';
 import { Tracing } from './trace/recorder/tracing';
 import type * as types from './types';
 import type { HeadersArray, ProxySettings } from './types';
+import { HttpsProxyAgent, SocksProxyAgent } from '../utilsBundle';
 
 type FetchRequestOptions = {
   userAgent: string;
@@ -141,7 +140,7 @@ export abstract class APIRequestContext extends SdkObject {
     const method = params.method?.toUpperCase() || 'GET';
     const proxy = defaults.proxy;
     let agent;
-    if (proxy) {
+    if (proxy && proxy.server !== 'per-context') {
       // TODO: support bypass proxy
       const proxyOpts = url.parse(proxy.server);
       if (proxyOpts.protocol?.startsWith('socks')) {
@@ -365,11 +364,12 @@ export abstract class APIRequestContext extends SdkObject {
             if (e)
               reject(new Error(`failed to decompress '${encoding}' encoding: ${e}`));
           });
+        } else {
+          body.on('error', reject);
         }
 
         body.on('data', chunk => chunks.push(chunk));
         body.on('end', notifyBodyFinished);
-        body.on('error', reject);
       });
       request.on('error', reject);
 

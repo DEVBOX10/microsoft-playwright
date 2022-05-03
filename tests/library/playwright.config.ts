@@ -21,6 +21,7 @@ import type { Config, PlaywrightTestOptions, PlaywrightWorkerOptions } from '@pl
 import * as path from 'path';
 import type { TestModeWorkerOptions } from '../config/testModeFixtures';
 import type { CoverageWorkerOptions } from '../config/coverageFixtures';
+import { gitCommitInfo } from '@playwright/test/lib/plugins';
 
 type BrowserName = 'chromium' | 'firefox' | 'webkit';
 
@@ -44,7 +45,9 @@ const trace = !!process.env.PWTEST_TRACE;
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
 const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & PlaywrightTestOptions & TestModeWorkerOptions> = {
-  globalSetup: path.join(__dirname, '../config/globalSetup'),
+  plugins: [
+    gitCommitInfo(),
+  ],
   testDir,
   outputDir,
   expect: {
@@ -69,10 +72,26 @@ const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & Playwrigh
 
 if (mode === 'service') {
   config.webServer = {
-    command: 'npx playwright experimental-grid-server',
+    command: 'npx playwright experimental-grid-server --auth-token=mysecret --address=http://localhost:3333 --port=3333',
     port: 3333,
     reuseExistingServer: true,
+    env: {
+      PWTEST_UNSAFE_GRID_VERSION: '1',
+      PLAYWRIGHT_EXPERIMENTAL_FEATURES: '1',
+    },
   };
+  config.use.connectOptions = {
+    wsEndpoint: 'ws://localhost:3333/mysecret/claimWorker?os=linux',
+  };
+  config.projects = [{
+    name: 'Chromium page tests',
+    testMatch: /page\/.*spec.ts$/,
+    testIgnore: '**/*screenshot*',
+    use: {
+      browserName: 'chromium',
+      mode
+    }
+  }];
 }
 
 if (mode === 'service2') {
@@ -80,6 +99,9 @@ if (mode === 'service2') {
     command: 'npx playwright run-server --port=3333',
     port: 3333,
     reuseExistingServer: true,
+    env: {
+      PLAYWRIGHT_EXPERIMENTAL_FEATURES: '1',
+    },
   };
   config.use.connectOptions = {
     wsEndpoint: 'ws://localhost:3333/',

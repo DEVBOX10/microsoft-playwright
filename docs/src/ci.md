@@ -91,7 +91,7 @@ We run [our tests](https://github.com/microsoft/playwright/blob/main/.github/wor
 ### GitHub Actions on deployment
 
 This will start the tests after a [GitHub Deployment](https://developer.github.com/v3/repos/deployments/) went into the `success` state.
-Services like Azure Static Web Apps, Netlify, Vercel, etc. use this pattern so you can run your end-to-end tests on their deployed environment.
+Services like Vercel use this pattern so you can run your end-to-end tests on their deployed environment.
 
 ```yml
 name: Playwright Tests
@@ -313,19 +313,12 @@ with sync_playwright() as p:
 
 ```csharp
 using Microsoft.Playwright;
-using System.Threading.Tasks;
 
-class Program
+using var playwright = await Playwright.CreateAsync();
+await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
 {
-    public static async Task Main()
-    {
-        using var playwright = await Playwright.CreateAsync();
-        await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-        {
-            Headless = false
-        });
-    }
-}
+    Headless = false
+});
 ```
 
 On Linux agents, headed execution requires [Xvfb](https://en.wikipedia.org/wiki/Xvfb) to be installed. Our [Docker image](./docker.md) and GitHub Action have Xvfb pre-installed. To run browsers in headed mode with Xvfb, add `xvfb-run` before the Node.js command.

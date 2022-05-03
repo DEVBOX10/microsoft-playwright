@@ -498,7 +498,7 @@ You can also pass a regular expression.
 
 ### Filter by another locator
 
-Locators support an option to only select elements that have a descendant matching antoher locator.
+Locators support an option to only select elements that have a descendant matching another locator.
 
   ```js
   page.locator('article', { has: page.locator('button.subscribe') })
@@ -713,11 +713,13 @@ element could be matched when layout changes by one pixel.
 
 Layout selectors use [bounding client rect](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect)
 to compute distance and relative position of the elements.
-* `:right-of(inner > selector)` - Matches elements that are to the right of any element matching the inner selector.
-* `:left-of(inner > selector)` - Matches elements that are to the left of any element matching the inner selector.
-* `:above(inner > selector)` - Matches elements that are above any of the elements matching the inner selector.
-* `:below(inner > selector)` - Matches elements that are below any of the elements matching the inner selector.
+* `:right-of(inner > selector)` - Matches elements that are to the right of any element matching the inner selector, at any vertical position.
+* `:left-of(inner > selector)` - Matches elements that are to the left of any element matching the inner selector, at any vertical position.
+* `:above(inner > selector)` - Matches elements that are above any of the elements matching the inner selector, at any horizontal position.
+* `:below(inner > selector)` - Matches elements that are below any of the elements matching the inner selector, at any horizontal position.
 * `:near(inner > selector)` - Matches elements that are near (within 50 CSS pixels) any of the elements matching the inner selector.
+
+Note that resulting matches are sorted by their distance to the anchor element, so you can use [`method: Locator.first`] to pick the closest one.
 
 ```js
 // Fill an input to the right of "Username".
@@ -725,6 +727,9 @@ await page.locator('input:right-of(:text("Username"))').fill('value');
 
 // Click a button near the promo card.
 await page.locator('button:near(.promo-card)').click();
+
+// Click the radio input in the list closest to the "Label 3".
+await page.locator('[type=radio]:left-of(:text("Label 3"))').first().click();
 ```
 
 ```java
@@ -733,22 +738,31 @@ page.locator("input:right-of(:text(\"Username\"))").fill("value");
 
 // Click a button near the promo card.
 page.locator("button:near(.promo-card)").click();
+
+// Click the radio input in the list closest to the "Label 3".
+page.locator("[type=radio]:left-of(:text(\"Label 3\"))").first().click();
 ```
 
 ```python async
 # Fill an input to the right of "Username".
-await page.locator('input:right-of(:text("Username"))').fill('value')
+await page.locator("input:right-of(:text(\"Username\"))").fill("value")
 
 # Click a button near the promo card.
-await page.locator('button:near(.promo-card)').click()
+await page.locator("button:near(.promo-card)").click()
+
+# Click the radio input in the list closest to the "Label 3".
+await page.locator("[type=radio]:left-of(:text(\"Label 3\"))").first.click()
 ```
 
 ```python sync
 # Fill an input to the right of "Username".
-page.locator('input:right-of(:text("Username"))').fill('value')
+page.locator("input:right-of(:text(\"Username\"))").fill("value")
 
 # Click a button near the promo card.
-page.locator('button:near(.promo-card)').click()
+page.locator("button:near(.promo-card)").click()
+
+# Click the radio input in the list closest to the "Label 3".
+page.locator("[type=radio]:left-of(:text(\"Label 3\"))").first.click()
 ```
 
 ```csharp
@@ -757,10 +771,52 @@ await page.Locator("input:right-of(:text(\"Username\"))").FillAsync("value");
 
 // Click a button near the promo card.
 await page.Locator("button:near(.promo-card)").ClickAsync();
+
+// Click the radio input in the list closest to the "Label 3".
+await page.Locator("[type=radio]:left-of(:text(\"Label 3\"))").First.ClickAsync();
 ```
 
 All layout selectors support optional maximum pixel distance as the last argument. For example
 `button:near(:text("Username"), 120)` matches a button that is at most 120 pixels away from the element with the text "Username".
+
+## Selecting elements by label text
+
+Targeted input actions in Playwright automatically distinguish between labels and controls, so you can target the label to perform an action on the associated control.
+
+For example, consider the following DOM structure: `<label for="password">Password:</label><input id="password" type="password">`. You can target the label with something like `text=Password` and perform the following actions on the input instead:
+- `click` will click the label and automatically focus the input field;
+- `fill` will fill the input field;
+- `inputValue` will return the value of the input field;
+- `selectText` will select text in the input field;
+- `setInputFiles` will set files for the input field with `type=file`;
+- `selectOption` will select an option from the select box.
+
+```js
+// Fill the input by targeting the label.
+await page.fill('text=Password', 'secret');
+```
+
+```java
+// Fill the input by targeting the label.
+page.fill("text=Password", "secret");
+```
+
+```python async
+# Fill the input by targeting the label.
+await page.fill('text=Password', 'secret')
+```
+
+```python sync
+# Fill the input by targeting the label.
+page.fill('text=Password', 'secret')
+```
+
+```csharp
+// Fill the input by targeting the label.
+await page.FillAsync("text=Password", "secret");
+```
+
+However, other methods will target the label itself, for example `textContent` will return the text content of the label, not the input field.
 
 ## XPath selectors
 
@@ -891,10 +947,6 @@ Vue selectors, as well as [Vue DevTools](https://chrome.google.com/webstore/deta
 
 
 ## Role selector
-
-:::note
-Role selector is experimental, only available when running with `PLAYWRIGHT_EXPERIMENTAL_FEATURES=1` enviroment variable.
-:::
 
 Role selector allows selecting elements by their [ARIA role](https://www.w3.org/TR/wai-aria-1.2/#roles), [ARIA attributes](https://www.w3.org/TR/wai-aria-1.2/#aria-attributes) and [accessible name](https://w3c.github.io/accname/#dfn-accessible-name). Note that role selector **does not replace** accessibility audits and conformance tests, but rather gives early feedback about the ARIA guidelines.
 

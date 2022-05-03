@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import rimraf from 'rimraf';
+import { rimraf, minimatch } from 'playwright-core/lib/utilsBundle';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -37,21 +37,16 @@ import JSONReporter from './reporters/json';
 import JUnitReporter from './reporters/junit';
 import EmptyReporter from './reporters/empty';
 import HtmlReporter from './reporters/html';
-import type { ProjectImpl } from './project';
-import { Minimatch } from 'minimatch';
-import type { Config } from './types';
+import { ProjectImpl } from './project';
+import type { Config, FullProjectInternal } from './types';
 import type { FullConfigInternal } from './types';
-import { WebServer } from './webServer';
 import { raceAgainstTimeout } from 'playwright-core/lib/utils/timeoutRunner';
 import { SigIntWatcher } from './sigIntWatcher';
-import { GlobalInfoImpl } from './globalInfo';
 
 const removeFolderAsync = promisify(rimraf);
 const readDirAsync = promisify(fs.readdir);
 const readFileAsync = promisify(fs.readFile);
 export const kDefaultConfigFiles = ['playwright.config.ts', 'playwright.config.js', 'playwright.config.mjs'];
-
-type InternalGlobalSetupFunction = () => Promise<() => Promise<void>>;
 
 type RunOptions = {
   listOnly?: boolean;
@@ -59,22 +54,39 @@ type RunOptions = {
   projectFilter?: string[];
 };
 
+export type ConfigCLIOverrides = {
+  forbidOnly?: boolean;
+  fullyParallel?: boolean;
+  globalTimeout?: number;
+  grep?: RegExp;
+  grepInvert?: RegExp;
+  maxFailures?: number;
+  outputDir?: string;
+  quiet?: boolean;
+  repeatEach?: number;
+  retries?: number;
+  reporter?: string;
+  shard?: { current: number, total: number };
+  timeout?: number;
+  updateSnapshots?: 'all'|'none'|'missing';
+  workers?: number;
+  projects?: { name: string, use?: any }[],
+  use?: any;
+};
+
 export class Runner {
   private _loader: Loader;
   private _reporter!: Reporter;
-  private _internalGlobalSetups: Array<InternalGlobalSetupFunction> = [];
-  private _globalInfo: GlobalInfoImpl;
 
-  constructor(configOverrides: Config, options: { defaultConfig?: Config } = {}) {
-    this._loader = new Loader(options.defaultConfig || {}, configOverrides);
-    this._globalInfo = new GlobalInfoImpl(this._loader.fullConfig());
+  constructor(configCLIOverrides?: ConfigCLIOverrides) {
+    this._loader = new Loader(configCLIOverrides);
   }
 
-  async loadConfigFromResolvedFile(resolvedConfigFile: string): Promise<Config> {
-    return this._loader.loadConfigFile(resolvedConfigFile);
+  async loadConfigFromResolvedFile(resolvedConfigFile: string): Promise<FullConfigInternal> {
+    return await this._loader.loadConfigFile(resolvedConfigFile);
   }
 
-  loadEmptyConfig(configFileOrDirectory: string): Config {
+  loadEmptyConfig(configFileOrDirectory: string): Promise<Config> {
     return this._loader.loadEmptyConfig(configFileOrDirectory);
   }
 
@@ -144,25 +156,14 @@ export class Runner {
       if (list)
         reporters.unshift(new ListModeReporter());
       else
-        reporters.unshift(!process.env.CI ? new LineReporter({ omitFailures: true }) : new DotReporter({ omitFailures: true }));
+        reporters.unshift(!process.env.CI ? new LineReporter({ omitFailures: true }) : new DotReporter());
     }
     return new Multiplexer(reporters);
-  }
-
-  addInternalGlobalSetup(internalGlobalSetup: InternalGlobalSetupFunction) {
-    this._internalGlobalSetups.push(internalGlobalSetup);
   }
 
   async runAllTests(options: RunOptions = {}): Promise<FullResult> {
     this._reporter = await this._createReporter(!!options.listOnly);
     const config = this._loader.fullConfig();
-
-    let legacyGlobalTearDown: (() => Promise<void>) | undefined;
-    if (process.env.PW_TEST_LEGACY_GLOBAL_SETUP_MODE) {
-      legacyGlobalTearDown = await this._performGlobalSetup(config);
-      if (!legacyGlobalTearDown)
-        return { status: 'failed' };
-    }
 
     const result = await raceAgainstTimeout(() => this._run(!!options.listOnly, options.filePatternFilter || [], options.projectFilter), config.globalTimeout);
     let fullResult: FullResult;
@@ -173,7 +174,6 @@ export class Runner {
       fullResult = result.result;
     }
     await this._reporter.onEnd?.(fullResult);
-    await legacyGlobalTearDown?.();
 
     // Calling process.exit() might truncate large stdout/stderr output.
     // See https://github.com/nodejs/node/issues/6456.
@@ -191,8 +191,8 @@ export class Runner {
     };
     for (const [project, files] of filesByProject) {
       report.projects.push({
-        name: project.config.name,
-        testDir: path.resolve(configFile, project.config.testDir),
+        name: project.name,
+        testDir: path.resolve(configFile, project.testDir),
         files: files
       });
     }
@@ -204,7 +204,7 @@ export class Runner {
     return await this._runFiles(list, filesByProject, testFileReFilters);
   }
 
-  private async _collectFiles(testFileReFilters: FilePatternFilter[], projectNames?: string[]): Promise<Map<ProjectImpl, string[]>> {
+  private async _collectFiles(testFileReFilters: FilePatternFilter[], projectNames?: string[]): Promise<Map<FullProjectInternal, string[]>> {
     const testFileFilter = testFileReFilters.length ? createFileMatcher(testFileReFilters.map(e => e.re)) : () => true;
     let projectsToFind: Set<string> | undefined;
     let unknownProjects: Map<string, string> | undefined;
@@ -217,26 +217,27 @@ export class Runner {
         unknownProjects!.set(name, n);
       });
     }
-    const projects = this._loader.projects().filter(project => {
+    const fullConfig = this._loader.fullConfig();
+    const projects = fullConfig.projects.filter(project => {
       if (!projectsToFind)
         return true;
-      const name = project.config.name.toLocaleLowerCase();
+      const name = project.name.toLocaleLowerCase();
       unknownProjects!.delete(name);
       return projectsToFind.has(name);
     });
     if (unknownProjects && unknownProjects.size) {
-      const names = this._loader.projects().map(p => p.config.name).filter(name => !!name);
+      const names = fullConfig.projects.map(p => p.name).filter(name => !!name);
       if (!names.length)
         throw new Error(`No named projects are specified in the configuration file`);
       const unknownProjectNames = Array.from(unknownProjects.values()).map(n => `"${n}"`).join(', ');
       throw new Error(`Project(s) ${unknownProjectNames} not found. Available named projects: ${names.map(name => `"${name}"`).join(', ')}`);
     }
 
-    const files = new Map<ProjectImpl, string[]>();
+    const files = new Map<FullProjectInternal, string[]>();
     for (const project of projects) {
-      const allFiles = await collectFiles(project.config.testDir);
-      const testMatch = createFileMatcher(project.config.testMatch);
-      const testIgnore = createFileMatcher(project.config.testIgnore);
+      const allFiles = await collectFiles(project.testDir);
+      const testMatch = createFileMatcher(project.testMatch);
+      const testIgnore = createFileMatcher(project.testIgnore);
       const extensions = ['.js', '.ts', '.mjs', '.tsx', '.jsx'];
       const testFileExtension = (file: string) => extensions.includes(path.extname(file));
       const testFiles = allFiles.filter(file => !testIgnore(file) && testMatch(file) && testFileFilter(file) && testFileExtension(file));
@@ -245,7 +246,7 @@ export class Runner {
     return files;
   }
 
-  private async _runFiles(list: boolean, filesByProject: Map<ProjectImpl, string[]>, testFileReFilters: FilePatternFilter[]): Promise<FullResult> {
+  private async _runFiles(list: boolean, filesByProject: Map<FullProjectInternal, string[]>, testFileReFilters: FilePatternFilter[]): Promise<FullResult> {
     const allTestFiles = new Set<string>();
     for (const files of filesByProject.values())
       files.forEach(file => allTestFiles.add(file));
@@ -290,19 +291,20 @@ export class Runner {
     const outputDirs = new Set<string>();
     const rootSuite = new Suite('');
     for (const [project, files] of filesByProject) {
-      const grepMatcher = createTitleMatcher(project.config.grep);
-      const grepInvertMatcher = project.config.grepInvert ? createTitleMatcher(project.config.grepInvert) : null;
-      const projectSuite = new Suite(project.config.name);
-      projectSuite._projectConfig = project.config;
-      if (project.config.fullyParallel)
+      const projectImpl = new ProjectImpl(project, config.projects.indexOf(project));
+      const grepMatcher = createTitleMatcher(project.grep);
+      const grepInvertMatcher = project.grepInvert ? createTitleMatcher(project.grepInvert) : null;
+      const projectSuite = new Suite(project.name);
+      projectSuite._projectConfig = project;
+      if (project._fullyParallel)
         projectSuite._parallelMode = 'parallel';
       rootSuite._addSuite(projectSuite);
       for (const file of files) {
         const fileSuite = fileSuites.get(file);
         if (!fileSuite)
           continue;
-        for (let repeatEachIndex = 0; repeatEachIndex < project.config.repeatEach; repeatEachIndex++) {
-          const cloned = project.cloneFileSuite(fileSuite, repeatEachIndex, test => {
+        for (let repeatEachIndex = 0; repeatEachIndex < project.repeatEach; repeatEachIndex++) {
+          const cloned = projectImpl.cloneFileSuite(fileSuite, repeatEachIndex, test => {
             const grepTitle = test.titlePath().join(' ');
             if (grepInvertMatcher?.(grepTitle))
               return false;
@@ -312,7 +314,7 @@ export class Runner {
             projectSuite._addSuite(cloned);
         }
       }
-      outputDirs.add(project.config.outputDir);
+      outputDirs.add(project.outputDir);
     }
 
     // 7. Fail when no tests.
@@ -387,17 +389,11 @@ export class Runner {
     }
 
     // 13. Run Global setup.
-    let globalTearDown: (() => Promise<void>) | undefined;
-    if (!process.env.PW_TEST_LEGACY_GLOBAL_SETUP_MODE) {
-      globalTearDown = await this._performGlobalSetup(config);
-      if (!globalTearDown)
-        return { status: 'failed' };
-    }
+    const globalTearDown = await this._performGlobalSetup(config, rootSuite);
+    if (!globalTearDown)
+      return { status: 'failed' };
 
     const result: FullResult = { status: 'passed' };
-
-    // 13.5 Add copy of attachments.
-    rootSuite.attachments = this._globalInfo.attachments();
 
     // 14. Run tests.
     try {
@@ -429,13 +425,13 @@ export class Runner {
     return result;
   }
 
-  private async _performGlobalSetup(config: FullConfigInternal): Promise<(() => Promise<void>) | undefined> {
+  private async _performGlobalSetup(config: FullConfigInternal, rootSuite: Suite): Promise<(() => Promise<void>) | undefined> {
     const result: FullResult = { status: 'passed' };
-    const internalGlobalTeardowns: (() => Promise<void>)[] = [];
+    const pluginTeardowns: (() => Promise<void>)[] = [];
     let globalSetupResult: any;
-    let webServer: WebServer | undefined;
 
     const tearDown = async () => {
+      // Reverse to setup.
       await this._runAndReportError(async () => {
         if (globalSetupResult && typeof globalSetupResult === 'function')
           await globalSetupResult(this._loader.fullConfig());
@@ -446,22 +442,25 @@ export class Runner {
           await (await this._loader.loadGlobalHook(config.globalTeardown, 'globalTeardown'))(this._loader.fullConfig());
       }, result);
 
-      await this._runAndReportError(async () => {
-        await webServer?.kill();
-      }, result);
-
-      await this._runAndReportError(async () => {
-        for (const internalGlobalTeardown of internalGlobalTeardowns)
-          await internalGlobalTeardown();
-      }, result);
+      for (const teardown of pluginTeardowns) {
+        await this._runAndReportError(async () => {
+          await teardown();
+        }, result);
+      }
     };
 
     await this._runAndReportError(async () => {
-      for (const internalGlobalSetup of this._internalGlobalSetups)
-        internalGlobalTeardowns.push(await internalGlobalSetup());
-      webServer = config.webServer ? await WebServer.create(config.webServer, this._reporter) : undefined;
+      // First run the plugins, if plugin is a web server we want it to run before the
+      // config's global setup.
+      for (const plugin of config._plugins) {
+        await plugin.setup?.(rootSuite);
+        if (plugin.teardown)
+          pluginTeardowns.unshift(plugin.teardown);
+      }
+
+      // The do global setup.
       if (config.globalSetup)
-        globalSetupResult = await (await this._loader.loadGlobalHook(config.globalSetup, 'globalSetup'))(this._loader.fullConfig(), this._globalInfo);
+        globalSetupResult = await (await this._loader.loadGlobalHook(config.globalSetup, 'globalSetup'))(this._loader.fullConfig());
     }, result);
 
     if (result.status !== 'passed') {
@@ -575,7 +574,7 @@ async function collectFiles(testDir: string): Promise<string[]> {
         if (!s)
           return;
         // Use flipNegate, because we handle negation ourselves.
-        const rule = new Minimatch(s, { matchBase: true, dot: true, flipNegate: true }) as any;
+        const rule = new minimatch.Minimatch(s, { matchBase: true, dot: true, flipNegate: true }) as any;
         if (rule.comment)
           return;
         rule.dir = dir;

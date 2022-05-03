@@ -26,11 +26,10 @@ import {
   addSuffixToFilePath, serializeError, sanitizeForFilePath,
   trimLongString, callLogText, currentExpectTimeout,
   expectTypes, captureStackTrace  } from '../util';
-import type { UpdateSnapshots } from '../types';
-import colors from 'colors/safe';
+import { colors } from 'playwright-core/lib/utilsBundle';
 import fs from 'fs';
 import path from 'path';
-import * as mime from 'mime';
+import { mime } from 'playwright-core/lib/utilsBundle';
 import type { TestInfoImpl } from '../testInfo';
 import type { SyncExpectationResult } from '../expect';
 
@@ -52,7 +51,7 @@ class SnapshotHelper<T extends ImageComparatorOptions> {
   readonly diffPath: string;
   readonly mimeType: string;
   readonly kind: 'Screenshot'|'Snapshot';
-  readonly updateSnapshots: UpdateSnapshots;
+  readonly updateSnapshots: 'all' | 'none' | 'missing';
   readonly comparatorOptions: ImageComparatorOptions;
   readonly comparator: Comparator;
   readonly allOptions: T;
@@ -254,7 +253,7 @@ export function toMatchSnapshot(
     throw new Error('An unresolved Promise was passed to toMatchSnapshot(), make sure to resolve it by adding await to it.');
   const helper = new SnapshotHelper(
       testInfo, testInfo.snapshotPath.bind(testInfo), determineFileExtension(received),
-      testInfo.project.expect?.toMatchSnapshot || {},
+      testInfo.project._expect?.toMatchSnapshot || {},
       nameOrOptions, optOptions);
 
   if (this.isNot) {
@@ -290,10 +289,12 @@ export async function toHaveScreenshot(
   nameOrOptions: NameOrSegments | { name?: NameOrSegments } & HaveScreenshotOptions = {},
   optOptions: HaveScreenshotOptions = {}
 ): Promise<SyncExpectationResult> {
+  if (!process.env.PLAYWRIGHT_EXPERIMENTAL_FEATURES)
+    throw new Error(`To use the experimental method "toHaveScreenshot", set PLAYWRIGHT_EXPERIMENTAL_FEATURES=1 enviroment variable.`);
   const testInfo = currentTestInfo();
   if (!testInfo)
     throw new Error(`toHaveScreenshot() must be called during the test`);
-  const config = (testInfo.project.expect as any)?._toHaveScreenshot;
+  const config = (testInfo.project._expect as any)?.toHaveScreenshot;
   const helper = new SnapshotHelper(
       testInfo, testInfo._screenshotPath.bind(testInfo), 'png',
       {
@@ -308,7 +309,7 @@ export async function toHaveScreenshot(
   const [page, locator] = pageOrLocator.constructor.name === 'Page' ? [(pageOrLocator as PageEx), undefined] : [(pageOrLocator as Locator).page() as PageEx, pageOrLocator as LocatorEx];
   const screenshotOptions = {
     animations: config?.animations ?? 'disabled',
-    _fonts: config?.fonts ?? 'ready',
+    fonts: process.env.PLAYWRIGHT_EXPERIMENTAL_FEATURES ? (config?.fonts ?? 'ready') : undefined,
     scale: config?.scale ?? 'css',
     caret: config?.caret ?? 'hide',
     ...helper.allOptions,
@@ -356,12 +357,8 @@ export async function toHaveScreenshot(
     });
     // We tried re-generating new snapshot but failed.
     // This can be due to e.g. spinning animation, so we want to show it as a diff.
-    if (errorMessage) {
-      const title = actual && previous ?
-        `Timeout ${timeout}ms exceeded while generating screenshot because ${locator ? 'element' : 'page'} kept changing` :
-        `Timeout ${timeout}ms exceeded while generating screenshot`;
-      return helper.handleDifferent(actual, undefined, previous, diff, undefined, log, title);
-    }
+    if (errorMessage)
+      return helper.handleDifferent(actual, undefined, previous, diff, undefined, log, errorMessage);
 
     // We successfully (re-)generated new screenshot.
     if (!hasSnapshot)

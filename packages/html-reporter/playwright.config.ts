@@ -15,7 +15,9 @@
  */
 
 import type { PlaywrightTestConfig } from '@playwright/test';
+import path from 'path';
 import { devices } from '@playwright/test';
+import viteCT from '@playwright/experimental-ct-react/vitePlugin';
 
 const config: PlaywrightTestConfig = {
   testDir: 'src',
@@ -26,22 +28,52 @@ const config: PlaywrightTestConfig = {
   ] : [
     ['html', { open: 'on-failure' }]
   ],
-  webServer: {
-    url: 'http://localhost:3101/tests.html',
-    command: 'npm run dev',
-    cwd: __dirname,
-    reuseExistingServer: !process.env.CI,
-  },
+  plugins: [
+    viteCT({ port: 3101 })
+  ],
   use: {
-    baseURL: 'http://localhost:3101/tests.html',
     trace: 'on-first-retry',
   },
-  projects: [
+  projects: [ ],
+};
+
+if (process.env.REBASE) {
+  require('dotenv').config({
+    path: path.join(__dirname, '.env'),
+  });
+
+  if (!process.env.TEST_WORKER_INDEX) {
+    // eslint-disable-next-line no-console
+    console.log(`Running against service: ${process.env.SERVICE_URL}`);
+  }
+
+  config.timeout = 600000;
+  const configurations = [
+    { os: 'windows', platform: 'win32' },
+    { os: 'linux', platform: 'linux' },
+    { os: 'macos', platform: 'darwin' },
+  ];
+  for (const { os, platform } of configurations) {
+    config.projects.push({
+      name: `service-${platform}`,
+      _screenshotsDir: `./__screenshots__/${platform}/chromium`,
+      use: {
+        ...devices['Desktop Chrome'],
+        connectOptions: {
+          timeout: 600000,
+          wsEndpoint: process.env.SERVICE_URL + `?os=${os}`,
+        },
+      },
+    });
+  }
+} else {
+  config.projects = [
     {
       name: 'chromium',
+      _screenshotsDir: `./__screenshots__/${process.platform}/chromium`,
       use: { ...devices['Desktop Chrome'] },
     },
-  ],
-};
+  ];
+}
 
 export default config;

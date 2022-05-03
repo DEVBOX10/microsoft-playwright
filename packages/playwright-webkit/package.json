@@ -5,7 +5,7 @@
   "repository": "github:Microsoft/playwright",
   "homepage": "https://playwright.dev",
   "engines": {
-    "node": ">=12"
+    "node": ">=14"
   },
   "author": {
     "name": "Microsoft Corporation"
@@ -16,7 +16,8 @@
       "import": "./index.mjs",
       "require": "./index.js"
     },
-    "./": "./"
+    "./cli": "./cli.js",
+    "./package.json": "./package.json"
   },
   "bin": {
     "playwright": "./cli.js"
