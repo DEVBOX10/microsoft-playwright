@@ -583,7 +583,7 @@ export module Protocol {
     };
     export type screenshotParameters = {
       mimeType: ("image/png"|"image/jpeg");
-      clip?: {
+      clip: {
         x: number;
         y: number;
         width: number;
@@ -904,6 +904,7 @@ export module Protocol {
         requestStart: number;
         responseStart: number;
       };
+      fromServiceWorker: boolean;
     }
     export type requestFinishedPayload = {
       requestId: string;
@@ -971,7 +972,7 @@ export module Protocol {
       focused?: boolean;
       pressed?: boolean;
       focusable?: boolean;
-      haspopup?: boolean;
+      haspopup?: string;
       required?: boolean;
       invalid?: boolean;
       modal?: boolean;
@@ -1006,7 +1007,7 @@ export module Protocol {
         focused?: boolean;
         pressed?: boolean;
         focusable?: boolean;
-        haspopup?: boolean;
+        haspopup?: string;
         required?: boolean;
         invalid?: boolean;
         modal?: boolean;

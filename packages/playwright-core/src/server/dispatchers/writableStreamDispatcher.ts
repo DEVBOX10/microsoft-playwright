@@ -15,21 +15,21 @@
  */
 
 import type * as channels from '../../protocol/channels';
-import type { DispatcherScope } from './dispatcher';
 import { Dispatcher } from './dispatcher';
 import type * as fs from 'fs';
 import { createGuid } from '../../utils';
+import type { BrowserContextDispatcher } from './browserContextDispatcher';
 
-export class WritableStreamDispatcher extends Dispatcher<{ guid: string, stream: fs.WriteStream }, channels.WritableStreamChannel> implements channels.WritableStreamChannel {
+export class WritableStreamDispatcher extends Dispatcher<{ guid: string, stream: fs.WriteStream }, channels.WritableStreamChannel, BrowserContextDispatcher> implements channels.WritableStreamChannel {
   _type_WritableStream = true;
-  constructor(scope: DispatcherScope, stream: fs.WriteStream) {
+  constructor(scope: BrowserContextDispatcher, stream: fs.WriteStream) {
     super(scope, { guid: 'writableStream@' + createGuid(), stream }, 'WritableStream', {});
   }
 
   async write(params: channels.WritableStreamWriteParams): Promise<channels.WritableStreamWriteResult> {
     const stream = this._object.stream;
     await new Promise<void>((fulfill, reject) => {
-      stream.write(Buffer.from(params.binary, 'base64'), error => {
+      stream.write(params.binary, error => {
         if (error)
           reject(error);
         else

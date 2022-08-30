@@ -18,7 +18,7 @@
 import { assert } from '../utils';
 import type * as channels from '../protocol/channels';
 import { ChannelOwner } from './channelOwner';
-import { FrameLocator, Locator } from './locator';
+import { FrameLocator, Locator, type LocatorOptions } from './locator';
 import { ElementHandle, convertSelectOptionValues, convertInputFiles } from './elementHandle';
 import { assertMaxArguments, JSHandle, serializeArgument, parseResult } from './jsHandle';
 import fs from 'fs';
@@ -29,7 +29,7 @@ import { Waiter } from './waiter';
 import { Events } from './events';
 import type { LifecycleEvent, URLMatch, SelectOption, SelectOptionOptions, FilePayload, WaitForFunctionOptions, StrictOptions } from './types';
 import { kLifecycleEvents } from './types';
-import { urlMatches } from './clientHelper';
+import { urlMatches } from '../common/netUtils';
 import type * as api from '../../types/types';
 import type * as structs from '../../types/structs';
 import { debugLogger } from '../common/debugLogger';
@@ -75,6 +75,10 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
       }
       if (event.remove)
         this._loadStates.delete(event.remove);
+      if (!this._parentFrame && event.add === 'load' && this._page)
+        this._page.emit(Events.Page.Load, this._page);
+      if (!this._parentFrame && event.add === 'domcontentloaded' && this._page)
+        this._page.emit(Events.Page.DOMContentLoaded, this._page);
     });
     this._channel.on('navigated', event => {
       this._url = event.url;
@@ -290,7 +294,7 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
     return await this._channel.highlight({ selector });
   }
 
-  locator(selector: string, options?: { hasText?: string | RegExp, has?: Locator }): Locator {
+  locator(selector: string, options?: LocatorOptions): Locator {
     return new Locator(this, selector, options);
   }
 

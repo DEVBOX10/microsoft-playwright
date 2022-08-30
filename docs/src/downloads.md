@@ -27,47 +27,58 @@ const [ download ] = await Promise.all([
   page.locator('button#delayed-download').click(),
 ]);
 // Wait for the download process to complete
-const path = await download.path();
+console.log(await download.path());
+// Save downloaded file somewhere
+await download.saveAs('/path/to/save/download/at.txt');
 ```
 
 ```java
 // Wait for the download to start
 Download download = page.waitForDownload(() -> {
     // Perform the action that initiates download
-    page.click("button#delayed-download");
+    page.locator("button#delayed-download").click();
 });
 // Wait for the download process to complete
 Path path = download.path();
+System.out.println(download.path());
+// Save downloaded file somewhere
+download.saveAs(Paths.get("/path/to/save/download/at.txt"));
 ```
 
 ```python async
 # Start waiting for the download
 async with page.expect_download() as download_info:
     # Perform the action that initiates download
-    await page.click("button#delayed-download")
+    await page.locator("button#delayed-download").click()
 download = await download_info.value
 # Wait for the download process to complete
-path = await download.path()
+print(await download.path())
+# Save downloaded file somewhere
+download.save_as("/path/to/save/download/at.txt")
 ```
 
 ```python sync
 # Start waiting for the download
 with page.expect_download() as download_info:
     # Perform the action that initiates download
-    page.click("button#delayed-download")
+    page.locator("button#delayed-download").click()
 download = download_info.value
 # Wait for the download process to complete
-path = download.path()
+print(download.path())
+# Save downloaded file somewhere
+download.save_as("/path/to/save/download/at.txt")
 ```
 
 ```csharp
 // Start the task of waiting for the download
 var waitForDownloadTask = page.WaitForDownloadAsync();
 // Perform the action that initiates download
-await page.ClickAsync("#downloadButton");
+await page.Locator("#downloadButton").ClickAsync();
 // Wait for the download process to complete
 var download = await waitForDownloadTask;
-var path = await download.PathAsync();
+Console.WriteLine(await download.PathAsync());
+// Save downloaded file somewhere
+await download.SaveAsAsync("/path/to/save/download/at.txt");
 ```
 
 #### Variations

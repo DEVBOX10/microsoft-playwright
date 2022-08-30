@@ -14,41 +14,72 @@
  * limitations under the License.
  */
 
-import type { Page, ViewportSize } from '@playwright/test';
-import { createGuid } from 'playwright-core/lib/utils';
+import type { Fixtures, Locator, Page, BrowserContextOptions, PlaywrightTestArgs, PlaywrightTestOptions, PlaywrightWorkerArgs, PlaywrightWorkerOptions, BrowserContext } from './types';
+import type { Component, JsxComponent, MountOptions } from '../types/component';
 
-export async function mount(page: Page, jsxOrType: any, options: any, baseURL: string, viewport: ViewportSize): Promise<string> {
-  await page.goto('about:blank');
-  await (page as any)._resetForReuse();
-  await (page.context() as any)._resetForReuse();
-  await page.setViewportSize(viewport);
-  await page.goto(baseURL);
+let boundCallbacksForMount: Function[] = [];
 
-  let component;
-  if (typeof jsxOrType === 'string')
-    component = { kind: 'object', type: jsxOrType, options };
-  else
-    component = jsxOrType;
+interface MountResult extends Locator {
+  unmount(locator: Locator): Promise<void>;
+  rerender(options: Omit<MountOptions, 'hooksConfig'> | string | JsxComponent): Promise<void>;
+}
 
-  const callbacks: Function[] = [];
-  wrapFunctions(component, page, callbacks);
+export const fixtures: Fixtures<
+  PlaywrightTestArgs & PlaywrightTestOptions & {
+    mount: (component: any, options: any) => Promise<MountResult>;
+  },
+  PlaywrightWorkerArgs & PlaywrightWorkerOptions & { _ctWorker: { context: BrowserContext | undefined, hash: string } },
+  { _contextFactory: (options?: BrowserContextOptions) => Promise<BrowserContext>, _contextReuseEnabled: boolean }> = {
 
+    _contextReuseEnabled: true,
 
-  const dispatchMethod = `__pw_dispatch_${createGuid()}`;
-  await page.exposeFunction(dispatchMethod, (ordinal: number, args: any[]) => {
-    callbacks[ordinal](...args);
-  });
+    serviceWorkers: 'block',
 
-  // WebKit does not wait for deferred scripts.
-  await page.waitForFunction(() => !!(window as any).playwrightMount);
+    _ctWorker: [{ context: undefined, hash: '' }, { scope: 'worker' }],
 
-  const selector = await page.evaluate(async ({ component, dispatchMethod }) => {
+    page: async ({ page }, use) => {
+      await (page as any)._wrapApiCall(async () => {
+        await page.exposeFunction('__ct_dispatch', (ordinal: number, args: any[]) => {
+          boundCallbacksForMount[ordinal](...args);
+        });
+        await page.goto(process.env.PLAYWRIGHT_VITE_COMPONENTS_BASE_URL!);
+      }, true);
+      await use(page);
+    },
+
+    mount: async ({ page }, use) => {
+      await use(async (component: JsxComponent | string, options?: MountOptions) => {
+        const selector = await (page as any)._wrapApiCall(async () => {
+          return await innerMount(page, component, options);
+        }, true);
+        const locator = page.locator(selector);
+        return Object.assign(locator, {
+          unmount: async () => {
+            await locator.evaluate(async () => {
+              const rootElement = document.getElementById('root')!;
+              await window.playwrightUnmount(rootElement);
+            });
+          },
+          rerender: async (component: JsxComponent | string, options?: Omit<MountOptions, 'hooksConfig'>) => {
+            await innerRerender(page, component, options);
+          }
+        });
+      });
+      boundCallbacksForMount = [];
+    },
+  };
+
+async function innerRerender(page: Page, jsxOrType: JsxComponent | string, options: Omit<MountOptions, 'hooksConfig'> = {}): Promise<void> {
+  const component = createComponent(jsxOrType, options);
+  wrapFunctions(component, page, boundCallbacksForMount);
+
+  await page.evaluate(async ({ component }) => {
     const unwrapFunctions = (object: any) => {
       for (const [key, value] of Object.entries(object)) {
         if (typeof value === 'string' && (value as string).startsWith('__pw_func_')) {
           const ordinal = +value.substring('__pw_func_'.length);
           object[key] = (...args: any[]) => {
-            (window as any)[dispatchMethod](ordinal, args);
+            (window as any)['__ct_dispatch'](ordinal, args);
           };
         } else if (typeof value === 'object' && value) {
           unwrapFunctions(value);
@@ -57,9 +88,51 @@ export async function mount(page: Page, jsxOrType: any, options: any, baseURL: s
     };
 
     unwrapFunctions(component);
-    return await (window as any).playwrightMount(component);
-  }, { component, dispatchMethod });
+    const rootElement = document.getElementById('root')!;
+    return await window.playwrightRerender(rootElement, component);
+  }, { component });
+}
+
+async function innerMount(page: Page, jsxOrType: JsxComponent | string, options: MountOptions = {}): Promise<string> {
+  const component = createComponent(jsxOrType, options);
+  wrapFunctions(component, page, boundCallbacksForMount);
+
+  // WebKit does not wait for deferred scripts.
+  await page.waitForFunction(() => !!window.playwrightMount);
+
+  const selector = await page.evaluate(async ({ component, hooksConfig }) => {
+    const unwrapFunctions = (object: any) => {
+      for (const [key, value] of Object.entries(object)) {
+        if (typeof value === 'string' && (value as string).startsWith('__pw_func_')) {
+          const ordinal = +value.substring('__pw_func_'.length);
+          object[key] = (...args: any[]) => {
+            (window as any)['__ct_dispatch'](ordinal, args);
+          };
+        } else if (typeof value === 'object' && value) {
+          unwrapFunctions(value);
+        }
+      }
+    };
+
+    unwrapFunctions(component);
+    let rootElement = document.getElementById('root');
+    if (!rootElement) {
+      rootElement = document.createElement('div');
+      rootElement.id = 'root';
+      document.body.appendChild(rootElement);
+    }
+
+    await window.playwrightMount(component, rootElement, hooksConfig);
+
+    // When mounting fragments, return selector pointing to the root element.
+    return rootElement.childNodes.length > 1 ? '#root' : '#root > *';
+  }, { component, hooksConfig: options.hooksConfig });
   return selector;
+}
+
+function createComponent(jsxOrType: JsxComponent | string, options: Omit<MountOptions, 'hooksConfig'> = {}): Component {
+  if (typeof jsxOrType !== 'string') return jsxOrType;
+  return { kind: 'object', type: jsxOrType, options };
 }
 
 function wrapFunctions(object: any, page: Page, callbacks: Function[]) {

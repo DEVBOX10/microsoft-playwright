@@ -8,6 +8,13 @@ approach to structure your test suite.
 
 <!-- TOC -->
 
+## Playwright Test vs. Library
+* langs: js
+
+:::caution
+This guide is for [Playwright Library](./library.md), if you are using Playwright Test (`@playwright/test`) see [here](./test-pom.md).
+:::
+
 ## Introduction
 
 A page object represents a part of your web application. An e-commerce web application might have a home page, a
@@ -116,12 +123,12 @@ public class SearchPage
     _searchTermInput = page.Locator("[aria-label='Enter your search term']");
   }
 
-  public async Task Goto()
+  public async Task GotoAsync()
   {
     await _page.GotoAsync("https://bing.com");
   }
 
-  public async Task Search(string text)
+  public async Task SearchAsync(string text)
   {
     await _searchTermInput.FillAsync(text);
     await _searchTermInput.PressAsync("Enter");
@@ -181,8 +188,8 @@ using BigEcommerceApp.Tests.Models;
 
 // in the test
 var page = new SearchPage(await browser.NewPageAsync());
-await page.Goto();
-await page.Search("search query");
+await page.GotoAsync();
+await page.SearchAsync("search query");
 ```
 
 ### API reference

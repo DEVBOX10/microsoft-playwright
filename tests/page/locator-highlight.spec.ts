@@ -15,15 +15,35 @@
  */
 
 import { test as it, expect } from './pageTest';
+import { waitForTestLog } from '../config/utils';
+import type { Locator } from 'playwright-core';
+
+type BoundingBox = Awaited<ReturnType<Locator['boundingBox']>>;
 
 it.skip(({ mode }) => mode !== 'default', 'Highlight element has a closed shadow-root on != default');
 
-it('should highlight locator', async ({ page }) => {
+it('should highlight locator', async ({ page, isAndroid }) => {
   await page.setContent(`<input type='text' />`);
+  const textPromise = waitForTestLog<string>(page, 'Highlight text for test: ');
+  const boxPromise = waitForTestLog<{ x: number, y: number, width: number, height: number }>(page, 'Highlight box for test: ');
   await page.locator('input').highlight();
-  await expect(page.locator('x-pw-tooltip')).toHaveText('input');
-  await expect(page.locator('x-pw-highlight')).toBeVisible();
-  const box1 = await page.locator('input').boundingBox();
-  const box2 = await page.locator('x-pw-highlight').boundingBox();
+  expect(await textPromise).toBe('input');
+  let box1 = await page.locator('input').boundingBox();
+  let box2 = await boxPromise;
+
+  if (isAndroid) {
+    box1 = roundBox(box1);
+    box2 = roundBox(box2);
+  }
+
   expect(box1).toEqual(box2);
 });
+
+function roundBox(box: BoundingBox): BoundingBox {
+  return {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+  };
+}

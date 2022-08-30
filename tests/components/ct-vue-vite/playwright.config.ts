@@ -14,22 +14,16 @@
  * limitations under the License.
  */
 
-import { PlaywrightTestConfig, devices } from '@playwright/test';
-import viteCT from '@playwright/experimental-ct-vue/vitePlugin';
+import { type PlaywrightTestConfig, devices } from '@playwright/experimental-ct-vue';
 
 const config: PlaywrightTestConfig = {
   testDir: 'src',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? [
-    ['html', { open: 'never' }],
-  ] : [
-    ['html', { open: 'on-failure' }]
-  ],
-  plugins: [
-    viteCT(),
-  ],
+  reporter: 'html',
   use: {
+    ctTemplateDir: 'playwright',
+    ctCacheDir: 'playwright/.cache',
     trace: 'on-first-retry',
   },
   projects: [

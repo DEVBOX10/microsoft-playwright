@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type { DispatcherScope } from './dispatcher';
+import type { RootDispatcher } from './dispatcher';
 import { Dispatcher, existingDispatcher } from './dispatcher';
 import type { Android, SocketBackend } from '../android/android';
 import { AndroidDevice } from '../android/android';
@@ -22,16 +22,16 @@ import type * as channels from '../../protocol/channels';
 import { BrowserContextDispatcher } from './browserContextDispatcher';
 import type { CallMetadata } from '../instrumentation';
 
-export class AndroidDispatcher extends Dispatcher<Android, channels.AndroidChannel> implements channels.AndroidChannel {
+export class AndroidDispatcher extends Dispatcher<Android, channels.AndroidChannel, RootDispatcher> implements channels.AndroidChannel {
   _type_Android = true;
-  constructor(scope: DispatcherScope, android: Android) {
-    super(scope, android, 'Android', {}, true);
+  constructor(scope: RootDispatcher, android: Android) {
+    super(scope, android, 'Android', {});
   }
 
   async devices(params: channels.AndroidDevicesParams): Promise<channels.AndroidDevicesResult> {
     const devices = await this._object.devices(params);
     return {
-      devices: devices.map(d => AndroidDeviceDispatcher.from(this._scope, d))
+      devices: devices.map(d => AndroidDeviceDispatcher.from(this, d))
     };
   }
 
@@ -40,24 +40,24 @@ export class AndroidDispatcher extends Dispatcher<Android, channels.AndroidChann
   }
 }
 
-export class AndroidDeviceDispatcher extends Dispatcher<AndroidDevice, channels.AndroidDeviceChannel> implements channels.AndroidDeviceChannel {
+export class AndroidDeviceDispatcher extends Dispatcher<AndroidDevice, channels.AndroidDeviceChannel, AndroidDispatcher> implements channels.AndroidDeviceChannel {
   _type_EventTarget = true;
   _type_AndroidDevice = true;
 
-  static from(scope: DispatcherScope, device: AndroidDevice): AndroidDeviceDispatcher {
+  static from(scope: AndroidDispatcher, device: AndroidDevice): AndroidDeviceDispatcher {
     const result = existingDispatcher<AndroidDeviceDispatcher>(device);
     return result || new AndroidDeviceDispatcher(scope, device);
   }
 
-  constructor(scope: DispatcherScope, device: AndroidDevice) {
+  constructor(scope: AndroidDispatcher, device: AndroidDevice) {
     super(scope, device, 'AndroidDevice', {
       model: device.model,
       serial: device.serial,
-    }, true);
+    });
     for (const webView of device.webViews())
       this._dispatchEvent('webViewAdded', { webView });
-    device.on(AndroidDevice.Events.WebViewAdded, webView => this._dispatchEvent('webViewAdded', { webView }));
-    device.on(AndroidDevice.Events.WebViewRemoved, socketName => this._dispatchEvent('webViewRemoved', { socketName }));
+    this.addObjectListener(AndroidDevice.Events.WebViewAdded, webView => this._dispatchEvent('webViewAdded', { webView }));
+    this.addObjectListener(AndroidDevice.Events.WebViewRemoved, socketName => this._dispatchEvent('webViewRemoved', { socketName }));
   }
 
   async wait(params: channels.AndroidDeviceWaitParams) {
@@ -136,29 +136,29 @@ export class AndroidDeviceDispatcher extends Dispatcher<AndroidDevice, channels.
   }
 
   async screenshot(params: channels.AndroidDeviceScreenshotParams): Promise<channels.AndroidDeviceScreenshotResult> {
-    return { binary: (await this._object.screenshot()).toString('base64') };
+    return { binary: await this._object.screenshot() };
   }
 
   async shell(params: channels.AndroidDeviceShellParams): Promise<channels.AndroidDeviceShellResult> {
-    return { result: (await this._object.shell(params.command)).toString('base64') };
+    return { result: await this._object.shell(params.command) };
   }
 
   async open(params: channels.AndroidDeviceOpenParams, metadata: CallMetadata): Promise<channels.AndroidDeviceOpenResult> {
     const socket = await this._object.open(params.command);
-    return { socket: new AndroidSocketDispatcher(this._scope, socket) };
+    return { socket: new AndroidSocketDispatcher(this, socket) };
   }
 
   async installApk(params: channels.AndroidDeviceInstallApkParams) {
-    await this._object.installApk(Buffer.from(params.file, 'base64'), { args: params.args });
+    await this._object.installApk(params.file, { args: params.args });
   }
 
   async push(params: channels.AndroidDevicePushParams) {
-    await this._object.push(Buffer.from(params.file, 'base64'), params.path, params.mode);
+    await this._object.push(params.file, params.path, params.mode);
   }
 
   async launchBrowser(params: channels.AndroidDeviceLaunchBrowserParams): Promise<channels.AndroidDeviceLaunchBrowserResult> {
     const context = await this._object.launchBrowser(params.pkg, params);
-    return { context: new BrowserContextDispatcher(this._scope, context) };
+    return { context: new BrowserContextDispatcher(this, context) };
   }
 
   async close(params: channels.AndroidDeviceCloseParams) {
@@ -170,24 +170,24 @@ export class AndroidDeviceDispatcher extends Dispatcher<AndroidDevice, channels.
   }
 
   async connectToWebView(params: channels.AndroidDeviceConnectToWebViewParams): Promise<channels.AndroidDeviceConnectToWebViewResult> {
-    return { context: new BrowserContextDispatcher(this._scope, await this._object.connectToWebView(params.socketName)) };
+    return { context: new BrowserContextDispatcher(this, await this._object.connectToWebView(params.socketName)) };
   }
 }
 
-export class AndroidSocketDispatcher extends Dispatcher<SocketBackend, channels.AndroidSocketChannel> implements channels.AndroidSocketChannel {
+export class AndroidSocketDispatcher extends Dispatcher<SocketBackend, channels.AndroidSocketChannel, AndroidDeviceDispatcher> implements channels.AndroidSocketChannel {
   _type_AndroidSocket = true;
 
-  constructor(scope: DispatcherScope, socket: SocketBackend) {
-    super(scope, socket, 'AndroidSocket', {}, true);
-    socket.on('data', (data: Buffer) => this._dispatchEvent('data', { data: data.toString('base64') }));
-    socket.on('close', () => {
+  constructor(scope: AndroidDeviceDispatcher, socket: SocketBackend) {
+    super(scope, socket, 'AndroidSocket', {});
+    this.addObjectListener('data', (data: Buffer) => this._dispatchEvent('data', { data }));
+    this.addObjectListener('close', () => {
       this._dispatchEvent('close');
       this._dispose();
     });
   }
 
   async write(params: channels.AndroidSocketWriteParams, metadata: CallMetadata): Promise<void> {
-    await this._object.write(Buffer.from(params.data, 'base64'));
+    await this._object.write(params.data);
   }
 
   async close(params: channels.AndroidSocketCloseParams, metadata: CallMetadata): Promise<void> {

@@ -1,11 +1,379 @@
 ---
 id: release-notes
 title: "Release notes"
+toc_max_heading_level: 2
 ---
 
-<!-- TOC -->
+## Version 1.25
+
+### VSCode Extension
+
+* Watch your tests running live & keep devtools open.
+* Pick selector.
+* Record new test from current page state.
+
+![vscode extension screenshot](https://user-images.githubusercontent.com/746130/183781999-1b9fdbc5-cfae-47d6-b4f7-5d4ae89716a8.jpg)
+
+### Test Runner
+
+* [`method: Test.step`] now returns the value of the step function:
+
+    ```ts
+    test('should work', async ({ page }) => {
+        const pageTitle = await test.step('get title', async () => {
+            await page.goto('https://playwright.dev');
+            return await page.title();
+        });
+        console.log(pageTitle);
+    });
+    ```
+
+* Added [`method: Test.describe.fixme`].
+* New `'interrupted'` test status.
+* Enable tracing via CLI flag: `npx playwright test --trace=on`.
+
+### Announcements
+
+* 🎁 We now ship Ubuntu 22.04 Jammy Jellyfish docker image: `mcr.microsoft.com/playwright:v1.26.0-jammy`.
+* 🪦 This is the last release with macOS 10.15 support (deprecated as of 1.21).
+* 🪦 This is the last release with Node.js 12 support, we recommend upgrading to Node.js LTS (16).
+* ⚠️ Ubuntu 18 is now deprecated and will not be supported as of Dec 2022.
+
+### Browser Versions
+
+* Chromium 105.0.5195.19
+* Mozilla Firefox 103.0
+* WebKit 16.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 104
+* Microsoft Edge 104
+
+
+## Version 1.24
+
+<div className="embed-youtube">
+<iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/9F05o1shxcY" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
+
+### 🌍 Multiple Web Servers in `playwright.config.ts`
+
+Launch multiple web servers, databases, or other processes by passing an array of configurations:
+
+```ts
+// playwright.config.ts
+import type { PlaywrightTestConfig } from '@playwright/test';
+const config: PlaywrightTestConfig = {
+  webServer: [
+    {
+      command: 'npm run start',
+      port: 3000,
+      timeout: 120 * 1000,
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: 'npm run backend',
+      port: 3333,
+      timeout: 120 * 1000,
+      reuseExistingServer: !process.env.CI,
+    }
+  ],
+  use: {
+    baseURL: 'http://localhost:3000/',
+  },
+};
+export default config;
+```
+
+### 🐂 Debian 11 Bullseye Support
+
+Playwright now supports Debian 11 Bullseye on x86_64 for Chromium, Firefox and WebKit. Let us know
+if you encounter any issues!
+
+Linux support looks like this:
+
+|          | Ubuntu 18.04 | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11
+| :--- | :---: | :---: | :---: | :---: | 
+| Chromium | ✅ | ✅ | ✅ | ✅ |
+| WebKit | ✅ | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ✅ | ✅ |
+
+### 🕵️ Anonymous Describe
+
+It is now possible to call [`method: Test.describe#2`] to create suites without a title. This is useful for giving a group of tests a common option with [`method: Test.use`].
+
+```ts
+test.describe(() => {
+  test.use({ colorScheme: 'dark' });
+
+  test('one', async ({ page }) => {
+    // ...
+  });
+
+  test('two', async ({ page }) => {
+    // ...
+  });
+});
+```
+
+### 🧩 Component Tests Update 
+
+Playwright 1.24 Component Tests introduce `beforeMount` and `afterMount` hooks.
+Use these to configure your app for tests.
+
+For example, this could be used to setup App router in Vue.js:
+
+```js
+// src/component.spec.ts
+import { test } from '@playwright/experimental-ct-vue';
+import { Component } from './mycomponent';
+
+test('should work', async ({ mount }) => {
+  const component = await mount(Component, {
+    hooksConfig: {
+      /* anything to configure your app */
+    }
+  });
+});
+```
+
+```js
+// playwright/index.ts
+import { router } from '../router';
+import { beforeMount } from '@playwright/experimental-ct-vue/hooks';
+
+beforeMount(async ({ app, hooksConfig }) => {
+  app.use(router);
+});
+```
+
+A similar configuration in Next.js would look like this:
+
+```js
+// src/component.spec.jsx
+import { test } from '@playwright/experimental-ct-react';
+import { Component } from './mycomponent';
+
+test('should work', async ({ mount }) => {
+  const component = await mount(<Component></Component>, {
+    // Pass mock value from test into `beforeMount`.
+    hooksConfig: {
+      router: {
+        query: { page: 1, per_page: 10 },
+        asPath: '/posts'
+      }
+    }
+  });
+});
+```
+
+```js
+// playwright/index.js
+import router from 'next/router';
+import { beforeMount } from '@playwright/experimental-ct-react/hooks';
+
+beforeMount(async ({ hooksConfig }) => {
+  // Before mount, redefine useRouter to return mock value from test.
+  router.useRouter = () => hooksConfig.router;
+});
+```
+
+## Version 1.23
+
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/NRGOV46P3kU" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
+
+### Network Replay
+
+Now you can record network traffic into a HAR file and re-use this traffic in your tests.
+
+To record network into HAR file:
+
+```bash
+npx playwright open --save-har=github.har.zip https://github.com/microsoft
+```
+
+Alternatively, you can record HAR programmatically:
+
+```ts
+const context = await browser.newContext({
+  recordHar: { path: 'github.har.zip' }
+});
+// ... do stuff ...
+await context.close();
+```
+
+Use the new methods [`method: Page.routeFromHAR`] or [`method: BrowserContext.routeFromHAR`] to serve matching responses from the [HAR](http://www.softwareishard.com/blog/har-12-spec/) file:
+
+
+```ts
+await context.routeFromHAR('github.har.zip');
+```
+
+Read more in [our documentation](./network#record-and-replay-requests).
+
+
+### Advanced Routing
+
+You can now use [`method: Route.fallback`] to defer routing to other handlers.
+
+Consider the following example:
+
+```ts
+// Remove a header from all requests.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/*', async route => {
+    const headers = await route.request().allHeaders();
+    delete headers['if-none-match'];
+    route.fallback({ headers });
+  });
+});
+
+test('should work', async ({ page }) => {
+  await page.route('**/*', route => {
+    if (route.request().resourceType() === 'image')
+      route.abort();
+    else
+      route.fallback();
+  });
+});
+```
+
+Note that the new methods [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`] also participate in routing and could be deferred to.
+
+### Web-First Assertions Update
+
+* New method [`method: LocatorAssertions.toHaveValues`] that asserts all selected values of `<select multiple>` element.
+* Methods [`method: LocatorAssertions.toContainText`] and [`method: LocatorAssertions.toHaveText`] now accept `ignoreCase` option.
+
+### Component Tests Update
+
+* Support for Vue2 via the [`@playwright/experimental-ct-vue2`](https://www.npmjs.com/package/@playwright/experimental-ct-vue2) package.
+* Support for component tests for [create-react-app](https://www.npmjs.com/package/create-react-app) with components in `.js` files.
+
+Read more about [component testing with Playwright](./test-components).
+
+### Miscellaneous
+
+* If there's a service worker that's in your way, you can now easily disable it with a new context option `serviceWorkers`:
+  ```ts
+  // playwright.config.ts
+  export default {
+    use: {
+      serviceWorkers: 'block',
+    }
+  }
+  ```
+* Using `.zip` path for `recordHar` context option automatically zips the resulting HAR:
+  ```ts
+  const context = await browser.newContext({
+    recordHar: {
+      path: 'github.har.zip',
+    }
+  });
+  ```
+* If you intend to edit HAR by hand, consider using the `"minimal"` HAR recording mode
+  that only records information that is essential for replaying:
+  ```ts
+  const context = await browser.newContext({
+    recordHar: {
+      path: 'github.har',
+      mode: 'minimal',
+    }
+  });
+  ```
+* Playwright now runs on Ubuntu 22 amd64 and Ubuntu 22 arm64. We also publish new docker image `mcr.microsoft.com/playwright:v1.26.0-jammy`.
+
+### ⚠️ Breaking Changes ⚠️
+
+WebServer is now considered "ready" if request to the specified port has any of the following HTTP status codes:
+
+* `200-299`
+* `300-399` (new)
+* `400`, `401`, `402`, `403` (new)
+
+
+## Version 1.22
+
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/keV2CIgtBlg" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
+
+### Highlights
+
+- Components Testing (preview)
+
+  Playwright Test can now test your [React](https://reactjs.org/),
+  [Vue.js](https://vuejs.org/) or [Svelte](https://svelte.dev/) components.
+  You can use all the features
+  of Playwright Test (such as parallelization, emulation & debugging) while running components
+  in real browsers.
+
+  Here is what a typical component test looks like:
+
+  ```ts
+  // App.spec.tsx
+  import { test, expect } from '@playwright/experimental-ct-react';
+  import App from './App';
+
+  // Let's test component in a dark scheme!
+  test.use({ colorScheme: 'dark' });
+
+  test('should render', async ({ mount }) => {
+    const component = await mount(<App></App>);
+
+    // As with any Playwright test, assert locator text.
+    await expect(component).toContainText('React');
+    // Or do a screenshot 🚀
+    await expect(component).toHaveScreenshot();
+    // Or use any Playwright method
+    await component.click();
+  });
+  ```
+
+  Read more in [our documentation](./test-components).
+
+- Role selectors that allow selecting elements by their [ARIA role](https://www.w3.org/TR/wai-aria-1.2/#roles), [ARIA attributes](https://www.w3.org/TR/wai-aria-1.2/#aria-attributes) and [accessible name](https://w3c.github.io/accname/#dfn-accessible-name).
+
+  ```js
+  // Click a button with accessible name "log in"
+  await page.locator('role=button[name="log in"]').click()
+  ```
+
+  Read more in [our documentation](./selectors#role-selector).
+
+- New [`method: Locator.filter`] API to filter an existing locator
+
+  ```js
+  const buttons = page.locator('role=button');
+  // ...
+  const submitButton = buttons.filter({ hasText: 'Submit' });
+  await submitButton.click();
+  ```
+
+- New web-first assertions [`method: PageAssertions.toHaveScreenshot#1`] and [`method: LocatorAssertions.toHaveScreenshot#1`] that
+  wait for screenshot stabilization and enhances test reliability.
+
+  The new assertions has screenshot-specific defaults, such as:
+  * disables animations
+  * uses CSS scale option
+
+  ```js
+  await page.goto('https://playwright.dev');
+  await expect(page).toHaveScreenshot();
+  ```
+
+  The new [`method: PageAssertions.toHaveScreenshot#1`] saves screenshots at the same
+  location as [`method: ScreenshotAssertions.toMatchSnapshot#1`].
+
 
 ## Version 1.21
+
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/45HZdbmgEw8" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
 
 ### Highlights
 
@@ -13,7 +381,7 @@ title: "Release notes"
 
   ```js
   // Click a button with accessible name "log in"
-  await page.click('role=button[name="log in"]')
+  await page.locator('role=button[name="log in"]').click()
   ```
 
   Read more in [our documentation](./selectors#role-selector).
@@ -54,6 +422,10 @@ This version was also tested against the following stable channels:
 
 
 ## Version 1.20
+
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/6vV-XXKsrbA" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
 
 ### Highlights
 
@@ -120,6 +492,10 @@ This version was also tested against the following stable channels:
 - Microsoft Edge 99
 
 ## Version 1.19
+
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/z0EOFvlf14U" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
 
 ### Playwright Test Update
 
@@ -204,6 +580,10 @@ This version was also tested against the following stable channels:
 
 
 ## Version 1.18
+
+<div className="embed-youtube">
+ <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/ABLYpw2BN_g" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
 
 ### Locator Improvements
 
@@ -306,6 +686,10 @@ This version was also tested against the following stable channels:
 
 ## Version 1.17
 
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/7iyIdeoAP04" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
+
 ### Frame Locators
 
 Playwright 1.17 introduces [frame locators](./api/class-framelocator) - a locator to the iframe on the page. Frame locators capture the logic sufficient to retrieve the `iframe` and then locate elements in that iframe. Frame locators are strict by default, will wait for `iframe` to appear and can be used in Web-First assertions.
@@ -363,6 +747,10 @@ Playwright Trace Viewer is now **available online** at https://trace.playwright.
 
 
 ## Version 1.16
+
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/OQKwFDmY64g" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
 
 ### 🎭 Playwright Test
 
@@ -494,6 +882,10 @@ This version of Playwright was also tested against the following stable channels
 
 ## Version 1.15
 
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/6RwzsDeEj7Y" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
+
 ### 🎭 Playwright Library
 
 #### 🖱️ Mouse Wheel
@@ -551,6 +943,10 @@ By using `npx playwright test --debug` it will enable the [Playwright Inspector]
 
 ## Version 1.14
 
+<div className="embed-youtube">
+  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/LczBDR0gOhk" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
+
 ### 🎭 Playwright Library
 
 #### ⚡️ New "strict" mode
@@ -585,8 +981,8 @@ Learn more in the [documentation](./api/class-locator).
 React and Vue selectors allow selecting elements by its component name and/or property values. The syntax is very similar to [attribute selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors) and supports all attribute selector operators.
 
 ```js
-await page.click('_react=SubmitButton[enabled=true]');
-await page.click('_vue=submit-button[enabled=true]');
+await page.locator('_react=SubmitButton[enabled=true]').click();
+await page.locator('_vue=submit-button[enabled=true]').click();
 ```
 
 Learn more in the [react selectors documentation](./selectors#react-selectors) and the [vue selectors documentation](./selectors#vue-selectors).
@@ -682,7 +1078,7 @@ To launch a server during the tests, use the [`webServer`](./test-advanced#launc
 
 ```ts
 // playwright.config.ts
-import { PlaywrightTestConfig } from '@playwright/test';
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   webServer: {
     command: 'npm run start', // command to launch
@@ -893,13 +1289,13 @@ This version of Playwright was also tested against the following stable channels
 
 ## Version 1.9
 
-- [Playwright Inspector](./inspector.md) is a **new GUI tool** to author and debug your tests.
+- [Playwright Inspector](./debug.md) is a **new GUI tool** to author and debug your tests.
   - **Line-by-line debugging** of your Playwright scripts, with play, pause and step-through.
   - Author new scripts by **recording user actions**.
   - **Generate element selectors** for your script by hovering over elements.
   - Set the `PWDEBUG=1` environment variable to launch the Inspector
 
-- **Pause script execution** with [`method: Page.pause`] in headed mode. Pausing the page launches [Playwright Inspector](./inspector.md) for debugging.
+- **Pause script execution** with [`method: Page.pause`] in headed mode. Pausing the page launches [Playwright Inspector](./debug.md) for debugging.
 
 - **New has-text pseudo-class** for CSS selectors. `:has-text("example")` matches any element containing `"example"` somewhere inside, possibly in a child or a descendant element. See [more examples](./selectors.md#text-selector).
 

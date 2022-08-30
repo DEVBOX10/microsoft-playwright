@@ -20,16 +20,12 @@ loadEnv({ path: path.join(__dirname, '..', '..', '.env') });
 import type { Config, PlaywrightTestOptions, PlaywrightWorkerOptions } from '@playwright/test';
 import * as path from 'path';
 import type { CoverageWorkerOptions } from '../config/coverageFixtures';
-import { gitCommitInfo } from '@playwright/test/lib/plugins';
 
 process.env.PWPAGE_IMPL = 'electron';
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
 const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & PlaywrightTestOptions> = {
-  plugins: [
-    gitCommitInfo(),
-  ],
   testDir,
   outputDir,
   timeout: 30000,
@@ -39,8 +35,8 @@ const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & Playwrigh
   preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 3 : 0,
   reporter: process.env.CI ? [
-    [ 'dot' ],
-    [ 'json', { outputFile: path.join(outputDir, 'report.json') } ],
+    ['dot'],
+    ['json', { outputFile: path.join(outputDir, 'report.json') }],
   ] : 'line',
   projects: [],
 };

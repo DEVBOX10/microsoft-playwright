@@ -80,7 +80,7 @@ it('context.clearCookies() should work', async ({ server, launchPersistent }) =>
   expect(await page.evaluate('document.cookie')).toBe('');
 });
 
-it('should(not) block third party cookies', async ({ server, launchPersistent, browserName, browserMajorVersion }) => {
+it('should(not) block third party cookies', async ({ server, launchPersistent, browserName, allowsThirdParty }) => {
   const { page, context } = await launchPersistent();
   await page.goto(server.EMPTY_PAGE);
   await page.evaluate(src => {
@@ -97,7 +97,6 @@ it('should(not) block third party cookies', async ({ server, launchPersistent, b
     return document.cookie;
   });
   await page.waitForTimeout(2000);
-  const allowsThirdParty = browserName === 'firefox' && browserMajorVersion >= 97;
   expect(documentCookie).toBe(allowsThirdParty ? 'username=John Doe' : '');
   const cookies = await context.cookies(server.CROSS_PROCESS_PREFIX + '/grid.html');
   if (allowsThirdParty) {
@@ -172,7 +171,7 @@ it('should support offline option', async ({ server, launchPersistent }) => {
 });
 
 it('should support acceptDownloads option', async ({ server, launchPersistent, mode }) => {
-  it.skip(mode === 'service', 'download.path() is not avaialble in remote mode');
+  it.skip(mode !== 'default', 'download.path() is not avaialble in remote mode');
 
   const { page } = await launchPersistent();
   server.setRoute('/download', (req, res) => {
@@ -181,7 +180,7 @@ it('should support acceptDownloads option', async ({ server, launchPersistent, m
     res.end(`Hello world`);
   });
   await page.setContent(`<a href="${server.PREFIX}/download">download</a>`);
-  const [ download ] = await Promise.all([
+  const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.click('a')
   ]);

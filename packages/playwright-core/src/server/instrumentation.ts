@@ -36,6 +36,8 @@ export type Attribution = {
 import type { CallMetadata } from '../protocol/callMetadata';
 export type { CallMetadata } from '../protocol/callMetadata';
 
+export const kTestSdkObjects = new WeakSet<SdkObject>();
+
 export class SdkObject extends EventEmitter {
   guid: string;
   attribution: Attribution;
@@ -47,6 +49,8 @@ export class SdkObject extends EventEmitter {
     this.setMaxListeners(0);
     this.attribution = { ...parent.attribution };
     this.instrumentation = parent.instrumentation;
+    if (process.env._PW_INTERNAL_COUNT_SDK_OBJECTS)
+      kTestSdkObjects.add(this);
   }
 }
 
@@ -59,7 +63,10 @@ export interface Instrumentation {
   onAfterCall(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onEvent(sdkObject: SdkObject, metadata: CallMetadata): void;
   onPageOpen(page: Page): void;
+  onPageNavigated(page: Page, url: string): void;
   onPageClose(page: Page): void;
+  onBrowserOpen(browser: Browser): void;
+  onBrowserClose(browser: Browser): void;
 }
 
 export interface InstrumentationListener {
@@ -69,7 +76,10 @@ export interface InstrumentationListener {
   onAfterCall?(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onEvent?(sdkObject: SdkObject, metadata: CallMetadata): void;
   onPageOpen?(page: Page): void;
+  onPageNavigated?(page: Page, url: string): void;
   onPageClose?(page: Page): void;
+  onBrowserOpen?(browser: Browser): void;
+  onBrowserClose?(browser: Browser): void;
 }
 
 export function createInstrumentation(): Instrumentation {

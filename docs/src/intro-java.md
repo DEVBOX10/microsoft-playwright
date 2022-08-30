@@ -59,7 +59,7 @@ public class Example {
     <dependency>
       <groupId>com.microsoft.playwright</groupId>
       <artifactId>playwright</artifactId>
-      <version>1.17.1</version>
+      <version>1.26.0</version>
     </dependency>
   </dependencies>
   <build>
@@ -134,7 +134,7 @@ Works with Windows and Windows Subsystem for Linux (WSL).
 
 ### macOS
 
-Requires 10.14 (Mojave) or above.
+Requires 11 (Big Sur) or above.
 
 ### Linux
 
@@ -142,7 +142,7 @@ Depending on your Linux distribution, you might need to install additional
 dependencies to run the browsers.
 
 :::note
-Only Ubuntu 18.04 and Ubuntu 20.04 are officially supported.
+Only Ubuntu 18.04, 20.04, and 22.04 are officially supported.
 :::
 
 See also in the [Command line tools](./cli.md#install-system-dependencies)

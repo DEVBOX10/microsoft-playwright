@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import os from 'os';
 import type { Route } from 'playwright-core';
 import { test as it, expect } from './pageTest';
 
@@ -42,28 +43,28 @@ it('should unroute', async ({ page, server }) => {
   let intercepted = [];
   await page.route('**/*', route => {
     intercepted.push(1);
-    route.continue();
+    route.fallback();
   });
   await page.route('**/empty.html', route => {
     intercepted.push(2);
-    route.continue();
+    route.fallback();
   });
   await page.route('**/empty.html', route => {
     intercepted.push(3);
-    route.continue();
+    route.fallback();
   });
   const handler4 = route => {
     intercepted.push(4);
-    route.continue();
+    route.fallback();
   };
   await page.route('**/empty.html', handler4);
   await page.goto(server.EMPTY_PAGE);
-  expect(intercepted).toEqual([4]);
+  expect(intercepted).toEqual([4, 3, 2, 1]);
 
   intercepted = [];
   await page.unroute('**/empty.html', handler4);
   await page.goto(server.EMPTY_PAGE);
-  expect(intercepted).toEqual([3]);
+  expect(intercepted).toEqual([3, 2, 1]);
 
   intercepted = [];
   await page.unroute('**/empty.html');
@@ -85,6 +86,7 @@ it('should work when POST is redirected with 302', async ({ page, server }) => {
     page.waitForNavigation()
   ]);
 });
+
 // @see https://github.com/GoogleChrome/puppeteer/issues/3973
 it('should work when header manipulation headers with redirect', async ({ page, server }) => {
   server.setRedirect('/rrredirect', '/empty.html');
@@ -96,6 +98,7 @@ it('should work when header manipulation headers with redirect', async ({ page, 
   });
   await page.goto(server.PREFIX + '/rrredirect');
 });
+
 // @see https://github.com/GoogleChrome/puppeteer/issues/4743
 it('should be able to remove headers', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
@@ -137,6 +140,28 @@ it('should properly return navigation response when URL has cookies', async ({ p
   expect(response.status()).toBe(200);
 });
 
+it('should override cookie header', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16773' });
+  it.fail(browserName !== 'firefox');
+
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(() => document.cookie = 'original=value');
+  let cookieValueInRoute;
+  await page.route('**', async route => {
+    const headers = await route.request().allHeaders();
+    cookieValueInRoute = headers['cookie'];
+    headers['cookie'] = 'overridden=value';
+    route.continue({ headers });
+  });
+  const [serverReq] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    page.goto(server.EMPTY_PAGE),
+  ]);
+
+  expect(cookieValueInRoute).toBe('original=value');
+  expect(serverReq.headers['cookie']).toBe('overridden=value');
+});
+
 it('should show custom HTTP headers', async ({ page, server }) => {
   await page.setExtraHTTPHeaders({
     foo: 'bar'
@@ -148,6 +173,7 @@ it('should show custom HTTP headers', async ({ page, server }) => {
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.ok()).toBe(true);
 });
+
 // @see https://github.com/GoogleChrome/puppeteer/issues/4337
 it('should work with redirect inside sync XHR', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
@@ -241,14 +267,15 @@ it('should be abortable', async ({ page, server }) => {
   expect(failed).toBe(true);
 });
 
-it('should be abortable with custom error codes', async ({ page, server, browserName }) => {
+it('should be abortable with custom error codes', async ({ page, server, browserName, isMac }) => {
   await page.route('**/*', route => route.abort('internetdisconnected'));
   let failedRequest = null;
   page.on('requestfailed', request => failedRequest = request);
   await page.goto(server.EMPTY_PAGE).catch(e => {});
   expect(failedRequest).toBeTruthy();
+  const isFrozenWebKit = isMac && parseInt(os.release(), 10) < 20;
   if (browserName === 'webkit')
-    expect(failedRequest.failure().errorText).toBe('Request intercepted');
+    expect(failedRequest.failure().errorText).toBe(isFrozenWebKit ? 'Request intercepted' : 'Blocked by Web Inspector');
   else if (browserName === 'firefox')
     expect(failedRequest.failure().errorText).toBe('NS_ERROR_OFFLINE');
   else
@@ -267,13 +294,14 @@ it('should send referer', async ({ page, server }) => {
   expect(request.headers['referer']).toBe('http://google.com/');
 });
 
-it('should fail navigation when aborting main resource', async ({ page, server, browserName }) => {
+it('should fail navigation when aborting main resource', async ({ page, server, browserName, isMac }) => {
   await page.route('**/*', route => route.abort());
   let error = null;
   await page.goto(server.EMPTY_PAGE).catch(e => error = e);
   expect(error).toBeTruthy();
+  const isFrozenWebKit = isMac && parseInt(os.release(), 10) < 20;
   if (browserName === 'webkit')
-    expect(error.message).toContain('Request intercepted');
+    expect(error.message).toContain(isFrozenWebKit ? 'Request intercepted' : 'Blocked by Web Inspector');
   else if (browserName === 'firefox')
     expect(error.message).toContain('NS_ERROR_FAILURE');
   else
@@ -313,6 +341,26 @@ it('should not work with redirects', async ({ page, server }) => {
   expect(chain[4].url()).toContain('/non-existing-page.html');
   for (let i = 0; i < chain.length; i++)
     expect(chain[i].redirectedTo()).toBe(i ? chain[i - 1] : null);
+});
+
+it('should chain fallback w/ dynamic URL', async ({ page, server }) => {
+  const intercepted = [];
+  await page.route('**/bar', route => {
+    intercepted.push(1);
+    route.fallback({ url: server.EMPTY_PAGE });
+  });
+  await page.route('**/foo', route => {
+    intercepted.push(2);
+    route.fallback({ url: 'http://localhost/bar' });
+  });
+
+  await page.route('**/empty.html', route => {
+    intercepted.push(3);
+    route.fallback({ url: 'http://localhost/foo' });
+  });
+
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual([3, 2, 1]);
 });
 
 it('should work with redirects for subresources', async ({ page, server }) => {
@@ -596,7 +644,8 @@ it('should allow null origin for about:blank', async ({ page, server, browserNam
   expect(await response.headerValue('Access-Control-Allow-Origin')).toBe('null');
 });
 
-it('should respect cors overrides', async ({ page, server, browserName }) => {
+it('should respect cors overrides', async ({ page, server, browserName, isAndroid }) => {
+  it.fail(isAndroid, 'no cors error in android emulator');
   await page.goto(server.EMPTY_PAGE);
   server.setRoute('/something', (request, response) => {
     if (request.method === 'OPTIONS') {
@@ -769,6 +818,20 @@ it('should support the times parameter with route matching', async ({ page, serv
   expect(intercepted).toHaveLength(1);
 });
 
+it('should support async handler w/ times', async ({ page, server }) => {
+  await page.route('**/empty.html', async route => {
+    await new Promise(f => setTimeout(f, 100));
+    route.fulfill({
+      body: '<html>intercepted</html>',
+      contentType: 'text/html'
+    });
+  }, { times: 1 });
+  await page.goto(server.EMPTY_PAGE);
+  await expect(page.locator('body')).toHaveText('intercepted');
+  await page.goto(server.EMPTY_PAGE);
+  await expect(page.locator('body')).not.toHaveText('intercepted');
+});
+
 it('should contain raw request header', async ({ page, server }) => {
   let headers: any;
   await page.route('**/*', async route => {
@@ -807,13 +870,13 @@ it('should contain raw response header after fulfill', async ({ page, server }) 
   expect(headers['content-type']).toBeTruthy();
 });
 
-for (const method of ['fulfill', 'continue', 'abort'] as const) {
+for (const method of ['fulfill', 'continue', 'fallback', 'abort'] as const) {
   it(`route.${method} should throw if called twice`, async ({ page, server }) => {
-    const routePromise = new Promise<Route>(async resove => {
-      await page.route('**/*', resove);
-    });
+    let resolve;
+    const resolvePromise = new Promise<Route>(f => resolve = f);
+    await page.route('**/*', resolve);
     page.goto(server.PREFIX + '/empty.html').catch(() => {});
-    const route = await routePromise;
+    const route = await resolvePromise;
     await route[method]();
     const e = await route[method]().catch(e => e);
     expect(e.message).toContain('Route is already handled!');

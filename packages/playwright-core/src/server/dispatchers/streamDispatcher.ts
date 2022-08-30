@@ -15,15 +15,16 @@
  */
 
 import type * as channels from '../../protocol/channels';
-import type { DispatcherScope } from './dispatcher';
 import { Dispatcher } from './dispatcher';
 import type * as stream from 'stream';
 import { createGuid } from '../../utils';
+import type { ArtifactDispatcher } from './artifactDispatcher';
 
-export class StreamDispatcher extends Dispatcher<{ guid: string, stream: stream.Readable }, channels.StreamChannel> implements channels.StreamChannel {
+export class StreamDispatcher extends Dispatcher<{ guid: string, stream: stream.Readable }, channels.StreamChannel, ArtifactDispatcher> implements channels.StreamChannel {
   _type_Stream = true;
   private _ended: boolean = false;
-  constructor(scope: DispatcherScope, stream: stream.Readable) {
+
+  constructor(scope: ArtifactDispatcher, stream: stream.Readable) {
     super(scope, { guid: 'stream@' + createGuid(), stream }, 'Stream', {});
     // In Node v12.9.0+ we can use readableEnded.
     stream.once('end', () => this._ended =  true);
@@ -33,7 +34,7 @@ export class StreamDispatcher extends Dispatcher<{ guid: string, stream: stream.
   async read(params: channels.StreamReadParams): Promise<channels.StreamReadResult> {
     const stream = this._object.stream;
     if (this._ended)
-      return { binary: '' };
+      return { binary: Buffer.from('') };
     if (!stream.readableLength) {
       await new Promise((fulfill, reject) => {
         stream.once('readable', fulfill);
@@ -42,7 +43,7 @@ export class StreamDispatcher extends Dispatcher<{ guid: string, stream: stream.
       });
     }
     const buffer = stream.read(Math.min(stream.readableLength, params.size || stream.readableLength));
-    return { binary: buffer ? buffer.toString('base64') : '' };
+    return { binary: buffer || Buffer.from('') };
   }
 
   async close() {

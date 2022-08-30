@@ -261,3 +261,26 @@ it('should work with setContent', async ({ page, server }) => {
   await page.setContent('<script>window.result = compute(3, 2)</script>');
   expect(await page.evaluate('window.result')).toBe(6);
 });
+
+it('should alias Window, Document and Node', async ({ page }) => {
+  let object: any;
+  await page.exposeBinding('log', (source, obj) => object = obj);
+  await page.evaluate('window.log([window, document, document.body])');
+  expect(object).toEqual(['ref: <Window>', 'ref: <Document>', 'ref: <Node>']);
+});
+
+it('should serialize cycles', async ({ page }) => {
+  let object: any;
+  await page.exposeBinding('log', (source, obj) => object = obj);
+  await page.evaluate('const a = {}; a.b = a; window.log(a)');
+  const a: any = {};
+  a.b = a;
+  expect(object).toEqual(a);
+});
+
+it('should work with overridden console object', async ({ page }) => {
+  await page.evaluate(() => window.console = null);
+  expect(page.evaluate(() => window.console === null)).toBeTruthy();
+  await page.exposeFunction('add', (a, b) => a + b);
+  expect(await page.evaluate('add(5, 6)')).toBe(11);
+});

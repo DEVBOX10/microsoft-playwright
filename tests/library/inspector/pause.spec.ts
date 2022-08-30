@@ -16,6 +16,7 @@
 
 import type { Page } from 'playwright-core';
 import { test as it, expect } from './inspectorTest';
+import { waitForTestLog } from '../../config/utils';
 
 
 it('should resume when closing inspector', async ({ page, recorderPageGetter, closeRecorder, mode }) => {
@@ -32,10 +33,12 @@ it('should resume when closing inspector', async ({ page, recorderPageGetter, cl
 it.describe('pause', () => {
   it.skip(({ mode }) => mode !== 'default');
 
-  it.afterEach(async ({ recorderPageGetter }) => {
+  it.afterEach(async ({ recorderPageGetter }, testInfo) => {
+    if (testInfo.status === 'skipped')
+      return;
     try {
       const recorderPage = await recorderPageGetter();
-      recorderPage.click('[title=Resume]').catch(() => {});
+      recorderPage.click('[title="Resume (F8)"]').catch(() => {});
     } catch (e) {
       // Some tests close context.
     }
@@ -46,7 +49,16 @@ it.describe('pause', () => {
       await page.pause();
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
+    await scriptPromise;
+  });
+
+  it('should pause and resume the script with keyboard shortcut', async ({ page, recorderPageGetter }) => {
+    const scriptPromise = (async () => {
+      await page.pause();
+    })();
+    const recorderPage = await recorderPageGetter();
+    await recorderPage.keyboard.press('F8');
     await scriptPromise;
   });
 
@@ -68,7 +80,7 @@ it.describe('pause', () => {
       await page.pause();
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -79,7 +91,7 @@ it.describe('pause', () => {
     const recorderPage = await recorderPageGetter();
     const source = await recorderPage.textContent('.source-line-paused .source-code');
     expect(source).toContain('page.pause()');
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -91,9 +103,9 @@ it.describe('pause', () => {
     const recorderPage = await recorderPageGetter();
     const source = await recorderPage.textContent('.source-line-paused');
     expect(source).toContain('page.pause();  // 1');
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause();  // 2")');
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -107,10 +119,28 @@ it.describe('pause', () => {
     const source = await recorderPage.textContent('.source-line-paused');
     expect(source).toContain('page.pause();');
 
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector('.source-line-paused :has-text("page.click")');
 
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
+    await scriptPromise;
+  });
+
+  it('should step with keyboard shortcut', async ({ page, recorderPageGetter }) => {
+    await page.setContent('<button>Submit</button>');
+    const scriptPromise = (async () => {
+      await page.pause();
+      await page.click('button');
+    })();
+    const recorderPage = await recorderPageGetter();
+    const source = await recorderPage.textContent('.source-line-paused');
+    expect(source).toContain('page.pause();');
+
+    await recorderPage.keyboard.press('F10');
+    await recorderPage.waitForSelector('.source-line-paused :has-text("page.click")');
+    await recorderPage.isEnabled('[title="Resume (F8)"]');
+
+    await recorderPage.keyboard.press('F8');
     await scriptPromise;
   });
 
@@ -122,7 +152,7 @@ it.describe('pause', () => {
       await page.click('button');
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
 
     const { x, y } = await actionPointPromise;
     const button = await page.waitForSelector('button');
@@ -134,7 +164,7 @@ it.describe('pause', () => {
     expect(Math.abs(x1 - x) < 2).toBeTruthy();
     expect(Math.abs(y1 - y) < 2).toBeTruthy();
 
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -146,9 +176,9 @@ it.describe('pause', () => {
       await page.pause();  // 2
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause();  // 2")');
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -160,14 +190,14 @@ it.describe('pause', () => {
       await page.pause();  // 2
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause();  // 2")');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
       'page.click(button)- XXms',
       'page.pause',
     ]);
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -183,7 +213,7 @@ it.describe('pause', () => {
       await page.pause();  // 2
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause();  // 2")');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
@@ -191,7 +221,7 @@ it.describe('pause', () => {
       'tracing.stop- XXms',
       'page.pause',
     ]);
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -203,14 +233,14 @@ it.describe('pause', () => {
       await page.pause();  // 2
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause();  // 2")');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
       'expect.toHaveText(button)- XXms',
       'page.pause',
     ]);
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -224,10 +254,10 @@ it.describe('pause', () => {
       ]);
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.click")');
     await recorderPage.waitForSelector('.source-line-running:has-text("page.waitForEvent")');
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -242,7 +272,7 @@ it.describe('pause', () => {
       await page.pause();  // 2
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause();  // 2")');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
@@ -250,7 +280,7 @@ it.describe('pause', () => {
       'page.click(button)- XXms',
       'page.pause',
     ]);
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -261,7 +291,7 @@ it.describe('pause', () => {
       await page.isChecked('button');
     })().catch(e => e);
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await recorderPage.waitForSelector('.source-line-error');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
@@ -284,7 +314,7 @@ it.describe('pause', () => {
       ]);
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause")');
     await recorderPage.waitForSelector('.source-line-error:has-text("page.waitForEvent")');
     expect(await sanitizeLog(recorderPage)).toEqual([
@@ -294,7 +324,7 @@ it.describe('pause', () => {
       'error: Timeout 1ms exceeded while waiting for event \"console\"',
       'page.pause',
     ]);
-    await recorderPage.click('[title="Resume"]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -304,9 +334,9 @@ it.describe('pause', () => {
       await page.close();
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.close();")');
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -316,10 +346,10 @@ it.describe('pause', () => {
       await page.context().close();
     })();
     const recorderPage = await recorderPageGetter();
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.context().close();")');
     // Next line can throw because closing context also closes the inspector page.
-    await recorderPage.click('[title=Resume]').catch(e => {});
+    await recorderPage.click('[title="Resume (F8)"]').catch(e => {});
     await scriptPromise;
   });
 
@@ -336,7 +366,7 @@ it.describe('pause', () => {
     const button = await page.$('text=Submit');
     const box2 = await button.boundingBox();
     expect(roundBox(box1)).toEqual(roundBox(box2));
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
   });
 
@@ -355,13 +385,13 @@ it.describe('pause', () => {
     })();
     const recorderPage = await recorderPageGetter();
     await recorderPage.waitForSelector(`.source-line-paused:has-text("page.pause")`);
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector(`.source-line-paused:has-text("press('Enter')")`);
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector(`.source-line-paused:has-text("press('A')")`);
-    await recorderPage.click('[title="Step over"]');
+    await recorderPage.click('[title="Step over (F10)"]');
     await recorderPage.waitForSelector(`.source-line-paused:has-text("press('Shift+A')")`);
-    await recorderPage.click('[title=Resume]');
+    await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
 
     const log = await page.evaluate(() => (window as any).log);
@@ -391,18 +421,6 @@ async function sanitizeLog(recorderPage: Page): Promise<string[]> {
     })));
   }
   return results;
-}
-
-function waitForTestLog<T>(page: Page, prefix: string): Promise<T> {
-  return new Promise<T>(resolve => {
-    page.on('console', message => {
-      const text = message.text();
-      if (text.startsWith(prefix)) {
-        const json = text.substring(prefix.length);
-        resolve(JSON.parse(json));
-      }
-    });
-  });
 }
 
 type Box = { x: number, y: number, width: number, height: number };

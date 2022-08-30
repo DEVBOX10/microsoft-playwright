@@ -17,7 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { FullConfig, Location, Suite, TestCase, TestResult, TestStatus, TestStep } from '../../types/testReporter';
-import { assert, calculateSha1 } from 'playwright-core/lib/utils';
+import { assert } from 'playwright-core/lib/utils';
 import { sanitizeForFilePath } from '../util';
 import { formatResultFailure } from './base';
 import { toPosixPath, serializePatterns } from './json';
@@ -167,7 +167,7 @@ class RawReporter {
     const project = suite.project();
     assert(project, 'Internal Error: Invalid project structure');
     const report: JsonReport = {
-      config,
+      config: filterOutPrivateFields(config),
       project: {
         metadata: project.metadata,
         name: project.name,
@@ -180,11 +180,7 @@ class RawReporter {
         timeout: project.timeout,
       },
       suites: suite.suites.map(fileSuite => {
-        // fileId is based on the location of the enclosing file suite.
-        // Don't use the file in test/suite location, it can be different
-        // due to the source map / require.
-        const fileId = calculateSha1(fileSuite.location!.file.split(path.sep).join('/'));
-        return this._serializeSuite(fileSuite, fileId);
+        return this._serializeSuite(fileSuite);
       })
     };
     for (const file of this.stepsInFile.keys()) {
@@ -215,23 +211,21 @@ class RawReporter {
     return report;
   }
 
-  private _serializeSuite(suite: Suite, fileId: string): JsonSuite {
+  private _serializeSuite(suite: Suite): JsonSuite {
     const location = this._relativeLocation(suite.location);
-    return {
+    const result = {
       title: suite.title,
-      fileId,
+      fileId: (suite as any)._fileId,
       location,
-      suites: suite.suites.map(s => this._serializeSuite(s, fileId)),
-      tests: suite.tests.map(t => this._serializeTest(t, fileId)),
+      suites: suite.suites.map(s => this._serializeSuite(s)),
+      tests: suite.tests.map(t => this._serializeTest(t)),
     };
+    return result;
   }
 
-  private _serializeTest(test: TestCase, fileId: string): JsonTestCase {
-    const [, projectName, , ...titles] = test.titlePath();
-    const testIdExpression = `project:${projectName}|path:${titles.join('>')}|repeat:${test.repeatEachIndex}`;
-    const testId = fileId + '-' + calculateSha1(testIdExpression);
+  private _serializeTest(test: TestCase): JsonTestCase {
     return {
-      testId,
+      testId: test.id,
       title: test.title,
       location: this._relativeLocation(test.location)!,
       expectedStatus: test.expectedStatus,
@@ -315,6 +309,14 @@ function dedupeSteps(steps: JsonTestStep[]): JsonTestStep[] {
     lastStep = canDedupe ? step : undefined;
   }
   return result;
+}
+
+function filterOutPrivateFields(object: any): any {
+  if (!object || typeof object !== 'object')
+    return object;
+  if (Array.isArray(object))
+    return object.map(filterOutPrivateFields);
+  return Object.fromEntries(Object.entries(object).filter(entry => !entry[0].startsWith('_')).map(entry => [entry[0], filterOutPrivateFields(entry[1])]));
 }
 
 export default RawReporter;

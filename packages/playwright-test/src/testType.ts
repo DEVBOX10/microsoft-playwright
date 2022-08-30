@@ -37,6 +37,7 @@ export class TestTypeImpl {
     test.describe = wrapFunctionWithLocation(this._describe.bind(this, 'default'));
     test.describe.only = wrapFunctionWithLocation(this._describe.bind(this, 'only'));
     test.describe.configure = wrapFunctionWithLocation(this._configure.bind(this));
+    test.describe.fixme = wrapFunctionWithLocation(this._describe.bind(this, 'fixme'));
     test.describe.parallel = wrapFunctionWithLocation(this._describe.bind(this, 'parallel'));
     test.describe.parallel.only = wrapFunctionWithLocation(this._describe.bind(this, 'parallel.only'));
     test.describe.serial = wrapFunctionWithLocation(this._describe.bind(this, 'serial'));
@@ -73,7 +74,7 @@ export class TestTypeImpl {
         `- You are calling ${title} in a configuration file.`,
         `- You are calling ${title} in a file that is imported by the configuration file.`,
         `- You have two different versions of @playwright/test. This usually happens`,
-        `  when one of the dependenices in your package.json depends on @playwright/test.`,
+        `  when one of the dependencies in your package.json depends on @playwright/test.`,
       ].join('\n'));
     }
     return suite;
@@ -88,29 +89,27 @@ export class TestTypeImpl {
 
     if (type === 'only')
       test._only = true;
-    if (type === 'skip' || type === 'fixme')
+    if (type === 'skip' || type === 'fixme') {
+      test.annotations.push({ type });
       test.expectedStatus = 'skipped';
+    }
     for (let parent: Suite | undefined = suite; parent; parent = parent.parent) {
       if (parent._skipped)
         test.expectedStatus = 'skipped';
     }
   }
 
-  private _describe(type: 'default' | 'only' | 'serial' | 'serial.only' | 'parallel' | 'parallel.only' | 'skip', location: Location, title: string, fn: Function) {
+  private _describe(type: 'default' | 'only' | 'serial' | 'serial.only' | 'parallel' | 'parallel.only' | 'skip' | 'fixme', location: Location, title: string | Function, fn?: Function) {
     throwIfRunningInsideJest();
     const suite = this._ensureCurrentSuite(location, 'test.describe()');
+
     if (typeof title === 'function') {
-      throw errorWithLocation(location, [
-        'It looks like you are calling describe() without the title. Pass the title as a first argument:',
-        `test.describe('my test group', () => {`,
-        `  // Declare tests here`,
-        `});`,
-      ].join('\n'));
+      fn = title;
+      title = '';
     }
 
-    const child = new Suite(title);
+    const child = new Suite(title, 'describe');
     child._requireFile = suite._requireFile;
-    child._isDescribe = true;
     child.location = location;
     suite._addSuite(child);
 
@@ -120,18 +119,18 @@ export class TestTypeImpl {
       child._parallelMode = 'serial';
     if (type === 'parallel' || type === 'parallel.only')
       child._parallelMode = 'parallel';
-    if (type === 'skip')
+    if (type === 'skip' || type === 'fixme') {
       child._skipped = true;
+      child._annotations.push({ type });
+    }
 
     for (let parent: Suite | undefined = suite; parent; parent = parent.parent) {
       if (parent._parallelMode === 'serial' && child._parallelMode === 'parallel')
         throw errorWithLocation(location, 'describe.parallel cannot be nested inside describe.serial');
-      if (parent._parallelMode === 'parallel' && child._parallelMode === 'serial')
-        throw errorWithLocation(location, 'describe.serial cannot be nested inside describe.parallel');
     }
 
     setCurrentlyLoadingFileSuite(child);
-    fn();
+    fn!();
     setCurrentlyLoadingFileSuite(suite);
   }
 
@@ -152,8 +151,6 @@ export class TestTypeImpl {
     for (let parent: Suite | undefined = suite.parent; parent; parent = parent.parent) {
       if (parent._parallelMode === 'serial' && suite._parallelMode === 'parallel')
         throw errorWithLocation(location, 'describe.parallel cannot be nested inside describe.serial');
-      if (parent._parallelMode === 'parallel' && suite._parallelMode === 'serial')
-        throw errorWithLocation(location, 'describe.serial cannot be nested inside describe.parallel');
     }
   }
 
@@ -203,7 +200,7 @@ export class TestTypeImpl {
     suite._use.push({ fixtures, location });
   }
 
-  private async _step(location: Location, title: string, body: () => Promise<void>): Promise<void> {
+  private async _step<T>(location: Location, title: string, body: () => Promise<T>): Promise<T> {
     const testInfo = currentTestInfo();
     if (!testInfo)
       throw errorWithLocation(location, `test.step() can only be called from a test`);
@@ -215,8 +212,9 @@ export class TestTypeImpl {
       forceNoParent: false
     });
     try {
-      await body();
+      const result = await body();
       step.complete({});
+      return result;
     } catch (e) {
       step.complete({ error: serializeError(e) });
       throw e;

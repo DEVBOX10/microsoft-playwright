@@ -15,38 +15,43 @@
  */
 
 import type * as channels from '../../protocol/channels';
-import { APIRequestContext } from '../fetch';
+import type { APIRequestContext } from '../fetch';
 import type { CallMetadata } from '../instrumentation';
 import type { Request, Response, Route } from '../network';
 import { WebSocket } from '../network';
-import type { DispatcherScope } from './dispatcher';
+import type { RootDispatcher } from './dispatcher';
 import { Dispatcher, existingDispatcher, lookupNullableDispatcher } from './dispatcher';
-import { FrameDispatcher } from './frameDispatcher';
+import { WorkerDispatcher } from './pageDispatcher';
 import { TracingDispatcher } from './tracingDispatcher';
+import type { BrowserContextDispatcher } from './browserContextDispatcher';
+import type { PageDispatcher } from './pageDispatcher';
+import { FrameDispatcher } from './frameDispatcher';
 
-export class RequestDispatcher extends Dispatcher<Request, channels.RequestChannel> implements channels.RequestChannel {
+export class RequestDispatcher extends Dispatcher<Request, channels.RequestChannel, FrameDispatcher | WorkerDispatcher> implements channels.RequestChannel {
   _type_Request: boolean;
 
-  static from(scope: DispatcherScope, request: Request): RequestDispatcher {
+  static from(scope: BrowserContextDispatcher, request: Request): RequestDispatcher {
     const result = existingDispatcher<RequestDispatcher>(request);
     return result || new RequestDispatcher(scope, request);
   }
 
-  static fromNullable(scope: DispatcherScope, request: Request | null): RequestDispatcher | undefined {
+  static fromNullable(scope: BrowserContextDispatcher, request: Request | null): RequestDispatcher | undefined {
     return request ? RequestDispatcher.from(scope, request) : undefined;
   }
 
-  private constructor(scope: DispatcherScope, request: Request) {
+  private constructor(contextScope: BrowserContextDispatcher, request: Request) {
     const postData = request.postDataBuffer();
+    const scope = parentScopeForRequest(contextScope, request);
     super(scope, request, 'Request', {
-      frame: FrameDispatcher.from(scope, request.frame()),
+      frame: request.frame() ? scope : undefined,
+      serviceWorker: request.serviceWorker() ? scope : undefined,
       url: request.url(),
       resourceType: request.resourceType(),
       method: request.method(),
-      postData: postData === null ? undefined : postData.toString('base64'),
+      postData: postData === null ? undefined : postData,
       headers: request.headers(),
       isNavigationRequest: request.isNavigationRequest(),
-      redirectedFrom: RequestDispatcher.fromNullable(scope, request.redirectedFrom()),
+      redirectedFrom: RequestDispatcher.fromNullable(contextScope, request.redirectedFrom()),
     });
     this._type_Request = true;
   }
@@ -60,32 +65,34 @@ export class RequestDispatcher extends Dispatcher<Request, channels.RequestChann
   }
 }
 
-export class ResponseDispatcher extends Dispatcher<Response, channels.ResponseChannel> implements channels.ResponseChannel {
+export class ResponseDispatcher extends Dispatcher<Response, channels.ResponseChannel, FrameDispatcher | WorkerDispatcher> implements channels.ResponseChannel {
   _type_Response = true;
 
-  static from(scope: DispatcherScope, response: Response): ResponseDispatcher {
+  static from(scope: BrowserContextDispatcher, response: Response): ResponseDispatcher {
     const result = existingDispatcher<ResponseDispatcher>(response);
     return result || new ResponseDispatcher(scope, response);
   }
 
-  static fromNullable(scope: DispatcherScope, response: Response | null): ResponseDispatcher | undefined {
+  static fromNullable(scope: BrowserContextDispatcher, response: Response | null): ResponseDispatcher | undefined {
     return response ? ResponseDispatcher.from(scope, response) : undefined;
   }
 
-  private constructor(scope: DispatcherScope, response: Response) {
+  private constructor(contextScope: BrowserContextDispatcher, response: Response) {
+    const scope = parentScopeForRequest(contextScope, response.request());
     super(scope, response, 'Response', {
       // TODO: responses in popups can point to non-reported requests.
-      request: RequestDispatcher.from(scope, response.request()),
+      request: RequestDispatcher.from(contextScope, response.request()),
       url: response.url(),
       status: response.status(),
       statusText: response.statusText(),
       headers: response.headers(),
-      timing: response.timing()
+      timing: response.timing(),
+      fromServiceWorker: response.fromServiceWorker(),
     });
   }
 
   async body(): Promise<channels.ResponseBodyResult> {
-    return { binary: (await this._object.body()).toString('base64') };
+    return { binary: await this._object.body() };
   }
 
   async securityDetails(): Promise<channels.ResponseSecurityDetailsResult> {
@@ -105,18 +112,18 @@ export class ResponseDispatcher extends Dispatcher<Response, channels.ResponseCh
   }
 }
 
-export class RouteDispatcher extends Dispatcher<Route, channels.RouteChannel> implements channels.RouteChannel {
+export class RouteDispatcher extends Dispatcher<Route, channels.RouteChannel, RequestDispatcher> implements channels.RouteChannel {
   _type_Route = true;
 
-  static from(scope: DispatcherScope, route: Route): RouteDispatcher {
+  static from(scope: RequestDispatcher, route: Route): RouteDispatcher {
     const result = existingDispatcher<RouteDispatcher>(route);
     return result || new RouteDispatcher(scope, route);
   }
 
-  private constructor(scope: DispatcherScope, route: Route) {
+  private constructor(scope: RequestDispatcher, route: Route) {
     super(scope, route, 'Route', {
       // Context route can point to a non-reported request.
-      request: RequestDispatcher.from(scope, route.request())
+      request: scope
     });
   }
 
@@ -125,7 +132,7 @@ export class RouteDispatcher extends Dispatcher<Route, channels.RouteChannel> im
       url: params.url,
       method: params.method,
       headers: params.headers,
-      postData: params.postData !== undefined ? Buffer.from(params.postData, 'base64') : undefined,
+      postData: params.postData,
     });
   }
 
@@ -136,43 +143,48 @@ export class RouteDispatcher extends Dispatcher<Route, channels.RouteChannel> im
   async abort(params: channels.RouteAbortParams): Promise<void> {
     await this._object.abort(params.errorCode || 'failed');
   }
-}
 
-export class WebSocketDispatcher extends Dispatcher<WebSocket, channels.WebSocketChannel> implements channels.WebSocketChannel {
-  _type_EventTarget = true;
-  _type_WebSocket = true;
-
-  constructor(scope: DispatcherScope, webSocket: WebSocket) {
-    super(scope, webSocket, 'WebSocket', {
-      url: webSocket.url(),
-    });
-    webSocket.on(WebSocket.Events.FrameSent, (event: { opcode: number, data: string }) => this._dispatchEvent('frameSent', event));
-    webSocket.on(WebSocket.Events.FrameReceived, (event: { opcode: number, data: string }) => this._dispatchEvent('frameReceived', event));
-    webSocket.on(WebSocket.Events.SocketError, (error: string) => this._dispatchEvent('socketError', { error }));
-    webSocket.on(WebSocket.Events.Close, () => this._dispatchEvent('close', {}));
+  async redirectNavigationRequest(params: channels.RouteRedirectNavigationRequestParams): Promise<void> {
+    await this._object.redirectNavigationRequest(params.url);
   }
 }
 
-export class APIRequestContextDispatcher extends Dispatcher<APIRequestContext, channels.APIRequestContextChannel> implements channels.APIRequestContextChannel {
+export class WebSocketDispatcher extends Dispatcher<WebSocket, channels.WebSocketChannel, PageDispatcher> implements channels.WebSocketChannel {
+  _type_EventTarget = true;
+  _type_WebSocket = true;
+
+  constructor(scope: PageDispatcher, webSocket: WebSocket) {
+    super(scope, webSocket, 'WebSocket', {
+      url: webSocket.url(),
+    });
+    this.addObjectListener(WebSocket.Events.FrameSent, (event: { opcode: number, data: string }) => this._dispatchEvent('frameSent', event));
+    this.addObjectListener(WebSocket.Events.FrameReceived, (event: { opcode: number, data: string }) => this._dispatchEvent('frameReceived', event));
+    this.addObjectListener(WebSocket.Events.SocketError, (error: string) => this._dispatchEvent('socketError', { error }));
+    this.addObjectListener(WebSocket.Events.Close, () => this._dispatchEvent('close', {}));
+  }
+}
+
+export class APIRequestContextDispatcher extends Dispatcher<APIRequestContext, channels.APIRequestContextChannel, RootDispatcher | BrowserContextDispatcher> implements channels.APIRequestContextChannel {
   _type_APIRequestContext = true;
 
-  static from(scope: DispatcherScope, request: APIRequestContext): APIRequestContextDispatcher {
+  static from(scope: RootDispatcher | BrowserContextDispatcher, request: APIRequestContext): APIRequestContextDispatcher {
     const result = existingDispatcher<APIRequestContextDispatcher>(request);
     return result || new APIRequestContextDispatcher(scope, request);
   }
 
-  static fromNullable(scope: DispatcherScope, request: APIRequestContext | null): APIRequestContextDispatcher | undefined {
+  static fromNullable(scope: RootDispatcher | BrowserContextDispatcher, request: APIRequestContext | null): APIRequestContextDispatcher | undefined {
     return request ? APIRequestContextDispatcher.from(scope, request) : undefined;
   }
 
-  private constructor(scope: DispatcherScope, request: APIRequestContext) {
-    super(scope, request, 'APIRequestContext', {
-      tracing: TracingDispatcher.from(scope, request.tracing()),
-    }, true);
-    request.once(APIRequestContext.Events.Dispose, () => {
-      if (!this._disposed)
-        super._dispose();
+  private constructor(parentScope: RootDispatcher | BrowserContextDispatcher, request: APIRequestContext) {
+    // We will reparent these to the context below.
+    const tracing = TracingDispatcher.from(parentScope as any as APIRequestContextDispatcher, request.tracing());
+
+    super(parentScope, request, 'APIRequestContext', {
+      tracing,
     });
+
+    this.adopt(tracing);
   }
 
   async storageState(params?: channels.APIRequestContextStorageStateParams): Promise<channels.APIRequestContextStorageStateResult> {
@@ -197,8 +209,7 @@ export class APIRequestContextDispatcher extends Dispatcher<APIRequestContext, c
   }
 
   async fetchResponseBody(params: channels.APIRequestContextFetchResponseBodyParams, metadata?: channels.Metadata): Promise<channels.APIRequestContextFetchResponseBodyResult> {
-    const buffer = this._object.fetchResponses.get(params.fetchUid);
-    return { binary: buffer ? buffer.toString('base64') : undefined };
+    return { binary: this._object.fetchResponses.get(params.fetchUid) };
   }
 
   async fetchLog(params: channels.APIRequestContextFetchLogParams, metadata?: channels.Metadata): Promise<channels.APIRequestContextFetchLogResult> {
@@ -209,4 +220,12 @@ export class APIRequestContextDispatcher extends Dispatcher<APIRequestContext, c
   async disposeAPIResponse(params: channels.APIRequestContextDisposeAPIResponseParams, metadata?: channels.Metadata): Promise<void> {
     this._object.disposeResponse(params.fetchUid);
   }
+}
+
+function parentScopeForRequest(scope: BrowserContextDispatcher, request: Request): FrameDispatcher | WorkerDispatcher {
+  if (request.frame())
+    return FrameDispatcher.from(scope as any as PageDispatcher, request.frame()!); // Context will swap for Page after reparent.
+  if (request.serviceWorker())
+    return WorkerDispatcher.fromNullable(scope, request.serviceWorker())!;
+  throw new Error('Internal error: requests does not belong to a page or a worker');
 }

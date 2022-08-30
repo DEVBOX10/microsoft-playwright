@@ -137,7 +137,7 @@ given selector.
 await page.locator('button').click();
 
 // Works because we explicitly tell locator to pick the first element:
-await page.locator('button').first().click();
+await page.locator('button').first().click(); // ⚠️ using first disables strictness
 
 // Works because count knows what to do with multiple matches:
 await page.locator('button').count();
@@ -148,7 +148,7 @@ await page.locator('button').count();
 await page.locator('button').click()
 
 # Works because we explicitly tell locator to pick the first element:
-await page.locator('button').first.click()
+await page.locator('button').first.click() # ⚠️ using first disables strictness
 
 # Works because count knows what to do with multiple matches:
 await page.locator('button').count()
@@ -159,7 +159,7 @@ await page.locator('button').count()
 page.locator('button').click()
 
 # Works because we explicitly tell locator to pick the first element:
-page.locator('button').first.click()
+page.locator('button').first.click() # ⚠️ using first disables strictness
 
 # Works because count knows what to do with multiple matches:
 page.locator('button').count()
@@ -170,7 +170,7 @@ page.locator('button').count()
 page.locator("button").click();
 
 // Works because we explicitly tell locator to pick the first element:
-page.locator("button").first().click();
+page.locator("button").first().click(); // ⚠️ using first disables strictness
 
 // Works because count knows what to do with multiple matches:
 page.locator("button").count();
@@ -181,11 +181,15 @@ page.locator("button").count();
 await page.Locator("button").ClickAsync();
 
 // Works because we explicitly tell locator to pick the first element:
-await page.Locator("button").First.ClickAsync();
+await page.Locator("button").First.ClickAsync(); // ⚠️ using First disables strictness
 
 // Works because Count knows what to do with multiple matches:
 await page.Locator("button").CountAsync();
 ```
+
+:::caution
+Using [`method: Locator.first`], [`method: Locator.last`], and [`method: Locator.nth`] is discouraged since it disables the concept of strictness, and as your page changes, Playwright may click on an element you did not intend. It's better to make your locator more specific. Learn more below in [Filtering Locators](#filtering-locators) and the [selectors guide](./selectors.md).
+:::
 
 ## Lists
 
@@ -316,32 +320,51 @@ page.locator("article", has=page.locator("button.subscribe"))
 page.Locator("article", new PageLocatorOptions { Has = page.Locator("button.subscribe") })
 ```
 
-You can also filter an existing locator with [`method: Locator.that`] method.
+You can also filter an existing locator with [`method: Locator.filter`] method, possibly chaining it multiple times.
 
 ```js
-const buttonLocator = page.locator('button');
+const rowLocator = page.locator('tr');
 // ...
-await buttonLocator.that({ hasText: 'Sign up' }).click();
+await rowLocator
+    .filter({ hasText: 'text in column 1' })
+    .filter({ has: page.locator('button', { hasText: 'column 2 button' }) })
+    .screenshot();
 ```
 ```java
-Locator buttonLocator = page.locator("button");
+Locator rowLocator = page.locator("tr");
 // ...
-buttonLocator.that(new Locator.ThatOptions().setHasText("Sign up")).click();
+rowLocator
+    .filter(new Locator.FilterOptions().setHasText("text in column 1"))
+    .filter(new Locator.FilterOptions().setHas(
+        page.locator("button", new Page.LocatorOptions().setHasText("column 2 button"))
+    ))
+    .screenshot();
 ```
 ```python async
-button_locator = page.locator("button")
+row_locator = page.locator("tr")
 # ...
-await button_locator.that(has_text="Sign up").click()
+await row_locator
+    .filter(has_text="text in column 1")
+    .filter(has=page.locator("tr", has_text="column 2 button"))
+    .screenshot()
 ```
 ```python sync
-button_locator = page.locator("button")
+row_locator = page.locator("tr")
 # ...
-button_locator.that(has_text="Sign up").click()
+row_locator
+    .filter(has_text="text in column 1")
+    .filter(has=page.locator("tr", has_text="column 2 button"))
+    .screenshot()
 ```
 ```csharp
-var buttonLocator = page.Locator("button");
+var rowLocator = page.Locator("tr");
 // ...
-await buttonLocator.That(new LocatorThatOptions { HasText = "Sign up" }).ClickAsync();
+await rowLocator
+    .Filter(new LocatorFilterOptions { HasText = "text in column 1" })
+    .Filter(new LocatorFilterOptions {
+        Has = page.Locator("tr", new PageLocatorOptions { HasText = "column 2 button" } )
+    })
+    .ScreenshotAsync();
 ```
 
 ## Locator vs ElementHandle

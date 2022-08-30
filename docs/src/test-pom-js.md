@@ -7,7 +7,7 @@ Page Object Model is a common pattern that introduces abstractions over web app 
 
 We will create a `PlaywrightDevPage` helper class to encapsulate common operations on the `playwright.dev` page. Internally, it will use the `page` object.
 
-```js js-flavor=js
+```js tab=js-js
 // playwright-dev-page.js
 const { expect } = require('@playwright/test');
 
@@ -19,9 +19,9 @@ exports.PlaywrightDevPage = class PlaywrightDevPage {
   constructor(page) {
     this.page = page;
     this.getStartedLink = page.locator('a', { hasText: 'Get started' });
-    this.gettingStartedHeader = page.locator('h1', { hasText: 'Getting started' });
+    this.gettingStartedHeader = page.locator('h1', { hasText: 'Installation' });
     this.pomLink = page.locator('li', { hasText: 'Playwright Test' }).locator('a', { hasText: 'Page Object Model' });
-    this.tocList = page.locator('article ul > li > a');
+    this.tocList = page.locator('article div.markdown ul > li > a');
   }
 
   async goto() {
@@ -40,7 +40,7 @@ exports.PlaywrightDevPage = class PlaywrightDevPage {
 }
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // playwright-dev-page.ts
 import { expect, Locator, Page } from '@playwright/test';
 
@@ -54,9 +54,9 @@ export class PlaywrightDevPage {
   constructor(page: Page) {
     this.page = page;
     this.getStartedLink = page.locator('a', { hasText: 'Get started' });
-    this.gettingStartedHeader = page.locator('h1', { hasText: 'Getting started' });
+    this.gettingStartedHeader = page.locator('h1', { hasText: 'Installation' });
     this.pomLink = page.locator('li', { hasText: 'Playwright Test' }).locator('a', { hasText: 'Page Object Model' });
-    this.tocList = page.locator('article ul > li > a');
+    this.tocList = page.locator('article div.markdown ul > li > a');
   }
 
   async goto() {
@@ -77,7 +77,7 @@ export class PlaywrightDevPage {
 
 Now we can use the `PlaywrightDevPage` class in our tests.
 
-```js js-flavor=js
+```js tab=js-js
 // example.spec.js
 const { test, expect } = require('@playwright/test');
 const { PlaywrightDevPage } = require('./playwright-dev-page');
@@ -87,15 +87,14 @@ test('getting started should contain table of contents', async ({ page }) => {
   await playwrightDev.goto();
   await playwrightDev.getStarted();
   await expect(playwrightDev.tocList).toHaveText([
-    'Installation',
-    'First test',
-    'Configuration file',
-    'Writing assertions',
-    'Using test fixtures',
-    'Using test hooks',
-    'Command line',
-    'Configure NPM scripts',
-    'Release notes'
+    `How to install Playwright`,
+    `What's Installed`,
+    `How to run the example test`,
+    `How to open the HTML test report`,
+    `Write tests using web first assertions, page fixtures and locators`,
+    `Run single tests, multiple tests, headed mode`,
+    `Generate tests with Codegen`,
+    `See a trace of your tests`
   ]);
 });
 
@@ -107,7 +106,7 @@ test('should show Page Object Model article', async ({ page }) => {
 });
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // example.spec.ts
 import { test, expect } from '@playwright/test';
 import { PlaywrightDevPage } from './playwright-dev-page';
@@ -117,15 +116,14 @@ test('getting started should contain table of contents', async ({ page }) => {
   await playwrightDev.goto();
   await playwrightDev.getStarted();
   await expect(playwrightDev.tocList).toHaveText([
-    'Installation',
-    'First test',
-    'Configuration file',
-    'Writing assertions',
-    'Using test fixtures',
-    'Using test hooks',
-    'Command line',
-    'Configure NPM scripts',
-    'Release notes'
+    `How to install Playwright`,
+    `What's Installed`,
+    `How to run the example test`,
+    `How to open the HTML test report`,
+    `Write tests using web first assertions, page fixtures and locators`,
+    `Run single tests, multiple tests, headed mode`,
+    `Generate tests with Codegen`,
+    `See a trace of your tests`
   ]);
 });
 

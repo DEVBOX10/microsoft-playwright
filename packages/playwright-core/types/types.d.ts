@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Protocol } from 'playwright-core/types/protocol';
 import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { Readable } from 'stream';
 import { ReadStream } from 'fs';
-import { Serializable, EvaluationArgument, PageFunction, PageFunctionOn, SmartHandle, ElementHandleForTag, BindingSource } from 'playwright-core/types/structs';
+import { Protocol } from './protocol';
+import { Serializable, EvaluationArgument, PageFunction, PageFunctionOn, SmartHandle, ElementHandleForTag, BindingSource } from './structs';
 
 type PageWaitForSelectorOptionsNotHidden = PageWaitForSelectorOptions & {
   state?: 'visible'|'attached';
@@ -593,7 +593,7 @@ export interface Page {
    * `detached`.
    *
    * > NOTE: Playwright automatically waits for element to be ready before performing an action. Using [Locator] objects and
-   * web-first assertions make the code wait-for-selector-free.
+   * web-first assertions makes the code wait-for-selector-free.
    *
    * Wait for the `selector` to satisfy `state` option (either appear/disappear from dom, or become visible/hidden). If at
    * the moment of calling the method `selector` already satisfies the condition, the method will return immediately. If the
@@ -625,7 +625,7 @@ export interface Page {
    * `detached`.
    *
    * > NOTE: Playwright automatically waits for element to be ready before performing an action. Using [Locator] objects and
-   * web-first assertions make the code wait-for-selector-free.
+   * web-first assertions makes the code wait-for-selector-free.
    *
    * Wait for the `selector` to satisfy `state` option (either appear/disappear from dom, or become visible/hidden). If at
    * the moment of calling the method `selector` already satisfies the condition, the method will return immediately. If the
@@ -657,7 +657,7 @@ export interface Page {
    * `detached`.
    *
    * > NOTE: Playwright automatically waits for element to be ready before performing an action. Using [Locator] objects and
-   * web-first assertions make the code wait-for-selector-free.
+   * web-first assertions makes the code wait-for-selector-free.
    *
    * Wait for the `selector` to satisfy `state` option (either appear/disappear from dom, or become visible/hidden). If at
    * the moment of calling the method `selector` already satisfies the condition, the method will return immediately. If the
@@ -689,7 +689,7 @@ export interface Page {
    * `detached`.
    *
    * > NOTE: Playwright automatically waits for element to be ready before performing an action. Using [Locator] objects and
-   * web-first assertions make the code wait-for-selector-free.
+   * web-first assertions makes the code wait-for-selector-free.
    *
    * Wait for the `selector` to satisfy `state` option (either appear/disappear from dom, or become visible/hidden). If at
    * the moment of calling the method `selector` already satisfies the condition, the method will return immediately. If the
@@ -1522,6 +1522,213 @@ export interface Page {
    */
   off(event: 'worker', listener: (worker: Worker) => void): this;
 
+  /**
+   * Emitted when the page closes.
+   */
+  prependListener(event: 'close', listener: (page: Page) => void): this;
+
+  /**
+   * Emitted when JavaScript within the page calls one of console API methods, e.g. `console.log` or `console.dir`. Also
+   * emitted if the page throws an error or a warning.
+   *
+   * The arguments passed into `console.log` appear as arguments on the event handler.
+   *
+   * An example of handling `console` event:
+   *
+   * ```js
+   * page.on('console', async msg => {
+   *   const values = [];
+   *   for (const arg of msg.args())
+   *     values.push(await arg.jsonValue());
+   *   console.log(...values);
+   * });
+   * await page.evaluate(() => console.log('hello', 5, {foo: 'bar'}));
+   * ```
+   *
+   */
+  prependListener(event: 'console', listener: (consoleMessage: ConsoleMessage) => void): this;
+
+  /**
+   * Emitted when the page crashes. Browser pages might crash if they try to allocate too much memory. When the page crashes,
+   * ongoing and subsequent operations will throw.
+   *
+   * The most common way to deal with crashes is to catch an exception:
+   *
+   * ```js
+   * try {
+   *   // Crash might happen during a click.
+   *   await page.click('button');
+   *   // Or while waiting for an event.
+   *   await page.waitForEvent('popup');
+   * } catch (e) {
+   *   // When the page crashes, exception message contains 'crash'.
+   * }
+   * ```
+   *
+   */
+  prependListener(event: 'crash', listener: (page: Page) => void): this;
+
+  /**
+   * Emitted when a JavaScript dialog appears, such as `alert`, `prompt`, `confirm` or `beforeunload`. Listener **must**
+   * either [dialog.accept([promptText])](https://playwright.dev/docs/api/class-dialog#dialog-accept) or
+   * [dialog.dismiss()](https://playwright.dev/docs/api/class-dialog#dialog-dismiss) the dialog - otherwise the page will
+   * [freeze](https://developer.mozilla.org/en-US/docs/Web/JavaScript/EventLoop#never_blocking) waiting for the dialog, and
+   * actions like click will never finish.
+   *
+   * ```js
+   * page.on('dialog', dialog => {
+   *   dialog.accept();
+   * });
+   * ```
+   *
+   * > NOTE: When no [page.on('dialog')](https://playwright.dev/docs/api/class-page#page-event-dialog) listeners are present,
+   * all dialogs are automatically dismissed.
+   */
+  prependListener(event: 'dialog', listener: (dialog: Dialog) => void): this;
+
+  /**
+   * Emitted when the JavaScript [`DOMContentLoaded`](https://developer.mozilla.org/en-US/docs/Web/Events/DOMContentLoaded)
+   * event is dispatched.
+   */
+  prependListener(event: 'domcontentloaded', listener: (page: Page) => void): this;
+
+  /**
+   * Emitted when attachment download started. User can access basic file operations on downloaded content via the passed
+   * [Download] instance.
+   */
+  prependListener(event: 'download', listener: (download: Download) => void): this;
+
+  /**
+   * Emitted when a file chooser is supposed to appear, such as after clicking the  `<input type=file>`. Playwright can
+   * respond to it via setting the input files using
+   * [fileChooser.setFiles(files[, options])](https://playwright.dev/docs/api/class-filechooser#file-chooser-set-files) that
+   * can be uploaded after that.
+   *
+   * ```js
+   * page.on('filechooser', async (fileChooser) => {
+   *   await fileChooser.setFiles('/tmp/myfile.pdf');
+   * });
+   * ```
+   *
+   */
+  prependListener(event: 'filechooser', listener: (fileChooser: FileChooser) => void): this;
+
+  /**
+   * Emitted when a frame is attached.
+   */
+  prependListener(event: 'frameattached', listener: (frame: Frame) => void): this;
+
+  /**
+   * Emitted when a frame is detached.
+   */
+  prependListener(event: 'framedetached', listener: (frame: Frame) => void): this;
+
+  /**
+   * Emitted when a frame is navigated to a new url.
+   */
+  prependListener(event: 'framenavigated', listener: (frame: Frame) => void): this;
+
+  /**
+   * Emitted when the JavaScript [`load`](https://developer.mozilla.org/en-US/docs/Web/Events/load) event is dispatched.
+   */
+  prependListener(event: 'load', listener: (page: Page) => void): this;
+
+  /**
+   * Emitted when an uncaught exception happens within the page.
+   *
+   * ```js
+   * // Log all uncaught errors to the terminal
+   * page.on('pageerror', exception => {
+   *   console.log(`Uncaught exception: "${exception}"`);
+   * });
+   *
+   * // Navigate to a page with an exception.
+   * await page.goto('data:text/html,<script>throw new Error("Test")</script>');
+   * ```
+   *
+   */
+  prependListener(event: 'pageerror', listener: (error: Error) => void): this;
+
+  /**
+   * Emitted when the page opens a new tab or window. This event is emitted in addition to the
+   * [browserContext.on('page')](https://playwright.dev/docs/api/class-browsercontext#browser-context-event-page), but only
+   * for popups relevant to this page.
+   *
+   * The earliest moment that page is available is when it has navigated to the initial url. For example, when opening a
+   * popup with `window.open('http://example.com')`, this event will fire when the network request to "http://example.com" is
+   * done and its response has started loading in the popup.
+   *
+   * ```js
+   * // Note that Promise.all prevents a race condition
+   * // between evaluating and waiting for the popup.
+   * const [popup] = await Promise.all([
+   *   // It is important to call waitForEvent first.
+   *   page.waitForEvent('popup'),
+   *   // Opens the popup.
+   *   page.evaluate(() => window.open('https://example.com')),
+   * ]);
+   * console.log(await popup.evaluate('location.href'));
+   * ```
+   *
+   * > NOTE: Use
+   * [page.waitForLoadState([state, options])](https://playwright.dev/docs/api/class-page#page-wait-for-load-state) to wait
+   * until the page gets to a particular state (you should not need it in most cases).
+   */
+  prependListener(event: 'popup', listener: (page: Page) => void): this;
+
+  /**
+   * Emitted when a page issues a request. The [request] object is read-only. In order to intercept and mutate requests, see
+   * [page.route(url, handler[, options])](https://playwright.dev/docs/api/class-page#page-route) or
+   * [browserContext.route(url, handler[, options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-route).
+   */
+  prependListener(event: 'request', listener: (request: Request) => void): this;
+
+  /**
+   * Emitted when a request fails, for example by timing out.
+   *
+   * ```js
+   * page.on('requestfailed', request => {
+   *   console.log(request.url() + ' ' + request.failure().errorText);
+   * });
+   * ```
+   *
+   * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
+   * complete with [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#page-event-request-finished) event
+   * and not with [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#page-event-request-failed). A request
+   * will only be considered failed when the client cannot get an HTTP response from the server, e.g. due to network error
+   * net::ERR_FAILED.
+   */
+  prependListener(event: 'requestfailed', listener: (request: Request) => void): this;
+
+  /**
+   * Emitted when a request finishes successfully after downloading the response body. For a successful response, the
+   * sequence of events is `request`, `response` and `requestfinished`.
+   */
+  prependListener(event: 'requestfinished', listener: (request: Request) => void): this;
+
+  /**
+   * Emitted when [response] status and headers are received for a request. For a successful response, the sequence of events
+   * is `request`, `response` and `requestfinished`.
+   */
+  prependListener(event: 'response', listener: (response: Response) => void): this;
+
+  /**
+   * Emitted when [WebSocket] request is sent.
+   */
+  prependListener(event: 'websocket', listener: (webSocket: WebSocket) => void): this;
+
+  /**
+   * Emitted when a dedicated [WebWorker](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API) is spawned by the
+   * page.
+   */
+  prependListener(event: 'worker', listener: (worker: Worker) => void): this;
+
+  /**
+   * **DEPRECATED** This property is deprecated. Please use other libraries such as [Axe](https://www.deque.com/axe/) if you
+   * need to test page accessibility. See our Node.js [guide](https://playwright.dev/docs/accessibility-testing) for
+   * integration with Axe.
+   * @deprecated
+   */
   accessibility: Accessibility;
 
   /**
@@ -1535,7 +1742,7 @@ export interface Page {
    *
    * An example of overriding `Math.random` before the page loads:
    *
-   * ```js browser
+   * ```js
    * // preload.js
    * Math.random = () => 42;
    * ```
@@ -1670,7 +1877,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -1752,7 +1959,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -1868,7 +2075,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -1924,7 +2131,7 @@ export interface Page {
    */
   dispatchEvent(selector: string, type: string, eventInit?: EvaluationArgument, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -1939,8 +2146,8 @@ export interface Page {
   }): Promise<void>;
 
   /**
-   * @param source
-   * @param target
+   * @param source A selector to search for an element to drag. If there are multiple elements satisfying the selector, the first will be used. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
+   * @param target A selector to search for an element to drop onto. If there are multiple elements satisfying the selector, the first will be used. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
    * @param options
    */
   dragAndDrop(source: string, target: string, options?: {
@@ -1967,7 +2174,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2042,8 +2249,6 @@ export interface Page {
     /**
      * Emulates `'forced-colors'` media feature, supported values are `'active'` and `'none'`. Passing `null` disables forced
      * colors emulation.
-     *
-     * > NOTE: It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
      */
     forcedColors?: null|"active"|"none";
 
@@ -2135,7 +2340,7 @@ export interface Page {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2159,7 +2364,7 @@ export interface Page {
    */
   focus(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2225,7 +2430,7 @@ export interface Page {
    */
   getAttribute(selector: string, name: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2387,7 +2592,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2414,7 +2619,7 @@ export interface Page {
    */
   innerHTML(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2435,7 +2640,7 @@ export interface Page {
    */
   innerText(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2459,7 +2664,7 @@ export interface Page {
    */
   inputValue(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2480,7 +2685,7 @@ export interface Page {
    */
   isChecked(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2506,7 +2711,7 @@ export interface Page {
    */
   isDisabled(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2527,7 +2732,7 @@ export interface Page {
    */
   isEditable(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2548,7 +2753,7 @@ export interface Page {
    */
   isEnabled(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2570,7 +2775,7 @@ export interface Page {
    */
   isHidden(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2592,7 +2797,7 @@ export interface Page {
    */
   isVisible(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2612,6 +2817,8 @@ export interface Page {
    * The method returns an element locator that can be used to perform actions on the page. Locator is resolved to the
    * element immediately before performing an action, so a series of actions on the same locator can in fact be performed on
    * different DOM elements. That would happen if the DOM structure between those actions has changed.
+   *
+   * [Learn more about locators](https://playwright.dev/docs/locators).
    *
    * Shortcut for main frame's
    * [frame.locator(selector[, options])](https://playwright.dev/docs/api/class-frame#frame-locator).
@@ -2854,7 +3061,7 @@ export interface Page {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -2910,8 +3117,8 @@ export interface Page {
    * > NOTE: The handler will only be called for the first url if the response is a redirect.
    * > NOTE: [page.route(url, handler[, options])](https://playwright.dev/docs/api/class-page#page-route) will not intercept
    * requests intercepted by Service Worker. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We
-   * recommend disabling Service Workers when using request interception. Via `await context.addInitScript(() => delete
-   * window.navigator.serviceWorker);`
+   * recommend disabling Service Workers when using request interception by setting `Browser.newContext.serviceWorkers` to
+   * `'block'`.
    *
    * An example of a naive handler that aborts all image requests:
    *
@@ -2961,6 +3168,37 @@ export interface Page {
      * How often a route should be used. By default it will be used every time.
      */
     times?: number;
+  }): Promise<void>;
+
+  /**
+   * If specified the network requests that are made in the page will be served from the HAR file. Read more about
+   * [Replaying from HAR](https://playwright.dev/docs/network#replaying-from-har).
+   *
+   * Playwright will not serve requests intercepted by Service Worker from the HAR file. See
+   * [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using
+   * request interception by setting `Browser.newContext.serviceWorkers` to `'block'`.
+   * @param har Path to a [HAR](http://www.softwareishard.com/blog/har-12-spec) file with prerecorded network data. If `path` is a relative path, then it is resolved relative to the current working directory.
+   * @param options
+   */
+  routeFromHAR(har: string, options?: {
+    /**
+     * - If set to 'abort' any request not found in the HAR file will be aborted.
+     * - If set to 'fallback' missing requests will be sent to the network.
+     *
+     * Defaults to abort.
+     */
+    notFound?: "abort"|"fallback";
+
+    /**
+     * If specified, updates the given HAR with the actual network information instead of serving from file.
+     */
+    update?: boolean;
+
+    /**
+     * A glob pattern, regular expression or predicate to match the request URL. Only requests with URL matching the pattern
+     * will be served from the HAR file. If not specified, all requests are served from the HAR file.
+     */
+    url?: string|RegExp;
   }): Promise<void>;
 
   /**
@@ -3044,7 +3282,7 @@ export interface Page {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -3103,7 +3341,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -3240,7 +3478,7 @@ export interface Page {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -3339,7 +3577,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -3366,7 +3604,7 @@ export interface Page {
    */
   textContent(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -3421,7 +3659,7 @@ export interface Page {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -3479,7 +3717,7 @@ export interface Page {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -4715,7 +4953,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -4797,7 +5035,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -4880,7 +5118,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -4936,7 +5174,7 @@ export interface Frame {
    */
   dispatchEvent(selector: string, type: string, eventInit?: EvaluationArgument, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -4951,8 +5189,8 @@ export interface Frame {
   }): Promise<void>;
 
   /**
-   * @param source
-   * @param target
+   * @param source A selector to search for an element to drag. If there are multiple elements satisfying the selector, the first will be used. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
+   * @param target A selector to search for an element to drop onto. If there are multiple elements satisfying the selector, the first will be used. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
    * @param options
    */
   dragAndDrop(source: string, target: string, options?: {
@@ -4979,7 +5217,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5039,7 +5277,7 @@ export interface Frame {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5061,7 +5299,7 @@ export interface Frame {
    */
   focus(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5115,7 +5353,7 @@ export interface Frame {
    */
   getAttribute(selector: string, name: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5216,7 +5454,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5243,7 +5481,7 @@ export interface Frame {
    */
   innerHTML(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5264,7 +5502,7 @@ export interface Frame {
    */
   innerText(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5288,7 +5526,7 @@ export interface Frame {
    */
   inputValue(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5309,7 +5547,7 @@ export interface Frame {
    */
   isChecked(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5335,7 +5573,7 @@ export interface Frame {
    */
   isDisabled(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5356,7 +5594,7 @@ export interface Frame {
    */
   isEditable(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5377,7 +5615,7 @@ export interface Frame {
    */
   isEnabled(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5399,7 +5637,7 @@ export interface Frame {
    */
   isHidden(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5421,7 +5659,7 @@ export interface Frame {
    */
   isVisible(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5439,6 +5677,8 @@ export interface Frame {
    * The method returns an element locator that can be used to perform actions in the frame. Locator is resolved to the
    * element immediately before performing an action, so a series of actions on the same locator can in fact be performed on
    * different DOM elements. That would happen if the DOM structure between those actions has changed.
+   *
+   * [Learn more about locators](https://playwright.dev/docs/locators).
    * @param selector A selector to use when resolving DOM element. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
    * @param options
    */
@@ -5513,7 +5753,7 @@ export interface Frame {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5599,7 +5839,7 @@ export interface Frame {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5655,7 +5895,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5751,7 +5991,7 @@ export interface Frame {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5812,7 +6052,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5839,7 +6079,7 @@ export interface Frame {
    */
   textContent(selector: string, options?: {
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5889,7 +6129,7 @@ export interface Frame {
     noWaitAfter?: boolean;
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -5944,7 +6184,7 @@ export interface Frame {
     };
 
     /**
-     * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+     * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
      * element, the call throws an exception.
      */
     strict?: boolean;
@@ -6141,7 +6381,7 @@ export interface BrowserContext {
    *     <button onclick="onClick()">Click me</button>
    *     <div></div>
    *   `);
-   *   await page.click('button');
+   *   await page.locator('button').click();
    * })();
    * ```
    *
@@ -6195,7 +6435,7 @@ export interface BrowserContext {
    *     <button onclick="onClick()">Click me</button>
    *     <div></div>
    *   `);
-   *   await page.click('button');
+   *   await page.locator('button').click();
    * })();
    * ```
    *
@@ -6251,7 +6491,7 @@ export interface BrowserContext {
    * ```js
    * const [newPage] = await Promise.all([
    *   context.waitForEvent('page'),
-   *   page.click('a[target=_blank]'),
+   *   page.locator('a[target=_blank]').click(),
    * ]);
    * console.log(await newPage.evaluate('location.href'));
    * ```
@@ -6378,7 +6618,7 @@ export interface BrowserContext {
    * ```js
    * const [newPage] = await Promise.all([
    *   context.waitForEvent('page'),
-   *   page.click('a[target=_blank]'),
+   *   page.locator('a[target=_blank]').click(),
    * ]);
    * console.log(await newPage.evaluate('location.href'));
    * ```
@@ -6514,6 +6754,93 @@ export interface BrowserContext {
   off(event: 'serviceworker', listener: (worker: Worker) => void): this;
 
   /**
+   * > NOTE: Only works with Chromium browser's persistent context.
+   *
+   * Emitted when new background page is created in the context.
+   *
+   * ```js
+   * const backgroundPage = await context.waitForEvent('backgroundpage');
+   * ```
+   *
+   */
+  prependListener(event: 'backgroundpage', listener: (page: Page) => void): this;
+
+  /**
+   * Emitted when Browser context gets closed. This might happen because of one of the following:
+   * - Browser context is closed.
+   * - Browser application is closed or crashed.
+   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   */
+  prependListener(event: 'close', listener: (browserContext: BrowserContext) => void): this;
+
+  /**
+   * The event is emitted when a new Page is created in the BrowserContext. The page may still be loading. The event will
+   * also fire for popup pages. See also [page.on('popup')](https://playwright.dev/docs/api/class-page#page-event-popup) to
+   * receive events about popups relevant to a specific page.
+   *
+   * The earliest moment that page is available is when it has navigated to the initial url. For example, when opening a
+   * popup with `window.open('http://example.com')`, this event will fire when the network request to "http://example.com" is
+   * done and its response has started loading in the popup.
+   *
+   * ```js
+   * const [newPage] = await Promise.all([
+   *   context.waitForEvent('page'),
+   *   page.locator('a[target=_blank]').click(),
+   * ]);
+   * console.log(await newPage.evaluate('location.href'));
+   * ```
+   *
+   * > NOTE: Use
+   * [page.waitForLoadState([state, options])](https://playwright.dev/docs/api/class-page#page-wait-for-load-state) to wait
+   * until the page gets to a particular state (you should not need it in most cases).
+   */
+  prependListener(event: 'page', listener: (page: Page) => void): this;
+
+  /**
+   * Emitted when a request is issued from any pages created through this context. The [request] object is read-only. To only
+   * listen for requests from a particular page, use
+   * [page.on('request')](https://playwright.dev/docs/api/class-page#page-event-request).
+   *
+   * In order to intercept and mutate requests, see
+   * [browserContext.route(url, handler[, options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-route)
+   * or [page.route(url, handler[, options])](https://playwright.dev/docs/api/class-page#page-route).
+   */
+  prependListener(event: 'request', listener: (request: Request) => void): this;
+
+  /**
+   * Emitted when a request fails, for example by timing out. To only listen for failed requests from a particular page, use
+   * [page.on('requestfailed')](https://playwright.dev/docs/api/class-page#page-event-request-failed).
+   *
+   * > NOTE: HTTP Error responses, such as 404 or 503, are still successful responses from HTTP standpoint, so request will
+   * complete with
+   * [browserContext.on('requestfinished')](https://playwright.dev/docs/api/class-browsercontext#browser-context-event-request-finished)
+   * event and not with
+   * [browserContext.on('requestfailed')](https://playwright.dev/docs/api/class-browsercontext#browser-context-event-request-failed).
+   */
+  prependListener(event: 'requestfailed', listener: (request: Request) => void): this;
+
+  /**
+   * Emitted when a request finishes successfully after downloading the response body. For a successful response, the
+   * sequence of events is `request`, `response` and `requestfinished`. To listen for successful requests from a particular
+   * page, use [page.on('requestfinished')](https://playwright.dev/docs/api/class-page#page-event-request-finished).
+   */
+  prependListener(event: 'requestfinished', listener: (request: Request) => void): this;
+
+  /**
+   * Emitted when [response] status and headers are received for a request. For a successful response, the sequence of events
+   * is `request`, `response` and `requestfinished`. To listen for response events from a particular page, use
+   * [page.on('response')](https://playwright.dev/docs/api/class-page#page-event-response).
+   */
+  prependListener(event: 'response', listener: (response: Response) => void): this;
+
+  /**
+   * > NOTE: Service workers are only supported on Chromium-based browsers.
+   *
+   * Emitted when new service worker is created in the context.
+   */
+  prependListener(event: 'serviceworker', listener: (worker: Worker) => void): this;
+
+  /**
    * Adds cookies into this browser context. All pages within this context will have these cookies installed. Cookies can be
    * obtained via
    * [browserContext.cookies([urls])](https://playwright.dev/docs/api/class-browsercontext#browser-context-cookies).
@@ -6576,7 +6903,7 @@ export interface BrowserContext {
    *
    * An example of overriding `Math.random` before the page loads:
    *
-   * ```js browser
+   * ```js
    * // preload.js
    * Math.random = () => 42;
    * ```
@@ -6680,7 +7007,7 @@ export interface BrowserContext {
    *     <button onclick="onClick()">Click me</button>
    *     <div></div>
    *   `);
-   *   await page.click('button');
+   *   await page.locator('button').click();
    * })();
    * ```
    *
@@ -6743,10 +7070,11 @@ export interface BrowserContext {
    * Routing provides the capability to modify network requests that are made by any page in the browser context. Once route
    * is enabled, every request matching the url pattern will stall unless it's continued, fulfilled or aborted.
    *
-   * > NOTE: [page.route(url, handler[, options])](https://playwright.dev/docs/api/class-page#page-route) will not intercept
-   * requests intercepted by Service Worker. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We
-   * recommend disabling Service Workers when using request interception. Via `await context.addInitScript(() => delete
-   * window.navigator.serviceWorker);`
+   * > NOTE:
+   * [browserContext.route(url, handler[, options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-route)
+   * will not intercept requests intercepted by Service Worker. See
+   * [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using
+   * request interception by setting `Browser.newContext.serviceWorkers` to `'block'`.
    *
    * An example of a naive handler that aborts all image requests:
    *
@@ -6797,6 +7125,37 @@ export interface BrowserContext {
      * How often a route should be used. By default it will be used every time.
      */
     times?: number;
+  }): Promise<void>;
+
+  /**
+   * If specified the network requests that are made in the context will be served from the HAR file. Read more about
+   * [Replaying from HAR](https://playwright.dev/docs/network#replaying-from-har).
+   *
+   * Playwright will not serve requests intercepted by Service Worker from the HAR file. See
+   * [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using
+   * request interception by setting `Browser.newContext.serviceWorkers` to `'block'`.
+   * @param har Path to a [HAR](http://www.softwareishard.com/blog/har-12-spec) file with prerecorded network data. If `path` is a relative path, then it is resolved relative to the current working directory.
+   * @param options
+   */
+  routeFromHAR(har: string, options?: {
+    /**
+     * - If set to 'abort' any request not found in the HAR file will be aborted.
+     * - If set to 'fallback' falls through to the next route handler in the handler chain.
+     *
+     * Defaults to abort.
+     */
+    notFound?: "abort"|"fallback";
+
+    /**
+     * If specified, updates the given HAR with the actual network information instead of serving from file.
+     */
+    update?: boolean;
+
+    /**
+     * A glob pattern, regular expression or predicate to match the request URL. Only requests with URL matching the pattern
+     * will be served from the HAR file. If not specified, all requests are served from the HAR file.
+     */
+    url?: string|RegExp;
   }): Promise<void>;
 
   /**
@@ -6981,7 +7340,7 @@ export interface BrowserContext {
    * ```js
    * const [newPage] = await Promise.all([
    *   context.waitForEvent('page'),
-   *   page.click('a[target=_blank]'),
+   *   page.locator('a[target=_blank]').click(),
    * ]);
    * console.log(await newPage.evaluate('location.href'));
    * ```
@@ -7152,6 +7511,11 @@ export interface Worker {
    * Removes an event listener added by `on` or `addListener`.
    */
   off(event: 'close', listener: (worker: Worker) => void): this;
+
+  /**
+   * Emitted when this dedicated [WebWorker](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API) is terminated.
+   */
+  prependListener(event: 'close', listener: (worker: Worker) => void): this;
 
   url(): string;}
 
@@ -7663,7 +8027,7 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    * This method returns the bounding box of the element, or `null` if the element is not visible. The bounding box is
    * calculated relative to the main frame viewport - which is usually the same as the browser window.
    *
-   * Scrolling affects the returned bonding box, similarly to
+   * Scrolling affects the returned bounding box, similarly to
    * [Element.getBoundingClientRect](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect). That
    * means `x` and/or `y` may be negative.
    *
@@ -8172,7 +8536,7 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
     caret?: "hide"|"initial";
 
     /**
-     * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlayed with a pink box
+     * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with a pink box
      * `#FF00FF` that completely covers its bounding box.
      */
     mask?: Array<Locator>;
@@ -8198,7 +8562,9 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
     /**
      * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
      * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
-     * high-dpi devices will be twice as large or even larger. Defaults to `"device"`.
+     * high-dpi devices will be twice as large or even larger.
+     *
+     * Defaults to `"device"`.
      */
     scale?: "css"|"device";
 
@@ -8753,7 +9119,7 @@ export interface Locator {
    * This method returns the bounding box of the element, or `null` if the element is not visible. The bounding box is
    * calculated relative to the main frame viewport - which is usually the same as the browser window.
    *
-   * Scrolling affects the returned bonding box, similarly to
+   * Scrolling affects the returned bounding box, similarly to
    * [Element.getBoundingClientRect](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect). That
    * means `x` and/or `y` may be negative.
    *
@@ -9174,6 +9540,38 @@ export interface Locator {
   }): Promise<void>;
 
   /**
+   * This method narrows existing locator according to the options, for example filters by text. It can be chained to filter
+   * multiple times.
+   *
+   * ```js
+   * const rowLocator = page.locator('tr');
+   * // ...
+   * await rowLocator
+   *     .filter({ hasText: 'text in column 1' })
+   *     .filter({ has: page.locator('button', { hasText: 'column 2 button' }) })
+   *     .screenshot();
+   * ```
+   *
+   * @param options
+   */
+  filter(options?: {
+    /**
+     * Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+     * For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
+     *
+     * Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
+     */
+    has?: Locator;
+
+    /**
+     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. When passed a
+     * [string], matching is case-insensitive and searches for a substring. For example, `"Playwright"` matches
+     * `<article><div>Playwright</div></article>`.
+     */
+    hasText?: string|RegExp;
+  }): Locator;
+
+  /**
    * Returns locator to the first matching element.
    */
   first(): Locator;
@@ -9412,7 +9810,8 @@ export interface Locator {
   last(): Locator;
 
   /**
-   * The method finds an element matching the specified selector in the `Locator`'s subtree.
+   * The method finds an element matching the specified selector in the `Locator`'s subtree. It also accepts filter options,
+   * similar to [locator.filter([options])](https://playwright.dev/docs/api/class-locator#locator-filter) method.
    * @param selector A selector to use when resolving DOM element. See [working with selectors](https://playwright.dev/docs/selectors) for more details.
    * @param options
    */
@@ -9808,27 +10207,6 @@ export interface Locator {
   }): Promise<null|string>;
 
   /**
-   * This method narrows existing locator according to the options, for example filters by text.
-   * @param options
-   */
-  that(options?: {
-    /**
-     * Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
-     * For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
-     *
-     * Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
-     */
-    has?: Locator;
-
-    /**
-     * Matches elements containing specified text somewhere inside, possibly in a child or a descendant element. When passed a
-     * [string], matching is case-insensitive and searches for a substring. For example, `"Playwright"` matches
-     * `<article><div>Playwright</div></article>`.
-     */
-    hasText?: string|RegExp;
-  }): Locator;
-
-  /**
    * Focuses the element, and then sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text.
    *
    * To press a special key, like `Control` or `ArrowDown`, use
@@ -10005,7 +10383,9 @@ export interface BrowserType<Unused = {}> {
    */
   connectOverCDP(options: ConnectOverCDPOptions & { wsEndpoint?: string }): Promise<Browser>;
   /**
-   * This method attaches Playwright to an existing browser instance.
+   * This method attaches Playwright to an existing browser instance. When connecting to another browser launched via
+   * `BrowserType.launchServer` in Node.js, the major and minor version needs to match the client version (1.2.3 → is
+   * compatible with 1.2.x).
    * @param wsEndpoint A browser websocket endpoint to connect to.
    * @param options
    */
@@ -10017,7 +10397,9 @@ export interface BrowserType<Unused = {}> {
    * @deprecated
    */
   /**
-   * This method attaches Playwright to an existing browser instance.
+   * This method attaches Playwright to an existing browser instance. When connecting to another browser launched via
+   * `BrowserType.launchServer` in Node.js, the major and minor version needs to match the client version (1.2.3 → is
+   * compatible with 1.2.x).
    * @param wsEndpoint A browser websocket endpoint to connect to.
    * @param options
    */
@@ -10157,8 +10539,6 @@ export interface BrowserType<Unused = {}> {
      * Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See
      * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#page-emulate-media) for more details. Defaults
      * to `'none'`.
-     *
-     * > NOTE: It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
      */
     forcedColors?: "active"|"none";
 
@@ -10295,14 +10675,37 @@ export interface BrowserType<Unused = {}> {
      */
     recordHar?: {
       /**
-       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`.
+       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`. Deprecated, use `content`
+       * policy instead.
        */
       omitContent?: boolean;
 
       /**
-       * Path on the filesystem to write the HAR file to.
+       * Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach`
+       * is specified, resources are persistet as separate files or entries in the ZIP archive. If `embed` is specified, content
+       * is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for
+       * all other file extensions.
+       */
+      content?: "omit"|"embed"|"attach";
+
+      /**
+       * Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by
+       * default.
        */
       path: string;
+
+      /**
+       * When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies,
+       * security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
+       */
+      mode?: "full"|"minimal";
+
+      /**
+       * A glob or regex pattern to filter requests that are stored in the HAR. When a `baseURL` via the context options was
+       * provided and the passed URL is a path, it gets merged via the
+       * [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+       */
+      urlFilter?: string|RegExp;
     };
 
     /**
@@ -10358,12 +10761,19 @@ export interface BrowserType<Unused = {}> {
     };
 
     /**
+     * Whether to allow sites to register Service workers. Defaults to `'allow'`.
+     * - `'allow'`: [Service Workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) can be registered.
+     * - `'block'`: Playwright will block all registration of Service Workers.
+     */
+    serviceWorkers?: "allow"|"block";
+
+    /**
      * Slows down Playwright operations by the specified amount of milliseconds. Useful so that you can see what is going on.
      */
     slowMo?: number;
 
     /**
-     * It specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
+     * If specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
      * that imply single target DOM element will throw when more than one element matches the selector. See [Locator] to learn
      * more about the strict mode.
      */
@@ -10431,7 +10841,9 @@ export interface BrowserType<Unused = {}> {
   }): Promise<BrowserContext>;
 
   /**
-   * Returns the browser app instance.
+   * Returns the browser app instance. You can connect to it via
+   * [browserType.connect(wsEndpoint[, options])](https://playwright.dev/docs/api/class-browsertype#browser-type-connect),
+   * which requires the major/minor client/server version to match (1.2.3 → is compatible with 1.2.x).
    *
    * Launches browser server that client can connect to. An example of launching a browser executable and connecting to it
    * later:
@@ -10662,7 +11074,7 @@ export namespace errors {
  *   const context = await browser.newContext();
  *   const page = await context.newPage();
  *   try {
- *     await page.click("text=Foo", {
+ *     await page.locator("text=Foo").click({
  *       timeout: 100,
  *     })
  *   } catch (error) {
@@ -10679,6 +11091,10 @@ class TimeoutError extends Error {}
 }
 
 /**
+ * **DEPRECATED** This class is deprecated. Please use other libraries such as [Axe](https://www.deque.com/axe/) if you
+ * need to test page accessibility. See our Node.js [guide](https://playwright.dev/docs/accessibility-testing) for
+ * integration with Axe.
+ *
  * The Accessibility class provides methods for inspecting Chromium's accessibility tree. The accessibility tree is used by
  * assistive technology such as [screen readers](https://en.wikipedia.org/wiki/Screen_reader) or
  * [switches](https://en.wikipedia.org/wiki/Switch_access).
@@ -10695,6 +11111,10 @@ class TimeoutError extends Error {}
  */
 export interface Accessibility {
   /**
+   * **DEPRECATED** This method is deprecated. Please use other libraries such as [Axe](https://www.deque.com/axe/) if you
+   * need to test page accessibility. See our Node.js [guide](https://playwright.dev/docs/accessibility-testing) for
+   * integration with Axe.
+   *
    * Captures the current state of the accessibility tree. The returned object represents the root accessible node of the
    * page.
    *
@@ -10727,6 +11147,7 @@ export interface Accessibility {
    * }
    * ```
    *
+   * @deprecated
    * @param options
    */
   snapshot(options?: AccessibilitySnapshotOptions): Promise<null|AccessibilityNode>;
@@ -10761,7 +11182,7 @@ type AccessibilityNode = {
   children?: AccessibilityNode[];
 }
 
-export const devices: Devices & DeviceDescriptor[];
+export const devices: Devices;
 
 //@ts-ignore this will be any if electron is not installed
 type ElectronType = typeof import('electron');
@@ -10933,6 +11354,17 @@ export interface ElectronApplication {
    * Removes an event listener added by `on` or `addListener`.
    */
   off(event: 'window', listener: (page: Page) => void): this;
+
+  /**
+   * This event is issued when the application closes.
+   */
+  prependListener(event: 'close', listener: () => void): this;
+
+  /**
+   * This event is issued for every window that is created **and loaded** in Electron. It contains a [Page] that can be used
+   * for Playwright automation.
+   */
+  prependListener(event: 'window', listener: (page: Page) => void): this;
 
   /**
    * Returns the BrowserWindow object that corresponds to the given Playwright page.
@@ -11154,7 +11586,7 @@ export {};
  * Note that since you don't need Playwright to install web browsers when testing Android, you can omit browser download
  * via setting the following environment variable when installing Playwright:
  *
- * ```bash js
+ * ```bash
  * PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
  * ```
  *
@@ -11217,6 +11649,11 @@ export interface AndroidDevice {
    * Removes an event listener added by `on` or `addListener`.
    */
   off(event: 'webview', listener: (androidWebView: AndroidWebView) => void): this;
+
+  /**
+   * Emitted when a new WebView instance is detected.
+   */
+  prependListener(event: 'webview', listener: (androidWebView: AndroidWebView) => void): this;
 
   /**
    * Disconnects from the device.
@@ -11361,8 +11798,6 @@ export interface AndroidDevice {
      * Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See
      * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#page-emulate-media) for more details. Defaults
      * to `'none'`.
-     *
-     * > NOTE: It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
      */
     forcedColors?: "active"|"none";
 
@@ -11444,14 +11879,37 @@ export interface AndroidDevice {
      */
     recordHar?: {
       /**
-       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`.
+       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`. Deprecated, use `content`
+       * policy instead.
        */
       omitContent?: boolean;
 
       /**
-       * Path on the filesystem to write the HAR file to.
+       * Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach`
+       * is specified, resources are persistet as separate files or entries in the ZIP archive. If `embed` is specified, content
+       * is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for
+       * all other file extensions.
+       */
+      content?: "omit"|"embed"|"attach";
+
+      /**
+       * Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by
+       * default.
        */
       path: string;
+
+      /**
+       * When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies,
+       * security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
+       */
+      mode?: "full"|"minimal";
+
+      /**
+       * A glob or regex pattern to filter requests that are stored in the HAR. When a `baseURL` via the context options was
+       * provided and the passed URL is a path, it gets merged via the
+       * [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+       */
+      urlFilter?: string|RegExp;
     };
 
     /**
@@ -11507,7 +11965,14 @@ export interface AndroidDevice {
     };
 
     /**
-     * It specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
+     * Whether to allow sites to register Service workers. Defaults to `'allow'`.
+     * - `'allow'`: [Service Workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) can be registered.
+     * - `'block'`: Playwright will block all registration of Service Workers.
+     */
+    serviceWorkers?: "allow"|"block";
+
+    /**
+     * If specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
      * that imply single target DOM element will throw when more than one element matches the selector. See [Locator] to learn
      * more about the strict mode.
      */
@@ -11925,6 +12390,16 @@ export interface AndroidSocket {
   off(event: 'data', listener: (buffer: Buffer) => void): this;
 
   /**
+   * Emitted when the socket is closed.
+   */
+  prependListener(event: 'close', listener: () => void): this;
+
+  /**
+   * Emitted when data is available to read from the socket.
+   */
+  prependListener(event: 'data', listener: (buffer: Buffer) => void): this;
+
+  /**
    * Closes the socket.
    */
   close(): Promise<void>;
@@ -11965,6 +12440,11 @@ export interface AndroidWebView {
    * Removes an event listener added by `on` or `addListener`.
    */
   off(event: 'close', listener: () => void): this;
+
+  /**
+   * Emitted when the WebView is closed.
+   */
+  prependListener(event: 'close', listener: () => void): this;
 
   /**
    * Connects to the WebView and returns a regular Playwright [Page] to interact with.
@@ -12122,7 +12602,7 @@ export interface APIRequest {
  *
  * **Cookie management**
  *
- * [APIRequestContext] retuned by
+ * [APIRequestContext] returned by
  * [browserContext.request](https://playwright.dev/docs/api/class-browsercontext#browser-context-request) and
  * [page.request](https://playwright.dev/docs/api/class-page#page-request) shares cookie storage with the corresponding
  * [BrowserContext]. Each API request will have `Cookie` header populated with the values from the browser context. If the
@@ -12130,9 +12610,9 @@ export interface APIRequest {
  * the page will pick them up. This means that if you log in using this API, your e2e test will be logged in and vice
  * versa.
  *
- * If you want API requests to not interfere with the browser cookies you shoud create a new [APIRequestContext] by calling
- * [apiRequest.newContext([options])](https://playwright.dev/docs/api/class-apirequest#api-request-new-context). Such
- * `APIRequestContext` object will have its own isolated cookie storage.
+ * If you want API requests to not interfere with the browser cookies you should create a new [APIRequestContext] by
+ * calling [apiRequest.newContext([options])](https://playwright.dev/docs/api/class-apirequest#api-request-new-context).
+ * Such `APIRequestContext` object will have its own isolated cookie storage.
  *
  */
 export interface APIRequestContext {
@@ -12740,12 +13220,30 @@ export interface Browser extends EventEmitter {
   off(event: 'disconnected', listener: (browser: Browser) => void): this;
 
   /**
+   * Emitted when Browser gets disconnected from the browser application. This might happen because of one of the following:
+   * - Browser application is closed or crashed.
+   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   */
+  prependListener(event: 'disconnected', listener: (browser: Browser) => void): this;
+
+  /**
+   * Get the browser type (chromium, firefox or webkit) that the browser belongs to.
+   */
+  browserType(): BrowserType;
+
+  /**
    * In case this browser is obtained using
    * [browserType.launch([options])](https://playwright.dev/docs/api/class-browsertype#browser-type-launch), closes the
    * browser and all of its pages (if any were opened).
    *
    * In case this browser is connected to, clears all created contexts belonging to this browser and disconnects from the
    * browser server.
+   *
+   * > NOTE: This is similar to force quitting the browser. Therefore, you should call
+   * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) on any
+   * [BrowserContext]'s you explicitly created earlier with
+   * [browser.newContext([options])](https://playwright.dev/docs/api/class-browser#browser-new-context) **before** calling
+   * [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close).
    *
    * The [Browser] object itself is considered to be disposed and cannot be used anymore.
    */
@@ -12780,6 +13278,12 @@ export interface Browser extends EventEmitter {
   /**
    * Creates a new browser context. It won't share cookies/cache with other browser contexts.
    *
+   * > NOTE: If directly using this method to create [BrowserContext]s, it is best practice to explicitly close the returned
+   * context via [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) when
+   * your code is done with the [BrowserContext], and before calling
+   * [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close). This will ensure the `context` is closed
+   * gracefully and any artifacts—like HARs and videos—are fully flushed and saved.
+   *
    * ```js
    * (async () => {
    *   const browser = await playwright.firefox.launch();  // Or 'chromium' or 'webkit'.
@@ -12788,6 +13292,10 @@ export interface Browser extends EventEmitter {
    *   // Create a new page in a pristine context.
    *   const page = await context.newPage();
    *   await page.goto('https://example.com');
+   *
+   *   // Gracefully close up everything
+   *   await context.close();
+   *   await browser.close();
    * })();
    * ```
    *
@@ -12852,8 +13360,6 @@ export interface Browser extends EventEmitter {
      * Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See
      * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#page-emulate-media) for more details. Defaults
      * to `'none'`.
-     *
-     * > NOTE: It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
      */
     forcedColors?: "active"|"none";
 
@@ -12965,14 +13471,37 @@ export interface Browser extends EventEmitter {
      */
     recordHar?: {
       /**
-       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`.
+       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`. Deprecated, use `content`
+       * policy instead.
        */
       omitContent?: boolean;
 
       /**
-       * Path on the filesystem to write the HAR file to.
+       * Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach`
+       * is specified, resources are persistet as separate files or entries in the ZIP archive. If `embed` is specified, content
+       * is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for
+       * all other file extensions.
+       */
+      content?: "omit"|"embed"|"attach";
+
+      /**
+       * Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by
+       * default.
        */
       path: string;
+
+      /**
+       * When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies,
+       * security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
+       */
+      mode?: "full"|"minimal";
+
+      /**
+       * A glob or regex pattern to filter requests that are stored in the HAR. When a `baseURL` via the context options was
+       * provided and the passed URL is a path, it gets merged via the
+       * [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+       */
+      urlFilter?: string|RegExp;
     };
 
     /**
@@ -13026,6 +13555,13 @@ export interface Browser extends EventEmitter {
        */
       height: number;
     };
+
+    /**
+     * Whether to allow sites to register Service workers. Defaults to `'allow'`.
+     * - `'allow'`: [Service Workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) can be registered.
+     * - `'block'`: Playwright will block all registration of Service Workers.
+     */
+    serviceWorkers?: "allow"|"block";
 
     /**
      * Populates context with given storage state. This option can be used to initialize context with logged-in information
@@ -13082,7 +13618,7 @@ export interface Browser extends EventEmitter {
     };
 
     /**
-     * It specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
+     * If specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
      * that imply single target DOM element will throw when more than one element matches the selector. See [Locator] to learn
      * more about the strict mode.
      */
@@ -13213,6 +13749,11 @@ export interface BrowserServer {
    * Removes an event listener added by `on` or `addListener`.
    */
   off(event: 'close', listener: () => void): this;
+
+  /**
+   * Emitted when the browser server closes.
+   */
+  prependListener(event: 'close', listener: () => void): this;
 
   /**
    * Closes the browser gracefully and makes sure the process is terminated.
@@ -13616,7 +14157,7 @@ export interface Download {
  * Note that since you don't need Playwright to install web browsers when testing Electron, you can omit browser download
  * via setting the following environment variable when installing Playwright:
  *
- * ```bash js
+ * ```bash
  * PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
  * ```
  *
@@ -13724,14 +14265,37 @@ export interface Electron {
      */
     recordHar?: {
       /**
-       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`.
+       * Optional setting to control whether to omit request content from the HAR. Defaults to `false`. Deprecated, use `content`
+       * policy instead.
        */
       omitContent?: boolean;
 
       /**
-       * Path on the filesystem to write the HAR file to.
+       * Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach`
+       * is specified, resources are persistet as separate files or entries in the ZIP archive. If `embed` is specified, content
+       * is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for
+       * all other file extensions.
+       */
+      content?: "omit"|"embed"|"attach";
+
+      /**
+       * Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by
+       * default.
        */
       path: string;
+
+      /**
+       * When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies,
+       * security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
+       */
+      mode?: "full"|"minimal";
+
+      /**
+       * A glob or regex pattern to filter requests that are stored in the HAR. When a `baseURL` via the context options was
+       * provided and the passed URL is a path, it gets merged via the
+       * [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+       */
+      urlFilter?: string|RegExp;
     };
 
     /**
@@ -14341,9 +14905,10 @@ export interface Request {
   frame(): Frame;
 
   /**
-   * **DEPRECATED** Incomplete list of headers as seen by the rendering engine. Use
-   * [request.allHeaders()](https://playwright.dev/docs/api/class-request#request-all-headers) instead.
-   * @deprecated
+   * An object with the request HTTP headers. The header names are lower-cased. Note that this method does not return
+   * security-related headers, including cookie-related ones. You can use
+   * [request.allHeaders()](https://playwright.dev/docs/api/class-request#request-all-headers) for complete list of headers
+   * that include `cookie` information.
    */
   headers(): { [key: string]: string; };
 
@@ -14446,6 +15011,13 @@ export interface Request {
    * Returns the matching [Response] object, or `null` if the response was not received due to error.
    */
   response(): Promise<null|Response>;
+
+  /**
+   * > NOTE: This field is Chromium only. It's safe to call when using other browsers, but it will always be `null`.
+   *
+   * The Service [Worker] that is performing the request.
+   */
+  serviceWorker(): null|Worker;
 
   /**
    * Returns resource size information for given request.
@@ -14572,9 +15144,16 @@ export interface Response {
   frame(): Frame;
 
   /**
-   * **DEPRECATED** Incomplete list of headers as seen by the rendering engine. Use
-   * [response.allHeaders()](https://playwright.dev/docs/api/class-response#response-all-headers) instead.
-   * @deprecated
+   * Indicates whether this Response was fulfilled by a Service Worker's Fetch Handler (i.e. via
+   * [FetchEvent.respondWith](https://developer.mozilla.org/en-US/docs/Web/API/FetchEvent/respondWith)).
+   */
+  fromServiceWorker(): boolean;
+
+  /**
+   * An object with the response HTTP headers. The header names are lower-cased. Note that this method does not return
+   * security-related headers, including cookie-related ones. You can use
+   * [response.allHeaders()](https://playwright.dev/docs/api/class-response#response-all-headers) for complete list of
+   * headers that include `cookie` information.
    */
   headers(): { [key: string]: string; };
 
@@ -14696,6 +15275,8 @@ export interface Response {
  * [page.route(url, handler[, options])](https://playwright.dev/docs/api/class-page#page-route) or
  * [browserContext.route(url, handler[, options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-route),
  * the `Route` object allows to handle the route.
+ *
+ * Learn more about [networking](https://playwright.dev/docs/network).
  */
 export interface Route {
   /**
@@ -14727,8 +15308,8 @@ export interface Route {
    *   // Override headers
    *   const headers = {
    *     ...request.headers(),
-   *     foo: 'bar', // set "foo" header
-   *     origin: undefined, // remove "origin" header
+   *     foo: 'foo-value', // set "foo" header
+   *     bar: undefined, // remove "bar" header
    *   };
    *   route.continue({headers});
    * });
@@ -14754,6 +15335,92 @@ export interface Route {
 
     /**
      * If set changes the request URL. New URL must have same protocol as original one.
+     */
+    url?: string;
+  }): Promise<void>;
+
+  /**
+   * When several routes match the given pattern, they run in the order opposite to their registration. That way the last
+   * registered route can always override all the previous ones. In the example below, request will be handled by the
+   * bottom-most handler first, then it'll fall back to the previous one and in the end will be aborted by the first
+   * registered route.
+   *
+   * ```js
+   * await page.route('**\/*', route => {
+   *   // Runs last.
+   *   route.abort();
+   * });
+   * await page.route('**\/*', route => {
+   *   // Runs second.
+   *   route.fallback();
+   * });
+   * await page.route('**\/*', route => {
+   *   // Runs first.
+   *   route.fallback();
+   * });
+   * ```
+   *
+   * Registering multiple routes is useful when you want separate handlers to handle different kinds of requests, for example
+   * API calls vs page resources or GET requests vs POST requests as in the example below.
+   *
+   * ```js
+   * // Handle GET requests.
+   * await page.route('**\/*', route => {
+   *   if (route.request().method() !== 'GET') {
+   *     route.fallback();
+   *     return;
+   *   }
+   *   // Handling GET only.
+   *   // ...
+   * });
+   *
+   * // Handle POST requests.
+   * await page.route('**\/*', route => {
+   *   if (route.request().method() !== 'POST') {
+   *     route.fallback();
+   *     return;
+   *   }
+   *   // Handling POST only.
+   *   // ...
+   * });
+   * ```
+   *
+   * One can also modify request while falling back to the subsequent handler, that way intermediate route handler can modify
+   * url, method, headers and postData of the request.
+   *
+   * ```js
+   * await page.route('**\/*', (route, request) => {
+   *   // Override headers
+   *   const headers = {
+   *     ...request.headers(),
+   *     foo: 'foo-value', // set "foo" header
+   *     bar: undefined, // remove "bar" header
+   *   };
+   *   route.fallback({headers});
+   * });
+   * ```
+   *
+   * @param options
+   */
+  fallback(options?: {
+    /**
+     * If set changes the request HTTP headers. Header values will be converted to a string.
+     */
+    headers?: { [key: string]: string; };
+
+    /**
+     * If set changes the request method (e.g. GET or POST)
+     */
+    method?: string;
+
+    /**
+     * If set changes the post data of request
+     */
+    postData?: string|Buffer;
+
+    /**
+     * If set changes the request URL. New URL must have same protocol as original one. Changing the URL won't affect the route
+     * matching, all the routes are matched using the original request URL.
      */
     url?: string;
   }): Promise<void>;
@@ -14856,7 +15523,7 @@ export interface Selectors {
    *   // Use the selector prefixed with its name.
    *   const button = page.locator('tag=button');
    *   // Combine it with other selector engines.
-   *   await page.click('tag=div >> text="Click me"');
+   *   await page.locator('tag=div >> text="Click me"').click();
    *   // Can use it in any methods supporting selectors.
    *   const buttonCount = await page.locator('tag=button').count();
    *
@@ -14973,7 +15640,7 @@ export interface Tracing {
    * await page.goto('https://playwright.dev');
    *
    * await context.tracing.startChunk();
-   * await page.click('text=Get Started');
+   * await page.locator('text=Get Started').click();
    * // Everything between startChunk and stopChunk will be recorded in the trace.
    * await context.tracing.stopChunk({ path: 'trace1.zip' });
    *
@@ -15202,6 +15869,36 @@ export interface WebSocket {
   off(event: 'socketerror', listener: (string: String) => void): this;
 
   /**
+   * Fired when the websocket closes.
+   */
+  prependListener(event: 'close', listener: (webSocket: WebSocket) => void): this;
+
+  /**
+   * Fired when the websocket receives a frame.
+   */
+  prependListener(event: 'framereceived', listener: (data: {
+  /**
+   * frame payload
+   */
+  payload: string|Buffer;
+}) => void): this;
+
+  /**
+   * Fired when the websocket sends a frame.
+   */
+  prependListener(event: 'framesent', listener: (data: {
+  /**
+   * frame payload
+   */
+  payload: string|Buffer;
+}) => void): this;
+
+  /**
+   * Fired when the websocket has an error.
+   */
+  prependListener(event: 'socketerror', listener: (string: String) => void): this;
+
+  /**
    * Indicates that the web socket has been closed.
    */
   isClosed(): boolean;
@@ -15310,8 +16007,6 @@ export interface BrowserContextOptions {
    * Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See
    * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#page-emulate-media) for more details. Defaults
    * to `'none'`.
-   *
-   * > NOTE: It's not supported in WebKit, see [here](https://bugs.webkit.org/show_bug.cgi?id=225281) in their issue tracker.
    */
   forcedColors?: "active"|"none";
 
@@ -15404,14 +16099,37 @@ export interface BrowserContextOptions {
    */
   recordHar?: {
     /**
-     * Optional setting to control whether to omit request content from the HAR. Defaults to `false`.
+     * Optional setting to control whether to omit request content from the HAR. Defaults to `false`. Deprecated, use `content`
+     * policy instead.
      */
     omitContent?: boolean;
 
     /**
-     * Path on the filesystem to write the HAR file to.
+     * Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach`
+     * is specified, resources are persistet as separate files or entries in the ZIP archive. If `embed` is specified, content
+     * is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for
+     * all other file extensions.
+     */
+    content?: "omit"|"embed"|"attach";
+
+    /**
+     * Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by
+     * default.
      */
     path: string;
+
+    /**
+     * When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies,
+     * security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
+     */
+    mode?: "full"|"minimal";
+
+    /**
+     * A glob or regex pattern to filter requests that are stored in the HAR. When a `baseURL` via the context options was
+     * provided and the passed URL is a path, it gets merged via the
+     * [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+     */
+    urlFilter?: string|RegExp;
   };
 
   /**
@@ -15465,6 +16183,13 @@ export interface BrowserContextOptions {
      */
     height: number;
   };
+
+  /**
+   * Whether to allow sites to register Service workers. Defaults to `'allow'`.
+   * - `'allow'`: [Service Workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) can be registered.
+   * - `'block'`: Playwright will block all registration of Service Workers.
+   */
+  serviceWorkers?: "allow"|"block";
 
   /**
    * Populates context with given storage state. This option can be used to initialize context with logged-in information
@@ -15521,7 +16246,7 @@ export interface BrowserContextOptions {
   };
 
   /**
-   * It specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
+   * If specified, enables strict selectors mode for this context. In the strict selectors mode all operations on selectors
    * that imply single target DOM element will throw when more than one element matches the selector. See [Locator] to learn
    * more about the strict mode.
    */
@@ -15811,7 +16536,7 @@ export interface LocatorScreenshotOptions {
   caret?: "hide"|"initial";
 
   /**
-   * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlayed with a pink box
+   * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with a pink box
    * `#FF00FF` that completely covers its bounding box.
    */
   mask?: Array<Locator>;
@@ -15837,7 +16562,9 @@ export interface LocatorScreenshotOptions {
   /**
    * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
    * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
-   * high-dpi devices will be twice as large or even larger. Defaults to `"device"`.
+   * high-dpi devices will be twice as large or even larger.
+   *
+   * Defaults to `"device"`.
    */
   scale?: "css"|"device";
 
@@ -15868,7 +16595,7 @@ interface ElementHandleWaitForSelectorOptions {
   state?: "attached"|"detached"|"visible"|"hidden";
 
   /**
-   * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+   * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
    * element, the call throws an exception.
    */
   strict?: boolean;
@@ -15916,7 +16643,7 @@ interface PageWaitForSelectorOptions {
   state?: "attached"|"detached"|"visible"|"hidden";
 
   /**
-   * When true, the call requires selector to resolve to a single element. If given selector resolves to more then one
+   * When true, the call requires selector to resolve to a single element. If given selector resolves to more than one
    * element, the call throws an exception.
    */
   strict?: boolean;
@@ -15994,7 +16721,7 @@ export interface PageScreenshotOptions {
   fullPage?: boolean;
 
   /**
-   * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlayed with a pink box
+   * Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with a pink box
    * `#FF00FF` that completely covers its bounding box.
    */
   mask?: Array<Locator>;
@@ -16020,7 +16747,9 @@ export interface PageScreenshotOptions {
   /**
    * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
    * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
-   * high-dpi devices will be twice as large or even larger. Defaults to `"device"`.
+   * high-dpi devices will be twice as large or even larger.
+   *
+   * Defaults to `"device"`.
    */
   scale?: "css"|"device";
 
@@ -16105,8 +16834,6 @@ type Devices = {
   "iPhone 13 Pro Max landscape": DeviceDescriptor;
   "iPhone 13 Mini": DeviceDescriptor;
   "iPhone 13 Mini landscape": DeviceDescriptor;
-  "JioPhone 2": DeviceDescriptor;
-  "JioPhone 2 landscape": DeviceDescriptor;
   "Kindle Fire HDX": DeviceDescriptor;
   "Kindle Fire HDX landscape": DeviceDescriptor;
   "LG Optimus L70": DeviceDescriptor;

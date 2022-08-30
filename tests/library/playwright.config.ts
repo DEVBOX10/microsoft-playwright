@@ -21,7 +21,6 @@ import type { Config, PlaywrightTestOptions, PlaywrightWorkerOptions } from '@pl
 import * as path from 'path';
 import type { TestModeWorkerOptions } from '../config/testModeFixtures';
 import type { CoverageWorkerOptions } from '../config/coverageFixtures';
-import { gitCommitInfo } from '@playwright/test/lib/plugins';
 
 type BrowserName = 'chromium' | 'firefox' | 'webkit';
 
@@ -37,7 +36,7 @@ const getExecutablePath = (browserName: BrowserName) => {
 const mode = process.env.PW_OUT_OF_PROCESS_DRIVER ?
   'driver' :
   (process.env.PWTEST_MODE || 'default') as ('default' | 'driver' | 'service' | 'service2');
-const headed = !!process.env.HEADFUL;
+const headed = process.argv.includes('--headed');
 const channel = process.env.PWTEST_CHANNEL as any;
 const video = !!process.env.PWTEST_VIDEO;
 const trace = !!process.env.PWTEST_TRACE;
@@ -45,17 +44,15 @@ const trace = !!process.env.PWTEST_TRACE;
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
 const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & PlaywrightTestOptions & TestModeWorkerOptions> = {
-  plugins: [
-    gitCommitInfo(),
-  ],
   testDir,
   outputDir,
   expect: {
     timeout: 10000,
   },
+  maxFailures: 100,
   timeout: video ? 60000 : 30000,
   globalTimeout: 5400000,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? 2 : undefined,
   fullyParallel: !process.env.CI,
   forbidOnly: !!process.env.CI,
   preserveOutput: process.env.CI ? 'failures-only' : 'always',
@@ -77,7 +74,6 @@ if (mode === 'service') {
     reuseExistingServer: true,
     env: {
       PWTEST_UNSAFE_GRID_VERSION: '1',
-      PLAYWRIGHT_EXPERIMENTAL_FEATURES: '1',
     },
   };
   config.use.connectOptions = {
@@ -99,9 +95,6 @@ if (mode === 'service2') {
     command: 'npx playwright run-server --port=3333',
     port: 3333,
     reuseExistingServer: true,
-    env: {
-      PLAYWRIGHT_EXPERIMENTAL_FEATURES: '1',
-    },
   };
   config.use.connectOptions = {
     wsEndpoint: 'ws://localhost:3333/',

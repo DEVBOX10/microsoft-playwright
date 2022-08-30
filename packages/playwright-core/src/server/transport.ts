@@ -31,7 +31,7 @@ export type ProtocolResponse = {
   id?: number;
   method?: string;
   sessionId?: string;
-  error?: { message: string; data: any; };
+  error?: { message: string; data: any; code?: number };
   params?: any;
   result?: any;
   pageProxyId?: string;
@@ -110,7 +110,7 @@ export class WebSocketTransport implements ConnectionTransport {
         this.onclose.call(null);
     });
     // Prevent Error: read ECONNRESET.
-    this._ws.addEventListener('error', error => this._progress && this._progress.log(`<ws error> ${error}`));
+    this._ws.addEventListener('error', error => this._progress && this._progress.log(`<ws error> ${error.type} ${error.message}`));
   }
 
   send(message: ProtocolRequest) {

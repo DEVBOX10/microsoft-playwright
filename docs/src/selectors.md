@@ -3,7 +3,9 @@ id: selectors
 title: "Selectors"
 ---
 
-Selectors are strings that are used to create [Locator]s. Locators are used to perform actions on the elements by means of methods such as [`method: Locator.click`], [`method: Locator.fill`] and alike.
+Selectors are strings that are used to create [Locator]s. Locators are used to perform actions on the elements by means of methods such as [`method: Locator.click`], [`method: Locator.fill`] and alike. For debugging selectors, see [here](./debug-selectors).
+
+Writing good selectors is part art, part science so be sure to checkout the [Best Practices](#best-practices) section.
 
 <!-- TOC -->
 
@@ -491,7 +493,7 @@ Locators support an option to only select elements that have some text somewhere
   page.locator("button", has_text="Click me").click()
   ```
   ```csharp
-  await page.Locator("button", new PageLocatorOptions { HasText = "Click me" }).ClickAsync();
+  await page.Locator("button", new() { HasText = "Click me" }).ClickAsync();
   ```
 
 You can also pass a regular expression.
@@ -513,7 +515,7 @@ Locators support an option to only select elements that have a descendant matchi
   page.locator("article", has=page.locator("button.subscribe"))
   ```
   ```csharp
-  page.Locator("article", new PageLocatorOptions { Has = page.Locator("button.subscribe") })
+  page.Locator("article", new() { Has = page.Locator("button.subscribe") })
   ```
 
 Note that inner locator is matched starting from the outer one, not from the document root.
@@ -572,7 +574,7 @@ You can add filtering to any locator by passing `:scope` selector to [`method: L
   ```csharp
   var locator = page.Locator(".row");
   // ... later on ...
-  await locator.Locator(":scope", new LocatorLocatorOptions { HasText = "Hello" }).ClickAsync();
+  await locator.Locator(":scope", new() { HasText = "Hello" }).ClickAsync();
   ```
 
 ## Selecting elements matching one of the conditions
@@ -702,9 +704,11 @@ More advanced Shadow DOM use cases:
 
 ## Selecting elements based on layout
 
-Playwright can select elements based on the page layout. These can be combined with regular CSS for
-better results, for example `input:right-of(:text("Password"))` matches an input field that is to the
-right of text "Password".
+Sometimes, it is hard to come up with a good selector to the target element when it lacks distinctive features. In this case, using Playwright layout selectors could help. These can be combined with regular CSS to pinpoint one of the multiple choices.
+
+For example, `input:right-of(:text("Password"))` matches an input field that is to the right of text "Password" - useful when the page has multiple inputs that are hard to distinguish between each other.
+
+Note that layout selector is useful in addition to something else, like `input`. If you use layout selector alone, like `:right-of(:text("Password"))`, most likely you'll get not the input you are looking for, but some empty element in between the text and the target input.
 
 :::note
 Layout selectors depend on the page layout and may produce unexpected results. For example, a different
@@ -719,7 +723,7 @@ to compute distance and relative position of the elements.
 * `:below(inner > selector)` - Matches elements that are below any of the elements matching the inner selector, at any horizontal position.
 * `:near(inner > selector)` - Matches elements that are near (within 50 CSS pixels) any of the elements matching the inner selector.
 
-Note that resulting matches are sorted by their distance to the anchor element, so you can use [`method: Locator.first`] to pick the closest one.
+Note that resulting matches are sorted by their distance to the anchor element, so you can use [`method: Locator.first`] to pick the closest one. This is only useful if you have something like a list of similar elements, where the closest is obviously the right one. However, using [`method: Locator.first`] in other cases most likely won't work as expected - it will not target the element you are searching for, but some other element that happens to be the closest like a random empty `<div>`, or an element that is scrolled out and is not currently visible.
 
 ```js
 // Fill an input to the right of "Username".
@@ -793,27 +797,27 @@ For example, consider the following DOM structure: `<label for="password">Passwo
 
 ```js
 // Fill the input by targeting the label.
-await page.fill('text=Password', 'secret');
+await page.locator('text=Password').fill('secret');
 ```
 
 ```java
 // Fill the input by targeting the label.
-page.fill("text=Password", "secret");
+page.locator("text=Password").fill("secret");
 ```
 
 ```python async
 # Fill the input by targeting the label.
-await page.fill('text=Password', 'secret')
+await page.locator('text=Password').fill('secret')
 ```
 
 ```python sync
 # Fill the input by targeting the label.
-page.fill('text=Password', 'secret')
+page.locator('text=Password').fill('secret')
 ```
 
 ```csharp
 // Fill the input by targeting the label.
-await page.FillAsync("text=Password", "secret");
+await page.Locator("text=Password").FillAsync("secret");
 ```
 
 However, other methods will target the label itself, for example `textContent` will return the text content of the label, not the input field.
@@ -1144,6 +1148,32 @@ It is usually possible to distinguish elements by some attribute or text content
 prefer using [text] or [css] selectors over the `:nth-match()`.
 :::
 
+## Parent selector
+
+The parent could be selected with `..`, which is a short form for `xpath=..`.
+
+For example:
+
+```js
+const parentLocator = elementLocator.locator('..');
+```
+
+```java
+Locator parentLocator = elementLocator.locator("..");
+```
+
+```python async
+parent_locator = element_locator.locator('..')
+```
+
+```python sync
+parent_locator = element_locator.locator('..')
+```
+
+```csharp
+var parentLocator = elementLocator.Locator("..");
+```
+
 ## Chaining selectors
 
 Selectors defined as `engine=body` or in short-form can be combined with the `>>` token, e.g. `selector1 >> selector2 >> selectors3`. When selectors are chained, the next one is queried relative to the previous one's result.
@@ -1319,7 +1349,7 @@ await page.Locator("data-test-id=directions").ClickAsync();
 ### Avoid selectors tied to implementation
 
 [xpath] and [css] can be tied to the DOM structure or implementation. These selectors can break when
-the DOM structure changes.
+the DOM structure changes. Similarly, [`method: Locator.nth`], [`method: Locator.first`], and [`method: Locator.last`] are tied to implementation and the structure of the DOM, and will target the incorrect element if the DOM changes.
 
 ```js
 // avoid long css or xpath chains

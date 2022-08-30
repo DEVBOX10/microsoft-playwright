@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type { JSONReport, JSONReportSuite } from '@playwright/test/reporter';
+import type { JSONReport, JSONReportSuite, JSONReportTest, JSONReportTestResult } from '@playwright/test/reporter';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -25,17 +25,19 @@ import { commonFixtures } from '../config/commonFixtures';
 import type { ServerFixtures, ServerWorkerOptions } from '../config/serverFixtures';
 import { serverFixtures } from '../config/serverFixtures';
 import type { TestInfo } from './stable-test-runner';
+import { expect } from './stable-test-runner';
 import { test as base } from './stable-test-runner';
 
 const removeFolderAsync = promisify(rimraf);
 
-type RunResult = {
+export type RunResult = {
   exitCode: number,
   output: string,
   passed: number,
   failed: number,
   flaky: number,
   skipped: number,
+  interrupted: number,
   report: JSONReport,
   results: any[],
 };
@@ -102,7 +104,7 @@ async function writeFiles(testInfo: TestInfo, files: Files) {
 const cliEntrypoint = path.join(__dirname, '../../packages/playwright-core/cli.js');
 
 async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], baseDir: string, params: any, env: Env, options: RunOptions): Promise<RunResult> {
-  const paramList = [];
+  const paramList: string[] = [];
   for (const key of Object.keys(params)) {
     for (const value of Array.isArray(params[key]) ? params[key] : [params[key]]) {
       const k = key.startsWith('-') ? key : '--' + key;
@@ -114,8 +116,9 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
   const args = ['node', cliEntrypoint, 'test'];
   if (!options.usesCustomOutputDir)
     args.push('--output=' + outputDir);
+  if (!options.usesCustomReporters)
+    args.push('--reporter=dot,json');
   args.push(
-      '--reporter=dot,json',
       '--workers=2',
       ...paramList
   );
@@ -154,7 +157,7 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
   testProcess.onOutput = () => {
     if (options.sendSIGINTAfter && !didSendSigint && countTimes(testProcess.output, '%%SEND-SIGINT%%') >= options.sendSIGINTAfter) {
       didSendSigint = true;
-      process.kill(testProcess.process.pid, 'SIGINT');
+      process.kill(testProcess.process.pid!, 'SIGINT');
     }
   };
   const { exitCode } = await testProcess.exited;
@@ -174,6 +177,7 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
   const failed = summary(/(\d+) failed/g);
   const flaky = summary(/(\d+) flaky/g);
   const skipped = summary(/(\d+) skipped/g);
+  const interrupted = summary(/(\d+) interrupted/g);
   let report;
   try {
     report = JSON.parse(fs.readFileSync(reportFile).toString());
@@ -181,7 +185,7 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
     testProcess.output += '\n' + e.toString();
   }
 
-  const results = [];
+  const results: JSONReportTestResult[] = [];
   function visitSuites(suites?: JSONReportSuite[]) {
     if (!suites)
       return;
@@ -203,6 +207,7 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
     failed,
     flaky,
     skipped,
+    interrupted,
     report,
     results,
   };
@@ -211,33 +216,30 @@ async function runPlaywrightTest(childProcess: CommonFixtures['childProcess'], b
 type RunOptions = {
   sendSIGINTAfter?: number;
   usesCustomOutputDir?: boolean;
+  usesCustomReporters?: boolean;
   additionalArgs?: string[];
   cwd?: string,
 };
 type Fixtures = {
-  legacyConfigLoader: boolean;
   writeFiles: (files: Files) => Promise<string>;
   runInlineTest: (files: Files, params?: Params, env?: Env, options?: RunOptions, beforeRunPlaywrightTest?: ({ baseDir }: { baseDir: string }) => Promise<void>) => Promise<RunResult>;
   runTSC: (files: Files) => Promise<TSCResult>;
+  nodeVersion: { major: number, minor: number, patch: number },
 };
 
 export const test = base
     .extend<CommonFixtures>(commonFixtures)
     .extend<ServerFixtures, ServerWorkerOptions>(serverFixtures)
     .extend<Fixtures>({
-      legacyConfigLoader: [false, { option: true }],
-
       writeFiles: async ({}, use, testInfo) => {
         await use(files => writeFiles(testInfo, files));
       },
 
-      runInlineTest: async ({ childProcess, legacyConfigLoader }, use, testInfo: TestInfo) => {
+      runInlineTest: async ({ childProcess }, use, testInfo: TestInfo) => {
         await use(async (files: Files, params: Params = {}, env: Env = {}, options: RunOptions = {}, beforeRunPlaywrightTest?: ({ baseDir: string }) => Promise<void>) => {
           const baseDir = await writeFiles(testInfo, files);
           if (beforeRunPlaywrightTest)
             await beforeRunPlaywrightTest({ baseDir });
-          if (legacyConfigLoader)
-            env = { ...env, PLAYWRIGHT_LEGACY_CONFIG_MODE: '1' };
           return await runPlaywrightTest(childProcess, baseDir, params, env, options);
         });
       },
@@ -253,6 +255,11 @@ export const test = base
           const { exitCode } = await tsc.exited;
           return { exitCode, output: tsc.output };
         });
+      },
+
+      nodeVersion: async ({}, use) => {
+        const [major, minor, patch] = process.versions.node.split('.');
+        await use({ major: +major, minor: +minor, patch: +patch });
       },
     });
 
@@ -315,4 +322,26 @@ export function paintBlackPixels(image: Buffer, blackPixelsCount: number): Buffe
       png.data[i * 4 + j] = 0;
   }
   return PNG.sync.write(png);
+}
+
+export function allTests(result: RunResult) {
+  const tests: { title: string; expectedStatus: JSONReportTest['expectedStatus'], actualStatus: JSONReportTest['status'], annotations: string[] }[] = [];
+  const visit = (suite: JSONReportSuite) => {
+    for (const spec of suite.specs)
+      spec.tests.forEach(t => tests.push({ title: spec.title, expectedStatus: t.expectedStatus, actualStatus: t.status, annotations: t.annotations.map(a => a.type)  }));
+    suite.suites?.forEach(s => visit(s));
+  };
+  visit(result.report.suites[0]);
+  return tests;
+}
+
+export function expectTestHelper(result: RunResult) {
+  return (title: string, expectedStatus: string, status: string, annotations: any) => {
+    const tests = allTests(result).filter(t => t.title === title);
+    for (const test of tests) {
+      expect(test.expectedStatus, `title: ${title}`).toBe(expectedStatus);
+      expect(test.actualStatus, `title: ${title}`).toBe(status);
+      expect(test.annotations, `title: ${title}`).toEqual(annotations);
+    }
+  };
 }

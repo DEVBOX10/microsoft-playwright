@@ -108,7 +108,7 @@ export class SnapshotRenderer {
 
     // First try locating exact resource belonging to this frame.
     for (const resource of this._resources) {
-      if (resource._monotonicTime >= snapshot.timestamp)
+      if (typeof resource._monotonicTime === 'number' && resource._monotonicTime >= snapshot.timestamp)
         break;
       if (resource._frameref !== snapshot.frameId)
         continue;
@@ -121,7 +121,7 @@ export class SnapshotRenderer {
     if (!result) {
       // Then fall back to resource with this URL to account for memory cache.
       for (const resource of this._resources) {
-        if (resource._monotonicTime >= snapshot.timestamp)
+        if (typeof resource._monotonicTime === 'number' && resource._monotonicTime >= snapshot.timestamp)
           break;
         if (resource.request.url === url)
           return resource;
@@ -286,7 +286,7 @@ function snapshotScript() {
  * Best-effort Electron support: rewrite custom protocol in DOM.
  * vscode-file://vscode-app/ -> https://pw-vscode-file--vscode-app/
  */
-const schemas = ['about:', 'blob:', 'data:', 'file:', 'ftp:', 'http:', 'https:', 'mailto:', 'sftp:', 'ws:', 'wss:' ];
+const schemas = ['about:', 'blob:', 'data:', 'file:', 'ftp:', 'http:', 'https:', 'mailto:', 'sftp:', 'ws:', 'wss:'];
 const kLegacyBlobPrefix = 'http://playwright.bloburl/#';
 
 export function rewriteURLForCustomProtocol(href: string): string {
@@ -297,7 +297,7 @@ export function rewriteURLForCustomProtocol(href: string): string {
   try {
     const url = new URL(href);
     // Sanitize URL.
-    if (url.protocol === 'javascript:')
+    if (url.protocol === 'javascript:' || url.protocol === 'vbscript:')
       return 'javascript:void(0)';
 
     // Pass through if possible.

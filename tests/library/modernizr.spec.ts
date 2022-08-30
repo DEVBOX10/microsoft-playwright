@@ -16,6 +16,7 @@
 
 import { browserTest as it, expect } from '../config/browserTest';
 import fs from 'fs';
+import os from 'os';
 
 async function checkFeatures(name: string, context: any, server: any) {
   try {
@@ -29,8 +30,9 @@ async function checkFeatures(name: string, context: any, server: any) {
   }
 }
 
-it('safari-14-1', async ({ browser, browserName, platform, server, headless }) => {
+it('safari-14-1', async ({ browser, browserName, platform, server, headless, isMac }) => {
   it.skip(browserName !== 'webkit');
+  it.skip(browserName === 'webkit' && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen.');
   const context = await browser.newContext({
     deviceScaleFactor: 2
   });
@@ -68,11 +70,16 @@ it('safari-14-1', async ({ browser, browserName, platform, server, headless }) =
     expected.inputtypes['datetime-local'] = false;
     expected.inputtypes.time = false;
   }
+
+  if (isMac && parseInt(os.release(), 10) > 20)
+    expected.applicationcache = false;
+
   expect(actual).toEqual(expected);
 });
 
-it('mobile-safari-14-1', async ({ playwright, browser, browserName, platform, server, headless }) => {
+it('mobile-safari-14-1', async ({ playwright, browser, browserName, platform, isMac, server, headless }) => {
   it.skip(browserName !== 'webkit');
+  it.skip(browserName === 'webkit' && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen.');
   const iPhone = playwright.devices['iPhone 12'];
   const context = await browser.newContext(iPhone);
   const { actual, expected } = await checkFeatures('mobile-safari-14-1', context, server);
@@ -121,6 +128,9 @@ it('mobile-safari-14-1', async ({ playwright, browser, browserName, platform, se
     expected.inputtypes['datetime-local'] = false;
     expected.inputtypes.time = false;
   }
+
+  if (isMac && parseInt(os.release(), 10) > 20)
+    expected.applicationcache = false;
 
   expect(actual).toEqual(expected);
 });

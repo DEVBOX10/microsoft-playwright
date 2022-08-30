@@ -20,7 +20,7 @@ import { test, expect } from './inspectorTest';
 
 const emptyHTML = new URL('file://' + path.join(__dirname, '..', '..', 'assets', 'empty.html')).toString();
 const launchOptions = (channel: string) => {
-  return channel ? `headless=False, channel="${channel}"` : 'headless=False';
+  return channel ? `channel="${channel}", headless=False` : 'headless=False';
 };
 
 test('should print the correct imports and context options', async ({ runCLI, channel, browserName }) => {
@@ -76,7 +76,7 @@ def run(playwright: Playwright) -> None:
 });
 
 test('should save the codegen output to a file if specified', async ({ runCLI, channel, browserName }, testInfo) => {
-  const tmpFile = testInfo.outputPath('script.js');
+  const tmpFile = testInfo.outputPath('example.py');
   const cli = runCLI(['--target=python', '--output', tmpFile, emptyHTML]);
   await cli.exited;
   const content = fs.readFileSync(tmpFile);

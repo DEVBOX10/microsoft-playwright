@@ -15,7 +15,7 @@
  */
 
 import { contextTest } from '../../config/browserTest';
-import type { Page } from 'playwright-core';
+import type { ConsoleMessage, Page } from 'playwright-core';
 import * as path from 'path';
 import type { Source } from '../../../packages/playwright-core/src/server/recorder/recorderTypes';
 import type { CommonFixtures, TestChildProcess } from '../../config/commonFixtures';
@@ -25,8 +25,21 @@ type CLITestArgs = {
   recorderPageGetter: () => Promise<Page>;
   closeRecorder: () => Promise<void>;
   openRecorder: () => Promise<Recorder>;
-  runCLI: (args: string[]) => CLIMock;
+  runCLI: (args: string[], options?: { noAutoExit?: boolean }) => CLIMock;
 };
+
+const codegenLang2Id: Map<string, string> = new Map([
+  ['JavaScript', 'javascript'],
+  ['Java', 'java'],
+  ['Python', 'python'],
+  ['Python Async', 'python-async'],
+  ['Pytest', 'pytest'],
+  ['C#', 'csharp'],
+  ['C# NUnit', 'csharp-nunit'],
+  ['C# MSTest', 'csharp-mstest'],
+  ['Playwright Test', 'test'],
+]);
+const codegenLangId2lang = new Map([...codegenLang2Id.entries()].map(([lang, langId]) => [langId, lang]));
 
 const playwrightToAutomateInspector = require('../../../packages/playwright-core/lib/inProcessFactory').createInProcessPlaywright();
 
@@ -55,17 +68,17 @@ export const test = contextTest.extend<CLITestArgs>({
     testInfo.skip(mode === 'service');
 
     let cli: CLIMock | undefined;
-    await run(cliArgs => {
-      cli = new CLIMock(childProcess, browserName, channel, headless, cliArgs, launchOptions.executablePath);
+    await run((cliArgs, { noAutoExit } = {}) => {
+      cli = new CLIMock(childProcess, browserName, channel, headless, cliArgs, launchOptions.executablePath, noAutoExit);
       return cli;
     });
     if (cli)
-      await cli.exited;
+      await cli.exited.catch(() => {});
   },
 
   openRecorder: async ({ page, recorderPageGetter }, run) => {
     await run(async () => {
-      await (page.context() as any)._enableRecorder({ language: 'javascript', startRecording: true });
+      await (page.context() as any)._enableRecorder({ language: 'javascript', mode: 'recording' });
       return new Recorder(page, await recorderPageGetter());
     });
   },
@@ -115,20 +128,19 @@ class Recorder {
   }
 
   async waitForOutput(file: string, text: string): Promise<Map<string, Source>> {
-    const sources: Source[] = await this.recorderPage.evaluate((params: { text: string, file: string }) => {
+    if (!codegenLang2Id.has(file))
+      throw new Error(`Unknown language: ${file}`);
+    const handle = await this.recorderPage.waitForFunction((params: { text: string, languageId: string }) => {
       const w = window as any;
-      return new Promise(f => {
-        const poll = () => {
-          const source = (w.playwrightSourcesEchoForTest || []).find((s: Source) => s.file === params.file);
-          if (source && source.text.includes(params.text))
-            f(w.playwrightSourcesEchoForTest);
-          setTimeout(poll, 300);
-        };
-        poll();
-      });
-    }, { text, file });
-    for (const source of sources)
-      this._sources.set(source.file, source);
+      const source = (w.playwrightSourcesEchoForTest || []).find((s: Source) => s.id === params.languageId);
+      return source && source.text.includes(params.text) ? w.playwrightSourcesEchoForTest : null;
+    }, { text, languageId: codegenLang2Id.get(file) }, { timeout: 8000, polling: 300 });
+    const sources: Source[] = await handle.jsonValue();
+    for (const source of sources) {
+      if (!codegenLangId2lang.has(source.id))
+        throw new Error(`Unknown language: ${source.id}`);
+      this._sources.set(codegenLangId2lang.get(source.id), source);
+    }
     return this._sources;
   }
 
@@ -137,21 +149,27 @@ class Recorder {
   }
 
   async waitForHighlight(action: () => Promise<void>): Promise<string> {
-    let callback;
-    const result = new Promise<string>(f => callback = f);
-    const listener = async msg => {
+    // We get the last highlighted selector, because Firefox sometimes issues multiple
+    // focus events.
+    let generatedSelector: string | undefined;
+    let callback: Function | undefined;
+
+    const listener = async (msg: ConsoleMessage) => {
       const prefix = 'Highlight updated for test: ';
       if (msg.text().startsWith(prefix)) {
-        this.page.off('console', listener);
-        callback(msg.text().substr(prefix.length));
+        generatedSelector = msg.text().substr(prefix.length);
+        if (callback) {
+          this.page.off('console', listener);
+          callback(generatedSelector);
+        }
       }
     };
     this.page.on('console', listener);
-    const [ generatedSelector ] = await Promise.all([
-      result,
-      action()
-    ]);
-    return generatedSelector;
+
+    await action();
+    if (generatedSelector)
+      return generatedSelector;
+    return await new Promise<string>(f => callback = f);
   }
 
   async waitForActionPerformed(): Promise<{ hovered: string | null, active: string | null }> {
@@ -178,12 +196,12 @@ class Recorder {
 }
 
 class CLIMock {
-  private process: TestChildProcess;
+  process: TestChildProcess;
   private waitForText: string;
   private waitForCallback: () => void;
   exited: Promise<void>;
 
-  constructor(childProcess: CommonFixtures['childProcess'], browserName: string, channel: string | undefined, headless: boolean | undefined, args: string[], executablePath: string | undefined) {
+  constructor(childProcess: CommonFixtures['childProcess'], browserName: string, channel: string | undefined, headless: boolean | undefined, args: string[], executablePath: string | undefined, noAutoExit: boolean | undefined) {
     const nodeArgs = [
       'node',
       path.join(__dirname, '..', '..', '..', 'packages', 'playwright-core', 'lib', 'cli', 'cli.js'),
@@ -196,9 +214,11 @@ class CLIMock {
     this.process = childProcess({
       command: nodeArgs,
       env: {
-        PWTEST_CLI_EXIT: '1',
+        PWTEST_CLI_IS_UNDER_TEST: '1',
+        PWTEST_CLI_EXIT: !noAutoExit ? '1' : undefined,
         PWTEST_CLI_HEADLESS: headless ? '1' : undefined,
         PWTEST_CLI_EXECUTABLE_PATH: executablePath,
+        DEBUG: (process.env.DEBUG ?? '') + ',pw:browser*',
       },
     });
     this.process.onOutput = () => {
@@ -224,6 +244,10 @@ class CLIMock {
 
   text() {
     return removeAnsiColors(this.process.output);
+  }
+
+  exit(signal: NodeJS.Signals | number) {
+    this.process.process.kill(signal);
   }
 }
 

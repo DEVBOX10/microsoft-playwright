@@ -17,35 +17,66 @@
 import { test, expect, stripAnsi } from './playwright-test-fixtures';
 
 test('globalSetup and globalTeardown should work', async ({ runInlineTest }) => {
-  const { results, output } = await runInlineTest({
-    'playwright.config.ts': `
+  const result = await runInlineTest({
+    'dir/playwright.config.ts': `
       import * as path from 'path';
       module.exports = {
+        testDir: '..',
         globalSetup: './globalSetup',
         globalTeardown: path.join(__dirname, 'globalTeardown.ts'),
+        projects: [
+          { name: 'p1' },
+          { name: 'p2' },
+        ]
       };
     `,
-    'globalSetup.ts': `
+    'dir/globalSetup.ts': `
       module.exports = async () => {
-        await new Promise(f => setTimeout(f, 100));
-        global.value = 42;
-        process.env.FOO = String(global.value);
+        console.log('\\n%%from-global-setup');
       };
     `,
-    'globalTeardown.ts': `
+    'dir/globalTeardown.ts': `
       module.exports = async () => {
-        console.log('teardown=' + global.value);
+        console.log('\\n%%from-global-teardown');
       };
     `,
     'a.test.js': `
       const { test } = pwt;
       test('should work', async ({}, testInfo) => {
-        expect(process.env.FOO).toBe('42');
+        console.log('\\n%%from-test');
+      });
+    `,
+  }, { 'project': 'p2', 'config': 'dir' });
+  expect(result.passed).toBe(1);
+  expect(result.failed).toBe(0);
+  expect(stripAnsi(result.output).split('\n').filter(line => line.startsWith('%%'))).toEqual([
+    '%%from-global-setup',
+    '%%from-test',
+    '%%from-global-teardown',
+  ]);
+});
+
+test('standalone globalTeardown should work', async ({ runInlineTest }) => {
+  const { results, output } = await runInlineTest({
+    'playwright.config.ts': `
+      import * as path from 'path';
+      module.exports = {
+        globalTeardown: './globalTeardown.ts',
+      };
+    `,
+    'globalTeardown.ts': `
+      module.exports = async () => {
+        console.log('got my teardown');
+      };
+    `,
+    'a.test.js': `
+      const { test } = pwt;
+      test('should work', async ({}, testInfo) => {
       });
     `,
   });
   expect(results[0].status).toBe('passed');
-  expect(output).toContain('teardown=42');
+  expect(output).toContain('got my teardown');
 });
 
 test('globalTeardown runs after failures', async ({ runInlineTest }) => {
@@ -184,7 +215,7 @@ test('globalSetup should throw when passed non-function', async ({ runInlineTest
       });
     `,
   });
-  expect(output).toContain(`globalSetup.ts: globalSetup file must export a single function.`);
+  expect(output).toContain(`globalSetup.ts: file must export a single function.`);
 });
 
 test('globalSetup should work with default export and run the returned fn', async ({ runInlineTest }) => {

@@ -30,7 +30,7 @@ export class VideoPlayer {
     const output = spawnSync(ffmpeg, ['-i', fileName, '-r', '25', `${fileName}-%03d.png`]).stderr.toString();
     const lines = output.split('\n');
     const streamLine = lines.find(l => l.trim().startsWith('Stream #0:0'));
-    const resolutionMatch = streamLine.match(/, (\d+)x(\d+),/);
+    const resolutionMatch = streamLine!.match(/, (\d+)x(\d+),/);
     this.videoWidth = parseInt(resolutionMatch![1], 10);
     this.videoHeight = parseInt(resolutionMatch![2], 10);
   }
@@ -67,8 +67,7 @@ test('should run in three browsers with --browser', async ({ runInlineTest }) =>
     `,
     'a.test.ts': `
       const { test } = pwt;
-      test('pass', async ({ page, browserName }) => {
-        expect(page.viewportSize()).toEqual({ width: 800, height: 800 });
+      test('pass', async ({ browserName }) => {
         console.log('\\n%%browser=' + browserName);
       });
     `,
@@ -90,8 +89,7 @@ test('should run in one browser with --browser', async ({ runInlineTest }) => {
     `,
     'a.test.ts': `
       const { test } = pwt;
-      test('pass', async ({ page, browserName }) => {
-        expect(page.viewportSize()).toEqual({ width: 800, height: 800 });
+      test('pass', async ({ browserName }) => {
         console.log('\\n%%browser=' + browserName);
       });
     `,
@@ -147,7 +145,7 @@ test('should not override use:browserName without projects', async ({ runInlineT
     `,
     'a.test.ts': `
       const { test } = pwt;
-      test('pass', async ({ page, browserName }) => {
+      test('pass', async ({ browserName }) => {
         console.log('\\n%%browser=' + browserName);
       });
     `,
@@ -167,7 +165,7 @@ test('should override use:browserName with --browser', async ({ runInlineTest })
     `,
     'a.test.ts': `
       const { test } = pwt;
-      test('pass', async ({ page, browserName }) => {
+      test('pass', async ({ browserName }) => {
         console.log('\\n%%browser=' + browserName);
       });
     `,
@@ -192,7 +190,7 @@ test('should respect context options in various contexts', async ({ runInlineTes
       import rimraf from 'rimraf';
 
       const { test } = pwt;
-      test.use({ locale: 'fr-CH' });
+      test.use({ locale: 'fr-FR' });
 
       let context;
       test.beforeAll(async ({ browser }) => {
@@ -206,19 +204,19 @@ test('should respect context options in various contexts', async ({ runInlineTes
       test('shared context', async ({}) => {
         const page = await context.newPage();
         expect(page.viewportSize()).toEqual({ width: 500, height: 500 });
-        expect(await page.evaluate(() => navigator.language)).toBe('fr-CH');
+        expect(await page.evaluate(() => navigator.language)).toBe('fr-FR');
       });
 
       test('own context', async ({ browser }) => {
         const page = await browser.newPage();
         expect(page.viewportSize()).toEqual({ width: 500, height: 500 });
-        expect(await page.evaluate(() => navigator.language)).toBe('fr-CH');
+        expect(await page.evaluate(() => navigator.language)).toBe('fr-FR');
         await page.close();
       });
 
       test('default context', async ({ page }) => {
         expect(page.viewportSize()).toEqual({ width: 500, height: 500 });
-        expect(await page.evaluate(() => navigator.language)).toBe('fr-CH');
+        expect(await page.evaluate(() => navigator.language)).toBe('fr-FR');
       });
 
       test('persistent context', async ({ playwright, browserName }) => {
@@ -227,7 +225,7 @@ test('should respect context options in various contexts', async ({ runInlineTes
         const page = context.pages()[0];
 
         expect(page.viewportSize()).toEqual({ width: 500, height: 500 });
-        expect(await page.evaluate(() => navigator.language)).toBe('fr-CH');
+        expect(await page.evaluate(() => navigator.language)).toBe('fr-FR');
 
         await context.close();
         rimraf.sync(dir);
@@ -237,7 +235,7 @@ test('should respect context options in various contexts', async ({ runInlineTes
         const browser = await playwright.webkit.launch();
         const page = await browser.newPage();
 
-        expect(await page.evaluate(() => navigator.language)).toBe('fr-CH');
+        expect(await page.evaluate(() => navigator.language)).toBe('fr-FR');
 
         await browser.close();
       });
@@ -391,7 +389,7 @@ test('should report error from beforeAll timeout', async ({ runInlineTest }, tes
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Timeout of 2000ms exceeded in beforeAll hook.');
+  expect(result.output).toContain('"beforeAll" hook timeout of 2000ms exceeded.');
   expect(result.output).toContain('waiting for selector');
   expect(stripAnsi(result.output)).toContain(`11 |           page.textContent('text=More missing'),`);
 });
@@ -406,7 +404,7 @@ test('should not report waitForEventInfo as pending', async ({ runInlineTest }, 
         await page.click('text=Missing');
       });
     `,
-  }, { workers: 1, timeout: 2000 });
+  }, { workers: 1, timeout: 5000 });
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
@@ -430,7 +428,7 @@ test('should throw when using page in beforeAll', async ({ runInlineTest }, test
 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.output).toContain(`Error: "context" and "page" fixtures are not supported in beforeAll. Use browser.newContext() instead.`);
+  expect(result.output).toContain(`Error: "context" and "page" fixtures are not supported in "beforeAll"`);
 });
 
 test('should report click error on sigint', async ({ runInlineTest }) => {
@@ -452,7 +450,7 @@ test('should report click error on sigint', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(130);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(0);
-  expect(result.skipped).toBe(1);
+  expect(result.interrupted).toBe(1);
   expect(stripAnsi(result.output)).toContain(`8 |         const promise = page.click('text=Missing');`);
 });
 
@@ -526,7 +524,7 @@ test('should work with video: on-first-retry', async ({ runInlineTest }, testInf
   expect(result.report.suites[0].specs[1].tests[0].results[1].attachments).toEqual([{
     name: 'video',
     contentType: 'video/webm',
-    path: path.join(dirRetry, videoFailRetry),
+    path: path.join(dirRetry, videoFailRetry!),
   }]);
 });
 
@@ -581,4 +579,24 @@ test('should work with video.path() throwing', async ({ runInlineTest }, testInf
   const dir = testInfo.outputPath(`test-results/a-pass-chromium/`);
   const video = fs.readdirSync(dir).find(file => file.endsWith('webm'));
   expect(video).toBeTruthy();
+});
+
+test('should pass fixture defaults to tests', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `
+      module.exports = {};
+    `,
+    'a.test.ts': `
+      const { test } = pwt;
+      test('pass', async ({ acceptDownloads, actionTimeout, headless, javaScriptEnabled, navigationTimeout }) => {
+        expect(acceptDownloads).toBe(true);
+        expect(actionTimeout).toBe(0);
+        expect(headless).toBe(true);
+        expect(javaScriptEnabled).toBe(true);
+        expect(navigationTimeout).toBe(0);
+      });
+    `,
+  }, { workers: 1 });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
 });

@@ -17,7 +17,7 @@ See the full list of [test options][TestOptions] and all [configuration properti
 
 Create `playwright.config.js` (or `playwright.config.ts`) and specify options in the [`property: TestConfig.use`] section.
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -33,8 +33,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   use: {
     headless: false,
@@ -60,9 +60,9 @@ npx playwright test --config=tests/my.config.js
 
 ## Local configuration
 
-With [`method: Test.use`] you can override some options for a file or a [`method: Test.describe`] block.
+With [`method: Test.use`] you can override some options for a file or a [`method: Test.describe#1`] block.
 
-```js js-flavor=js
+```js tab=js-js
 // example.spec.js
 const { test, expect } = require('@playwright/test');
 
@@ -74,7 +74,7 @@ test('my portrait test', async ({ page }) => {
 });
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // example.spec.ts
 import { test, expect } from '@playwright/test';
 
@@ -88,7 +88,7 @@ test('my portrait test', async ({ page }) => {
 
 The same works inside describe.
 
-```js js-flavor=js
+```js tab=js-js
 // example.spec.js
 const { test, expect } = require('@playwright/test');
 
@@ -102,7 +102,7 @@ test.describe('locale block', () => {
 });
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // example.spec.ts
 import { test, expect } from '@playwright/test';
 
@@ -129,7 +129,7 @@ These are commonly used options for various scenarios. You usually set them glob
 - `viewport` - Viewport used for all pages in the context.
 - `storageState` - Populates context with given storage state. Useful for easy authentication, [learn more](./auth.md).
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -144,8 +144,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   use: {
     baseURL: 'http://localhost:3000',
@@ -160,7 +160,7 @@ export default config;
 
 Playwright Test supports multiple "projects" that can run your tests in multiple browsers and configurations. Here is an example that runs every test in Chromium, Firefox and WebKit, by creating a project for each.
 
-```js js-flavor=js
+```js tab=js-js
 // playwright.config.js
 // @ts-check
 const { devices } = require('@playwright/test');
@@ -186,9 +186,9 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // playwright.config.ts
-import { PlaywrightTestConfig, devices } from '@playwright/test';
+import { type PlaywrightTestConfig, devices } from '@playwright/test';
 
 const config: PlaywrightTestConfig = {
   projects: [
@@ -239,7 +239,7 @@ Playwright can [emulate different environments](./emulation.md) like mobile devi
 
 Here is an example configuration that runs tests in "Pixel 4" and "iPhone 11" emulation modes. Note that it uses the [projects](./test-advanced.md#projects) feature to run the same set of tests in multiple configurations.
 
-```js js-flavor=js
+```js tab=js-js
 // playwright.config.js
 // @ts-check
 const { devices } = require('@playwright/test');
@@ -270,9 +270,9 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // playwright.config.ts
-import { PlaywrightTestConfig, devices } from '@playwright/test';
+import { type PlaywrightTestConfig, devices } from '@playwright/test';
 
 const config: PlaywrightTestConfig = {
   projects: [
@@ -311,7 +311,7 @@ You can specify options separately instead of using predefined devices. There ar
 - `timezoneId` - Changes the timezone of the context.
 - `userAgent` - Specific user agent to use in the context.
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -326,8 +326,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   use: {
     locale: 'fr-FR',
@@ -353,7 +353,7 @@ Available options to configure networking:
 
 You don't have to configure anything to mock network requests. Just define a custom [Route] that mocks network for a browser context.
 
-```js js-flavor=js
+```js tab=js-js
 // example.spec.js
 const { test, expect } = require('@playwright/test');
 
@@ -368,7 +368,7 @@ test('loads page without css', async ({ page }) => {
 });
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // example.spec.ts
 import { test, expect } from '@playwright/test';
 
@@ -385,7 +385,7 @@ test('loads page without css', async ({ page }) => {
 
 Alternatively, you can use [`method: Page.route`] to mock network in a single test.
 
-```js js-flavor=js
+```js tab=js-js
 // example.spec.js
 const { test, expect } = require('@playwright/test');
 
@@ -398,7 +398,7 @@ test('loads page without images', async ({ page }) => {
 });
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // example.spec.ts
 import { test, expect } from '@playwright/test';
 
@@ -421,7 +421,7 @@ You can make Playwright Test capture screenshots for you - control it with the `
 
 Screenshots will appear in the test output directory, typically `test-results`.
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -434,8 +434,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   use: {
     screenshot: 'only-on-failure',
@@ -455,7 +455,7 @@ Playwright Test can record videos for your tests, controlled by the `video` opti
 
 Video files will appear in the test output directory, typically `test-results`. See [`property: TestOptions.video`] for advanced video configuration.
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -468,8 +468,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   use: {
     video: 'on-first-retry',
@@ -489,7 +489,7 @@ Playwright Test can produce test traces while running the tests. Later on, you c
 
 Trace files will appear in the test output directory, typically `test-results`. See [`property: TestOptions.trace`] for advanced video configuration.
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -502,8 +502,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   use: {
     trace: 'retain-on-failure',
@@ -516,7 +516,7 @@ export default config;
 
 Any options accepted by [`method: BrowserType.launch`] or [`method: Browser.newContext`] can be put into `launchOptions` or `contextOptions` respectively in the `use` section. Take a look at the [full list of available options][TestOptions].
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -531,8 +531,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   use: {
     launchOptions: {
@@ -544,6 +544,72 @@ export default config;
 ```
 
 However, most common ones like `headless` or `viewport` are available directly in the `use` section - see [basic options](#basic-options), [emulation](#emulation) or [network](#network).
+
+## Explicit Context Creation and Option Inheritance
+
+If using the built-in `browser` fixture, calling [`method: Browser.newContext`] will create a context with options inherted from the config:
+
+```js tab=js-ts
+// playwright.config.ts
+import type { PlaywrightTestConfig } from "@playwright/test";
+
+const config: PlaywrightTestConfig = {
+  use: {
+    userAgent: 'some custom ua',
+    viewport: { width: 100, height: 100 },
+  },
+};
+
+export default config;
+```
+
+```js tab=js-js
+// @ts-check
+// example.spec.js
+
+/** @type {import('@playwright/test').PlaywrightTestConfig} */
+const config = {
+  use: {
+    userAgent: 'some custom ua',
+    viewport: { width: 100, height: 100 },
+  },
+};
+
+module.exports = config;
+```
+
+An example test illustrating the initial context options are set:
+
+```js tab=js-ts
+// example.spec.ts
+import { test, expect } from "@playwright/test";
+
+test('should inherit use options on context when using built-in browser fixture', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  expect(await page.evaluate(() => navigator.userAgent)).toBe('some custom ua');
+  expect(await page.evaluate(() => window.innerWidth)).toBe(100);
+  await context.close();
+});
+```
+
+```js tab=js-js
+// @ts-check
+// example.spec.ts
+const { test, expect } = require("@playwright/test");
+
+test('should inherit use options on context when using built-in browser fixture', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  expect(await page.evaluate(() => navigator.userAgent)).toBe('some custom ua');
+  expect(await page.evaluate(() => window.innerWidth)).toBe(100);
+  await context.close();
+});
+```
 
 ## Testing options
 
@@ -562,7 +628,7 @@ In addition to configuring [Browser] or [BrowserContext], videos or screenshots,
 
 You can specify these options in the configuration file. Note that testing options are **top-level**, do not put them into the `use` section.
 
-```js js-flavor=js
+```js tab=js-js
 // playwright.config.js
 // @ts-check
 
@@ -591,9 +657,9 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
+```js tab=js-ts
 // playwright.config.ts
-import { PlaywrightTestConfig } from '@playwright/test';
+import type { PlaywrightTestConfig } from '@playwright/test';
 
 const config: PlaywrightTestConfig = {
   // Look for test files in the "tests" directory, relative to this configuration file

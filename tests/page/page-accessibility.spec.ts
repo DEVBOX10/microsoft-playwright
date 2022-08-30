@@ -74,7 +74,7 @@ it('should work @smoke', async ({ page, browserName }) => {
       { role: 'textbox', name: 'Input with whitespace', value: '  ' },
       { role: 'textbox', name: '', value: 'value only' },
       { role: 'textbox', name: 'placeholder', value: 'and a value' },
-      { role: 'textbox', name: 'This is a description!',value: 'and a value' }, // webkit uses the description over placeholder for the name
+      { role: 'textbox', name: 'This is a description!', value: 'and a value' }, // webkit uses the description over placeholder for the name
     ]
   };
   expect(await page.accessibility.snapshot()).toEqual(golden);
@@ -102,9 +102,10 @@ it('orientation', async ({ page }) => {
 });
 
 it('autocomplete', async ({ page }) => {
-  await page.setContent('<div role="textbox" aria-autocomplete="list">hi</div>');
+  await page.setContent('<div role="textbox" aria-autocomplete="list" aria-haspopup="menu">hi</div>');
   const snapshot = await page.accessibility.snapshot();
   expect(snapshot.children[0].autocomplete).toEqual('list');
+  expect(snapshot.children[0].haspopup).toEqual('menu');
 });
 
 it('multiselectable', async ({ page }) => {
@@ -173,7 +174,7 @@ it('rich text editable fields should have children', async function({ page, brow
   expect(snapshot.children[0]).toEqual(golden);
 });
 
-it('rich text editable fields with role should have children', async function({ page, browserName, browserMajorVersion }) {
+it('rich text editable fields with role should have children', async function({ page, browserName, browserMajorVersion, browserVersion }) {
   it.skip(browserName === 'webkit', 'WebKit rich text accessibility is iffy');
 
   await page.setContent(`
@@ -193,12 +194,15 @@ it('rich text editable fields with role should have children', async function({ 
     name: '',
     multiline: (browserName === 'chromium' && browserMajorVersion >= 92) ? true : undefined,
     value: 'Edit this image: ',
-    children: [{
+    children: (chromiumVersionLessThan(browserVersion, '104.0.1293.1') && browserName === 'chromium') ? [{
       role: 'text',
       name: 'Edit this image:'
     }, {
       role: 'img',
       name: 'my fake image'
+    }] : [{
+      role: 'text',
+      name: 'Edit this image:'
     }]
   };
   const snapshot = await page.accessibility.snapshot();
@@ -297,9 +301,9 @@ it('should work on a menu', async ({ page, browserName, browserVersion }) => {
     role: 'menu',
     name: 'My Menu',
     children:
-    [ { role: 'menuitem', name: 'First Item' },
+    [{ role: 'menuitem', name: 'First Item' },
       { role: 'menuitem', name: 'Second Item' },
-      { role: 'menuitem', name: 'Third Item' } ],
+      { role: 'menuitem', name: 'Third Item' }],
     orientation: (browserName === 'webkit' || (browserName === 'chromium' && !chromiumVersionLessThan(browserVersion, '98.0.1089'))) ? 'vertical' : undefined
   });
 });

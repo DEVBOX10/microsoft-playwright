@@ -40,7 +40,7 @@ export interface Project<TestArgs = {}, WorkerArgs = {}> extends TestProject {
 export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
   grep: RegExp | RegExp[];
   grepInvert: RegExp | RegExp[] | null;
-  metadata: any;
+  metadata: Metadata;
   name: string;
   snapshotDir: string;
   outputDir: string;
@@ -58,7 +58,7 @@ type LiteralUnion<T extends U, U = string> = T | (U & { zz_IGNORE_ME?: never });
 
 interface TestConfig {
   reporter?: LiteralUnion<'list'|'dot'|'line'|'github'|'json'|'junit'|'null'|'html', string> | ReporterDescription[];
-  webServer?: TestConfigWebServer;
+  webServer?: TestConfigWebServer | TestConfigWebServer[];
 }
 
 export interface Config<TestArgs = {}, WorkerArgs = {}> extends TestConfig {
@@ -66,7 +66,7 @@ export interface Config<TestArgs = {}, WorkerArgs = {}> extends TestConfig {
   use?: UseOptions<TestArgs, WorkerArgs>;
 }
 
-export type Metadata = { [key: string]: string | number | boolean };
+export type Metadata = { [key: string]: any };
 
 // [internal] !!! DO NOT ADD TO THIS !!!
 // [internal] It is part of the public API and is computed from the user's config.
@@ -95,7 +95,7 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
   // [internal] !!! DO NOT ADD TO THIS !!! See prior note.
 }
 
-export type TestStatus = 'passed' | 'failed' | 'timedOut' | 'skipped';
+export type TestStatus = 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
 
 export interface WorkerInfo {
   config: FullConfig;
@@ -109,6 +109,7 @@ export interface TestInfo {
 
 interface SuiteFunction {
   (title: string, callback: () => void): void;
+  (callback: () => void): void;
 }
 
 interface TestFunction<TestArgs> {
@@ -120,6 +121,7 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
   describe: SuiteFunction & {
     only: SuiteFunction;
     skip: SuiteFunction;
+    fixme: SuiteFunction;
     serial: SuiteFunction & {
       only: SuiteFunction;
     };
@@ -148,7 +150,7 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
   beforeAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   afterAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   use(fixtures: Fixtures<{}, {}, TestArgs, WorkerArgs>): void;
-  step(title: string, body: () => Promise<any>): Promise<any>;
+  step<T>(title: string, body: () => Promise<T>): Promise<T>;
   expect: Expect;
   extend<T extends KeyValue, W extends KeyValue = {}>(fixtures: Fixtures<T, W, TestArgs, WorkerArgs>): TestType<TestArgs & T, WorkerArgs & W>;
   info(): TestInfo;
@@ -175,6 +177,7 @@ type ColorScheme = Exclude<BrowserContextOptions['colorScheme'], undefined>;
 type ExtraHTTPHeaders = Exclude<BrowserContextOptions['extraHTTPHeaders'], undefined>;
 type Proxy = Exclude<BrowserContextOptions['proxy'], undefined>;
 type StorageState = Exclude<BrowserContextOptions['storageState'], undefined>;
+type ServiceWorkerPolicy = Exclude<BrowserContextOptions['serviceWorkers'], undefined>;
 type ConnectOptions = {
   /**
    * A browser websocket endpoint to connect to.
@@ -231,6 +234,7 @@ export interface PlaywrightTestOptions {
   contextOptions: BrowserContextOptions;
   actionTimeout: number | undefined;
   navigationTimeout: number | undefined;
+  serviceWorkers: ServiceWorkerPolicy | undefined;
 }
 
 
@@ -248,10 +252,27 @@ export interface PlaywrightTestArgs {
 export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
 export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
 
-import type * as expectType from '@playwright/test/types/expect-types';
-import type { Suite } from '@playwright/test/types/testReporter';
+import type * as expectType from './expect-types';
+import type { Suite } from './testReporter';
 
 type AsymmetricMatcher = Record<string, any>;
+
+type AsymmetricMatchers = {
+  any(sample: unknown): AsymmetricMatcher;
+  anything(): AsymmetricMatcher;
+  arrayContaining(sample: Array<unknown>): AsymmetricMatcher;
+  closeTo(sample: number, precision?: number): AsymmetricMatcher;
+  objectContaining(sample: Record<string, unknown>): AsymmetricMatcher;
+  stringContaining(sample: string): AsymmetricMatcher;
+  stringMatching(sample: string | RegExp): AsymmetricMatcher;
+}
+
+type Inverse<Matchers> = {
+  /**
+   * Inverse next matcher. If you know how to test something, `.not` lets you test its opposite.
+   */
+  not: Matchers;
+};
 
 type IfAny<T, Y, N> = 0 extends (1 & T) ? Y : N;
 type ExtraMatchers<T, Type, Matchers> = T extends Type ? Matchers : IfAny<T, Matchers, {}>;
@@ -278,6 +299,16 @@ type MakeMatchers<R, T> = BaseMatchers<R, T> & {
   ExtraMatchers<T, Locator, LocatorAssertions> &
   ExtraMatchers<T, APIResponse, APIResponseAssertions>;
 
+type BaseExpect = {
+  // Removed following methods because they rely on a test-runner integration from Jest which we don't support:
+  // assertions(numberOfAssertions: number): void;
+  // extractExpectedAssertionsErrors(): ExpectedAssertionsErrors;
+  // hasAssertions(): void;
+  extend(matchers: any): void;
+  getState(): expectType.MatcherState;
+  setState(state: Partial<expectType.MatcherState>): void;
+}
+
 export type Expect = {
   <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }): MakeMatchers<void, T>;
   soft: <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }) => MakeMatchers<void, T>;
@@ -287,23 +318,9 @@ export type Expect = {
      */
      not: BaseMatchers<Promise<void>, T>;
   };
-
-  extend(arg0: any): void;
-  getState(): expectType.MatcherState;
-  setState(state: Partial<expectType.MatcherState>): void;
-  any(expectedObject: any): AsymmetricMatcher;
-  anything(): AsymmetricMatcher;
-  arrayContaining(sample: Array<unknown>): AsymmetricMatcher;
-  objectContaining(sample: Record<string, unknown>): AsymmetricMatcher;
-  stringContaining(expected: string): AsymmetricMatcher;
-  stringMatching(expected: string | RegExp): AsymmetricMatcher;
-  /**
-   * Removed following methods because they rely on a test-runner integration from Jest which we don't support:
-   * - assertions()
-   * - extractExpectedAssertionsErrors()
-   * – hasAssertions()
-   */
-};
+} & BaseExpect &
+  AsymmetricMatchers &
+  Inverse<Omit<AsymmetricMatchers, 'any' | 'anything'>>;
 
 type Awaited<T> = T extends PromiseLike<infer U> ? U : T;
 

@@ -18,7 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
-    runs-on: ubuntu-20.04
+        os: [ubuntu-20.04, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-node@v2
@@ -36,6 +37,7 @@ jobs:
         PWTEST_VIDEO: 1
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
+      shell: bash
     - uses: actions/upload-artifact@v1
       if: ${{ always() }}
       with:

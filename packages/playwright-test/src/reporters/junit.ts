@@ -17,7 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { FullConfig, FullResult, Reporter, Suite, TestCase } from '../../types/testReporter';
-import { monotonicTime } from '../util';
+import { monotonicTime } from 'playwright-core/lib/utils';
 import { formatFailure, formatTestTitle, stripAnsiEscapes } from './base';
 
 class JUnitReporter implements Reporter {
@@ -30,10 +30,17 @@ class JUnitReporter implements Reporter {
   private totalSkipped = 0;
   private outputFile: string | undefined;
   private stripANSIControlSequences = false;
+  private embedAnnotationsAsProperties = false;
+  private textContentAnnotations: string[] | undefined;
+  private embedAttachmentsAsProperty: string | undefined;
 
-  constructor(options: { outputFile?: string, stripANSIControlSequences?: boolean } = {}) {
+
+  constructor(options: { outputFile?: string, stripANSIControlSequences?: boolean, embedAnnotationsAsProperties?: boolean, textContentAnnotations?: string[], embedAttachmentsAsProperty?: string } = {}) {
     this.outputFile = options.outputFile || process.env[`PLAYWRIGHT_JUNIT_OUTPUT_NAME`];
     this.stripANSIControlSequences = options.stripANSIControlSequences || false;
+    this.embedAnnotationsAsProperties = options.embedAnnotationsAsProperties || false;
+    this.textContentAnnotations = options.textContentAnnotations || [];
+    this.embedAttachmentsAsProperty = options.embedAttachmentsAsProperty;
   }
 
   printsToStdio() {
@@ -126,12 +133,90 @@ class JUnitReporter implements Reporter {
       attributes: {
         // Skip root, project, file
         name: test.titlePath().slice(3).join(' '),
-        classname: formatTestTitle(this.config, test),
+        classname: formatTestTitle(this.config, test, undefined, true),
         time: (test.results.reduce((acc, value) => acc + value.duration, 0)) / 1000
       },
       children: [] as XMLEntry[]
     };
     entries.push(entry);
+
+    // Xray Test Management supports testcase level properties, where additional metadata may be provided
+    // some annotations are encoded as value attributes, other as cdata content; this implementation supports
+    // Xray JUnit extensions but it also agnostic, so other tools can also take advantage of this format
+    const properties: XMLEntry = {
+      name: 'properties',
+      children: [] as XMLEntry[]
+    };
+
+    if (this.embedAnnotationsAsProperties && test.annotations) {
+      for (const annotation of test.annotations) {
+        if (this.textContentAnnotations?.includes(annotation.type)) {
+          const property: XMLEntry = {
+            name: 'property',
+            attributes: {
+              name: annotation.type
+            },
+            text: annotation.description
+          };
+          properties.children?.push(property);
+        } else {
+          const property: XMLEntry = {
+            name: 'property',
+            attributes: {
+              name: annotation.type,
+              value: (annotation?.description ? annotation.description : '')
+            }
+          };
+          properties.children?.push(property);
+        }
+      }
+    }
+
+    const systemErr: string[] = [];
+    // attachments are optionally embed as base64 encoded content on inner <item> elements
+    if (this.embedAttachmentsAsProperty) {
+      const evidence: XMLEntry = {
+        name: 'property',
+        attributes: {
+          name: this.embedAttachmentsAsProperty
+        },
+        children: [] as XMLEntry[]
+      };
+      for (const result of test.results) {
+        for (const attachment of result.attachments) {
+          let contents;
+          if (attachment.body) {
+            contents = attachment.body.toString('base64');
+          } else {
+            if (!attachment.path)
+              continue;
+            try {
+              if (fs.existsSync(attachment.path))
+                contents = fs.readFileSync(attachment.path, { encoding: 'base64' });
+              else
+                systemErr.push(`\nWarning: attachment ${attachment.path} is missing`);
+            } catch (e) {
+            }
+          }
+
+          if (contents) {
+            const item: XMLEntry = {
+              name: 'item',
+              attributes: {
+                name: attachment.name
+              },
+              text: contents
+            };
+            evidence.children?.push(item);
+          }
+
+        }
+      }
+      properties.children?.push(evidence);
+    }
+
+    if (properties.children?.length)
+      entry.children.push(properties);
 
     if (test.outcome() === 'skipped') {
       entry.children.push({ name: 'skipped' });
@@ -150,20 +235,21 @@ class JUnitReporter implements Reporter {
     }
 
     const systemOut: string[] = [];
-    const systemErr: string[] = [];
     for (const result of test.results) {
       systemOut.push(...result.stdout.map(item => item.toString()));
       systemErr.push(...result.stderr.map(item => item.toString()));
-      for (const attachment of result.attachments) {
-        if (!attachment.path)
-          continue;
-        try {
-          const attachmentPath = path.relative(this.config.rootDir, attachment.path);
-          if (fs.existsSync(attachment.path))
-            systemOut.push(`\n[[ATTACHMENT|${attachmentPath}]]\n`);
-          else
-            systemErr.push(`\nWarning: attachment ${attachmentPath} is missing`);
-        } catch (e) {
+      if (!this.embedAttachmentsAsProperty) {
+        for (const attachment of result.attachments) {
+          if (!attachment.path)
+            continue;
+          try {
+            const attachmentPath = path.relative(this.config.rootDir, attachment.path);
+            if (fs.existsSync(attachment.path))
+              systemOut.push(`\n[[ATTACHMENT|${attachmentPath}]]\n`);
+            else
+              systemErr.push(`\nWarning: attachment ${attachmentPath} is missing`);
+          } catch (e) {
+          }
         }
       }
     }
@@ -201,10 +287,14 @@ const discouragedXMLCharacters = /[\u0001-\u0008\u000b-\u000c\u000e-\u001f\u007f
 function escape(text: string, stripANSIControlSequences: boolean, isCharacterData: boolean): string {
   if (stripANSIControlSequences)
     text = stripAnsiEscapes(text);
-  const escapeRe = isCharacterData ? /[&<]/g : /[&"<>]/g;
-  text = text.replace(escapeRe, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[c]!));
-  if (isCharacterData)
-    text = text.replace(/]]>/g, ']]&gt;');
+
+  if (isCharacterData) {
+    text = '<![CDATA[' + text.replace(/]]>/g, ']]&gt;') + ']]>';
+  } else {
+    const escapeRe = /[&"'<>]/g;
+    text = text.replace(escapeRe, c => ({ '&': '&amp;', '"': '&quot;', "'": '&apos;', '<': '&lt;', '>': '&gt;' }[c]!));
+  }
+
   text = text.replace(discouragedXMLCharacters, '');
   return text;
 }

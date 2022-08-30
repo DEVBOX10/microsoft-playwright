@@ -17,6 +17,7 @@
 
 import { test as base, expect } from './pageTest';
 import fs from 'fs';
+import type * as har from 'playwright-core/lib/server/har/har';
 
 const it = base.extend<{
   // We access test servers at 10.0.2.2 from inside the browser on Android,
@@ -98,10 +99,11 @@ it('should allow mocking binary responses', async ({ page, server, browserName, 
   expect(await img.screenshot()).toMatchSnapshot('mock-binary-response.png');
 });
 
-it('should allow mocking svg with charset', async ({ page, server, browserName, headless, isAndroid, mode }) => {
+it('should allow mocking svg with charset', async ({ page, server, browserName, headless, isAndroid, isElectron, mode }) => {
   it.skip(mode === 'service');
   it.skip(browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
   it.skip(isAndroid);
+  it.skip(isElectron, 'Protocol error (Storage.getCookies): Browser context management is not supported');
 
   await page.route('**/*', route => {
     route.fulfill({
@@ -119,9 +121,8 @@ it('should allow mocking svg with charset', async ({ page, server, browserName, 
   expect(await img.screenshot()).toMatchSnapshot('mock-svg.png');
 });
 
-it('should work with file path', async ({ page, server, asset, isAndroid, mode }) => {
-  it.skip(mode === 'service');
-  it.skip(isAndroid);
+it('should work with file path', async ({ page, server, asset, mode, isAndroid }) => {
+  it.skip(mode === 'service' || isAndroid);
 
   await page.route('**/*', route => route.fulfill({ contentType: 'shouldBeIgnored', path: asset('pptr.png') }));
   await page.evaluate(PREFIX => {
@@ -268,9 +269,8 @@ it('should fetch original request and fulfill', async ({ page, server, isElectro
   expect(await page.title()).toEqual('Woof-Woof');
 });
 
-it('should fulfill with multiple set-cookie', async ({ page, server, isAndroid, isElectron }) => {
+it('should fulfill with multiple set-cookie', async ({ page, server, isElectron }) => {
   it.fixme(isElectron, 'Electron 14+ is required');
-  it.fixme(isAndroid);
   const cookies = ['a=b', 'c=d'];
   await page.route('**/empty.html', async route => {
     route.fulfill({
@@ -321,3 +321,35 @@ it('headerValue should return set-cookie from intercepted response', async ({ pa
   const response = await page.goto(server.EMPTY_PAGE);
   expect(await response.headerValue('Set-Cookie')).toBe('a=b');
 });
+
+it('should fulfill with har response', async ({ page, asset }) => {
+  const harPath = asset('har-fulfill.har');
+  const har = JSON.parse(await fs.promises.readFile(harPath, 'utf-8')) as har.HARFile;
+  await page.route('**/*', async route => {
+    const response = findResponse(har, route.request().url());
+    const headers = {};
+    for (const { name, value } of response.headers)
+      headers[name] = value;
+    await route.fulfill({
+      status: response.status,
+      headers,
+      body: Buffer.from(response.content.text || '', (response.content.encoding as 'base64' | undefined) || 'utf-8'),
+    });
+  });
+  await page.goto('http://no.playwright/');
+  // HAR contains a redirect for the script.
+  expect(await page.evaluate('window.value')).toBe('foo');
+  // HAR contains a POST for the css file but we match ignoring the method, so the file should be served.
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(0, 255, 255)');
+});
+
+function findResponse(har: har.HARFile, url: string): har.Response {
+  let entry;
+  const originalUrl = url;
+  while (url.trim()) {
+    entry = har.log.entries.find(entry => entry.request.url === url);
+    url = entry?.response.redirectURL;
+  }
+  expect(entry, originalUrl).toBeTruthy();
+  return entry?.response;
+}

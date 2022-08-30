@@ -69,7 +69,7 @@ it('should delete header with undefined value', async ({ page, server, browserNa
     server.waitForRequest('/something')
   ]);
   expect(text).toBe('done');
-  expect(interceptedRequest.headers()['foo']).toEqual('a');
+  expect(interceptedRequest.headers()['foo']).toEqual(undefined);
   expect(serverRequest.headers.foo).toBeFalsy();
   expect(serverRequest.headers.bar).toBe('b');
 });
@@ -161,8 +161,6 @@ it('should amend method on main request', async ({ page, server }) => {
 });
 
 it.describe('post data', () => {
-  it.fixme(({ isAndroid }) => isAndroid, 'Post data does not work');
-
   it('should amend post data', async ({ page, server }) => {
     await page.goto(server.EMPTY_PAGE);
     await page.route('**/*', route => {
@@ -173,6 +171,24 @@ it.describe('post data', () => {
       page.evaluate(() => fetch('/sleep.zzz', { method: 'POST', body: 'birdy' }))
     ]);
     expect((await serverRequest.postBody).toString('utf8')).toBe('doggo');
+  });
+
+  it('should compute content-length from post data', async ({ page, server }) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16027' });
+    await page.goto(server.EMPTY_PAGE);
+    const data = 'a'.repeat(7500);
+    await page.route('**/*', route => {
+      const headers = route.request().headers();
+      headers['content-type'] =  'application/json';
+      route.continue({ postData: data, headers });
+    });
+    const [serverRequest] = await Promise.all([
+      server.waitForRequest('/sleep.zzz'),
+      page.evaluate(() => fetch('/sleep.zzz', { method: 'PATCH', body: 'birdy' }))
+    ]);
+    expect((await serverRequest.postBody).toString('utf8')).toBe(data);
+    expect(serverRequest.headers['content-length']).toBe(String(data.length));
+    expect(serverRequest.headers['content-type']).toBe('application/json');
   });
 
   it('should amend method and post data', async ({ page, server }) => {
@@ -229,6 +245,25 @@ it.describe('post data', () => {
     expect(buffer.length).toBe(arr.length);
     for (let i = 0; i < arr.length; ++i)
       expect(arr[i]).toBe(buffer[i]);
+  });
+
+  it('should use content-type from original request', async ({ page, server, browserName }) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16736' });
+    it.fixme(browserName === 'firefox');
+    await page.goto(server.EMPTY_PAGE);
+    await page.route(`${server.PREFIX}/title.html`, route => route.continue({ postData: '{"b":2}' }));
+    const [request] = await Promise.all([
+      server.waitForRequest('/title.html'),
+      page.evaluate(async url => {
+        await fetch(url, {
+          method: 'POST',
+          body: '{"a":1}',
+          headers: { 'content-type': 'application/json' },
+        });
+      }, `${server.PREFIX}/title.html`)
+    ]);
+    expect(request.headers['content-type']).toBe('application/json');
+    expect((await request.postBody).toString('utf-8')).toBe('{"b":2}');
   });
 });
 
@@ -311,7 +346,6 @@ it('should delete the origin header', async ({ page, server, isAndroid, browserN
     server.waitForRequest('/something')
   ]);
   expect(text).toBe('done');
-  expect(interceptedRequest.headers()['origin']).toEqual(server.PREFIX);
+  expect(interceptedRequest.headers()['origin']).toEqual(undefined);
   expect(serverRequest.headers.origin).toBeFalsy();
 });
-

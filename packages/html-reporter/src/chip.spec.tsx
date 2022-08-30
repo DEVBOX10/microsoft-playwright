@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
-import { expect, test } from '@playwright/experimental-ct-react/test';
+import { expect, test } from '@playwright/experimental-ct-react';
 import { AutoChip, Chip as LocalChip } from './chip';
 
 test.use({ viewport: { width: 500, height: 500 } });

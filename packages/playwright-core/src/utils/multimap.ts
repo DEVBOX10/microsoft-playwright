@@ -38,6 +38,18 @@ export class MultiMap<K, V> {
     return this._map.has(key);
   }
 
+  delete(key: K, value: V) {
+    const values = this._map.get(key);
+    if (!values)
+      return;
+    if (values.includes(value))
+      this._map.set(key, values.filter(v => value !== v));
+  }
+
+  deleteAll(key: K) {
+    this._map.delete(key);
+  }
+
   hasValue(key: K, value: V): boolean {
     const values = this._map.get(key);
     if (!values)
@@ -47,6 +59,10 @@ export class MultiMap<K, V> {
 
   get size(): number {
     return this._map.size;
+  }
+
+  [Symbol.iterator](): Iterator<[K, V[]]> {
+    return this._map[Symbol.iterator]();
   }
 
   keys(): IterableIterator<K> {

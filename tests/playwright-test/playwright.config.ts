@@ -26,16 +26,12 @@ const config: Config = {
   testIgnore: ['assets/**', 'stable-test-runner/**'],
   timeout: 30000,
   forbidOnly: !!process.env.CI,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? 2 : undefined,
   preserveOutput: process.env.CI ? 'failures-only' : 'always',
   projects: [
     {
       name: 'playwright-test'
     },
-    {
-      name: 'playwright-test-legacy-config',
-      use: { legacyConfigLoader: true },
-    } as any,
   ],
   reporter: process.env.CI ? [
     ['dot'],

@@ -31,18 +31,28 @@ const packageJSON = require('../../../package.json');
 const dockerVersionFilePath = '/ms-playwright/.docker-info';
 export async function writeDockerVersion(dockerImageNameTemplate: string) {
   await fs.promises.mkdir(path.dirname(dockerVersionFilePath), { recursive: true });
-  await fs.promises.writeFile(dockerVersionFilePath, JSON.stringify({
-    driverVersion: packageJSON.version,
-    dockerImageName: dockerImageNameTemplate.replace('%version%', packageJSON.version),
-  }, null, 2), 'utf8');
+  await fs.promises.writeFile(dockerVersionFilePath, JSON.stringify(dockerVersion(dockerImageNameTemplate), null, 2), 'utf8');
   // Make sure version file is globally accessible.
   await fs.promises.chmod(dockerVersionFilePath, 0o777);
 }
 
-async function readDockerVersion(): Promise<null | { driverVersion: string, dockerImageName: string }> {
-  return await fs.promises.readFile(dockerVersionFilePath, 'utf8')
-      .then(text => JSON.parse(text))
-      .catch(e => null);
+export function dockerVersion(dockerImageNameTemplate: string): { driverVersion: string, dockerImageName: string } {
+  return {
+    driverVersion: packageJSON.version,
+    dockerImageName: dockerImageNameTemplate.replace('%version%', packageJSON.version),
+  };
+}
+
+export function readDockerVersionSync(): null | { driverVersion: string, dockerImageName: string, dockerImageNameTemplate: string } {
+  try {
+    const data = JSON.parse(fs.readFileSync(dockerVersionFilePath, 'utf8'));
+    return {
+      ...data,
+      dockerImageNameTemplate: data.dockerImageName.replace(data.driverVersion, '%version%'),
+    };
+  } catch (e) {
+    return null;
+  }
 }
 
 const checkExecutable = (filePath: string) => fs.promises.access(filePath, fs.constants.X_OK).then(() => true).catch(e => false);
@@ -75,8 +85,13 @@ export async function installDependenciesWindows(targets: Set<DependencyGroup>, 
 
 export async function installDependenciesLinux(targets: Set<DependencyGroup>, dryRun: boolean) {
   const libraries: string[] = [];
+  let platform = hostPlatform;
+  if (platform === 'generic-linux' || platform === 'generic-linux-arm64') {
+    console.warn('BEWARE: your OS is not officially supported by Playwright; installing dependencies for Ubuntu as a fallback.'); // eslint-disable-line no-console
+    platform = hostPlatform === 'generic-linux' ? 'ubuntu20.04' : 'ubuntu20.04-arm64';
+  }
   for (const target of targets) {
-    const info = deps[hostPlatform];
+    const info = deps[platform];
     if (!info) {
       console.warn('Cannot install dependencies for this linux distribution!');  // eslint-disable-line no-console
       return;
@@ -85,7 +100,7 @@ export async function installDependenciesLinux(targets: Set<DependencyGroup>, dr
   }
   const uniqueLibraries = Array.from(new Set(libraries));
   if (!dryRun)
-    console.log('Installing Ubuntu dependencies...');  // eslint-disable-line no-console
+    console.log(`Installing dependencies...`);  // eslint-disable-line no-console
   const commands: string[] = [];
   commands.push('apt-get update');
   commands.push(['apt-get', 'install', '-y', '--no-install-recommends',
@@ -187,10 +202,10 @@ export async function validateDependenciesLinux(sdkLanguage: string, linuxLddDir
   // Check Ubuntu version.
   const missingPackages = new Set();
 
-  const libraryToPackageNameMapping = {
+  const libraryToPackageNameMapping = deps[hostPlatform] ? {
     ...(deps[hostPlatform]?.lib2package || {}),
     ...MANUAL_LIBRARY_TO_PACKAGE_NAME_UBUNTU,
-  };
+  } : {};
   // Translate missing dependencies to package names to install with apt.
   for (const missingDep of missingDeps) {
     const packageName = libraryToPackageNameMapping[missingDep];
@@ -201,7 +216,7 @@ export async function validateDependenciesLinux(sdkLanguage: string, linuxLddDir
   }
 
   const maybeSudo = (process.getuid() !== 0) && os.platform() !== 'win32' ? 'sudo ' : '';
-  const dockerInfo = await readDockerVersion();
+  const dockerInfo = readDockerVersionSync();
   const errorLines = [
     `Host system is missing dependencies to run browsers.`,
   ];
@@ -223,7 +238,7 @@ export async function validateDependenciesLinux(sdkLanguage: string, linuxLddDir
       ``,
       `    ${maybeSudo}${buildPlaywrightCLICommand(sdkLanguage, 'install-deps')}`,
       ``,
-      `- (alternative 2) use Aptitude inside docker:`,
+      `- (alternative 2) use apt inside docker:`,
       ``,
       `    ${maybeSudo}apt-get install ${[...missingPackages].join('\\\n        ')}`,
       ``,
@@ -237,7 +252,7 @@ export async function validateDependenciesLinux(sdkLanguage: string, linuxLddDir
       ``,
       `    ${maybeSudo}${buildPlaywrightCLICommand(sdkLanguage, 'install-deps')}`,
       ``,
-      `Alternatively, use Aptitude:`,
+      `Alternatively, use apt:`,
       `    ${maybeSudo}apt-get install ${[...missingPackages].join('\\\n        ')}`,
       ``,
       `<3 Playwright Team`,

@@ -35,7 +35,7 @@ Here is the complete list of actionability checks performed for each action:
 | innerHTML | Yes | - | - | - | - | - |
 | press | Yes | - | - | - | - | - |
 | setInputFiles | Yes | - | - | - | - | - |
-| selectOption | Yes | - | - | - | - | - |
+| selectOption | Yes | Yes | - | - | Yes | - |
 | textContent | Yes | - | - | - | - | - |
 | type | Yes | - | - | - | - | - |
 
@@ -65,6 +65,12 @@ actionable state:
 - [`method: Page.isEnabled`]
 - [`method: Page.isHidden`]
 - [`method: Page.isVisible`]
+- [`method: Locator.isChecked`]
+- [`method: Locator.isDisabled`]
+- [`method: Locator.isEditable`]
+- [`method: Locator.isEnabled`]
+- [`method: Locator.isHidden`]
+- [`method: Locator.isVisible`]
 
 <br/>
 
@@ -82,7 +88,7 @@ Element is considered stable when it has maintained the same bounding box for at
 
 ## Enabled
 
-Element is considered enabled when it is not a `<button>`, `<select>`, `<input>` or `<textarea>` with a `disabled` property set.
+Element is considered enabled unless it is a `<button>`, `<select>`, `<input>` or `<textarea>` with a `disabled` property.
 
 ## Editable
 

@@ -18,14 +18,14 @@ import type { BrowserContext } from '../browserContext';
 import type { Frame } from '../frames';
 import { Page, Worker } from '../page';
 import type * as channels from '../../protocol/channels';
-import type { DispatcherScope } from './dispatcher';
 import { Dispatcher, existingDispatcher, lookupDispatcher, lookupNullableDispatcher } from './dispatcher';
 import { parseError, serializeError } from '../../protocol/serializers';
 import { ConsoleMessageDispatcher } from './consoleMessageDispatcher';
 import { DialogDispatcher } from './dialogDispatcher';
 import { FrameDispatcher } from './frameDispatcher';
+import { RequestDispatcher } from './networkDispatchers';
 import type { ResponseDispatcher } from './networkDispatchers';
-import { RequestDispatcher, RouteDispatcher, WebSocketDispatcher } from './networkDispatchers';
+import { RouteDispatcher, WebSocketDispatcher } from './networkDispatchers';
 import { serializeResult, parseArgument } from './jsHandleDispatcher';
 import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import type { FileChooser } from '../fileChooser';
@@ -36,51 +36,62 @@ import type { Artifact } from '../artifact';
 import { ArtifactDispatcher } from './artifactDispatcher';
 import type { Download } from '../download';
 import { createGuid } from '../../utils';
+import type { BrowserContextDispatcher } from './browserContextDispatcher';
 
-export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> implements channels.PageChannel {
+export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, BrowserContextDispatcher> implements channels.PageChannel {
   _type_EventTarget = true;
   _type_Page = true;
   private _page: Page;
 
-  static fromNullable(scope: DispatcherScope, page: Page | undefined): PageDispatcher | undefined {
+  static from(parentScope: BrowserContextDispatcher, page: Page): PageDispatcher {
+    return PageDispatcher.fromNullable(parentScope, page)!;
+  }
+
+  static fromNullable(parentScope: BrowserContextDispatcher, page: Page | undefined): PageDispatcher | undefined {
     if (!page)
       return undefined;
     const result = existingDispatcher<PageDispatcher>(page);
-    return result || new PageDispatcher(scope, page);
+    return result || new PageDispatcher(parentScope, page);
   }
 
-  constructor(scope: DispatcherScope, page: Page) {
+  private constructor(parentScope: BrowserContextDispatcher, page: Page) {
     // TODO: theoretically, there could be more than one frame already.
     // If we split pageCreated and pageReady, there should be no main frame during pageCreated.
-    super(scope, page, 'Page', {
-      mainFrame: FrameDispatcher.from(scope, page.mainFrame()),
+
+    // We will reparent it to the page below using adopt.
+    const mainFrame = FrameDispatcher.from(parentScope as any as PageDispatcher, page.mainFrame());
+
+    super(parentScope, page, 'Page', {
+      mainFrame,
       viewportSize: page.viewportSize() || undefined,
       isClosed: page.isClosed(),
-      opener: PageDispatcher.fromNullable(scope, page.opener())
-    }, true);
+      opener: PageDispatcher.fromNullable(parentScope, page.opener())
+    });
+
+    this.adopt(mainFrame);
+
     this._page = page;
-    page.on(Page.Events.Close, () => {
+    this.addObjectListener(Page.Events.Close, () => {
       this._dispatchEvent('close');
       this._dispose();
     });
-    page.on(Page.Events.Console, message => this._dispatchEvent('console', { message: new ConsoleMessageDispatcher(this._scope, message) }));
-    page.on(Page.Events.Crash, () => this._dispatchEvent('crash'));
-    page.on(Page.Events.DOMContentLoaded, () => this._dispatchEvent('domcontentloaded'));
-    page.on(Page.Events.Dialog, dialog => this._dispatchEvent('dialog', { dialog: new DialogDispatcher(this._scope, dialog) }));
-    page.on(Page.Events.Download, (download: Download) => {
-      this._dispatchEvent('download', { url: download.url, suggestedFilename: download.suggestedFilename(), artifact: new ArtifactDispatcher(scope, download.artifact) });
+    this.addObjectListener(Page.Events.Console, message => this._dispatchEvent('console', { message: new ConsoleMessageDispatcher(this, message) }));
+    this.addObjectListener(Page.Events.Crash, () => this._dispatchEvent('crash'));
+    this.addObjectListener(Page.Events.Dialog, dialog => this._dispatchEvent('dialog', { dialog: new DialogDispatcher(this, dialog) }));
+    this.addObjectListener(Page.Events.Download, (download: Download) => {
+      // Artifact can outlive the page, so bind to the context scope.
+      this._dispatchEvent('download', { url: download.url, suggestedFilename: download.suggestedFilename(), artifact: new ArtifactDispatcher(parentScope, download.artifact) });
     });
-    this._page.on(Page.Events.FileChooser, (fileChooser: FileChooser) => this._dispatchEvent('fileChooser', {
-      element: ElementHandleDispatcher.from(this._scope, fileChooser.element()),
+    this.addObjectListener(Page.Events.FileChooser, (fileChooser: FileChooser) => this._dispatchEvent('fileChooser', {
+      element: ElementHandleDispatcher.from(this, fileChooser.element()),
       isMultiple: fileChooser.isMultiple()
     }));
-    page.on(Page.Events.FrameAttached, frame => this._onFrameAttached(frame));
-    page.on(Page.Events.FrameDetached, frame => this._onFrameDetached(frame));
-    page.on(Page.Events.Load, () => this._dispatchEvent('load'));
-    page.on(Page.Events.PageError, error => this._dispatchEvent('pageError', { error: serializeError(error) }));
-    page.on(Page.Events.WebSocket, webSocket => this._dispatchEvent('webSocket', { webSocket: new WebSocketDispatcher(this._scope, webSocket) }));
-    page.on(Page.Events.Worker, worker => this._dispatchEvent('worker', { worker: new WorkerDispatcher(this._scope, worker) }));
-    page.on(Page.Events.Video, (artifact: Artifact) => this._dispatchEvent('video', { artifact: existingDispatcher<ArtifactDispatcher>(artifact) }));
+    this.addObjectListener(Page.Events.FrameAttached, frame => this._onFrameAttached(frame));
+    this.addObjectListener(Page.Events.FrameDetached, frame => this._onFrameDetached(frame));
+    this.addObjectListener(Page.Events.PageError, error => this._dispatchEvent('pageError', { error: serializeError(error) }));
+    this.addObjectListener(Page.Events.WebSocket, webSocket => this._dispatchEvent('webSocket', { webSocket: new WebSocketDispatcher(this, webSocket) }));
+    this.addObjectListener(Page.Events.Worker, worker => this._dispatchEvent('worker', { worker: new WorkerDispatcher(this, worker) }));
+    this.addObjectListener(Page.Events.Video, (artifact: Artifact) => this._dispatchEvent('video', { artifact: existingDispatcher<ArtifactDispatcher>(artifact) }));
     if (page._video)
       this._dispatchEvent('video', { artifact: existingDispatcher<ArtifactDispatcher>(page._video) });
     // Ensure client knows about all frames.
@@ -103,14 +114,10 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> imple
 
   async exposeBinding(params: channels.PageExposeBindingParams, metadata: CallMetadata): Promise<void> {
     await this._page.exposeBinding(params.name, !!params.needsHandle, (source, ...args) => {
-      const binding = new BindingCallDispatcher(this._scope, params.name, !!params.needsHandle, source, args);
+      const binding = new BindingCallDispatcher(this, params.name, !!params.needsHandle, source, args);
       this._dispatchEvent('bindingCall', { binding });
       return binding.promise();
     });
-  }
-
-  async removeExposedBindings() {
-    await this._page.removeExposedBindings();
   }
 
   async setExtraHTTPHeaders(params: channels.PageSetExtraHTTPHeadersParams, metadata: CallMetadata): Promise<void> {
@@ -146,17 +153,13 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> imple
     await this._page.addInitScript(params.source);
   }
 
-  async removeInitScripts(): Promise<void> {
-    await this._page.removeInitScripts();
-  }
-
   async setNetworkInterceptionEnabled(params: channels.PageSetNetworkInterceptionEnabledParams, metadata: CallMetadata): Promise<void> {
     if (!params.enabled) {
       await this._page.setClientRequestInterceptor(undefined);
       return;
     }
     await this._page.setClientRequestInterceptor((route, request) => {
-      this._dispatchEvent('route', { route: RouteDispatcher.from(this._scope, route), request: RequestDispatcher.from(this._scope, request) });
+      this._dispatchEvent('route', { route: RouteDispatcher.from(RequestDispatcher.from(this.parentScope(), request), route) });
     });
   }
 
@@ -169,23 +172,14 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> imple
       frame: (params.locator.frame as FrameDispatcher)._object,
       selector: params.locator.selector,
     } : undefined;
-    const expected = params.expected ? Buffer.from(params.expected, 'base64') : undefined;
-    const result = await this._page.expectScreenshot(metadata, {
+    return await this._page.expectScreenshot(metadata, {
       ...params,
-      expected,
       locator,
       screenshotOptions: {
         ...params.screenshotOptions,
         mask,
       },
     });
-    return {
-      diff: result.diff?.toString('base64'),
-      errorMessage: result.errorMessage,
-      actual: result.actual?.toString('base64'),
-      previous: result.previous?.toString('base64'),
-      log: result.log,
-    };
   }
 
   async screenshot(params: channels.PageScreenshotParams, metadata: CallMetadata): Promise<channels.PageScreenshotResult> {
@@ -193,7 +187,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> imple
       frame: (frame as FrameDispatcher)._object,
       selector,
     }));
-    return { binary: (await this._page.screenshot(metadata, { ...params, mask })).toString('base64') };
+    return { binary: await this._page.screenshot(metadata, { ...params, mask }) };
   }
 
   async close(params: channels.PageCloseParams, metadata: CallMetadata): Promise<void> {
@@ -260,7 +254,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> imple
     if (!this._page.pdf)
       throw new Error('PDF generation is only supported for Headless Chromium');
     const buffer = await this._page.pdf(params);
-    return { pdf: buffer.toString('base64') };
+    return { pdf: buffer };
   }
 
   async bringToFront(params: channels.PageBringToFrontParams, metadata: CallMetadata): Promise<void> {
@@ -274,7 +268,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> imple
 
   async stopJSCoverage(params: channels.PageStopJSCoverageParams, metadata: CallMetadata): Promise<channels.PageStopJSCoverageResult> {
     const coverage = this._page.coverage as CRCoverage;
-    return { entries: await coverage.stopJSCoverage() };
+    return await coverage.stopJSCoverage();
   }
 
   async startCSSCoverage(params: channels.PageStartCSSCoverageParams, metadata: CallMetadata): Promise<void> {
@@ -284,26 +278,39 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel> imple
 
   async stopCSSCoverage(params: channels.PageStopCSSCoverageParams, metadata: CallMetadata): Promise<channels.PageStopCSSCoverageResult> {
     const coverage = this._page.coverage as CRCoverage;
-    return { entries: await coverage.stopCSSCoverage() };
+    return await coverage.stopCSSCoverage();
   }
 
   _onFrameAttached(frame: Frame) {
-    this._dispatchEvent('frameAttached', { frame: FrameDispatcher.from(this._scope, frame) });
+    this._dispatchEvent('frameAttached', { frame: FrameDispatcher.from(this, frame) });
   }
 
   _onFrameDetached(frame: Frame) {
     this._dispatchEvent('frameDetached', { frame: lookupDispatcher<FrameDispatcher>(frame) });
   }
+
+  override _dispose() {
+    super._dispose();
+    this._page.setClientRequestInterceptor(undefined).catch(() => {});
+  }
 }
 
 
-export class WorkerDispatcher extends Dispatcher<Worker, channels.WorkerChannel> implements channels.WorkerChannel {
+export class WorkerDispatcher extends Dispatcher<Worker, channels.WorkerChannel, PageDispatcher | BrowserContextDispatcher> implements channels.WorkerChannel {
   _type_Worker = true;
-  constructor(scope: DispatcherScope, worker: Worker) {
+
+  static fromNullable(scope: PageDispatcher | BrowserContextDispatcher, worker: Worker | null): WorkerDispatcher | undefined {
+    if (!worker)
+      return undefined;
+    const result = existingDispatcher<WorkerDispatcher>(worker);
+    return result || new WorkerDispatcher(scope, worker);
+  }
+
+  constructor(scope: PageDispatcher | BrowserContextDispatcher, worker: Worker) {
     super(scope, worker, 'Worker', {
       url: worker.url()
     });
-    worker.on(Worker.Events.Close, () => this._dispatchEvent('close'));
+    this.addObjectListener(Worker.Events.Close, () => this._dispatchEvent('close'));
   }
 
   async evaluateExpression(params: channels.WorkerEvaluateExpressionParams, metadata: CallMetadata): Promise<channels.WorkerEvaluateExpressionResult> {
@@ -311,17 +318,17 @@ export class WorkerDispatcher extends Dispatcher<Worker, channels.WorkerChannel>
   }
 
   async evaluateExpressionHandle(params: channels.WorkerEvaluateExpressionHandleParams, metadata: CallMetadata): Promise<channels.WorkerEvaluateExpressionHandleResult> {
-    return { handle: ElementHandleDispatcher.fromJSHandle(this._scope, await this._object.evaluateExpressionHandle(params.expression, params.isFunction, parseArgument(params.arg))) };
+    return { handle: ElementHandleDispatcher.fromJSHandle(this, await this._object.evaluateExpressionHandle(params.expression, params.isFunction, parseArgument(params.arg))) };
   }
 }
 
-export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels.BindingCallChannel> implements channels.BindingCallChannel {
+export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels.BindingCallChannel, PageDispatcher | BrowserContextDispatcher> implements channels.BindingCallChannel {
   _type_BindingCall = true;
   private _resolve: ((arg: any) => void) | undefined;
   private _reject: ((error: any) => void) | undefined;
   private _promise: Promise<any>;
 
-  constructor(scope: DispatcherScope, name: string, needsHandle: boolean, source: { context: BrowserContext, page: Page, frame: Frame }, args: any[]) {
+  constructor(scope: PageDispatcher, name: string, needsHandle: boolean, source: { context: BrowserContext, page: Page, frame: Frame }, args: any[]) {
     super(scope, { guid: 'bindingCall@' + createGuid() }, 'BindingCall', {
       frame: lookupDispatcher<FrameDispatcher>(source.frame),
       name,

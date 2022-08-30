@@ -28,7 +28,8 @@ test('should return the location of a syntax error', async ({ runInlineTest }) =
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(0);
-  expect(result.output).toContain('error.spec.js:6');
+  expect(result.output).toContain('error.spec.js');
+  expect(result.output).toContain('(6:18)');
 });
 
 test('should print an improper error', async ({ runInlineTest }) => {
@@ -87,7 +88,7 @@ test('should allow export default form the config file', async ({ runInlineTest 
 
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Timeout of 1000ms exceeded.');
+  expect(result.output).toContain('Test timeout of 1000ms exceeded.');
 });
 
 test('should validate configuration object', async ({ runInlineTest }) => {
@@ -163,19 +164,17 @@ test('should load an mjs file', async ({ runInlineTest }) => {
   expect(exitCode).toBe(0);
 });
 
-test('should throw a nice error if a js file uses import', async ({ runInlineTest }) => {
-  const { exitCode, output } = await runInlineTest({
+test('should allow using import', async ({ runInlineTest }) => {
+  const { exitCode } = await runInlineTest({
     'a.spec.js': `
         import fs from 'fs';
-        const { test } = folio;
+        const { test } = pwt;
         test('succeeds', () => {
           expect(1 + 1).toBe(2);
         });
       `
   });
-  expect(exitCode).toBe(1);
-  expect(output).toContain('a.spec.js');
-  expect(output).toContain('JavaScript files must end with .mjs to use import.');
+  expect(exitCode).toBe(0);
 });
 
 test('should load esm when package.json has type module', async ({ runInlineTest }) => {
@@ -217,7 +216,9 @@ test('should load esm config files', async ({ runInlineTest }) => {
   expect(result.passed).toBe(1);
 });
 
-test('should fail to load ts from esm when package.json has type module', async ({ runInlineTest }) => {
+test('should load ts from esm when package.json has type module', async ({ runInlineTest, nodeVersion }) => {
+  // We only support experimental esm mode on Node 16+
+  test.skip(nodeVersion.major < 16);
   const result = await runInlineTest({
     'playwright.config.js': `
       //@no-header
@@ -226,19 +227,24 @@ test('should fail to load ts from esm when package.json has type module', async 
     `,
     'package.json': JSON.stringify({ type: 'module' }),
     'a.test.js': `
-      import { foo } from './b.ts';
-      const { test } = pwt;
+      //@no-header
+      import { test, expect } from '@playwright/test';
+      import { bar } from './bar.js';
       test('check project name', ({}, testInfo) => {
         expect(testInfo.project.name).toBe('foo');
       });
     `,
-    'b.ts': `
+    'bar.ts': `
+      import { foo } from './foo.js';
+      export const bar = foo;
+    `,
+    'foo.ts': `
       export const foo: string = 'foo';
     `
   });
 
-  expect(result.exitCode).toBe(1);
-  expect(result.output).toContain('Cannot import a typescript file from an esmodule');
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
 });
 
 test('should filter stack trace for simple expect', async ({ runInlineTest }) => {
@@ -411,4 +417,35 @@ test('should work with cross-imports - 2', async ({ runInlineTest }) => {
   expect(result.failed).toBe(0);
   expect(result.output).toContain('TEST-1');
   expect(result.output).toContain('TEST-2');
+});
+
+test('should load web server w/o esm loader in ems module', async ({ runInlineTest, nodeVersion }) => {
+  // We only support experimental esm mode on Node 16+
+  test.skip(nodeVersion.major < 16);
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      //@no-header
+      export default {
+        webServer: {
+          command: 'node ws.js',
+          port: 9876,
+          timeout: 100,
+        },
+        projects: [{name: 'foo'}]
+      }`,
+    'package.json': `{ "type": "module" }`,
+    'ws.js': `
+      //@no-header
+      console.log('NODE_OPTIONS ' + process.env.NODE_OPTIONS);
+      setTimeout(() => {}, 100000);
+    `,
+    'a.test.ts': `
+      const { test } = pwt;
+      test('passes', () => {});
+    `
+  }, {}, { ...process.env, DEBUG: 'pw:webserver' });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(0);
+  expect(result.output).toContain('NODE_OPTIONS undefined');
 });

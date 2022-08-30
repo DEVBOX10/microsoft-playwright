@@ -16,6 +16,13 @@ app UI). For [HTTP authentication](https://developer.mozilla.org/en-US/docs/Web/
 
 <!-- TOC -->
 
+## Playwright Test vs. Library
+* langs: js
+
+:::caution
+This guide is for [Playwright Library](./library.md), if you are using Playwright Test (`@playwright/test`) see [here](./test-auth.md).
+:::
+
 ## Automate logging in
 
 The Playwright API can automate interaction with a login form. See
@@ -29,10 +36,10 @@ const page = await context.newPage();
 await page.goto('https://github.com/login');
 
 // Interact with login form
-await page.click('text=Login');
-await page.fill('input[name="login"]', USERNAME);
-await page.fill('input[name="password"]', PASSWORD);
-await page.click('text=Submit');
+await page.locator('text=Login').click();
+await page.locator('input[name="login"]').fill(USERNAME);
+await page.locator('input[name="password"]').fill(PASSWORD);
+await page.locator('text=Submit').click();
 // Verify app is logged in
 ```
 
@@ -40,10 +47,10 @@ await page.click('text=Submit');
 Page page = context.newPage();
 page.navigate("https://github.com/login");
 // Interact with login form
-page.click("text=Login");
-page.fill("input[name='login']", USERNAME);
-page.fill("input[name='password']", PASSWORD);
-page.click("text=Submit");
+page.locator("text=Login").click();
+page.locator("input[name='login']").fill(USERNAME);
+page.locator("input[name='password']").fill(PASSWORD);
+page.locator("text=Submit").click();
 // Verify app is logged in
 ```
 
@@ -52,10 +59,10 @@ page = await context.new_page()
 await page.goto('https://github.com/login')
 
 # Interact with login form
-await page.click('text=Login')
-await page.fill('input[name="login"]', USERNAME)
-await page.fill('input[name="password"]', PASSWORD)
-await page.click('text=Submit')
+await page.locator('text=Login').click()
+await page.locator('input[name="login"]').fill(USERNAME)
+await page.locator('input[name="password"]').fill(PASSWORD)
+await page.locator('text=Submit').click()
 # Verify app is logged in
 ```
 
@@ -64,21 +71,21 @@ page = context.new_page()
 page.goto('https://github.com/login')
 
 # Interact with login form
-page.click('text=Login')
-page.fill('input[name="login"]', USERNAME)
-page.fill('input[name="password"]', PASSWORD)
-page.click('text=Submit')
+page.locator('text=Login').click()
+page.locator('input[name="login"]').fill(USERNAME)
+page.locator('input[name="password"]').fill(PASSWORD)
+page.locator('text=Submit').click()
 # Verify app is logged in
 ```
 
 ```csharp
 var page = await context.NewPageAsync();
-await page.NavigateAsync("https://github.com/login");
+await page.GotoAsync("https://github.com/login");
 // Interact with login form
-await page.ClickAsync("text=Login");
-await page.FillAsync("input[name='login']", USERNAME);
-await page.FillAsync("input[name='password']", PASSWORD);
-await page.ClickAsync("text=Submit");
+await page.Locator("text=Login").ClickAsync();
+await page.Locator("input[name='login']").FillAsync(USERNAME);
+await page.Locator("input[name='password']").FillAsync(PASSWORD);
+await page.Locator("text=Submit").ClickAsync();
 // Verify app is logged in
 ```
 
@@ -135,19 +142,20 @@ context = browser.new_context(storage_state="state.json")
 
 ```csharp
 // Save storage state into the file.
-await context.StorageStateAsync(new BrowserContextStorageStateOptions
+await context.StorageStateAsync(new()
 {
     Path = "state.json"
 });
 
 // Create a new context with the saved storage state.
-var context = await browser.NewContextAsync(new BrowserNewContextOptions
+var context = await browser.NewContextAsync(new()
 {
     StorageStatePath = "state.json"
 });
 ```
 
 ### Code generation
+* langs: js
 
 Logging in via the UI and then reusing authentication state can be combined to
 implement **login once and run multiple scenarios**. The lifecycle looks like:
@@ -156,6 +164,39 @@ implement **login once and run multiple scenarios**. The lifecycle looks like:
 1. Login via UI and retrieve authentication state.
     * In Jest, this can be executed in [`globalSetup`](https://jestjs.io/docs/en/configuration#globalsetup-string).
 1. In each test, load authentication state in `beforeEach` or `beforeAll` step.
+
+This approach will also **work in CI environments**, since it does not rely on any external state.
+
+### Code generation
+* langs: python
+
+Logging in via the UI and then reusing authentication state can be combined to implement **login once and run multiple scenarios**. The lifecycle looks like:
+
+1. Run tests (for example, with `pytest`).
+1. Login via UI and retrieve authentication state.
+1. In each test, load authentication state using `autouse=True` fixture with `scope=function`.
+
+This approach will also **work in CI environments**, since it does not rely on any external state.
+
+### Code generation
+* langs: csharp
+
+Logging in via the UI and then reusing authentication state can be combined to implement **login once and run multiple scenarios**. The lifecycle looks like:
+
+1. Run tests (for example, with `dotnet test`).
+1. Login via UI and retrieve authentication state.
+1. In each test, load authentication state in `SetUp`.
+
+This approach will also **work in CI environments**, since it does not rely on any external state.
+
+### Code generation
+* langs: java
+
+Logging in via the UI and then reusing authentication state can be combined to implement **login once and run multiple scenarios**. The lifecycle looks like:
+
+1. Run tests (for example, with `mvn test`).
+1. Login via UI and retrieve authentication state.
+1. In each test, load authentication state in `@beforeEach` or `@beforeAll` step.
 
 This approach will also **work in CI environments**, since it does not rely on any external state.
 
@@ -332,7 +373,7 @@ class Program
     {
         using var playwright = await Playwright.CreateAsync();
         var chromium = playwright.Chromium;
-        var context = chromium.LaunchPersistentContextAsync(@"C:\path\to\directory\", new BrowserTypeLaunchPersistentContextOptions
+        var context = chromium.LaunchPersistentContextAsync(@"C:\path\to\directory\", new()
         {
             Headless = false
         });

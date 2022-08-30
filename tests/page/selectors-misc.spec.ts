@@ -27,10 +27,8 @@ it('should work for open shadow roots', async ({ page, server }) => {
   expect(await page.$$(`data-testid:light=foo`)).toEqual([]);
 });
 
-it('should click on links in shadow dom', async ({ page, server, browserName, browserMajorVersion, isElectron, isAndroid }) => {
+it('should click on links in shadow dom', async ({ page, server, browserName, browserMajorVersion }) => {
   it.fixme(browserName === 'chromium' && browserMajorVersion < 91, 'Remove when crrev.com/864024 gets to the stable channel');
-  it.fixme(isAndroid);
-  it.fixme(isElectron);
 
   await page.goto(server.PREFIX + '/shadow-dom-link.html');
   expect(await page.evaluate(() => (window as any).clickCount)).toBe(0);
@@ -47,8 +45,8 @@ it('should work with :visible', async ({ page }) => {
   `);
   expect(await page.$('div:visible')).toBe(null);
 
-  const error = await page.waitForSelector(`div:visible`, { timeout: 100 }).catch(e => e);
-  expect(error.message).toContain('100ms');
+  const error = await page.waitForSelector(`div:visible`, { timeout: 1000 }).catch(e => e);
+  expect(error.message).toContain('1000ms');
 
   const promise = page.waitForSelector(`div:visible`, { state: 'attached' });
   await page.$eval('#target2', div => div.textContent = 'Now visible');
@@ -67,8 +65,8 @@ it('should work with >> visible=', async ({ page }) => {
   `);
   expect(await page.$('div >> visible=true')).toBe(null);
 
-  const error = await page.waitForSelector(`div >> visible=true`, { timeout: 100 }).catch(e => e);
-  expect(error.message).toContain('100ms');
+  const error = await page.waitForSelector(`div >> visible=true`, { timeout: 1000 }).catch(e => e);
+  expect(error.message).toContain('1000ms');
 
   const promise = page.waitForSelector(`div >> visible=true`, { state: 'attached' });
   await page.$eval('#target2', div => div.textContent = 'Now visible');
@@ -162,7 +160,9 @@ it('should work with strict mode and chaining', async ({ page }) => {
   expect(await page.locator('div >> div >> span').textContent()).toBe('hi');
 });
 
-it('should work with position selectors', async ({ page }) => {
+it('should work with layout selectors', async ({ page, trace }) => {
+  it.skip(trace === 'on');
+
   /*
 
        +--+  +--+
@@ -214,6 +214,9 @@ it('should work with position selectors', async ({ page }) => {
       div.style.width = box[2] + 'px';
       div.style.height = box[3] + 'px';
       container.appendChild(div);
+      const span = document.createElement('span');
+      span.textContent = '' + i;
+      div.appendChild(span);
     }
   }, boxes);
 

@@ -16,6 +16,7 @@
 
 import type { Locator, Page, APIResponse } from 'playwright-core';
 import type { FrameExpectOptions } from 'playwright-core/lib/client/types';
+import { colors } from 'playwright-core/lib/utilsBundle';
 import { constructURLBasedOnBaseURL } from 'playwright-core/lib/utils';
 import type { Expect } from '../types';
 import { expectTypes, callLogText } from '../util';
@@ -23,6 +24,7 @@ import { toBeTruthy } from './toBeTruthy';
 import { toEqual } from './toEqual';
 import { toExpectedTextValues, toMatchText } from './toMatchText';
 import type { ParsedStackTrace } from 'playwright-core/lib/utils/stackTrace';
+import { isTextualMimeType } from 'playwright-core/lib/utils/mimeType';
 
 interface LocatorEx extends Locator {
   _expect(customStackTrace: ParsedStackTrace, expression: string, options: Omit<FrameExpectOptions, 'expectedValue'> & { expectedValue?: any }): Promise<{ matches: boolean, received?: any, log?: string[] }>;
@@ -117,17 +119,17 @@ export function toContainText(
   this: ReturnType<Expect['getState']>,
   locator: LocatorEx,
   expected: string | RegExp | (string | RegExp)[],
-  options?: { timeout?: number, useInnerText?: boolean },
+  options: { timeout?: number, useInnerText?: boolean, ignoreCase?: boolean } = {},
 ) {
   if (Array.isArray(expected)) {
     return toEqual.call(this, 'toContainText', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
-      const expectedText = toExpectedTextValues(expected, { matchSubstring: true, normalizeWhiteSpace: true });
-      return await locator._expect(customStackTrace, 'to.contain.text.array', { expectedText, isNot, useInnerText: options?.useInnerText, timeout });
+      const expectedText = toExpectedTextValues(expected, { matchSubstring: true, normalizeWhiteSpace: true, ignoreCase: options.ignoreCase });
+      return await locator._expect(customStackTrace, 'to.contain.text.array', { expectedText, isNot, useInnerText: options.useInnerText, timeout });
     }, expected, { ...options, contains: true });
   } else {
     return toMatchText.call(this, 'toContainText', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
-      const expectedText = toExpectedTextValues([expected], { matchSubstring: true, normalizeWhiteSpace: true });
-      return await locator._expect(customStackTrace, 'to.have.text', { expectedText, isNot, useInnerText: options?.useInnerText, timeout });
+      const expectedText = toExpectedTextValues([expected], { matchSubstring: true, normalizeWhiteSpace: true, ignoreCase: options.ignoreCase });
+      return await locator._expect(customStackTrace, 'to.have.text', { expectedText, isNot, useInnerText: options.useInnerText, timeout });
     }, expected, options);
   }
 }
@@ -136,12 +138,17 @@ export function toHaveAttribute(
   this: ReturnType<Expect['getState']>,
   locator: LocatorEx,
   name: string,
-  expected: string | RegExp,
+  expected: string | RegExp | undefined,
   options?: { timeout?: number },
 ) {
+  if (expected === undefined) {
+    return toBeTruthy.call(this, 'toHaveAttribute', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
+      return await locator._expect(customStackTrace, 'to.have.attribute', { expressionArg: name, isNot, timeout });
+    }, options);
+  }
   return toMatchText.call(this, 'toHaveAttribute', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
     const expectedText = toExpectedTextValues([expected]);
-    return await locator._expect(customStackTrace, 'to.have.attribute', { expressionArg: name, expectedText, isNot, timeout });
+    return await locator._expect(customStackTrace, 'to.have.attribute.value', { expressionArg: name, expectedText, isNot, timeout });
   }, expected, options);
 }
 
@@ -216,16 +223,16 @@ export function toHaveText(
   this: ReturnType<Expect['getState']>,
   locator: LocatorEx,
   expected: string | RegExp | (string | RegExp)[],
-  options: { timeout?: number, useInnerText?: boolean } = {},
+  options: { timeout?: number, useInnerText?: boolean, ignoreCase?: boolean } = {},
 ) {
   if (Array.isArray(expected)) {
     return toEqual.call(this, 'toHaveText', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
-      const expectedText = toExpectedTextValues(expected, { normalizeWhiteSpace: true });
+      const expectedText = toExpectedTextValues(expected, { normalizeWhiteSpace: true, ignoreCase: options.ignoreCase });
       return await locator._expect(customStackTrace, 'to.have.text.array', { expectedText, isNot, useInnerText: options?.useInnerText, timeout });
     }, expected, options);
   } else {
     return toMatchText.call(this, 'toHaveText', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
-      const expectedText = toExpectedTextValues([expected], { normalizeWhiteSpace: true });
+      const expectedText = toExpectedTextValues([expected], { normalizeWhiteSpace: true, ignoreCase: options.ignoreCase });
       return await locator._expect(customStackTrace, 'to.have.text', { expectedText, isNot, useInnerText: options?.useInnerText, timeout });
     }, expected, options);
   }
@@ -240,6 +247,18 @@ export function toHaveValue(
   return toMatchText.call(this, 'toHaveValue', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
     const expectedText = toExpectedTextValues([expected]);
     return await locator._expect(customStackTrace, 'to.have.value', { expectedText, isNot, timeout });
+  }, expected, options);
+}
+
+export function toHaveValues(
+  this: ReturnType<Expect['getState']>,
+  locator: LocatorEx,
+  expected: (string | RegExp)[],
+  options?: { timeout?: number },
+) {
+  return toEqual.call(this, 'toHaveValues', locator, 'Locator', async (isNot, timeout, customStackTrace) => {
+    const expectedText = toExpectedTextValues(expected);
+    return await locator._expect(customStackTrace, 'to.have.values', { expectedText, isNot, timeout });
   }, expected, options);
 }
 
@@ -277,8 +296,18 @@ export async function toBeOK(
 ) {
   const matcherName = 'toBeOK';
   expectTypes(response, ['APIResponse'], matcherName);
-  const log = (this.isNot === response.ok()) ? await response._fetchLog() : [];
-  const message = () => this.utils.matcherHint(matcherName, undefined, '', { isNot: this.isNot }) + callLogText(log);
+
+  const contentType = response.headers()['content-type'];
+  const isTextEncoding = contentType && isTextualMimeType(contentType);
+  const [log, text] = (this.isNot === response.ok()) ? await Promise.all([
+    response._fetchLog(),
+    isTextEncoding ? response.text() : null
+  ]) : [];
+
+  const message = () => this.utils.matcherHint(matcherName, undefined, '', { isNot: this.isNot }) +
+    callLogText(log) +
+    (text === null ? '' : `\nResponse text:\n${colors.dim(text?.substring(0, 1000) || '')}`);
+
   const pass = response.ok();
   return { message, pass };
 }

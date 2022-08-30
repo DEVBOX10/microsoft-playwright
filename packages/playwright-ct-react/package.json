@@ -1,27 +1,33 @@
 {
   "name": "@playwright/experimental-ct-react",
-  "private": true,
-  "version": "0.0.5",
+  "version": "1.26.0-next",
   "description": "Playwright Component Testing for React",
   "repository": "github:Microsoft/playwright",
   "homepage": "https://playwright.dev",
   "engines": {
-    "node": ">=12"
+    "node": ">=14"
   },
   "author": {
     "name": "Microsoft Corporation"
   },
   "license": "Apache-2.0",
   "exports": {
-    "./register": "./register.mjs",
-    "./test": "./test.js",
-    "./vitePlugin": "./vitePlugin.js"
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./register": {
+      "types": "./register.d.ts",
+      "default": "./register.mjs"
+    },
+    "./hooks": {
+      "types": "./hooks.d.ts",
+      "default": "./hooks.mjs"
+    }
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^1.0.7",
-    "vite": "^2.9.5"
-  },
-  "devDependencies": {
-    "@playwright/test": "1.22.0-next"
+    "@vitejs/plugin-react": "^2.0.1",
+    "@playwright/test": "1.26.0-next",
+    "vite": "^3.0.9"
   }
 }

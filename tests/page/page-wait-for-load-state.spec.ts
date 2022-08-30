@@ -132,7 +132,7 @@ it('should work with clicking target=_blank', async ({ page, server }) => {
   expect(await popup.evaluate(() => document.readyState)).toBe('complete');
 });
 
-it('should wait for load state of newPage', async ({ page, server, isElectron }) => {
+it('should wait for load state of newPage', async ({ page, isElectron }) => {
   it.fixme(isElectron, 'BrowserContext.newPage does not work in Electron');
 
   const [newPage] = await Promise.all([
@@ -169,7 +169,7 @@ it('should work for frame', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/frames/one-frame.html');
   const frame = page.frames()[1];
 
-  const requestPromise = new Promise<Route>(resolve => page.route(server.PREFIX + '/one-style.css',resolve));
+  const requestPromise = new Promise<Route>(resolve => page.route(server.PREFIX + '/one-style.css', resolve));
   await frame.goto(server.PREFIX + '/one-style.html', { waitUntil: 'domcontentloaded' });
   const request = await requestPromise;
   let resolved = false;

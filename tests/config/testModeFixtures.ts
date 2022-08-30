@@ -22,14 +22,18 @@ export type TestModeWorkerOptions = {
   mode: TestModeName;
 };
 
-export type TestModeWorkerFixtures = {
-  playwright: typeof import('@playwright/test');
-  toImpl: (rpcObject: any) => any;
+export type TestModeTestFixtures = {
+  toImpl: (rpcObject?: any) => any;
 };
 
-export const testModeTest = test.extend<{}, TestModeWorkerOptions & TestModeWorkerFixtures>({
-  mode: [ 'default', { scope: 'worker', option: true } ],
-  playwright: [ async ({ mode }, run) => {
+export type TestModeWorkerFixtures = {
+  toImplInWorkerScope: (rpcObject?: any) => any;
+  playwright: typeof import('@playwright/test');
+};
+
+export const testModeTest = test.extend<TestModeTestFixtures, TestModeWorkerOptions & TestModeWorkerFixtures>({
+  mode: ['default', { scope: 'worker', option: true }],
+  playwright: [async ({ mode }, run) => {
     const testMode = {
       default: new DefaultTestMode(),
       service: new DefaultTestMode(),
@@ -40,7 +44,15 @@ export const testModeTest = test.extend<{}, TestModeWorkerOptions & TestModeWork
     const playwright = await testMode.setup();
     await run(playwright);
     await testMode.teardown();
-  }, { scope: 'worker' } ],
+  }, { scope: 'worker' }],
 
-  toImpl: [ async ({ playwright }, run) => run((playwright as any)._toImpl), { scope: 'worker' } ],
+  toImplInWorkerScope: [async ({ playwright }, use) => {
+    await use((playwright as any)._toImpl);
+  }, { scope: 'worker' }],
+
+  toImpl: async ({ toImplInWorkerScope: toImplWorker, mode }, use, testInfo) => {
+    if (mode !== 'default' || process.env.PW_TEST_REUSE_CONTEXT)
+      testInfo.skip();
+    await use(toImplWorker);
+  },
 });

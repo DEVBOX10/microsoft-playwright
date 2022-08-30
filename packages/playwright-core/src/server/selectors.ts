@@ -46,6 +46,7 @@ export class Selectors {
       'data-test-id', 'data-test-id:light',
       'data-test', 'data-test:light',
       'nth', 'visible', 'control', 'has',
+      'role',
     ]);
     this._builtinEnginesInMainWorld = new Set([
       '_react', '_vue',
@@ -134,7 +135,6 @@ export class Selectors {
   }
 
   parseSelector(selector: string | ParsedSelector, strict: boolean): SelectorInfo {
-    this._builtinEngines.add('role');
     const parsed = typeof selector === 'string' ? parseSelector(selector) : selector;
     let needsMainWorld = false;
     for (const name of allEngineNames(parsed)) {

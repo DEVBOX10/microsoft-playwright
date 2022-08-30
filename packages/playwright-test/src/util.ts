@@ -35,6 +35,9 @@ const EXPECT_PATH_IMPL = require.resolve('./expectBundleImpl');
 const PLAYWRIGHT_TEST_PATH = path.join(__dirname, '..');
 
 function filterStackTrace(e: Error) {
+  if (process.env.PWDEBUGIMPL)
+    return;
+
   // This method filters internal stack frames using Error.prepareStackTrace
   // hook. Read more about the hook: https://v8.dev/docs/stack-trace-api
   //
@@ -96,15 +99,11 @@ export function serializeError(error: Error | any): TestError {
   };
 }
 
-export function monotonicTime(): number {
-  const [seconds, nanoseconds] = process.hrtime();
-  return seconds * 1000 + (nanoseconds / 1000000 | 0);
-}
-
 export type Matcher = (value: string) => boolean;
 
-export type FilePatternFilter = {
-  re: RegExp;
+export type TestFileFilter = {
+  re?: RegExp;
+  exact?: string;
   line: number | null;
   column: number | null;
 };

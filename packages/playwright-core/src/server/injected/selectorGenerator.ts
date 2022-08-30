@@ -15,7 +15,7 @@
  */
 
 import { type InjectedScript } from './injectedScript';
-import { elementText } from './selectorEvaluator';
+import { elementText } from './selectorUtils';
 
 type SelectorToken = {
   engine: string;
@@ -159,9 +159,9 @@ function buildCandidates(injectedScript: InjectedScript, element: Element): Sele
     candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[alt=${quoteAttributeValue(element.getAttribute('alt')!)}]`, score: 10 });
 
   if (element.getAttribute('role'))
-    candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[role=${quoteAttributeValue(element.getAttribute('role')!)}]` , score: 50 });
+    candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[role=${quoteAttributeValue(element.getAttribute('role')!)}]`, score: 50 });
 
-  if (element.getAttribute('name') && ['BUTTON', 'FORM', 'FIELDSET', 'IFRAME', 'INPUT', 'KEYGEN', 'OBJECT', 'OUTPUT', 'SELECT', 'TEXTAREA', 'MAP', 'META', 'PARAM'].includes(element.nodeName))
+  if (element.getAttribute('name') && ['BUTTON', 'FORM', 'FIELDSET', 'FRAME', 'IFRAME', 'INPUT', 'KEYGEN', 'OBJECT', 'OUTPUT', 'SELECT', 'TEXTAREA', 'MAP', 'META', 'PARAM'].includes(element.nodeName))
     candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[name=${quoteAttributeValue(element.getAttribute('name')!)}]`, score: 50 });
   if (['INPUT', 'TEXTAREA'].includes(element.nodeName) && element.getAttribute('type') !== 'hidden') {
     if (element.getAttribute('type'))
@@ -182,7 +182,7 @@ function buildCandidates(injectedScript: InjectedScript, element: Element): Sele
 function buildTextCandidates(injectedScript: InjectedScript, element: Element, allowHasText: boolean): SelectorToken[] {
   if (element.nodeName === 'SELECT')
     return [];
-  const text = elementText(injectedScript._evaluator, element).full.trim().replace(/\s+/g, ' ').substring(0, 80);
+  const text = elementText(injectedScript._evaluator._cacheText, element).full.trim().replace(/\s+/g, ' ').substring(0, 80);
   if (!text)
     return [];
   const candidates: SelectorToken[] = [];
@@ -260,7 +260,7 @@ function cssFallback(injectedScript: InjectedScript, targetElement: Element, str
     // Combine class names until unique.
     const classes = [...element.classList];
     for (let i = 0; i < classes.length; ++i) {
-      const token = '.' + classes.slice(0, i + 1).join('.');
+      const token = '.' + cssEscape(classes.slice(0, i + 1).join('.'));
       const selector = uniqueCSSSelector(token);
       if (selector)
         return makeStrict(selector);

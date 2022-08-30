@@ -15,8 +15,8 @@
  */
 
 import { BrowserContext } from '../browserContext';
-import type { DispatcherScope } from './dispatcher';
 import { Dispatcher, lookupDispatcher } from './dispatcher';
+import type { DispatcherScope } from './dispatcher';
 import { PageDispatcher, BindingCallDispatcher, WorkerDispatcher } from './pageDispatcher';
 import type { FrameDispatcher } from './frameDispatcher';
 import type * as channels from '../../protocol/channels';
@@ -34,17 +34,25 @@ import * as path from 'path';
 import { createGuid } from '../../utils';
 import { WritableStreamDispatcher } from './writableStreamDispatcher';
 
-export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextChannel> implements channels.BrowserContextChannel {
+export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextChannel, DispatcherScope> implements channels.BrowserContextChannel {
   _type_EventTarget = true;
   _type_BrowserContext = true;
   private _context: BrowserContext;
 
-  constructor(scope: DispatcherScope, context: BrowserContext) {
-    super(scope, context, 'BrowserContext', {
+  constructor(parentScope: DispatcherScope, context: BrowserContext) {
+    // We will reparent these to the context below.
+    const requestContext = APIRequestContextDispatcher.from(parentScope as BrowserContextDispatcher, context.fetchRequest);
+    const tracing = TracingDispatcher.from(parentScope as BrowserContextDispatcher, context.tracing);
+
+    super(parentScope, context, 'BrowserContext', {
       isChromium: context._browser.options.isChromium,
-      APIRequestContext: APIRequestContextDispatcher.from(scope, context.fetchRequest),
-      tracing: TracingDispatcher.from(scope, context.tracing),
-    }, true);
+      requestContext,
+      tracing,
+    });
+
+    this.adopt(requestContext);
+    this.adopt(tracing);
+
     this._context = context;
     // Note: when launching persistent context, dispatcher is created very late,
     // so we can already have pages, videos and everything else.
@@ -52,52 +60,54 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     const onVideo = (artifact: Artifact) => {
       // Note: Video must outlive Page and BrowserContext, so that client can saveAs it
       // after closing the context. We use |scope| for it.
-      const artifactDispatcher = new ArtifactDispatcher(scope, artifact);
+      const artifactDispatcher = new ArtifactDispatcher(parentScope, artifact);
       this._dispatchEvent('video', { artifact: artifactDispatcher });
     };
-    context.on(BrowserContext.Events.VideoStarted, onVideo);
+    this.addObjectListener(BrowserContext.Events.VideoStarted, onVideo);
     for (const video of context._browser._idToVideo.values()) {
       if (video.context === context)
         onVideo(video.artifact);
     }
 
     for (const page of context.pages())
-      this._dispatchEvent('page', { page: new PageDispatcher(this._scope, page) });
-    context.on(BrowserContext.Events.Page, page => this._dispatchEvent('page', { page: new PageDispatcher(this._scope, page) }));
-    context.on(BrowserContext.Events.Close, () => {
+      this._dispatchEvent('page', { page: PageDispatcher.from(this, page) });
+    this.addObjectListener(BrowserContext.Events.Page, page => {
+      this._dispatchEvent('page', { page: PageDispatcher.from(this, page) });
+    });
+    this.addObjectListener(BrowserContext.Events.Close, () => {
       this._dispatchEvent('close');
       this._dispose();
     });
 
     if (context._browser.options.name === 'chromium') {
       for (const page of (context as CRBrowserContext).backgroundPages())
-        this._dispatchEvent('backgroundPage', { page: new PageDispatcher(this._scope, page) });
-      context.on(CRBrowserContext.CREvents.BackgroundPage, page => this._dispatchEvent('backgroundPage', { page: new PageDispatcher(this._scope, page) }));
+        this._dispatchEvent('backgroundPage', { page: PageDispatcher.from(this, page) });
+      this.addObjectListener(CRBrowserContext.CREvents.BackgroundPage, page => this._dispatchEvent('backgroundPage', { page: PageDispatcher.from(this, page) }));
       for (const serviceWorker of (context as CRBrowserContext).serviceWorkers())
-        this._dispatchEvent('serviceWorker', { worker: new WorkerDispatcher(this._scope, serviceWorker) });
-      context.on(CRBrowserContext.CREvents.ServiceWorker, serviceWorker => this._dispatchEvent('serviceWorker', { worker: new WorkerDispatcher(this._scope, serviceWorker) }));
+        this._dispatchEvent('serviceWorker', { worker: new WorkerDispatcher(this, serviceWorker) });
+      this.addObjectListener(CRBrowserContext.CREvents.ServiceWorker, serviceWorker => this._dispatchEvent('serviceWorker', { worker: new WorkerDispatcher(this, serviceWorker) }));
     }
-    context.on(BrowserContext.Events.Request, (request: Request) =>  {
+    this.addObjectListener(BrowserContext.Events.Request, (request: Request) =>  {
       return this._dispatchEvent('request', {
-        request: RequestDispatcher.from(this._scope, request),
-        page: PageDispatcher.fromNullable(this._scope, request.frame()._page.initializedOrUndefined())
+        request: RequestDispatcher.from(this, request),
+        page: PageDispatcher.fromNullable(this, request.frame()?._page.initializedOrUndefined())
       });
     });
-    context.on(BrowserContext.Events.Response, (response: Response) => this._dispatchEvent('response', {
-      response: ResponseDispatcher.from(this._scope, response),
-      page: PageDispatcher.fromNullable(this._scope, response.frame()._page.initializedOrUndefined())
+    this.addObjectListener(BrowserContext.Events.Response, (response: Response) => this._dispatchEvent('response', {
+      response: ResponseDispatcher.from(this, response),
+      page: PageDispatcher.fromNullable(this, response.frame()?._page.initializedOrUndefined())
     }));
-    context.on(BrowserContext.Events.RequestFailed, (request: Request) => this._dispatchEvent('requestFailed', {
-      request: RequestDispatcher.from(this._scope, request),
+    this.addObjectListener(BrowserContext.Events.RequestFailed, (request: Request) => this._dispatchEvent('requestFailed', {
+      request: RequestDispatcher.from(this, request),
       failureText: request._failureText || undefined,
       responseEndTiming: request._responseEndTiming,
-      page: PageDispatcher.fromNullable(this._scope, request.frame()._page.initializedOrUndefined())
+      page: PageDispatcher.fromNullable(this, request.frame()?._page.initializedOrUndefined())
     }));
-    context.on(BrowserContext.Events.RequestFinished, ({ request, response }: { request: Request, response: Response | null }) => this._dispatchEvent('requestFinished', {
-      request: RequestDispatcher.from(scope, request),
-      response: ResponseDispatcher.fromNullable(scope, response),
+    this.addObjectListener(BrowserContext.Events.RequestFinished, ({ request, response }: { request: Request, response: Response | null }) => this._dispatchEvent('requestFinished', {
+      request: RequestDispatcher.from(this, request),
+      response: ResponseDispatcher.fromNullable(this, response),
       responseEndTiming: request._responseEndTiming,
-      page: PageDispatcher.fromNullable(this._scope, request.frame()._page.initializedOrUndefined()),
+      page: PageDispatcher.fromNullable(this, request.frame()?._page.initializedOrUndefined()),
     }));
   }
 
@@ -107,7 +117,7 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     await fs.promises.mkdir(tmpDir);
     this._context._tempDirs.push(tmpDir);
     const file = fs.createWriteStream(path.join(tmpDir, params.name));
-    return { writableStream: new WritableStreamDispatcher(this._scope, file) };
+    return { writableStream: new WritableStreamDispatcher(this, file) };
   }
 
   async setDefaultNavigationTimeoutNoReply(params: channels.BrowserContextSetDefaultNavigationTimeoutNoReplyParams) {
@@ -120,14 +130,11 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
 
   async exposeBinding(params: channels.BrowserContextExposeBindingParams): Promise<void> {
     await this._context.exposeBinding(params.name, !!params.needsHandle, (source, ...args) => {
-      const binding = new BindingCallDispatcher(this._scope, params.name, !!params.needsHandle, source, args);
+      const pageDispatcher = PageDispatcher.from(this, source.page);
+      const binding = new BindingCallDispatcher(pageDispatcher, params.name, !!params.needsHandle, source, args);
       this._dispatchEvent('bindingCall', { binding });
       return binding.promise();
     });
-  }
-
-  async removeExposedBindings() {
-    await this._context.removeExposedBindings();
   }
 
   async newPage(params: channels.BrowserContextNewPageParams, metadata: CallMetadata): Promise<channels.BrowserContextNewPageResult> {
@@ -174,17 +181,13 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     await this._context.addInitScript(params.source);
   }
 
-  async removeInitScripts(): Promise<void> {
-    await this._context.removeInitScripts();
-  }
-
   async setNetworkInterceptionEnabled(params: channels.BrowserContextSetNetworkInterceptionEnabledParams): Promise<void> {
     if (!params.enabled) {
       await this._context.setRequestInterceptor(undefined);
       return;
     }
     await this._context.setRequestInterceptor((route, request) => {
-      this._dispatchEvent('route', { route: RouteDispatcher.from(this._scope, route), request: RequestDispatcher.from(this._scope, request) });
+      this._dispatchEvent('route', { route: RouteDispatcher.from(RequestDispatcher.from(this, request), route) });
     });
   }
 
@@ -210,13 +213,25 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     if (!params.page && !params.frame || params.page && params.frame)
       throw new Error(`CDP session must be initiated with either Page or Frame, not none or both`);
     const crBrowserContext = this._object as CRBrowserContext;
-    return { session: new CDPSessionDispatcher(this._scope, await crBrowserContext.newCDPSession((params.page ? params.page as PageDispatcher : params.frame as FrameDispatcher)._object)) };
+    return { session: new CDPSessionDispatcher(this, await crBrowserContext.newCDPSession((params.page ? params.page as PageDispatcher : params.frame as FrameDispatcher)._object)) };
+  }
+
+  async harStart(params: channels.BrowserContextHarStartParams): Promise<channels.BrowserContextHarStartResult> {
+    const harId = await this._context._harStart(params.page ? (params.page as PageDispatcher)._object : null, params.options);
+    return { harId };
   }
 
   async harExport(params: channels.BrowserContextHarExportParams): Promise<channels.BrowserContextHarExportResult> {
-    const artifact = await this._context._harRecorder?.export();
+    const artifact = await this._context._harExport(params.harId);
     if (!artifact)
       throw new Error('No HAR artifact. Ensure record.harPath is set.');
-    return { artifact: new ArtifactDispatcher(this._scope, artifact) };
+    return { artifact: new ArtifactDispatcher(this, artifact) };
+  }
+
+  override _dispose() {
+    super._dispose();
+    // Avoid protocol calls for the closed context.
+    if (!this._context.isClosingOrClosed())
+      this._context.setRequestInterceptor(undefined).catch(() => {});
   }
 }

@@ -260,6 +260,45 @@ test.describe('cli codegen', () => {
     expect(message.text()).toBe('John');
   });
 
+  test('should fill japanese text', async ({ page, openRecorder }) => {
+    const recorder = await openRecorder();
+
+    // In Japanese, "てすと" or "テスト" means "test".
+    await recorder.setContentAndWait(`<input id="input" name="name" oninput="input.value === 'てすと' && console.log(input.value)"></input>`);
+    const selector = await recorder.focusElement('input');
+    expect(selector).toBe('input[name="name"]');
+
+    const [message, sources] = await Promise.all([
+      page.waitForEvent('console', msg => msg.type() !== 'error'),
+      recorder.waitForOutput('JavaScript', 'fill'),
+      (async () => {
+        await recorder.page.dispatchEvent(selector, 'keydown', { key: 'Process' });
+        await recorder.page.keyboard.insertText('てすと');
+        await recorder.page.dispatchEvent(selector, 'keyup', { key: 'Process' });
+      })()
+    ]);
+    expect(sources.get('JavaScript').text).toContain(`
+  // Fill input[name="name"]
+  await page.locator('input[name="name"]').fill('てすと');`);
+    expect(sources.get('Java').text).toContain(`
+      // Fill input[name="name"]
+      page.locator("input[name=\\\"name\\\"]").fill("てすと");`);
+
+    expect(sources.get('Python').text).toContain(`
+    # Fill input[name="name"]
+    page.locator(\"input[name=\\\"name\\\"]\").fill(\"てすと\")`);
+
+    expect(sources.get('Python Async').text).toContain(`
+    # Fill input[name="name"]
+    await page.locator(\"input[name=\\\"name\\\"]\").fill(\"てすと\")`);
+
+    expect(sources.get('C#').text).toContain(`
+        // Fill input[name="name"]
+        await page.Locator(\"input[name=\\\"name\\\"]\").FillAsync(\"てすと\");`);
+
+    expect(message.text()).toBe('てすと');
+  });
+
   test('should fill textarea', async ({ page, openRecorder }) => {
     const recorder = await openRecorder();
 
@@ -607,39 +646,44 @@ test.describe('cli codegen', () => {
     expect(selector).toBe('text=link');
     const [, sources] = await Promise.all([
       page.waitForNavigation(),
-      recorder.waitForOutput('JavaScript', 'assert'),
+      recorder.waitForOutput('JavaScript', 'waitForURL'),
       page.dispatchEvent('a', 'click', { detail: 1 })
     ]);
 
-    expect(sources.get('JavaScript').text).toContain(`
+    expect.soft(sources.get('JavaScript').text).toContain(`
   // Click text=link
   await page.locator('text=link').click();
-  // assert.equal(page.url(), 'about:blank#foo');`);
+  await page.waitForURL('about:blank#foo');`);
 
-    expect(sources.get('Playwright Test').text).toContain(`
+    expect.soft(sources.get('Playwright Test').text).toContain(`
   // Click text=link
   await page.locator('text=link').click();
   await expect(page).toHaveURL('about:blank#foo');`);
 
-    expect(sources.get('Java').text).toContain(`
+    expect.soft(sources.get('Java').text).toContain(`
       // Click text=link
       page.locator("text=link").click();
-      // assertThat(page).hasURL("about:blank#foo");`);
+      assertThat(page).hasURL("about:blank#foo");`);
 
-    expect(sources.get('Python').text).toContain(`
+    expect.soft(sources.get('Python').text).toContain(`
     # Click text=link
-    page.locator(\"text=link\").click()
-    # expect(page).to_have_url(\"about:blank#foo\")`);
+    page.locator("text=link").click()
+    page.wait_for_url("about:blank#foo")`);
 
-    expect(sources.get('Python Async').text).toContain(`
+    expect.soft(sources.get('Python Async').text).toContain(`
     # Click text=link
-    await page.locator(\"text=link\").click()
-    # await expect(page).to_have_url(\"about:blank#foo\")`);
+    await page.locator("text=link").click()
+    await page.wait_for_url("about:blank#foo")`);
 
-    expect(sources.get('C#').text).toContain(`
+    expect.soft(sources.get('Pytest').text).toContain(`
+    # Click text=link
+    page.locator("text=link").click()
+    expect(page).to_have_url("about:blank#foo")`);
+
+    expect.soft(sources.get('C#').text).toContain(`
         // Click text=link
-        await page.Locator(\"text=link\").ClickAsync();
-        // Assert.AreEqual(\"about:blank#foo\", page.Url);`);
+        await page.Locator("text=link").ClickAsync();
+        await page.WaitForURLAsync("about:blank#foo");`);
 
     expect(page.url()).toContain('about:blank#foo');
   });
@@ -655,45 +699,34 @@ test.describe('cli codegen', () => {
 
     const [, sources] = await Promise.all([
       page.waitForNavigation(),
-      recorder.waitForOutput('JavaScript', 'waitForNavigation'),
+      recorder.waitForOutput('JavaScript', 'waitForURL'),
       page.dispatchEvent('a', 'click', { detail: 1 })
     ]);
 
-    expect(sources.get('JavaScript').text).toContain(`
+    expect.soft(sources.get('JavaScript').text).toContain(`
   // Click text=link
-  await Promise.all([
-    page.waitForNavigation(/*{ url: 'about:blank#foo' }*/),
-    page.locator('text=link').click()
-  ]);`);
+  await page.locator('text=link').click();
+  await page.waitForURL('about:blank#foo');`);
 
-    expect(sources.get('Java').text).toContain(`
+    expect.soft(sources.get('Java').text).toContain(`
       // Click text=link
-      // page.waitForNavigation(new Page.WaitForNavigationOptions().setUrl("about:blank#foo"), () ->
-      page.waitForNavigation(() -> {
-        page.locator("text=link").click();
-      });`);
+      page.locator("text=link").click();
+      assertThat(page).hasURL("about:blank#foo");`);
 
-    expect(sources.get('Python').text).toContain(`
+    expect.soft(sources.get('Python').text).toContain(`
     # Click text=link
-    # with page.expect_navigation(url=\"about:blank#foo\"):
-    with page.expect_navigation():
-        page.locator(\"text=link\").click()`);
+    page.locator(\"text=link\").click()
+    page.wait_for_url("about:blank#foo")`);
 
-    expect(sources.get('Python Async').text).toContain(`
+    expect.soft(sources.get('Python Async').text).toContain(`
     # Click text=link
-    # async with page.expect_navigation(url=\"about:blank#foo\"):
-    async with page.expect_navigation():
-        await page.locator(\"text=link\").click()`);
+    await page.locator(\"text=link\").click()
+    await page.wait_for_url("about:blank#foo")`);
 
-    expect(sources.get('C#').text).toContain(`
+    expect.soft(sources.get('C#').text).toContain(`
         // Click text=link
-        await page.RunAndWaitForNavigationAsync(async () =>
-        {
-            await page.Locator(\"text=link\").ClickAsync();
-        }/*, new PageWaitForNavigationOptions
-        {
-            UrlString = \"about:blank#foo\"
-        }*/);`);
+        await page.Locator(\"text=link\").ClickAsync();
+        await page.WaitForURLAsync(\"about:blank#foo\");`);
 
     expect(page.url()).toContain('about:blank#foo');
   });

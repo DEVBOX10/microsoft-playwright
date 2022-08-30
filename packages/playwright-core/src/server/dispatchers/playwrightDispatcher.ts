@@ -23,7 +23,7 @@ import { SocksProxy } from '../../common/socksProxy';
 import type * as types from '../types';
 import { AndroidDispatcher } from './androidDispatcher';
 import { BrowserTypeDispatcher } from './browserTypeDispatcher';
-import type { DispatcherScope } from './dispatcher';
+import type { RootDispatcher } from './dispatcher';
 import { Dispatcher } from './dispatcher';
 import { ElectronDispatcher } from './electronDispatcher';
 import { LocalUtilsDispatcher } from './localUtilsDispatcher';
@@ -32,11 +32,11 @@ import { SelectorsDispatcher } from './selectorsDispatcher';
 import { ConnectedBrowserDispatcher } from './browserDispatcher';
 import { createGuid } from '../../utils';
 
-export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.PlaywrightChannel> implements channels.PlaywrightChannel {
+export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.PlaywrightChannel, RootDispatcher> implements channels.PlaywrightChannel {
   _type_Playwright;
   private _browserDispatcher: ConnectedBrowserDispatcher | undefined;
 
-  constructor(scope: DispatcherScope, playwright: Playwright, socksProxy?: SocksProxy, preLaunchedBrowser?: Browser) {
+  constructor(scope: RootDispatcher, playwright: Playwright, socksProxy?: SocksProxy, preLaunchedBrowser?: Browser) {
     const descriptors = require('../deviceDescriptors') as types.Devices;
     const deviceDescriptors = Object.entries(descriptors)
         .map(([name, descriptor]) => ({ name, descriptor }));
@@ -52,14 +52,14 @@ export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.Playwr
       selectors: new SelectorsDispatcher(scope, browserDispatcher?.selectors || playwright.selectors),
       preLaunchedBrowser: browserDispatcher,
       socksSupport: socksProxy ? new SocksSupportDispatcher(scope, socksProxy) : undefined,
-    }, false);
+    });
     this._type_Playwright = true;
     this._browserDispatcher = browserDispatcher;
   }
 
   async newRequest(params: channels.PlaywrightNewRequestParams, metadata?: channels.Metadata): Promise<channels.PlaywrightNewRequestResult> {
     const request = new GlobalAPIRequestContext(this._object, params);
-    return { request: APIRequestContextDispatcher.from(this._scope, request) };
+    return { request: APIRequestContextDispatcher.from(this.parentScope(), request) };
   }
 
   async hideHighlight(params: channels.PlaywrightHideHighlightParams, metadata?: channels.Metadata): Promise<channels.PlaywrightHideHighlightResult> {
@@ -72,16 +72,16 @@ export class PlaywrightDispatcher extends Dispatcher<Playwright, channels.Playwr
   }
 }
 
-class SocksSupportDispatcher extends Dispatcher<{ guid: string }, channels.SocksSupportChannel> implements channels.SocksSupportChannel {
+class SocksSupportDispatcher extends Dispatcher<{ guid: string }, channels.SocksSupportChannel, RootDispatcher> implements channels.SocksSupportChannel {
   _type_SocksSupport: boolean;
   private _socksProxy: SocksProxy;
 
-  constructor(scope: DispatcherScope, socksProxy: SocksProxy) {
+  constructor(scope: RootDispatcher, socksProxy: SocksProxy) {
     super(scope, { guid: 'socksSupport@' + createGuid() }, 'SocksSupport', {});
     this._type_SocksSupport = true;
     this._socksProxy = socksProxy;
     socksProxy.on(SocksProxy.Events.SocksRequested, (payload: SocksSocketRequestedPayload) => this._dispatchEvent('socksRequested', payload));
-    socksProxy.on(SocksProxy.Events.SocksData, (payload: SocksSocketDataPayload) => this._dispatchEvent('socksData', { uid: payload.uid, data: payload.data.toString('base64') }));
+    socksProxy.on(SocksProxy.Events.SocksData, (payload: SocksSocketDataPayload) => this._dispatchEvent('socksData', payload));
     socksProxy.on(SocksProxy.Events.SocksClosed, (payload: SocksSocketClosedPayload) => this._dispatchEvent('socksClosed', payload));
   }
 
@@ -94,7 +94,7 @@ class SocksSupportDispatcher extends Dispatcher<{ guid: string }, channels.Socks
   }
 
   async socksData(params: channels.SocksSupportSocksDataParams): Promise<void> {
-    this._socksProxy?.sendSocketData({ uid: params.uid, data: Buffer.from(params.data, 'base64') });
+    this._socksProxy?.sendSocketData(params);
   }
 
   async socksError(params: channels.SocksSupportSocksErrorParams): Promise<void> {

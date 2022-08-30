@@ -61,7 +61,7 @@ await expect.soft(page.locator('#status')).toHaveText('Success');
 await expect.soft(page.locator('#eta')).toHaveText('1 day');
 
 // Avoid running further if there were soft assertion failures.
-expect(test.info().errors).toBeEmpty();
+expect(test.info().errors).toHaveLength(0);
 ```
 
 ## Custom Expect Message
@@ -126,10 +126,3 @@ await expect.poll(async () => {
   timeout: 60_000
 }).toBe(200);
 ```
-
-## API reference
-See the following pages for Playwright-specific assertions:
-- [APIResponseAssertions] assertions for [APIResponse]
-- [LocatorAssertions] assertions for [Locator]
-- [PageAssertions] assertions for [Page]
-- [ScreenshotAssertions] for comparing screenshot with stored value

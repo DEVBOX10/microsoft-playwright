@@ -202,12 +202,11 @@ export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements
       }));
     }
     const result = await this._elementChannel.screenshot(copy);
-    const buffer = Buffer.from(result.binary, 'base64');
     if (options.path) {
       await mkdirIfNeeded(options.path);
-      await fs.promises.writeFile(options.path, buffer);
+      await fs.promises.writeFile(options.path, result.binary);
     }
-    return buffer;
+    return result.binary;
   }
 
   async $(selector: string): Promise<ElementHandle<SVGElement | HTMLElement> | null> {
@@ -245,7 +244,7 @@ export function convertSelectOptionValues(values: string | api.ElementHandle | S
   if (values === null)
     return {};
   if (!Array.isArray(values))
-    values = [ values as any ];
+    values = [values as any];
   if (!values.length)
     return {};
   for (let i = 0; i < values.length; i++)
@@ -264,7 +263,7 @@ type InputFilesList = {
   streams?: channels.WritableStreamChannel[];
 };
 export async function convertInputFiles(files: string | FilePayload | string[] | FilePayload[], context: BrowserContext): Promise<InputFilesList> {
-  const items: (string | FilePayload)[] = Array.isArray(files) ? files.slice() : [ files ];
+  const items: (string | FilePayload)[] = Array.isArray(files) ? files.slice() : [files];
 
   const sizeLimit = 50 * 1024 * 1024;
   const hasLargeBuffer = items.find(item => typeof item === 'object' && item.buffer && item.buffer.byteLength > sizeLimit);
@@ -291,13 +290,13 @@ export async function convertInputFiles(files: string | FilePayload | string[] |
     if (typeof item === 'string') {
       return {
         name: path.basename(item),
-        buffer: (await fs.promises.readFile(item)).toString('base64')
+        buffer: await fs.promises.readFile(item)
       };
     } else {
       return {
         name: item.name,
         mimeType: item.mimeType,
-        buffer: item.buffer.toString('base64'),
+        buffer: item.buffer,
       };
     }
   }));

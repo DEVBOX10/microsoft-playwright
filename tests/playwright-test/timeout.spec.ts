@@ -65,7 +65,7 @@ test('should respect test.setTimeout', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.passed).toBe(2);
-  expect(result.output).toContain('Timeout of 1000ms exceeded');
+  expect(result.output).toContain('Test timeout of 1000ms exceeded.');
 });
 
 test('should respect test.setTimeout outside of the test', async ({ runInlineTest }) => {
@@ -94,7 +94,7 @@ test('should respect test.setTimeout outside of the test', async ({ runInlineTes
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(2);
   expect(result.passed).toBe(2);
-  expect(result.output).toContain('Timeout of 500ms exceeded');
+  expect(result.output).toContain('Test timeout of 500ms exceeded.');
 });
 
 test('should timeout when calling test.setTimeout too late', async ({ runInlineTest }) => {
@@ -111,7 +111,7 @@ test('should timeout when calling test.setTimeout too late', async ({ runInlineT
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.output).toContain('Timeout of 100ms exceeded');
+  expect(result.output).toContain('Test timeout of 100ms exceeded.');
 });
 
 test('should respect test.slow', async ({ runInlineTest }) => {
@@ -138,7 +138,7 @@ test('should respect test.slow', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.passed).toBe(2);
-  expect(result.output).toContain('Timeout of 1000ms exceeded');
+  expect(result.output).toContain('Test timeout of 1000ms exceeded.');
 });
 
 test('should ignore test.setTimeout when debugging', async ({ runInlineTest }) => {
@@ -196,8 +196,8 @@ test('should respect fixture timeout', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(1);
   expect(result.failed).toBe(2);
-  expect(result.output).toContain('Timeout of 500ms exceeded by fixture "custom title" setup.');
-  expect(result.output).toContain('Timeout of 400ms exceeded by fixture "slowTeardown" teardown.');
+  expect(result.output).toContain('Fixture "custom title" timeout of 500ms exceeded.');
+  expect(result.output).toContain('Fixture "slowTeardown" timeout of 400ms exceeded.');
   expect(stripAnsi(result.output)).toContain('> 5 |       const test = pwt.test.extend({');
 });
 
@@ -236,8 +236,8 @@ test('should respect test.setTimeout in the worker fixture', async ({ runInlineT
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(2);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Timeout of 500ms exceeded by fixture "slowSetup" setup.');
-  expect(result.output).toContain('Timeout of 400ms exceeded by fixture "custom title" teardown.');
+  expect(result.output).toContain('Fixture "slowSetup" timeout of 500ms exceeded.');
+  expect(result.output).toContain('Fixture "custom title" timeout of 400ms exceeded.');
 });
 
 test('fixture time in beforeAll hook should not affect test', async ({ runInlineTest }) => {
@@ -304,5 +304,77 @@ test('fixture time in beforeEach hook should affect test', async ({ runInlineTes
   });
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Timeout of 1000ms exceeded');
+  expect(result.output).toContain('Test timeout of 1000ms exceeded.');
+});
+
+test('test timeout should still run hooks before fixtures teardown', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      const test = pwt.test.extend({
+        auto: [async ({}, use) => {
+          console.log('\\n%%before-auto');
+          await use('hey');
+          console.log('\\n%%after-auto');
+        }, { auto: true }]
+      });
+      test.afterAll(async () => {
+        console.log('\\n%%afterAll-1');
+        await new Promise(f => setTimeout(f, 500));
+        console.log('\\n%%afterAll-2');
+      });
+      test('test fail', async ({}) => {
+        test.setTimeout(100);
+        console.log('\\n%%test');
+        await new Promise(f => setTimeout(f, 800));
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(result.output).toContain('Test timeout of 100ms exceeded.');
+  expect(result.output.split('\n').filter(line => line.startsWith('%%'))).toEqual([
+    '%%before-auto',
+    '%%test',
+    '%%afterAll-1',
+    '%%afterAll-2',
+    '%%after-auto',
+  ]);
+});
+
+test('should not include fixtures with own timeout and beforeAll in test duration', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'c.spec.ts': `
+      const test = pwt.test.extend({
+        foo: [async ({}, use) => {
+          await new Promise(f => setTimeout(f, 1000));
+          await use('foo');
+        }, { timeout: 0 }],
+
+        bar: async ({}, use) => {
+          await new Promise(f => setTimeout(f, 300));
+          await use('bar');
+        },
+      });
+
+      test.beforeAll(async () => {
+        await new Promise(f => setTimeout(f, 1000));
+      });
+
+      test.beforeEach(async () => {
+        await new Promise(f => setTimeout(f, 300));
+      });
+
+      test.afterEach(async () => {
+        await new Promise(f => setTimeout(f, 300));
+      });
+
+      test('works', async ({ foo, bar }) => {
+        await new Promise(f => setTimeout(f, 300));
+      });
+    `
+  }, { timeout: 5000 });
+  expect(result.exitCode).toBe(0);
+  const duration = result.results[0].duration;
+  expect(duration).toBeGreaterThanOrEqual(300 * 4);  // Includes test, beforeEach, afterEach and bar.
+  expect(duration).toBeLessThan(300 * 4 + 1000);  // Does not include beforeAll and foo.
 });

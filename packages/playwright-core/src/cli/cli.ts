@@ -63,12 +63,14 @@ commandWithOpenOptions('open [url]', 'open page in browser specified via -b, --b
     .addHelpText('afterAll', `
 Examples:
 
-  $ open  $ open -b webkit https://example.com`);
+  $ open
+  $ open -b webkit https://example.com`);
 
 commandWithOpenOptions('codegen [url]', 'open page and generate code for user actions',
     [
       ['-o, --output <file name>', 'saves the generated script to a file'],
-      ['--target <language>', `language to generate, one of javascript, test, python, python-async, csharp`, language()],
+      ['--target <language>', `language to generate, one of javascript, test, python, python-async, pytest, csharp, csharp-mstest, csharp-nunit, java`, language()],
+      ['--save-trace <filename>', 'record a trace for the session and save it to a file'],
     ]).action(function(url, options) {
   codegen(options, url, options.target, options.output).catch(logErrorAndExit);
 }).addHelpText('afterAll', `
@@ -265,12 +267,13 @@ program
 
 program
     .command('run-server', { hidden: true })
+    .option('--reuse-browser', 'Whether to reuse the browser instance')
     .option('--port <port>', 'Server port')
     .option('--path <path>', 'Endpoint Path', '/')
     .option('--max-clients <maxClients>', 'Maximum clients')
     .option('--no-socks-proxy', 'Disable Socks Proxy')
     .action(function(options) {
-      runServer(options.port ? +options.port : undefined,  options.path, options.maxClients ? +options.maxClients : Infinity, options.socksProxy).catch(logErrorAndExit);
+      runServer(options.port ? +options.port : undefined,  options.path, options.maxClients ? +options.maxClients : Infinity, options.socksProxy, options.reuseBrowser).catch(logErrorAndExit);
     });
 
 program
@@ -306,16 +309,34 @@ Examples:
 
 if (!process.env.PW_LANG_NAME) {
   let playwrightTestPackagePath = null;
+  const resolvePwTestPaths = [__dirname, process.cwd()];
   try {
     playwrightTestPackagePath = require.resolve('@playwright/test/lib/cli', {
-      paths: [__dirname, process.cwd()]
+      paths: resolvePwTestPaths,
     });
   } catch {}
 
   if (playwrightTestPackagePath) {
-    require(playwrightTestPackagePath).addTestCommand(program);
-    require(playwrightTestPackagePath).addShowReportCommand(program);
-    require(playwrightTestPackagePath).addListFilesCommand(program);
+    const pwTestVersion = require(require.resolve('@playwright/test/package.json', {
+      paths: resolvePwTestPaths,
+    })).version;
+    const pwCoreVersion = require(path.join(__dirname, '../../package.json')).version;
+    if (pwTestVersion !== pwCoreVersion) {
+      let hasPlaywrightPackage = false;
+      try {
+        require('playwright');
+        hasPlaywrightPackage = true;
+      } catch {}
+      console.error(wrapInASCIIBox([
+        `Playwright Test compatibility check failed:`,
+        `@playwright/test version '${pwTestVersion}' does not match ${hasPlaywrightPackage ? 'playwright' : 'playwright-core'} version '${pwCoreVersion}'!`,
+        `To fix this either align the versions or only keep @playwright/test since it depends on playwright-core.`,
+        `If you still receive this error, execute 'npm ci' or delete 'node_modules' and do 'npm install' again.`,
+      ].join('\n'), 1));
+      process.exit(1);
+    }
+
+    require(playwrightTestPackagePath).addTestCommands(program);
   } else {
     {
       const command = program.command('test').allowUnknownOption(true);
@@ -352,6 +373,9 @@ type Options = {
   loadStorage?: string;
   proxyServer?: string;
   proxyBypass?: string;
+  blockServiceWorkers?: boolean;
+  saveHar?: string;
+  saveHarGlob?: string;
   saveStorage?: string;
   saveTrace?: string;
   timeout: string;
@@ -372,6 +396,7 @@ async function launchContext(options: Options, headless: boolean, executablePath
   const launchOptions: LaunchOptions = { headless, executablePath };
   if (options.channel)
     launchOptions.channel = options.channel as any;
+  launchOptions.handleSIGINT = false;
 
   const contextOptions: BrowserContextOptions =
     // Copy the device descriptor since we have to compare and modify the options.
@@ -392,6 +417,9 @@ async function launchContext(options: Options, headless: boolean, executablePath
   if (contextOptions.isMobile && browserType.name() === 'firefox')
     contextOptions.isMobile = undefined;
 
+  if (options.blockServiceWorkers)
+    contextOptions.serviceWorkers = 'block';
+
   // Proxy
 
   if (options.proxyServer) {
@@ -404,10 +432,27 @@ async function launchContext(options: Options, headless: boolean, executablePath
 
   const browser = await browserType.launch(launchOptions);
 
+  if (process.env.PWTEST_CLI_EXIT) {
+    const logs: string[] = [];
+    require('playwright-core/lib/utilsBundle').debug.log = (...args: any[]) => {
+      const line = require('util').format(...args) + '\n';
+      logs.push(line);
+      process.stderr.write(line);
+    };
+    browser.on('disconnected', () => {
+      const hasCrashLine = logs.some(line => line.includes('process did exit:') && !line.includes('process did exit: exitCode=0, signal=null'));
+      if (hasCrashLine) {
+        process.stderr.write('Detected browser crash.\n');
+        // Make sure we exit abnormally when browser crashes.
+        process.exit(1);
+      }
+    });
+  }
+
   // Viewport size
   if (options.viewportSize) {
     try {
-      const [ width, height ] = options.viewportSize.split(',').map(n => parseInt(n, 10));
+      const [width, height] = options.viewportSize.split(',').map(n => parseInt(n, 10));
       contextOptions.viewport = { width, height };
     } catch (e) {
       console.log('Invalid window size format: use "width, height", for example --window-size=800,600');
@@ -459,6 +504,15 @@ async function launchContext(options: Options, headless: boolean, executablePath
   if (options.ignoreHttpsErrors)
     contextOptions.ignoreHTTPSErrors = true;
 
+  // HAR
+
+  if (options.saveHar) {
+    contextOptions.recordHar = { path: path.resolve(process.cwd(), options.saveHar), mode: 'minimal' };
+    if (options.saveHarGlob)
+      contextOptions.recordHar.urlFilter = options.saveHarGlob;
+    contextOptions.serviceWorkers = 'block';
+  }
+
   // Close app when the last window closes.
 
   const context = await browser.newContext(contextOptions);
@@ -474,6 +528,8 @@ async function launchContext(options: Options, headless: boolean, executablePath
       await context.tracing.stop({ path: options.saveTrace });
     if (options.saveStorage)
       await context.storageState({ path: options.saveStorage }).catch(e => null);
+    if (options.saveHar)
+      await context.close();
     await browser.close();
   }
 
@@ -487,10 +543,14 @@ async function launchContext(options: Options, headless: boolean, executablePath
       closeBrowser().catch(e => null);
     });
   });
-  if (options.timeout) {
-    context.setDefaultTimeout(parseInt(options.timeout, 10));
-    context.setDefaultNavigationTimeout(parseInt(options.timeout, 10));
-  }
+  process.on('SIGINT', async () => {
+    await closeBrowser();
+    process.exit(130);
+  });
+
+  const timeout = options.timeout ? parseInt(options.timeout, 10) : 0;
+  context.setDefaultTimeout(timeout);
+  context.setDefaultNavigationTimeout(timeout);
 
   if (options.saveTrace)
     await context.tracing.start({ screenshots: true, snapshots: true });
@@ -498,6 +558,7 @@ async function launchContext(options: Options, headless: boolean, executablePath
   // Omit options that we add automatically for presentation purpose.
   delete launchOptions.headless;
   delete launchOptions.executablePath;
+  delete launchOptions.handleSIGINT;
   delete contextOptions.deviceScaleFactor;
   return { browser, browserName: browserType.name(), context, contextOptions, launchOptions };
 }
@@ -536,8 +597,9 @@ async function codegen(options: Options, url: string | undefined, language: stri
     contextOptions,
     device: options.device,
     saveStorage: options.saveStorage,
-    startRecording: true,
-    outputFile: outputFile ? path.resolve(outputFile) : undefined
+    mode: 'recording',
+    outputFile: outputFile ? path.resolve(outputFile) : undefined,
+    handleSIGINT: false,
   });
   await openPage(context, url);
   if (process.env.PWTEST_CLI_EXIT)
@@ -628,6 +690,7 @@ function commandWithOpenOptions(command: string, description: string, options: a
     result = result.option(option[0], ...option.slice(1));
   return result
       .option('-b, --browser <browserType>', 'browser to use, one of cr, chromium, ff, firefox, wk, webkit', 'chromium')
+      .option('--block-service-workers', 'block service workers')
       .option('--channel <channel>', 'Chromium distribution channel, "chrome", "chrome-beta", "msedge-dev", etc')
       .option('--color-scheme <scheme>', 'emulate preferred color scheme, "light" or "dark"')
       .option('--device <deviceName>', 'emulate device, for example  "iPhone 11"')
@@ -637,10 +700,11 @@ function commandWithOpenOptions(command: string, description: string, options: a
       .option('--lang <language>', 'specify language / locale, for example "en-GB"')
       .option('--proxy-server <proxy>', 'specify proxy server, for example "http://myproxy:3128" or "socks5://myproxy:8080"')
       .option('--proxy-bypass <bypass>', 'comma-separated domains to bypass proxy, for example ".com,chromium.org,.domain.com"')
+      .option('--save-har <filename>', 'save HAR file with all network activity at the end')
+      .option('--save-har-glob <glob pattern>', 'filter entries in the HAR by matching url against this glob pattern')
       .option('--save-storage <filename>', 'save context storage state at the end, for later use with --load-storage')
-      .option('--save-trace <filename>', 'record a trace for the session and save it to a file')
       .option('--timezone <time zone>', 'time zone to emulate, for example "Europe/Rome"')
-      .option('--timeout <timeout>', 'timeout for Playwright actions in milliseconds', '10000')
+      .option('--timeout <timeout>', 'timeout for Playwright actions in milliseconds, no timeout by default')
       .option('--user-agent <ua string>', 'specify user agent string')
       .option('--viewport-size <size>', 'specify browser viewport size in pixels, for example "1280, 720"');
 }
@@ -671,7 +735,7 @@ function buildBasePlaywrightCLICommand(cliTargetLang: string | undefined): strin
     case 'java':
       return `mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="...options.."`;
     case 'csharp':
-      return `pwsh bin\\Debug\\netX\\playwright.ps1`;
+      return `pwsh bin/Debug/netX/playwright.ps1`;
     default:
       return `npx playwright`;
   }

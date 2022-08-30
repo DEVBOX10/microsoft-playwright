@@ -7,14 +7,13 @@ Playwright Trace Viewer is a GUI tool that helps exploring recorded Playwright t
 
 <img width="1212" alt="Playwright Trace Viewer" src="https://user-images.githubusercontent.com/883973/120585896-6a1bca80-c3e7-11eb-951a-bd84002480f5.png"></img>
 
-<!-- TOC -->
 
 ## Recording a trace
 * langs: js
 
 Set the `trace: 'on-first-retry'` option in the test configuration file. This will produce `trace.zip` file for each test that was retried.
 
-```js js-flavor=js
+```js tab=js-js
 // @ts-check
 
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
@@ -28,8 +27,8 @@ const config = {
 module.exports = config;
 ```
 
-```js js-flavor=ts
-import { PlaywrightTestConfig } from '@playwright/test';
+```js tab=js-ts
+import type { PlaywrightTestConfig } from '@playwright/test';
 const config: PlaywrightTestConfig = {
   retries: 1,
   use: {
@@ -39,7 +38,7 @@ const config: PlaywrightTestConfig = {
 export default config;
 ```
 
-```js js-flavor=library
+```js tab=js-library
 const browser = await chromium.launch();
 const context = await browser.newContext();
 
@@ -53,13 +52,14 @@ await page.goto('https://playwright.dev');
 await context.tracing.stop({ path: 'trace.zip' });
 ```
 
-You can also use `trace: 'retain-on-failure'` if you do not enable retries but still want traces for failed tests.
-
 Available options to record a trace:
-- `'off'` - Do not record a trace.
-- `'on'` - Record a trace for each test.
-- `'retain-on-failure'` - Record a trace for each test, but remove it from successful test runs.
 - `'on-first-retry'` - Record a trace only when retrying a test for the first time.
+- `'off'` - Do not record a trace.
+- `'on'` - Record a trace for each test. (not recommended as it's performance heavy)
+- `'retain-on-failure'` - Record a trace for each test, but remove it from successful test runs.
+
+
+You can also use `trace: 'retain-on-failure'` if you do not enable retries but still want traces for failed tests.
 
 If you are not using Playwright Test, use the [`property: BrowserContext.tracing`] API instead.
 
@@ -117,7 +117,7 @@ await using var browser = playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 
 // Start tracing before creating / navigating a page.
-await context.Tracing.StartAsync(new TracingStartOptions
+await context.Tracing.StartAsync(new()
 {
   Screenshots = true,
   Snapshots = true,
@@ -128,7 +128,7 @@ var page = context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
 
 // Stop tracing and export it into a zip archive.
-await context.Tracing.StopAsync(new TracingStopOptions
+await context.Tracing.StopAsync(new()
 {
   Path = "trace.zip"
 });
@@ -153,7 +153,7 @@ playwright show-trace trace.zip
 ```
 
 ```bash csharp
-pwsh bin\Debug\netX\playwright.ps1 show-trace trace.zip
+pwsh bin/Debug/netX/playwright.ps1 show-trace trace.zip
 ```
 
 ## Actions
@@ -220,7 +220,7 @@ playwright show-trace https://example.com/trace.zip
 ```
 
 ```bash csharp
-pwsh bin\Debug\netX\playwright.ps1 show-trace https://example.com/trace.zip
+pwsh bin/Debug/netX/playwright.ps1 show-trace https://example.com/trace.zip
 ```
 
 ## Using [trace.playwright.dev](https://trace.playwright.dev)
@@ -238,3 +238,5 @@ You can also pass the URL of your uploaded trace (e.g. inside your CI) from some
 ```txt
 https://trace.playwright.dev/?trace=https://demo.playwright.dev/reports/todomvc/data/cb0fa77ebd9487a5c899f3ae65a7ffdbac681182.zip
 ```
+
+

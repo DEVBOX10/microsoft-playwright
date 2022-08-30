@@ -29,7 +29,7 @@ import { ProgressController } from './progress';
 import type { SelectorInfo } from './selectors';
 import type * as types from './types';
 import type { TimeoutOptions } from '../common/types';
-import { experimentalFeaturesEnabled, isUnderTest } from '../utils';
+import { isUnderTest } from '../utils';
 
 type SetInputFilesFiles = channels.ElementHandleSetInputFilesParams['files'];
 export type InputFilesItems = { files?: SetInputFilesFiles, localPaths?: string[] };
@@ -106,7 +106,6 @@ export class FrameExecutionContext extends js.ExecutionContext {
           ${isUnderTest()},
           ${this.frame._page._delegate.rafCountForStablePosition()},
           "${this.frame._page._browserContext._browser.options.name}",
-          ${experimentalFeaturesEnabled()},
           [${custom.join(',\n')}]
         );
         })();
@@ -437,34 +436,26 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       if ((options as any).__testHookBeforeHitTarget)
         await (options as any).__testHookBeforeHitTarget();
 
-      if (actionName === 'move and up') {
-        // When dropping, the "element that is being dragged" often stays under the cursor,
-        // so hit target check at the moment we receive mousedown does not work -
-        // it finds the "element that is being dragged" instead of the
-        // "element that we drop onto".
-        progress.log(`  checking that element receives pointer events at (${point.x},${point.y})`);
-        const hitTargetResult = await this._checkHitTargetAt(point);
-        if (hitTargetResult !== 'done')
-          return hitTargetResult;
-        progress.log(`  element does receive pointer events`);
-        if (options.trial) {
-          progress.log(`  trial ${actionName} has finished`);
-          return 'done';
-        }
-      } else {
-        const actionType = (actionName === 'hover' || actionName === 'tap') ? actionName : 'mouse';
-        const handle = await this.evaluateHandleInUtility(([injected, node, { actionType, trial }]) => injected.setupHitTargetInterceptor(node, actionType, trial), { actionType, trial: !!options.trial } as const);
-        if (handle === 'error:notconnected')
-          return handle;
-        if (!handle._objectId)
-          return handle.rawValue() as 'error:notconnected';
-        hitTargetInterceptionHandle = handle as any;
-        progress.cleanupWhenAborted(() => {
-          // Do not await here, just in case the renderer is stuck (e.g. on alert)
-          // and we won't be able to cleanup.
-          hitTargetInterceptionHandle!.evaluate(h => h.stop()).catch(e => {});
-        });
+      const frameCheckResult = await this._checkFrameIsHitTarget(point);
+      if (frameCheckResult === 'error:notconnected' || ('hitTargetDescription' in frameCheckResult))
+        return frameCheckResult;
+      const hitPoint = frameCheckResult.framePoint;
+      const actionType = actionName === 'move and up' ? 'drag' : ((actionName === 'hover' || actionName === 'tap') ? actionName : 'mouse');
+      const handle = await this.evaluateHandleInUtility(([injected, node, { actionType, hitPoint, trial }]) => injected.setupHitTargetInterceptor(node, actionType, hitPoint, trial), { actionType, hitPoint, trial: !!options.trial } as const);
+      if (handle === 'error:notconnected')
+        return handle;
+      if (!handle._objectId) {
+        const error = handle.rawValue() as string;
+        if (error === 'error:notconnected')
+          return error;
+        return { hitTargetDescription: error };
       }
+      hitTargetInterceptionHandle = handle as any;
+      progress.cleanupWhenAborted(() => {
+        // Do not await here, just in case the renderer is stuck (e.g. on alert)
+        // and we won't be able to cleanup.
+        hitTargetInterceptionHandle!.evaluate(h => h.stop()).catch(e => {});
+      });
     }
 
     const actionResult = await this._page._frameManager.waitForSignalsCreatedBy(progress, options.noWaitAfter, async () => {
@@ -624,10 +615,15 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
 
   async _setInputFiles(progress: Progress, items: InputFilesItems, options: types.NavigatingActionWaitOptions): Promise<'error:notconnected' | 'done'> {
     const { files, localPaths } = items;
+    let filePayloads: types.FilePayload[] | undefined;
     if (files) {
+      filePayloads = [];
       for (const payload of files) {
-        if (!payload.mimeType)
-          payload.mimeType = mime.getType(payload.name) || 'application/octet-stream';
+        filePayloads.push({
+          name: payload.name,
+          mimeType: payload.mimeType || mime.getType(payload.name) || 'application/octet-stream',
+          buffer: payload.buffer.toString('base64'),
+        });
       }
     }
     const multiple = files && files.length > 1 || localPaths && localPaths.length > 1;
@@ -650,7 +646,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       if (localPaths)
         await this._page._delegate.setInputFilePaths(retargeted, localPaths);
       else
-        await this._page._delegate.setInputFiles(retargeted, files as types.FilePayload[]);
+        await this._page._delegate.setInputFiles(retargeted, filePayloads!);
     });
     await this._page._doSlowMo();
     return 'done';
@@ -865,17 +861,34 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
     return result;
   }
 
-  async _checkHitTargetAt(point: types.Point): Promise<'error:notconnected' | { hitTargetDescription: string } | 'done'> {
-    const frame = await this.ownerFrame();
-    if (frame && frame.parentFrame()) {
-      const element = await frame.frameElement();
-      const box = await element.boundingBox();
+  async _checkFrameIsHitTarget(point: types.Point): Promise<{ framePoint: types.Point } | 'error:notconnected' | { hitTargetDescription: string }> {
+    let frame = this._frame;
+    const data: { frame: frames.Frame, frameElement: ElementHandle<Element> | null, pointInFrame: types.Point }[] = [];
+    while (frame.parentFrame()) {
+      const frameElement = await frame.frameElement() as ElementHandle<Element>;
+      const box = await frameElement.boundingBox();
       if (!box)
         return 'error:notconnected';
       // Translate from viewport coordinates to frame coordinates.
-      point = { x: point.x - box.x, y: point.y - box.y };
+      const pointInFrame = { x: point.x - box.x, y: point.y - box.y };
+      data.push({ frame, frameElement, pointInFrame });
+      frame = frame.parentFrame()!;
     }
-    return this.evaluateInUtility(([injected, node, point]) => injected.checkHitTargetAt(node, point), point);
+    // Add main frame.
+    data.push({ frame, frameElement: null, pointInFrame: point });
+
+    for (let i = data.length - 1; i > 0; i--) {
+      const element = data[i - 1].frameElement!;
+      const point = data[i].pointInFrame;
+      // Hit target in the parent frame should hit the child frame element.
+      const hitTargetResult = await element.evaluateInUtility(([injected, element, hitPoint]) => {
+        const hitElement = injected.deepElementFromPoint(document, hitPoint.x, hitPoint.y);
+        return injected.expectHitTargetParent(hitElement, element);
+      }, point);
+      if (hitTargetResult !== 'done')
+        return hitTargetResult;
+    }
+    return { framePoint: data[0].pointInFrame };
   }
 }
 

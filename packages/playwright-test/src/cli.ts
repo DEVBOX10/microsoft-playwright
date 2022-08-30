@@ -23,11 +23,18 @@ import path from 'path';
 import { Runner, builtInReporters, kDefaultConfigFiles } from './runner';
 import type { ConfigCLIOverrides } from './runner';
 import { stopProfiling, startProfiling } from './profiler';
-import type { FilePatternFilter } from './util';
+import type { TestFileFilter } from './util';
 import { showHTMLReport } from './reporters/html';
 import { baseFullConfig, defaultTimeout, fileIsModule } from './loader';
+import type { TraceMode } from './types';
 
-export function addTestCommand(program: Command) {
+export function addTestCommands(program: Command) {
+  addTestCommand(program);
+  addShowReportCommand(program);
+  addListFilesCommand(program);
+}
+
+function addTestCommand(program: Command) {
   const command = program.command('test [test-filter...]');
   command.description('Run tests with Playwright Test');
   command.option('--browser <browser>', `Browser to use for tests, one of "all", "chromium", "firefox" or "webkit" (default: "chromium")`);
@@ -43,6 +50,7 @@ export function addTestCommand(program: Command) {
   command.option('--list', `Collect all the tests and report them, but do not run`);
   command.option('--max-failures <N>', `Stop after the first N failures`);
   command.option('--output <dir>', `Folder for output artifacts (default: "test-results")`);
+  command.option('--pass-with-no-tests', `Makes test run succeed even if no tests were found`);
   command.option('--quiet', `Suppress stdio`);
   command.option('--repeat-each <N>', `Run each test N times (default: 1)`);
   command.option('--reporter <reporter>', `Reporter to use, comma-separated, can be ${builtInReporters.map(name => `"${name}"`).join(', ')} (default: "${baseFullConfig.reporter[0]}")`);
@@ -50,6 +58,7 @@ export function addTestCommand(program: Command) {
   command.option('--shard <shard>', `Shard tests and execute only the selected shard, specify in the form "current/all", 1-based, for example "3/5"`);
   command.option('--project <project-name...>', `Only run tests from the specified list of projects (default: run all projects)`);
   command.option('--timeout <timeout>', `Specify test timeout threshold in milliseconds, zero for unlimited (default: ${defaultTimeout})`);
+  command.option('--trace <mode>', `Force tracing mode, can be ${kTraceModes.map(mode => `"${mode}"`).join(', ')}`);
   command.option('-u, --update-snapshots', `Update snapshots with actual results (default: only create missing snapshots)`);
   command.option('-x', `Stop after the first failure`);
   command.action(async (args, opts) => {
@@ -71,7 +80,7 @@ Examples:
   $ npx playwright test --browser=webkit`);
 }
 
-export function addListFilesCommand(program: Command) {
+function addListFilesCommand(program: Command) {
   const command = program.command('list-files [file-filter...]', { hidden: true });
   command.description('List files with Playwright Test tests');
   command.option('-c, --config <file>', `Configuration file, or a test directory with optional ${kDefaultConfigFiles.map(file => `"${file}"`).join('/')}`);
@@ -86,7 +95,7 @@ export function addListFilesCommand(program: Command) {
   });
 }
 
-export function addShowReportCommand(program: Command) {
+function addShowReportCommand(program: Command) {
   const command = program.command('show-report [report]');
   command.description('show HTML report');
   command.action(report => showHTMLReport(report));
@@ -124,6 +133,12 @@ async function runTests(args: string[], opts: { [key: string]: any }) {
     overrides.workers = 1;
     process.env.PWDEBUG = '1';
   }
+  if (opts.trace) {
+    if (!kTraceModes.includes(opts.trace))
+      throw new Error(`Unsupported trace mode "${opts.trace}", must be one of ${kTraceModes.map(mode => `"${mode}"`).join(', ')}`);
+    overrides.use = overrides.use || {};
+    overrides.use.trace = opts.trace;
+  }
 
   // When no --config option is passed, let's look for the config file in the current directory.
   const configFileOrDirectory = opts.config ? path.resolve(process.cwd(), opts.config) : process.cwd();
@@ -137,7 +152,7 @@ async function runTests(args: string[], opts: { [key: string]: any }) {
   else
     await runner.loadEmptyConfig(configFileOrDirectory);
 
-  const filePatternFilter: FilePatternFilter[] = args.map(arg => {
+  const testFileFilters: TestFileFilter[] = args.map(arg => {
     const match = /^(.*?):(\d+):?(\d+)?$/.exec(arg);
     return {
       re: forceRegExp(match ? match[1] : arg),
@@ -148,8 +163,10 @@ async function runTests(args: string[], opts: { [key: string]: any }) {
 
   const result = await runner.runAllTests({
     listOnly: !!opts.list,
-    filePatternFilter,
+    testFileFilters,
     projectFilter: opts.project || undefined,
+    watchMode: !!process.env.PW_TEST_WATCH,
+    passWithNoTests: opts.passWithNoTests,
   });
   await stopProfiling(undefined);
 
@@ -210,7 +227,7 @@ function resolveReporter(id: string) {
   const localPath = path.resolve(process.cwd(), id);
   if (fs.existsSync(localPath))
     return localPath;
-  return require.resolve(id, { paths: [ process.cwd() ] });
+  return require.resolve(id, { paths: [process.cwd()] });
 }
 
 function restartWithExperimentalTsEsm(configFile: string | null): boolean {
@@ -224,11 +241,9 @@ function restartWithExperimentalTsEsm(configFile: string | null): boolean {
     return false;
   if (process.env.PW_TS_ESM_ON)
     return false;
-  if (!configFile.endsWith('.ts'))
-    return false;
   if (!fileIsModule(configFile))
     return false;
-  const NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ` --experimental-loader=${url.pathToFileURL(require.resolve('@playwright/test/lib/experimentalLoader')).toString()}`;
+  const NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + experimentalLoaderOption();
   const innerProcess = require('child_process').fork(require.resolve('playwright-core/cli'), process.argv.slice(2), {
     env: {
       ...process.env,
@@ -243,3 +258,17 @@ function restartWithExperimentalTsEsm(configFile: string | null): boolean {
   });
   return true;
 }
+
+export function experimentalLoaderOption() {
+  return ` --experimental-loader=${url.pathToFileURL(require.resolve('@playwright/test/lib/experimentalLoader')).toString()}`;
+}
+
+export function envWithoutExperimentalLoaderOptions(): NodeJS.ProcessEnv {
+  const substring = experimentalLoaderOption();
+  const result = { ...process.env };
+  if (result.NODE_OPTIONS)
+    result.NODE_OPTIONS = result.NODE_OPTIONS.replace(substring, '').trim() || undefined;
+  return result;
+}
+
+const kTraceModes: TraceMode[] = ['on', 'off', 'on-first-retry', 'retain-on-failure'];

@@ -15,7 +15,7 @@
  */
 
 import type { Playwright as PlaywrightAPI } from './client/playwright';
-import { createPlaywright, DispatcherConnection, Root, PlaywrightDispatcher } from './server';
+import { createPlaywright, DispatcherConnection, RootDispatcher, PlaywrightDispatcher } from './server';
 import { Connection } from './client/connection';
 import { BrowserServerLauncherImpl } from './browserServerImpl';
 
@@ -23,13 +23,13 @@ export function createInProcessPlaywright(): PlaywrightAPI {
   const playwright = createPlaywright('javascript');
 
   const clientConnection = new Connection();
-  const dispatcherConnection = new DispatcherConnection();
+  const dispatcherConnection = new DispatcherConnection(true /* local */);
 
   // Dispatch synchronously at first.
   dispatcherConnection.onmessage = message => clientConnection.dispatch(message);
   clientConnection.onmessage = message => dispatcherConnection.dispatch(message);
 
-  const rootScope = new Root(dispatcherConnection);
+  const rootScope = new RootDispatcher(dispatcherConnection);
 
   // Initialize Playwright channel.
   new PlaywrightDispatcher(rootScope, playwright);
@@ -42,7 +42,7 @@ export function createInProcessPlaywright(): PlaywrightAPI {
   dispatcherConnection.onmessage = message => setImmediate(() => clientConnection.dispatch(message));
   clientConnection.onmessage = message => setImmediate(() => dispatcherConnection.dispatch(message));
 
-  clientConnection.toImpl = (x: any) => dispatcherConnection._dispatchers.get(x._guid)!._object;
+  clientConnection.toImpl = (x: any) => x ? dispatcherConnection._dispatchers.get(x._guid)!._object : dispatcherConnection._dispatchers.get('');
   (playwrightAPI as any)._toImpl = clientConnection.toImpl;
   return playwrightAPI;
 }

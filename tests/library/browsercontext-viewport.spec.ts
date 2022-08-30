@@ -25,11 +25,12 @@ it('should get the proper default viewport size', async ({ page, server }) => {
 
 it('should set the proper viewport size', async ({ page, server }) => {
   await verifyViewport(page, 1280, 720);
-  await page.setViewportSize({ width: 123, height: 456 });
-  await verifyViewport(page, 123, 456);
+  await page.setViewportSize({ width: 345, height: 456 });
+  await verifyViewport(page, 345, 456);
 });
 
 it('should return correct outerWidth and outerHeight', async ({ page }) => {
+  await page.setViewportSize({ width: 410, height: 420 });
   const size = await page.evaluate(() => {
     return {
       innerWidth: window.innerWidth,
@@ -38,8 +39,8 @@ it('should return correct outerWidth and outerHeight', async ({ page }) => {
       outerHeight: window.outerHeight,
     };
   });
-  expect(size.innerWidth).toBe(1280);
-  expect(size.innerHeight).toBe(720);
+  expect(size.innerWidth).toBe(410);
+  expect(size.innerHeight).toBe(420);
   expect(size.outerWidth >= size.innerWidth).toBeTruthy();
   expect(size.outerHeight >= size.innerHeight).toBeTruthy();
 });

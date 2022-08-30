@@ -46,7 +46,6 @@ it('should support reducedMotion option', async ({ launchPersistent }) => {
 });
 
 it('should support forcedColors option', async ({ launchPersistent, browserName }) => {
-  it.skip(browserName === 'webkit', 'https://bugs.webkit.org/show_bug.cgi?id=225281');
   const { page } = await launchPersistent({ forcedColors: 'active' });
   expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
   expect(await page.evaluate(() => matchMedia('(forced-colors: none)').matches)).toBe(false);
@@ -58,8 +57,8 @@ it('should support timezoneId option', async ({ launchPersistent, browserName })
 });
 
 it('should support locale option', async ({ launchPersistent }) => {
-  const { page } = await launchPersistent({ locale: 'fr-CH' });
-  expect(await page.evaluate(() => navigator.language)).toBe('fr-CH');
+  const { page } = await launchPersistent({ locale: 'fr-FR' });
+  expect(await page.evaluate(() => navigator.language)).toBe('fr-FR');
 });
 
 it('should support geolocation and permissions options', async ({ server, launchPersistent }) => {
@@ -97,6 +96,7 @@ it('should accept userDataDir', async ({ createUserDataDir, browserType }) => {
 });
 
 it('should restore state from userDataDir', async ({ browserType, server, createUserDataDir, isMac, browserName }) => {
+  it.fixme(browserName === 'firefox', 'https://github.com/microsoft/playwright/issues/12632');
   it.slow();
 
   const userDataDir = await createUserDataDir();
@@ -125,35 +125,6 @@ it('should create userDataDir if it does not exist', async ({ createUserDataDir,
   const context = await browserType.launchPersistentContext(userDataDir);
   await context.close();
   expect(fs.readdirSync(userDataDir).length).toBeGreaterThan(0);
-});
-
-it('should restore cookies from userDataDir', async ({ browserType, server, createUserDataDir, platform, channel, browserName }) => {
-  it.fixme(platform === 'win32' && channel === 'chrome');
-  it.slow();
-
-  const userDataDir = await createUserDataDir();
-  const browserContext = await browserType.launchPersistentContext(userDataDir);
-  const page = await browserContext.newPage();
-  await page.goto(server.EMPTY_PAGE);
-  const documentCookie = await page.evaluate(() => {
-    document.cookie = 'doSomethingOnlyOnce=true; expires=Fri, 31 Dec 9999 23:59:59 GMT';
-    return document.cookie;
-  });
-  expect(documentCookie).toBe('doSomethingOnlyOnce=true');
-  await browserContext.close();
-
-  const browserContext2 = await browserType.launchPersistentContext(userDataDir);
-  const page2 = await browserContext2.newPage();
-  await page2.goto(server.EMPTY_PAGE);
-  expect(await page2.evaluate(() => document.cookie)).toBe('doSomethingOnlyOnce=true');
-  await browserContext2.close();
-
-  const userDataDir2 = await createUserDataDir();
-  const browserContext3 = await browserType.launchPersistentContext(userDataDir2);
-  const page3 = await browserContext3.newPage();
-  await page3.goto(server.EMPTY_PAGE);
-  expect(await page3.evaluate(() => document.cookie)).not.toBe('doSomethingOnlyOnce=true');
-  await browserContext3.close();
 });
 
 it('should have default URL when launching browser', async ({ launchPersistent }) => {
@@ -188,7 +159,7 @@ it('should have passed URL when launching with ignoreDefaultArgs: true', async (
   await browserContext.close();
 });
 
-it('should handle timeout', async ({ browserType,createUserDataDir, mode }) => {
+it('should handle timeout', async ({ browserType, createUserDataDir, mode }) => {
   it.skip(mode !== 'default');
 
   const options: any = { timeout: 5000, __testHookBeforeCreateBrowser: () => new Promise(f => setTimeout(f, 6000)) };
@@ -196,7 +167,7 @@ it('should handle timeout', async ({ browserType,createUserDataDir, mode }) => {
   expect(error.message).toContain(`browserType.launchPersistentContext: Timeout 5000ms exceeded.`);
 });
 
-it('should handle exception', async ({ browserType,createUserDataDir, mode }) => {
+it('should handle exception', async ({ browserType, createUserDataDir, mode }) => {
   it.skip(mode !== 'default');
 
   const e = new Error('Dummy');
@@ -243,7 +214,7 @@ it('should respect selectors', async ({ playwright, launchPersistent }) => {
   expect(await page.innerHTML('defaultContextCSS=div')).toBe('hello');
 });
 
-it('should connect to a browser with the default page', async ({ browserType,createUserDataDir, mode }) => {
+it('should connect to a browser with the default page', async ({ browserType, createUserDataDir, mode }) => {
   it.skip(mode !== 'default');
 
   const options: any = { __testHookOnConnectToBrowser: () => new Promise(f => setTimeout(f, 3000)) };
@@ -252,34 +223,14 @@ it('should connect to a browser with the default page', async ({ browserType,cre
   await context.close();
 });
 
-it('route.continue should delete the origin header', async ({ launchPersistent, server, isAndroid, browserName }) => {
-  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/13106' });
-  it.skip(isAndroid, 'No cross-process on Android');
-  it.fail(browserName === 'webkit', 'Does not delete origin in webkit');
-
+it('should support har option', async ({ launchPersistent, asset }) => {
+  const path = asset('har-fulfill.har');
   const { page } = await launchPersistent();
-
-  await page.goto(server.PREFIX + '/empty.html');
-  server.setRoute('/something', (request, response) => {
-    response.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
-    response.end('done');
-  });
-  let interceptedRequest;
-  await page.route(server.CROSS_PROCESS_PREFIX + '/something', async (route, request) => {
-    interceptedRequest = request;
-    const headers = await request.allHeaders();
-    delete headers['origin'];
-    route.continue({ headers });
-  });
-
-  const [text, serverRequest] = await Promise.all([
-    page.evaluate(async url => {
-      const data = await fetch(url);
-      return data.text();
-    }, server.CROSS_PROCESS_PREFIX + '/something'),
-    server.waitForRequest('/something')
-  ]);
-  expect(text).toBe('done');
-  expect(interceptedRequest.headers()['origin']).toEqual(server.PREFIX);
-  expect(serverRequest.headers.origin).toBeFalsy();
+  await page.routeFromHAR(path);
+  await page.goto('http://no.playwright/');
+  // HAR contains a redirect for the script that should be followed automatically.
+  expect(await page.evaluate('window.value')).toBe('foo');
+  // HAR contains a POST for the css file that should not be used.
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 0, 0)');
 });
+

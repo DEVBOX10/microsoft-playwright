@@ -153,9 +153,9 @@ it('should select the text with mouse', async ({ page, server }) => {
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await page.evaluate(() => document.querySelector('textarea').scrollTop = 0);
   const { x, y } = await page.evaluate(dimensions);
-  await page.mouse.move(x + 2,y + 2);
+  await page.mouse.move(x + 2, y + 2);
   await page.mouse.down();
-  await page.mouse.move(200,200);
+  await page.mouse.move(200, 200);
   await page.mouse.up();
   expect(await page.evaluate(() => {
     const textarea = document.querySelector('textarea');
@@ -231,7 +231,7 @@ it('should tween mouse movement', async ({ page, browserName, isAndroid }) => {
   ]);
 });
 
-it('should always round down', async ({ page, browserName, isAndroid }) => {
+it('should always round down', async ({ page }) => {
   await page.evaluate(() => {
     document.addEventListener('mousedown', event => {
       window['result'] = [event.clientX, event.clientY];
@@ -239,4 +239,13 @@ it('should always round down', async ({ page, browserName, isAndroid }) => {
   });
   await page.mouse.click(50.1, 50.9);
   expect(await page.evaluate('result')).toEqual([50, 50]);
+});
+
+it('should not crash on mouse drag with any button', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16609' });
+  for (const button of ['left', 'middle', 'right'] as const) {
+    await page.mouse.move(50, 50);
+    await page.mouse.down({ button });
+    await page.mouse.move(100, 100);
+  }
 });

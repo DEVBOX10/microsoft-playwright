@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-// eslint-disable-next-line spaced-comment
-/// <reference path="./experimental.d.ts" />
-
 import type { Fixtures } from '@playwright/test';
 import type { ChildProcess } from 'child_process';
 import { execSync, spawn } from 'child_process';
@@ -35,7 +32,7 @@ export class TestChildProcess {
   process: ChildProcess;
   output = '';
   onOutput?: () => void;
-  exited: Promise<{ exitCode: number | null, signal: string | null }>;
+  exited: Promise<{ exitCode: number, signal: string | null }>;
   exitCode: Promise<number>;
 
   private _outputCallbacks = new Set<() => void>();
