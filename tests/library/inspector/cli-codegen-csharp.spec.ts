@@ -235,7 +235,6 @@ public class Tests : PageTest
     [TestMethod]
     public async Task MyTest()
     {
-        // Go to ${emptyHTML}
         await Page.GotoAsync("${emptyHTML}");
 
     }
@@ -250,6 +249,7 @@ test(`should print a valid basic program in nunit`, async ({ runCLI }) => {
 using Microsoft.Playwright;
 
 [Parallelizable(ParallelScope.Self)]
+[TestFixture]
 public class Tests : PageTest
 {
     public override BrowserNewContextOptions ContextOptions()
@@ -263,7 +263,6 @@ public class Tests : PageTest
     [Test]
     public async Task MyTest()
     {
-        // Go to ${emptyHTML}
         await Page.GotoAsync("${emptyHTML}");
 
     }

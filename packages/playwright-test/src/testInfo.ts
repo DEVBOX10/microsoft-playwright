@@ -35,6 +35,7 @@ export class TestInfoImpl implements TestInfo {
   private _hasHardError: boolean = false;
   readonly _screenshotsDir: string;
   readonly _onTestFailureImmediateCallbacks = new Map<() => Promise<void>, string>(); // fn -> title
+  _didTimeout = false;
 
   // ------------ TestInfo fields ------------
   readonly repeatEachIndex: number;
@@ -63,16 +64,13 @@ export class TestInfoImpl implements TestInfo {
   currentStep: TestStepInternal | undefined;
 
   get error(): TestError | undefined {
-    return this.errors.length > 0 ? this.errors[0] : undefined;
+    return this.errors[0];
   }
 
   set error(e: TestError | undefined) {
     if (e === undefined)
       throw new Error('Cannot assign testInfo.error undefined value!');
-    if (!this.errors.length)
-      this.errors.push(e);
-    else
-      this.errors[0] = e;
+    this.errors[0] = e;
   }
 
   get timeout(): number {
@@ -167,9 +165,11 @@ export class TestInfoImpl implements TestInfo {
   async _runWithTimeout(cb: () => Promise<any>): Promise<void> {
     const timeoutError = await this._timeoutManager.runWithTimeout(cb);
     // Do not overwrite existing failure upon hook/teardown timeout.
-    if (timeoutError && (this.status === 'passed' || this.status === 'skipped')) {
-      this.status = 'timedOut';
+    if (timeoutError && !this._didTimeout) {
+      this._didTimeout = true;
       this.errors.push(timeoutError);
+      if (this.status === 'passed' || this.status === 'skipped')
+        this.status = 'timedOut';
     }
     this.duration = this._timeoutManager.defaultSlotTimings().elapsed | 0;
   }

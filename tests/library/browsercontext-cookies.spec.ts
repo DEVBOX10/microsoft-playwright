@@ -320,3 +320,83 @@ it('should add cookies with an expiration', async ({ context }) => {
     expires: -42,
   }])).rejects.toThrow(/Cookie should have a valid expires/);
 });
+
+it('should be able to send third party cookies via an iframe', async ({ browser, httpsServer, browserName, isMac }) => {
+  it.fixme(browserName === 'webkit' && isMac);
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16937' });
+
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(httpsServer.EMPTY_PAGE);
+    await context.addCookies([{
+      domain: new URL(httpsServer.CROSS_PROCESS_PREFIX).hostname,
+      path: '/',
+      name: 'cookie1',
+      value: 'yes',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'None'
+    }]);
+    const [response] = await Promise.all([
+      httpsServer.waitForRequest('/grid.html'),
+      page.setContent(`<iframe src="${httpsServer.CROSS_PROCESS_PREFIX}/grid.html"></iframe>`)
+    ]);
+    expect(response.headers['cookie']).toBe('cookie1=yes');
+  } finally {
+    await context.close();
+  }
+});
+
+it('should support requestStorageAccess', async ({ page, server, channel, browserName, isMac, isLinux, isWindows }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/17285' });
+  it.skip(browserName === 'chromium', 'requestStorageAccess API is not available in Chromium');
+  it.fixme(channel === 'firefox-beta', 'hasStorageAccess returns true, but no cookie is sent');
+
+  server.setRoute('/set-cookie.html', (req, res) => {
+    res.setHeader('Set-Cookie', 'name=value; Path=/');
+    res.end();
+  });
+  // Navigate once to the domain as top level.
+  await page.goto(server.CROSS_PROCESS_PREFIX + '/set-cookie.html');
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`<iframe src="${server.CROSS_PROCESS_PREFIX + '/empty.html'}"></iframe>`);
+
+  const frame = page.frames()[1];
+  if (browserName === 'firefox') {
+    expect(await frame.evaluate(() => document.hasStorageAccess())).toBeTruthy();
+    {
+      const [serverRequest] = await Promise.all([
+        server.waitForRequest('/title.html'),
+        frame.evaluate(() => fetch('/title.html'))
+      ]);
+      expect(serverRequest.headers.cookie).toBe('name=value');
+    }
+  } else {
+    if (isLinux && browserName === 'webkit')
+      expect(await frame.evaluate(() => document.hasStorageAccess())).toBeTruthy();
+    else
+      expect(await frame.evaluate(() => document.hasStorageAccess())).toBeFalsy();
+    {
+      const [serverRequest] = await Promise.all([
+        server.waitForRequest('/title.html'),
+        frame.evaluate(() => fetch('/title.html'))
+      ]);
+      if (!isMac && browserName === 'webkit')
+        expect(serverRequest.headers.cookie).toBe('name=value');
+      else
+        expect(serverRequest.headers.cookie).toBeFalsy();
+    }
+    expect(await frame.evaluate(() => document.requestStorageAccess().then(() => true, e => false))).toBeTruthy();
+    expect(await frame.evaluate(() => document.hasStorageAccess())).toBeTruthy();
+    {
+      const [serverRequest] = await Promise.all([
+        server.waitForRequest('/title.html'),
+        frame.evaluate(() => fetch('/title.html'))
+      ]);
+      expect(serverRequest.headers.cookie).toBe('name=value');
+    }
+  }
+});

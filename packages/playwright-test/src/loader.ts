@@ -14,24 +14,22 @@
  * limitations under the License.
  */
 
-import { installTransform } from './transform';
-import type { Config, Project, ReporterDescription, FullProjectInternal, FullConfigInternal, Fixtures, FixturesWithLocation } from './types';
-import { getPackageJsonPath, mergeObjects, errorWithFile } from './util';
-import { setCurrentlyLoadingFileSuite } from './globals';
-import { Suite, type TestCase } from './test';
-import type { SerializedLoaderData, WorkerIsolation } from './ipc';
-import * as path from 'path';
-import * as url from 'url';
 import * as fs from 'fs';
 import * as os from 'os';
-import type { BuiltInReporter, ConfigCLIOverrides } from './runner';
+import * as path from 'path';
+import { calculateSha1, isRegExp } from 'playwright-core/lib/utils';
+import * as url from 'url';
 import type { Reporter } from '../types/testReporter';
-import { builtInReporters } from './runner';
-import { isRegExp, calculateSha1 } from 'playwright-core/lib/utils';
-import { serializeError } from './util';
-import { hostPlatform } from 'playwright-core/lib/utils/hostPlatform';
 import { FixturePool, isFixtureOption } from './fixtures';
+import { setCurrentlyLoadingFileSuite } from './globals';
+import type { SerializedLoaderData, WorkerIsolation } from './ipc';
+import type { BuiltInReporter, ConfigCLIOverrides } from './runner';
+import { builtInReporters } from './runner';
+import { Suite, type TestCase } from './test';
 import type { TestTypeImpl } from './testType';
+import { installTransform } from './transform';
+import type { Config, Fixtures, FixturesWithLocation, FullConfigInternal, FullProjectInternal, Project, ReporterDescription } from './types';
+import { errorWithFile, getPackageJsonPath, mergeObjects, serializeError } from './util';
 
 export const defaultTimeout = 30000;
 
@@ -82,8 +80,6 @@ export class Loader {
     config.forbidOnly = takeFirst(this._configCLIOverrides.forbidOnly, config.forbidOnly);
     config.fullyParallel = takeFirst(this._configCLIOverrides.fullyParallel, config.fullyParallel);
     config.globalTimeout = takeFirst(this._configCLIOverrides.globalTimeout, config.globalTimeout);
-    config.grep = takeFirst(this._configCLIOverrides.grep, config.grep);
-    config.grepInvert = takeFirst(this._configCLIOverrides.grepInvert, config.grepInvert);
     config.maxFailures = takeFirst(this._configCLIOverrides.maxFailures, config.maxFailures);
     config.outputDir = takeFirst(this._configCLIOverrides.outputDir, config.outputDir);
     config.quiet = takeFirst(this._configCLIOverrides.quiet, config.quiet);
@@ -94,6 +90,7 @@ export class Loader {
     config.shard = takeFirst(this._configCLIOverrides.shard, config.shard);
     config.timeout = takeFirst(this._configCLIOverrides.timeout, config.timeout);
     config.updateSnapshots = takeFirst(this._configCLIOverrides.updateSnapshots, config.updateSnapshots);
+    config.ignoreSnapshots = takeFirst(this._configCLIOverrides.ignoreSnapshots, config.ignoreSnapshots);
     if (this._configCLIOverrides.projects && config.projects)
       throw new Error(`Cannot use --browser option when configuration file defines projects. Specify browserName in the projects instead.`);
     config.projects = takeFirst(this._configCLIOverrides.projects, config.projects as any);
@@ -124,6 +121,7 @@ export class Loader {
       config.snapshotDir = path.resolve(configDir, config.snapshotDir);
 
     this._fullConfig._configDir = configDir;
+    this._fullConfig.configFile = this._configFile;
     this._fullConfig.rootDir = config.testDir || this._configDir;
     this._fullConfig._globalOutputDir = takeFirst(config.outputDir, throwawayArtifactsPath, baseFullConfig._globalOutputDir);
     this._fullConfig.forbidOnly = takeFirst(config.forbidOnly, baseFullConfig.forbidOnly);
@@ -139,8 +137,21 @@ export class Loader {
     this._fullConfig.reportSlowTests = takeFirst(config.reportSlowTests, baseFullConfig.reportSlowTests);
     this._fullConfig.quiet = takeFirst(config.quiet, baseFullConfig.quiet);
     this._fullConfig.shard = takeFirst(config.shard, baseFullConfig.shard);
+    this._fullConfig._ignoreSnapshots = takeFirst(config.ignoreSnapshots, baseFullConfig._ignoreSnapshots);
     this._fullConfig.updateSnapshots = takeFirst(config.updateSnapshots, baseFullConfig.updateSnapshots);
-    this._fullConfig.workers = takeFirst(config.workers, baseFullConfig.workers);
+
+    const workers = takeFirst(config.workers, '50%');
+    if (typeof workers === 'string') {
+      if (workers.endsWith('%')) {
+        const cpus = os.cpus().length;
+        this._fullConfig.workers = Math.max(1, Math.floor(cpus * (parseInt(workers, 10) / 100)));
+      } else {
+        this._fullConfig.workers = parseInt(workers, 10);
+      }
+    } else {
+      this._fullConfig.workers = workers;
+    }
+
     const webServers = takeFirst(config.webServer, baseFullConfig.webServer);
     if (Array.isArray(webServers)) { // multiple web server mode
       // Due to previous choices, this value shows up to the user in globalSetup as part of FullConfig. Arrays are not supported by the old type.
@@ -242,8 +253,6 @@ export class Loader {
 
   private _applyCLIOverridesToProject(projectConfig: Project) {
     projectConfig.fullyParallel = takeFirst(this._configCLIOverrides.fullyParallel, projectConfig.fullyParallel);
-    projectConfig.grep = takeFirst(this._configCLIOverrides.grep, projectConfig.grep);
-    projectConfig.grepInvert = takeFirst(this._configCLIOverrides.grepInvert, projectConfig.grepInvert);
     projectConfig.outputDir = takeFirst(this._configCLIOverrides.outputDir, projectConfig.outputDir);
     projectConfig.repeatEach = takeFirst(this._configCLIOverrides.repeatEach, projectConfig.repeatEach);
     projectConfig.retries = takeFirst(this._configCLIOverrides.retries, projectConfig.retries);
@@ -268,7 +277,13 @@ export class Loader {
     const outputDir = takeFirst(projectConfig.outputDir, config.outputDir, path.join(throwawayArtifactsPath, 'test-results'));
     const snapshotDir = takeFirst(projectConfig.snapshotDir, config.snapshotDir, testDir);
     const name = takeFirst(projectConfig.name, config.name, '');
-    const screenshotsDir = takeFirst((projectConfig as any).screenshotsDir, (config as any).screenshotsDir, path.join(testDir, '__screenshots__', process.platform, name));
+    const _setup = takeFirst(projectConfig.setup, []);
+
+    let screenshotsDir = takeFirst((projectConfig as any).screenshotsDir, (config as any).screenshotsDir, path.join(testDir, '__screenshots__', process.platform, name));
+    if (process.env.PLAYWRIGHT_DOCKER) {
+      screenshotsDir = path.join(testDir, '__screenshots__', name);
+      process.env.PWTEST_USE_SCREENSHOTS_DIR = '1';
+    }
     return {
       _id: '',
       _fullConfig: fullConfig,
@@ -282,6 +297,7 @@ export class Loader {
       metadata: takeFirst(projectConfig.metadata, config.metadata, undefined),
       name,
       testDir,
+      _setup,
       _respectGitIgnore: respectGitIgnore,
       snapshotDir,
       _screenshotsDir: screenshotsDir,
@@ -293,8 +309,6 @@ export class Loader {
   }
 
   private async _requireOrImport(file: string) {
-    if (process.platform === 'win32')
-      file = await fixWin32FilepathCapitalization(file);
     const revertBabelRequire = installTransform();
     const isModule = fileIsModule(file);
     try {
@@ -382,6 +396,12 @@ class ProjectSuiteBuilder {
         const test = entry._clone();
         to._addTest(test);
         test.retries = this._project.retries;
+        for (let parentSuite: Suite | undefined = to; parentSuite; parentSuite = parentSuite.parent) {
+          if (parentSuite._retries !== undefined) {
+            test.retries = parentSuite._retries;
+            break;
+          }
+        }
         const repeatEachIndexSuffix = repeatEachIndex ? ` (repeat:${repeatEachIndex})` : '';
         // At the point of the query, suite is not yet attached to the project, so we only get file, describe and test titles.
         const testIdExpression = `[project=${this._project._id}]${test.titlePath().join('\x1e')}${repeatEachIndexSuffix}`;
@@ -497,7 +517,7 @@ function validateConfig(file: string, config: Config) {
           throw errorWithFile(file, `config.grepInvert[${index}] must be a RegExp`);
       });
     } else if (!isRegExp(config.grepInvert)) {
-      throw errorWithFile(file, `config.grep must be a RegExp`);
+      throw errorWithFile(file, `config.grepInvert must be a RegExp`);
     }
   }
 
@@ -553,14 +573,21 @@ function validateConfig(file: string, config: Config) {
       throw errorWithFile(file, `config.shard.current must be a positive number, not greater than config.shard.total`);
   }
 
+  if ('ignoreSnapshots' in config && config.ignoreSnapshots !== undefined) {
+    if (typeof config.ignoreSnapshots !== 'boolean')
+      throw errorWithFile(file, `config.ignoreSnapshots must be a boolean`);
+  }
+
   if ('updateSnapshots' in config && config.updateSnapshots !== undefined) {
     if (typeof config.updateSnapshots !== 'string' || !['all', 'none', 'missing'].includes(config.updateSnapshots))
       throw errorWithFile(file, `config.updateSnapshots must be one of "all", "none" or "missing"`);
   }
 
   if ('workers' in config && config.workers !== undefined) {
-    if (typeof config.workers !== 'number' || config.workers <= 0)
+    if (typeof config.workers === 'number' && config.workers <= 0)
       throw errorWithFile(file, `config.workers must be a positive number`);
+    else if (typeof config.workers === 'string' && !config.workers.endsWith('%'))
+      throw errorWithFile(file, `config.workers must be a number or percentage`);
   }
 }
 
@@ -593,7 +620,7 @@ function validateProject(file: string, project: Project, title: string) {
       throw errorWithFile(file, `${title}.testDir must be a string`);
   }
 
-  for (const prop of ['testIgnore', 'testMatch'] as const) {
+  for (const prop of ['testIgnore', 'testMatch', 'setup'] as const) {
     if (prop in project && project[prop] !== undefined) {
       const value = project[prop];
       if (Array.isArray(value)) {
@@ -618,9 +645,6 @@ function validateProject(file: string, project: Project, title: string) {
   }
 }
 
-const cpus = os.cpus().length;
-const workers = hostPlatform.startsWith('mac') && hostPlatform.endsWith('arm64') ? cpus : Math.ceil(cpus / 2);
-
 export const baseFullConfig: FullConfigInternal = {
   forbidOnly: false,
   fullyParallel: false,
@@ -635,18 +659,19 @@ export const baseFullConfig: FullConfigInternal = {
   projects: [],
   reporter: [[process.env.CI ? 'dot' : 'list']],
   reportSlowTests: { max: 5, threshold: 15000 },
+  configFile: '',
   rootDir: path.resolve(process.cwd()),
   quiet: false,
   shard: null,
   updateSnapshots: 'missing',
   version: require('../package.json').version,
-  workers,
+  workers: 0,
   webServer: null,
-  _watchMode: false,
   _webServers: [],
   _globalOutputDir: path.resolve(process.cwd()),
   _configDir: '',
-  _testGroupsCount: 0,
+  _maxConcurrentTestGroups: 0,
+  _ignoreSnapshots: false,
   _workerIsolation: 'isolate-pools',
 };
 
@@ -679,24 +704,4 @@ export function folderIsModule(folder: string): boolean {
     return false;
   // Rely on `require` internal caching logic.
   return require(packageJsonPath).type === 'module';
-}
-
-async function fixWin32FilepathCapitalization(file: string): Promise<string> {
-  /**
-   * On Windows with PowerShell <= 6 it is possible to have a CWD with different
-   * casing than what the actual directory on the filesystem is. This can cause
-   * that we require the file multiple times with different casing. To mitigate
-   * this we get the actual underlying filesystem path and use that.
-   * https://github.com/microsoft/playwright/issues/9193#issuecomment-1219362150
-   */
-  const realFile = await new Promise<string>((resolve, reject) => fs.realpath.native(file, (error, realFile) => {
-    if (error)
-      return reject(error);
-    resolve(realFile);
-  }));
-  // We do not want to resolve them (e.g. 8.3 filenames), so we do a best effort
-  // approach by only using it if the actual lowercase characters are the same:
-  if (realFile.toLowerCase() === file.toLowerCase())
-    return realFile;
-  return file;
 }

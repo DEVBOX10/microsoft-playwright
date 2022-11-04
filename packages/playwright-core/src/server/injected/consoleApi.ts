@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { escapeWithQuotes } from '../../utils/isomorphic/stringUtils';
+import { escapeForTextSelector } from '../../utils/isomorphic/stringUtils';
 import { type InjectedScript } from './injectedScript';
 import { generateSelector } from './selectorGenerator';
 
@@ -26,15 +26,10 @@ function createLocator(injectedScript: InjectedScript, initial: string, options?
 
     constructor(selector: string, options?: { hasText?: string | RegExp, has?: Locator }) {
       this.selector = selector;
-      if (options?.hasText) {
-        const text = options.hasText;
-        if (text instanceof RegExp)
-          this.selector += ` >> :scope:text-matches(${escapeWithQuotes(text.source, '"')}, "${text.flags}")`;
-        else
-          this.selector += ` >> :scope:has-text(${escapeWithQuotes(text)})`;
-      }
+      if (options?.hasText)
+        this.selector += ` >> internal:has-text=${escapeForTextSelector(options.hasText, false)}`;
       if (options?.has)
-        this.selector += ` >> has=` + JSON.stringify(options.has.selector);
+        this.selector += ` >> internal:has=` + JSON.stringify(options.has.selector);
       const parsed = injectedScript.parseSelector(this.selector);
       this.element = injectedScript.querySelector(parsed, document, false);
       this.elements = injectedScript.querySelectorAll(parsed, document);

@@ -92,6 +92,7 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
   updateSnapshots: 'all' | 'none' | 'missing';
   workers: number;
   webServer: TestConfigWebServer | null;
+  configFile?: string;
   // [internal] !!! DO NOT ADD TO THIS !!! See prior note.
 }
 
@@ -128,7 +129,7 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
     parallel: SuiteFunction & {
       only: SuiteFunction;
     };
-    configure: (options: { mode?: 'parallel' | 'serial' }) => void;
+    configure: (options: { mode?: 'parallel' | 'serial', retries?: number, timeout?: number }) => void;
   };
   skip(title: string, testFunction: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<void> | void): void;
   skip(): void;
@@ -195,6 +196,11 @@ type ConnectOptions = {
   timeout?: number;
 };
 
+interface Storage {
+  get<T>(name: string): Promise<T | undefined>;
+  set<T>(name: string, value: T | undefined): Promise<void>;
+}
+
 export interface PlaywrightWorkerOptions {
   browserName: BrowserName;
   defaultBrowserType: BrowserName;
@@ -235,12 +241,14 @@ export interface PlaywrightTestOptions {
   actionTimeout: number | undefined;
   navigationTimeout: number | undefined;
   serviceWorkers: ServiceWorkerPolicy | undefined;
+  testIdAttribute: string | undefined;
 }
 
 
 export interface PlaywrightWorkerArgs {
   playwright: typeof import('playwright-core');
   browser: Browser;
+  storage: Storage;
 }
 
 export interface PlaywrightTestArgs {

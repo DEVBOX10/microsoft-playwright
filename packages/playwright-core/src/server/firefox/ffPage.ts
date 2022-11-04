@@ -79,6 +79,7 @@ export class FFPage implements PageDelegate {
       eventsHelper.addEventListener(this._session, 'Page.sameDocumentNavigation', this._onSameDocumentNavigation.bind(this)),
       eventsHelper.addEventListener(this._session, 'Runtime.executionContextCreated', this._onExecutionContextCreated.bind(this)),
       eventsHelper.addEventListener(this._session, 'Runtime.executionContextDestroyed', this._onExecutionContextDestroyed.bind(this)),
+      eventsHelper.addEventListener(this._session, 'Runtime.executionContextsCleared', this._onExecutionContextsCleared.bind(this)),
       eventsHelper.addEventListener(this._session, 'Page.linkClicked', event => this._onLinkClicked(event.phase)),
       eventsHelper.addEventListener(this._session, 'Page.uncaughtError', this._onUncaughtError.bind(this)),
       eventsHelper.addEventListener(this._session, 'Runtime.console', this._onConsole.bind(this)),
@@ -182,6 +183,11 @@ export class FFPage implements PageDelegate {
       return;
     this._contextIdToContext.delete(executionContextId);
     context.frame._contextDestroyed(context);
+  }
+
+  _onExecutionContextsCleared() {
+    for (const executionContextId of Array.from(this._contextIdToContext.keys()))
+      this._onExecutionContextDestroyed({ executionContextId });
   }
 
   private _removeContextsForFrame(frame: frames.Frame) {
@@ -365,12 +371,12 @@ export class FFPage implements PageDelegate {
 
   async updateEmulateMedia(): Promise<void> {
     const emulatedMedia = this._page.emulatedMedia();
-    const colorScheme = emulatedMedia.colorScheme ?? undefined;
-    const reducedMotion = emulatedMedia.reducedMotion ?? undefined;
-    const forcedColors = emulatedMedia.forcedColors ?? undefined;
+    const colorScheme = emulatedMedia.colorScheme === 'no-override' ? undefined : emulatedMedia.colorScheme;
+    const reducedMotion = emulatedMedia.reducedMotion === 'no-override' ? undefined : emulatedMedia.reducedMotion;
+    const forcedColors = emulatedMedia.forcedColors === 'no-override' ? undefined : emulatedMedia.forcedColors;
     await this._session.send('Page.setEmulatedMedia', {
       // Empty string means reset.
-      type: emulatedMedia.media === null ? '' : emulatedMedia.media,
+      type: emulatedMedia.media === 'no-override' ? '' : emulatedMedia.media,
       colorScheme,
       reducedMotion,
       forcedColors,
@@ -571,17 +577,14 @@ export class FFPage implements PageDelegate {
     const parent = frame.parentFrame();
     if (!parent)
       throw new Error('Frame has been detached.');
-    const info = this._page.parseSelector('frame,iframe');
-    const handles = await this._page.selectors._queryAll(parent, info);
-    const items = await Promise.all(handles.map(async handle => {
-      const frame = await handle.contentFrame().catch(e => null);
-      return { handle, frame };
-    }));
-    const result = items.find(item => item.frame === frame);
-    items.map(item => item === result ? Promise.resolve() : item.handle.dispose());
-    if (!result)
+    const context = await parent._mainContext();
+    const result = await this._session.send('Page.adoptNode', {
+      frameId: frame._id,
+      executionContextId: ((context as any)[contextDelegateSymbol] as FFExecutionContext)._executionContextId
+    });
+    if (!result.remoteObject)
       throw new Error('Frame has been detached.');
-    return result.handle;
+    return context.createHandle(result.remoteObject) as dom.ElementHandle;
   }
 }
 

@@ -24,34 +24,54 @@ import type {
   Locator,
 } from '@playwright/test';
 import type { InlineConfig } from 'vite';
+import type { SvelteComponent, ComponentProps } from 'svelte/types/runtime';
 
 export type PlaywrightTestConfig = Omit<BasePlaywrightTestConfig, 'use'> & {
   use?: BasePlaywrightTestConfig['use'] & {
-    ctPort?: number,
-    ctTemplateDir?: string,
-    ctCacheDir?: string,
-    ctViteConfig?: InlineConfig
-  }
+    ctPort?: number;
+    ctTemplateDir?: string;
+    ctCacheDir?: string;
+    ctViteConfig?: InlineConfig;
+  };
 };
 
-export interface MountOptions<Props = Record<string, unknown>> {
-  props?: Props,
-  slots?: Record<string, unknown>,
-  on?: Record<string, Function>,
-  hooksConfig?: any,
+type JsonPrimitive = string | number | boolean | null;
+type JsonValue = JsonPrimitive | JsonObject | JsonArray;
+type JsonArray = JsonValue[];
+type JsonObject = { [Key in string]?: JsonValue };
+
+type Slot = string | string[];
+
+export interface MountOptions<
+  HooksConfig extends JsonObject,
+  Component extends SvelteComponent
+> {
+  props?: ComponentProps<Component>;
+  slots?: Record<string, Slot> & { default?: Slot };
+  on?: Record<string, Function>;
+  hooksConfig?: HooksConfig;
 }
 
-interface MountResult extends Locator {
+interface MountResult<Component extends SvelteComponent> extends Locator {
   unmount(): Promise<void>;
+  update(
+    options: Omit<MountOptions<never, Component>, 'hooksConfig' | 'slots'>
+  ): Promise<void>;
 }
 
 interface ComponentFixtures {
-  mount(component: any, options?: MountOptions): Promise<MountResult>;
-  mount<Props>(component: any, options: MountOptions<Required<Props>>): Promise<MountResult>;
+  mount<
+    HooksConfig extends JsonObject,
+    Component extends SvelteComponent = SvelteComponent
+  >(
+    component: new (...args: any[]) => Component,
+    options?: MountOptions<HooksConfig, Component>
+  ): Promise<MountResult<Component>>;
 }
 
 export const test: TestType<
   PlaywrightTestArgs & PlaywrightTestOptions & ComponentFixtures,
-  PlaywrightWorkerArgs & PlaywrightWorkerOptions>;
+  PlaywrightWorkerArgs & PlaywrightWorkerOptions
+>;
 
 export { expect, devices } from '@playwright/test';

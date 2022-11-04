@@ -20,7 +20,7 @@ exports.PlaywrightDevPage = class PlaywrightDevPage {
     this.page = page;
     this.getStartedLink = page.locator('a', { hasText: 'Get started' });
     this.gettingStartedHeader = page.locator('h1', { hasText: 'Installation' });
-    this.pomLink = page.locator('li', { hasText: 'Playwright Test' }).locator('a', { hasText: 'Page Object Model' });
+    this.pomLink = page.locator('li', { hasText: 'Guides' }).locator('a', { hasText: 'Page Object Model' });
     this.tocList = page.locator('article div.markdown ul > li > a');
   }
 
@@ -55,7 +55,7 @@ export class PlaywrightDevPage {
     this.page = page;
     this.getStartedLink = page.locator('a', { hasText: 'Get started' });
     this.gettingStartedHeader = page.locator('h1', { hasText: 'Installation' });
-    this.pomLink = page.locator('li', { hasText: 'Playwright Test' }).locator('a', { hasText: 'Page Object Model' });
+    this.pomLink = page.locator('li', { hasText: 'Guides' }).locator('a', { hasText: 'Page Object Model' });
     this.tocList = page.locator('article div.markdown ul > li > a');
   }
 
@@ -92,7 +92,7 @@ test('getting started should contain table of contents', async ({ page }) => {
     `How to run the example test`,
     `How to open the HTML test report`,
     `Write tests using web first assertions, page fixtures and locators`,
-    `Run single tests, multiple tests, headed mode`,
+    `Run single test, multiple tests, headed mode`,
     `Generate tests with Codegen`,
     `See a trace of your tests`
   ]);
@@ -121,7 +121,7 @@ test('getting started should contain table of contents', async ({ page }) => {
     `How to run the example test`,
     `How to open the HTML test report`,
     `Write tests using web first assertions, page fixtures and locators`,
-    `Run single tests, multiple tests, headed mode`,
+    `Run single test, multiple tests, headed mode`,
     `Generate tests with Codegen`,
     `See a trace of your tests`
   ]);

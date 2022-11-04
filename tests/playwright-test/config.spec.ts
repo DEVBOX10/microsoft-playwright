@@ -373,6 +373,61 @@ test('should inerhit use options in projects', async ({ runInlineTest }) => {
   expect(result.passed).toBe(1);
 });
 
+test('should support ignoreSnapshots config option', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        ignoreSnapshots: true,
+      };
+    `,
+    'a.test.ts': `
+      const { test } = pwt;
+      test('pass', async ({}, testInfo) => {
+        expect('foo').toMatchSnapshot();
+        expect('foo').not.toMatchSnapshot();
+      });
+    `
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should validate workers option set to percent', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        workers: '50%'
+      };
+    `,
+    'a.test.ts': `
+      const { test } = pwt;
+      test('pass', async () => {
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should throw when workers option is invalid', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+        module.exports = {
+          workers: ''
+        };
+      `,
+    'a.test.ts': `
+        const { test } = pwt;
+        test('pass', async () => {
+        });
+      `
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('config.workers must be a number or percentage');
+});
+
 test('should work with undefined values and base', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
@@ -424,4 +479,42 @@ test('should have correct types for the config', async ({ runTSC }) => {
   `
   });
   expect(result.exitCode).toBe(0);
+});
+
+test('should throw when project.setup has wrong type', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+        module.exports = {
+          projects: [
+            { name: 'a', setup: 100 },
+          ],
+        };
+    `,
+    'a.test.ts': `
+        const { test } = pwt;
+        test('pass', async () => {});
+      `
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`Error: playwright.config.ts: config.projects[0].setup must be a string or a RegExp`);
+});
+
+test('should throw when project.setup has wrong array type', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+        module.exports = {
+          projects: [
+            { name: 'a', setup: [/100/, 100] },
+          ],
+        };
+    `,
+    'a.test.ts': `
+        const { test } = pwt;
+        test('pass', async () => {});
+      `
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`Error: playwright.config.ts: config.projects[0].setup[1] must be a string or a RegExp`);
 });

@@ -16,7 +16,7 @@
 
 import type { NavigationEvent } from '../frames';
 import { Frame } from '../frames';
-import type * as channels from '../../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { Dispatcher, lookupNullableDispatcher, existingDispatcher } from './dispatcher';
 import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import { parseArgument, serializeResult } from './jsHandleDispatcher';
@@ -150,6 +150,10 @@ export class FrameDispatcher extends Dispatcher<Frame, channels.FrameChannel, Pa
 
   async focus(params: channels.FrameFocusParams, metadata: CallMetadata): Promise<void> {
     await this._frame.focus(metadata, params.selector, params);
+  }
+
+  async blur(params: channels.FrameBlurParams, metadata: CallMetadata): Promise<void> {
+    await this._frame.blur(metadata, params.selector, params);
   }
 
   async textContent(params: channels.FrameTextContentParams, metadata: CallMetadata): Promise<channels.FrameTextContentResult> {

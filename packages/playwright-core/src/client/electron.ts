@@ -18,7 +18,7 @@ import type { BrowserWindow } from 'electron';
 import type * as childProcess from 'child_process';
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
-import type * as channels from '../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { TimeoutSettings } from '../common/timeoutSettings';
 import { BrowserContext, prepareBrowserContextParams } from './browserContext';
 import { ChannelOwner } from './channelOwner';
@@ -29,10 +29,11 @@ import type { Page } from './page';
 import type { Env, WaitForEventOptions, Headers, BrowserContextOptions } from './types';
 import { Waiter } from './waiter';
 
-type ElectronOptions = Omit<channels.ElectronLaunchOptions, 'env'|'extraHTTPHeaders'|'recordHar'> & {
+type ElectronOptions = Omit<channels.ElectronLaunchOptions, 'env'|'extraHTTPHeaders'|'recordHar'|'colorScheme'> & {
   env?: Env,
   extraHTTPHeaders?: Headers,
   recordHar?: BrowserContextOptions['recordHar'],
+  colorScheme?: 'dark' | 'light' | 'no-preference' | null,
 };
 
 type ElectronAppType = typeof import('electron');

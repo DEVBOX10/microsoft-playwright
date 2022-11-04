@@ -24,7 +24,7 @@ import * as network from '../network';
 import type { Page, PageBinding, PageDelegate } from '../page';
 import type { ConnectionTransport } from '../transport';
 import type * as types from '../types';
-import type * as channels from '../../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { ConnectionEvents, FFConnection } from './ffConnection';
 import { FFPage } from './ffPage';
 import type { Protocol } from './protocol';
@@ -122,6 +122,10 @@ export class FFBrowser extends Browser {
     assert(ffPage);
     if (!ffPage)
       return;
+
+    // Abort the navigation that turned into download.
+    ffPage._page._frameManager.frameAbortedNavigation(payload.frameId, 'Download is starting');
+
     let originPage = ffPage._initializedPage;
     // If it's a new window download, report it on the opener page.
     if (!originPage) {
@@ -200,18 +204,24 @@ export class FFBrowserContext extends BrowserContext {
       promises.push(this.setGeolocation(this._options.geolocation));
     if (this._options.offline)
       promises.push(this.setOffline(this._options.offline));
-    promises.push(this._browser._connection.send('Browser.setColorScheme', {
-      browserContextId,
-      colorScheme: this._options.colorScheme !== undefined  ? this._options.colorScheme : 'light',
-    }));
-    promises.push(this._browser._connection.send('Browser.setReducedMotion', {
-      browserContextId,
-      reducedMotion: this._options.reducedMotion !== undefined  ? this._options.reducedMotion : 'no-preference',
-    }));
-    promises.push(this._browser._connection.send('Browser.setForcedColors', {
-      browserContextId,
-      forcedColors: this._options.forcedColors !== undefined  ? this._options.forcedColors : 'none',
-    }));
+    if (this._options.colorScheme !== 'no-override') {
+      promises.push(this._browser._connection.send('Browser.setColorScheme', {
+        browserContextId,
+        colorScheme: this._options.colorScheme !== undefined  ? this._options.colorScheme : 'light',
+      }));
+    }
+    if (this._options.reducedMotion !== 'no-override') {
+      promises.push(this._browser._connection.send('Browser.setReducedMotion', {
+        browserContextId,
+        reducedMotion: this._options.reducedMotion !== undefined  ? this._options.reducedMotion : 'no-preference',
+      }));
+    }
+    if (this._options.forcedColors !== 'no-override') {
+      promises.push(this._browser._connection.send('Browser.setForcedColors', {
+        browserContextId,
+        forcedColors: this._options.forcedColors !== undefined  ? this._options.forcedColors : 'none',
+      }));
+    }
     if (this._options.recordVideo) {
       promises.push(this._ensureVideosPath().then(() => {
         return this._browser._connection.send('Browser.setVideoRecordingOptions', {
@@ -349,9 +359,19 @@ export class FFBrowserContext extends BrowserContext {
   onClosePersistent() {}
 
   async doClose() {
-    assert(this._browserContextId);
-    await this._browser._connection.send('Browser.removeBrowserContext', { browserContextId: this._browserContextId });
-    this._browser._contexts.delete(this._browserContextId);
+    if (!this._browserContextId) {
+      if (this._options.recordVideo) {
+        await this._browser._connection.send('Browser.setVideoRecordingOptions', {
+          options: undefined,
+          browserContextId: this._browserContextId
+        });
+      }
+      // Closing persistent context should close the browser.
+      await this._browser.close();
+    } else {
+      await this._browser._connection.send('Browser.removeBrowserContext', { browserContextId: this._browserContextId });
+      this._browser._contexts.delete(this._browserContextId);
+    }
   }
 
   async cancelDownload(uuid: string) {

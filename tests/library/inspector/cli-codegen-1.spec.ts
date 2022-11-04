@@ -25,8 +25,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<button onclick="console.log('click')">Submit</button>`);
 
-    const selector = await recorder.hoverOverElement('button');
-    expect(selector).toBe('text=Submit');
+    const locator = await recorder.hoverOverElement('button');
+    expect(locator).toBe(`getByRole('button', { name: 'Submit' })`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -34,25 +34,20 @@ test.describe('cli codegen', () => {
       page.dispatchEvent('button', 'click', { detail: 1 })
     ]);
 
-    expect(sources.get('JavaScript').text).toContain(`
-  // Click text=Submit
-  await page.locator('text=Submit').click();`);
+    expect.soft(sources.get('JavaScript').text).toContain(`
+  await page.getByRole('button', { name: 'Submit' }).click();`);
 
-    expect(sources.get('Python').text).toContain(`
-    # Click text=Submit
-    page.locator("text=Submit").click()`);
+    expect.soft(sources.get('Python').text).toContain(`
+    page.get_by_role("button", name="Submit").click()`);
 
-    expect(sources.get('Python Async').text).toContain(`
-    # Click text=Submit
-    await page.locator("text=Submit").click()`);
+    expect.soft(sources.get('Python Async').text).toContain(`
+    await page.get_by_role("button", name="Submit").click()`);
 
-    expect(sources.get('Java').text).toContain(`
-      // Click text=Submit
-      page.locator("text=Submit").click();`);
+    expect.soft(sources.get('Java').text).toContain(`
+      page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Submit")).click()`);
 
-    expect(sources.get('C#').text).toContain(`
-        // Click text=Submit
-        await page.Locator("text=Submit").ClickAsync();`);
+    expect.soft(sources.get('C#').text).toContain(`
+        await page.GetByRole(AriaRole.Button, new() { NameString = "Submit" }).ClickAsync();`);
 
     expect(message.text()).toBe('click');
   });
@@ -73,8 +68,8 @@ test.describe('cli codegen', () => {
     // the second unnecessary copy of the recorder script.
     await page.waitForTimeout(1000);
 
-    const selector = await recorder.hoverOverElement('button');
-    expect(selector).toBe('text=Submit');
+    const locator = await recorder.hoverOverElement('button');
+    expect(locator).toBe(`getByRole('button', { name: 'Submit' })`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -83,8 +78,7 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Click text=Submit
-  await page.locator('text=Submit').click();`);
+  await page.getByRole('button', { name: 'Submit' }).click();`);
     expect(message.text()).toBe('click');
   });
 
@@ -101,10 +95,10 @@ test.describe('cli codegen', () => {
       </script>
     `);
 
-    const selector = await recorder.waitForHighlight(() => recorder.page.hover('canvas', {
+    const locator = await recorder.waitForHighlight(() => recorder.page.hover('canvas', {
       position: { x: 250, y: 250 },
     }));
-    expect(selector).toBe('canvas');
+    expect(locator).toBe(`locator('canvas')`);
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
       recorder.waitForOutput('JavaScript', 'click'),
@@ -114,7 +108,6 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Click canvas
   await page.locator('canvas').click({
     position: {
       x: 250,
@@ -123,20 +116,16 @@ test.describe('cli codegen', () => {
   });`);
 
     expect(sources.get('Python').text).toContain(`
-    # Click canvas
     page.locator("canvas").click(position={"x":250,"y":250})`);
 
     expect(sources.get('Python Async').text).toContain(`
-    # Click canvas
     await page.locator("canvas").click(position={"x":250,"y":250})`);
 
     expect(sources.get('Java').text).toContain(`
-      // Click canvas
       page.locator("canvas").click(new Locator.ClickOptions()
         .setPosition(250, 250));`);
 
     expect(sources.get('C#').text).toContain(`
-        // Click canvas
         await page.Locator("canvas").ClickAsync(new LocatorClickOptions
         {
             Position = new Position
@@ -159,8 +148,8 @@ test.describe('cli codegen', () => {
       <button onclick="console.log('click')">Submit</button>
     </body>`);
 
-    const selector = await recorder.hoverOverElement('button');
-    expect(selector).toBe('text=Submit');
+    const locator = await recorder.hoverOverElement('button');
+    expect(locator).toBe(`getByRole('button', { name: 'Submit' })`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -168,25 +157,20 @@ test.describe('cli codegen', () => {
       page.dispatchEvent('button', 'click', { detail: 1 })
     ]);
 
-    expect(sources.get('JavaScript').text).toContain(`
-  // Click text=Submit
-  await page.locator('text=Submit').click();`);
+    expect.soft(sources.get('JavaScript').text).toContain(`
+  await page.getByRole('button', { name: 'Submit' }).click();`);
 
-    expect(sources.get('Python').text).toContain(`
-    # Click text=Submit
-    page.locator("text=Submit").click()`);
+    expect.soft(sources.get('Python').text).toContain(`
+    page.get_by_role("button", name="Submit").click()`);
 
-    expect(sources.get('Python Async').text).toContain(`
-    # Click text=Submit
-    await page.locator("text=Submit").click()`);
+    expect.soft(sources.get('Python Async').text).toContain(`
+    await page.get_by_role("button", name="Submit").click()`);
 
-    expect(sources.get('Java').text).toContain(`
-      // Click text=Submit
-      page.locator("text=Submit").click();`);
+    expect.soft(sources.get('Java').text).toContain(`
+      page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Submit")).click()`);
 
-    expect(sources.get('C#').text).toContain(`
-        // Click text=Submit
-        await page.Locator("text=Submit").ClickAsync();`);
+    expect.soft(sources.get('C#').text).toContain(`
+        await page.GetByRole(AriaRole.Button, new() { NameString = "Submit" }).ClickAsync();`);
 
     expect(message.text()).toBe('click');
   });
@@ -207,11 +191,10 @@ test.describe('cli codegen', () => {
       document.documentElement.appendChild(div);
     });
 
-    const selector = await recorder.hoverOverElement('div');
-    expect(selector).toBe('text=Some long text here');
+    const locator = await recorder.hoverOverElement('div');
+    expect(locator).toBe(`getByText('Some long text here')`);
 
-    // Sanity check that selector does not match our highlight.
-    const divContents = await page.$eval(selector, div => div.outerHTML);
+    const divContents = await page.$eval('div', div => div.outerHTML);
     expect(divContents.replace(/\s__playwright_target__="[^"]+"/, '')).toBe(`<div onclick="console.log('click')"> Some long text here </div>`);
 
     const [message, sources] = await Promise.all([
@@ -220,8 +203,7 @@ test.describe('cli codegen', () => {
       page.dispatchEvent('div', 'click', { detail: 1 })
     ]);
     expect(sources.get('JavaScript').text).toContain(`
-  // Click text=Some long text here
-  await page.locator('text=Some long text here').click();`);
+  await page.getByText('Some long text here').click();`);
     expect(message.text()).toBe('click');
   });
 
@@ -229,8 +211,8 @@ test.describe('cli codegen', () => {
     const recorder = await openRecorder();
 
     await recorder.setContentAndWait(`<input id="input" name="name" oninput="console.log(input.value)"></input>`);
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="name"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="name"]')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -239,22 +221,17 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Fill input[name="name"]
   await page.locator('input[name="name"]').fill('John');`);
     expect(sources.get('Java').text).toContain(`
-      // Fill input[name="name"]
       page.locator("input[name=\\\"name\\\"]").fill("John");`);
 
     expect(sources.get('Python').text).toContain(`
-    # Fill input[name="name"]
     page.locator(\"input[name=\\\"name\\\"]\").fill(\"John\")`);
 
     expect(sources.get('Python Async').text).toContain(`
-    # Fill input[name="name"]
     await page.locator(\"input[name=\\\"name\\\"]\").fill(\"John\")`);
 
     expect(sources.get('C#').text).toContain(`
-        // Fill input[name="name"]
         await page.Locator(\"input[name=\\\"name\\\"]\").FillAsync(\"John\");`);
 
     expect(message.text()).toBe('John');
@@ -265,35 +242,30 @@ test.describe('cli codegen', () => {
 
     // In Japanese, "てすと" or "テスト" means "test".
     await recorder.setContentAndWait(`<input id="input" name="name" oninput="input.value === 'てすと' && console.log(input.value)"></input>`);
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="name"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="name"]')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
       recorder.waitForOutput('JavaScript', 'fill'),
       (async () => {
-        await recorder.page.dispatchEvent(selector, 'keydown', { key: 'Process' });
+        await recorder.page.dispatchEvent('input', 'keydown', { key: 'Process' });
         await recorder.page.keyboard.insertText('てすと');
-        await recorder.page.dispatchEvent(selector, 'keyup', { key: 'Process' });
+        await recorder.page.dispatchEvent('input', 'keyup', { key: 'Process' });
       })()
     ]);
     expect(sources.get('JavaScript').text).toContain(`
-  // Fill input[name="name"]
   await page.locator('input[name="name"]').fill('てすと');`);
     expect(sources.get('Java').text).toContain(`
-      // Fill input[name="name"]
       page.locator("input[name=\\\"name\\\"]").fill("てすと");`);
 
     expect(sources.get('Python').text).toContain(`
-    # Fill input[name="name"]
     page.locator(\"input[name=\\\"name\\\"]\").fill(\"てすと\")`);
 
     expect(sources.get('Python Async').text).toContain(`
-    # Fill input[name="name"]
     await page.locator(\"input[name=\\\"name\\\"]\").fill(\"てすと\")`);
 
     expect(sources.get('C#').text).toContain(`
-        // Fill input[name="name"]
         await page.Locator(\"input[name=\\\"name\\\"]\").FillAsync(\"てすと\");`);
 
     expect(message.text()).toBe('てすと');
@@ -303,8 +275,8 @@ test.describe('cli codegen', () => {
     const recorder = await openRecorder();
 
     await recorder.setContentAndWait(`<textarea id="textarea" name="name" oninput="console.log(textarea.value)"></textarea>`);
-    const selector = await recorder.focusElement('textarea');
-    expect(selector).toBe('textarea[name="name"]');
+    const locator = await recorder.focusElement('textarea');
+    expect(locator).toBe(`locator('textarea[name="name"]')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -312,7 +284,6 @@ test.describe('cli codegen', () => {
       page.fill('textarea', 'John')
     ]);
     expect(sources.get('JavaScript').text).toContain(`
-  // Fill textarea[name="name"]
   await page.locator('textarea[name="name"]').fill('John');`);
     expect(message.text()).toBe('John');
   });
@@ -322,8 +293,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<input name="name" onkeypress="console.log('press')"></input>`);
 
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="name"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="name"]')`);
 
     const messages: any[] = [];
     page.on('console', message => messages.push(message));
@@ -334,23 +305,18 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Press Enter with modifiers
   await page.locator('input[name="name"]').press('Shift+Enter');`);
 
     expect(sources.get('Java').text).toContain(`
-      // Press Enter with modifiers
       page.locator("input[name=\\\"name\\\"]").press("Shift+Enter");`);
 
     expect(sources.get('Python').text).toContain(`
-    # Press Enter with modifiers
     page.locator(\"input[name=\\\"name\\\"]\").press(\"Shift+Enter\")`);
 
     expect(sources.get('Python Async').text).toContain(`
-    # Press Enter with modifiers
     await page.locator(\"input[name=\\\"name\\\"]\").press(\"Shift+Enter\")`);
 
     expect(sources.get('C#').text).toContain(`
-        // Press Enter with modifiers
         await page.Locator(\"input[name=\\\"name\\\"]\").PressAsync(\"Shift+Enter\");`);
 
     expect(messages[0].text()).toBe('press');
@@ -376,15 +342,12 @@ test.describe('cli codegen', () => {
 
     const text = recorder.sources().get('JavaScript').text;
     expect(text).toContain(`
-  // Fill input[name="one"]
   await page.locator('input[name="one"]').fill('foobar123');`);
 
     expect(text).toContain(`
-  // Press Tab
   await page.locator('input[name="one"]').press('Tab');`);
 
     expect(text).toContain(`
-  // Fill input[name="two"]
   await page.locator('input[name="two"]').fill('barfoo321');`);
   });
 
@@ -393,8 +356,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<input name="name" onkeydown="console.log('press:' + event.key)"></input>`);
 
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="name"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="name"]')`);
 
     const messages: any[] = [];
     page.on('console', message => {
@@ -406,7 +369,6 @@ test.describe('cli codegen', () => {
       page.press('input', 'ArrowDown')
     ]);
     expect(sources.get('JavaScript').text).toContain(`
-  // Press ArrowDown
   await page.locator('input[name="name"]').press('ArrowDown');`);
     expect(messages[0].text()).toBe('press:ArrowDown');
   });
@@ -416,8 +378,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<input name="name" onkeydown="console.log('down:' + event.key)" onkeyup="console.log('up:' + event.key)"></input>`);
 
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="name"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="name"]')`);
 
     const messages: any[] = [];
     page.on('console', message => {
@@ -430,7 +392,6 @@ test.describe('cli codegen', () => {
       page.press('input', 'ArrowDown')
     ]);
     expect(sources.get('JavaScript').text).toContain(`
-  // Press ArrowDown
   await page.locator('input[name="name"]').press('ArrowDown');`);
     expect(messages.length).toBe(2);
     expect(messages[0].text()).toBe('down:ArrowDown');
@@ -442,8 +403,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<input id="checkbox" type="checkbox" name="accept" onchange="console.log(checkbox.checked)"></input>`);
 
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="accept"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="accept"]')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -452,23 +413,18 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Check input[name="accept"]
   await page.locator('input[name="accept"]').check();`);
 
     expect(sources.get('Java').text).toContain(`
-      // Check input[name="accept"]
       page.locator("input[name=\\\"accept\\\"]").check();`);
 
     expect(sources.get('Python').text).toContain(`
-    # Check input[name="accept"]
     page.locator(\"input[name=\\\"accept\\\"]\").check()`);
 
     expect(sources.get('Python Async').text).toContain(`
-    # Check input[name="accept"]
     await page.locator(\"input[name=\\\"accept\\\"]\").check()`);
 
     expect(sources.get('C#').text).toContain(`
-        // Check input[name="accept"]
         await page.Locator(\"input[name=\\\"accept\\\"]\").CheckAsync();`);
 
     expect(message.text()).toBe('true');
@@ -479,8 +435,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<input id="checkbox" type="radio" name="accept" onchange="console.log(checkbox.checked)"></input>`);
 
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="accept"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="accept"]')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -489,7 +445,6 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Check input[name="accept"]
   await page.locator('input[name="accept"]').check();`);
     expect(message.text()).toBe('true');
   });
@@ -499,8 +454,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<input id="checkbox" type="checkbox" name="accept" onchange="console.log(checkbox.checked)"></input>`);
 
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="accept"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="accept"]')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -509,7 +464,6 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Check input[name="accept"]
   await page.locator('input[name="accept"]').check();`);
     expect(message.text()).toBe('true');
   });
@@ -519,8 +473,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<input id="checkbox" type="checkbox" checked name="accept" onchange="console.log(checkbox.checked)"></input>`);
 
-    const selector = await recorder.focusElement('input');
-    expect(selector).toBe('input[name="accept"]');
+    const locator = await recorder.focusElement('input');
+    expect(locator).toBe(`locator('input[name="accept"]')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -529,23 +483,18 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Uncheck input[name="accept"]
   await page.locator('input[name="accept"]').uncheck();`);
 
     expect(sources.get('Java').text).toContain(`
-      // Uncheck input[name="accept"]
       page.locator("input[name=\\\"accept\\\"]").uncheck();`);
 
     expect(sources.get('Python').text).toContain(`
-    # Uncheck input[name="accept"]
     page.locator(\"input[name=\\\"accept\\\"]\").uncheck()`);
 
     expect(sources.get('Python Async').text).toContain(`
-    # Uncheck input[name="accept"]
     await page.locator(\"input[name=\\\"accept\\\"]\").uncheck()`);
 
     expect(sources.get('C#').text).toContain(`
-        // Uncheck input[name="accept"]
         await page.Locator(\"input[name=\\\"accept\\\"]\").UncheckAsync();`);
 
     expect(message.text()).toBe('false');
@@ -556,8 +505,8 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait('<select id="age" onchange="console.log(age.selectedOptions[0].value)"><option value="1"><option value="2"></select>');
 
-    const selector = await recorder.hoverOverElement('select');
-    expect(selector).toBe('select');
+    const locator = await recorder.hoverOverElement('select');
+    expect(locator).toBe(`locator('select')`);
 
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
@@ -566,23 +515,18 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  // Select 2
   await page.locator('select').selectOption('2');`);
 
     expect(sources.get('Java').text).toContain(`
-      // Select 2
       page.locator("select").selectOption("2");`);
 
     expect(sources.get('Python').text).toContain(`
-    # Select 2
     page.locator(\"select\").select_option(\"2\")`);
 
     expect(sources.get('Python Async').text).toContain(`
-    # Select 2
     await page.locator(\"select\").select_option(\"2\")`);
 
     expect(sources.get('C#').text).toContain(`
-        // Select 2
         await page.Locator(\"select\").SelectOptionAsync(new[] { \"2\" });`);
 
     expect(message.text()).toBe('2');
@@ -594,8 +538,8 @@ test.describe('cli codegen', () => {
     const recorder = await openRecorder();
     await recorder.setContentAndWait('<a target=_blank rel=noopener href="about:blank">link</a>');
 
-    const selector = await recorder.hoverOverElement('a');
-    expect(selector).toBe('text=link');
+    const locator = await recorder.hoverOverElement('a');
+    expect(locator).toBe(`getByRole('link', { name: 'link' })`);
 
     const [popup, sources] = await Promise.all([
       page.context().waitForEvent('page'),
@@ -603,35 +547,31 @@ test.describe('cli codegen', () => {
       page.dispatchEvent('a', 'click', { detail: 1 })
     ]);
 
-    expect(sources.get('JavaScript').text).toContain(`
-  // Click text=link
+    expect.soft(sources.get('JavaScript').text).toContain(`
   const [page1] = await Promise.all([
     page.waitForEvent('popup'),
-    page.locator('text=link').click()
+    page.getByRole('link', { name: 'link' }).click()
   ]);`);
 
-    expect(sources.get('Java').text).toContain(`
-      // Click text=link
+    expect.soft(sources.get('Java').text).toContain(`
       Page page1 = page.waitForPopup(() -> {
-        page.locator("text=link").click();
+        page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("link")).click();
       });`);
 
-    expect(sources.get('Python').text).toContain(`
-    # Click text=link
+    expect.soft(sources.get('Python').text).toContain(`
     with page.expect_popup() as popup_info:
-        page.locator(\"text=link\").click()
+        page.get_by_role("link", name="link").click()
     page1 = popup_info.value`);
 
-    expect(sources.get('Python Async').text).toContain(`
-    # Click text=link
+    expect.soft(sources.get('Python Async').text).toContain(`
     async with page.expect_popup() as popup_info:
-        await page.locator(\"text=link\").click()
+        await page.get_by_role("link", name="link").click()
     page1 = await popup_info.value`);
 
-    expect(sources.get('C#').text).toContain(`
+    expect.soft(sources.get('C#').text).toContain(`
         var page1 = await page.RunAndWaitForPopupAsync(async () =>
         {
-            await page.Locator(\"text=link\").ClickAsync();
+            await page.GetByRole(AriaRole.Link, new() { NameString = "link" }).ClickAsync();
         });`);
 
     expect(popup.url()).toBe('about:blank');
@@ -642,91 +582,34 @@ test.describe('cli codegen', () => {
 
     await recorder.setContentAndWait(`<a onclick="window.location.href='about:blank#foo'">link</a>`);
 
-    const selector = await recorder.hoverOverElement('a');
-    expect(selector).toBe('text=link');
+    const locator = await recorder.hoverOverElement('a');
+    expect(locator).toBe(`getByText('link')`);
     const [, sources] = await Promise.all([
       page.waitForNavigation(),
-      recorder.waitForOutput('JavaScript', 'waitForURL'),
+      recorder.waitForOutput('JavaScript', '.click()'),
       page.dispatchEvent('a', 'click', { detail: 1 })
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`
-  // Click text=link
-  await page.locator('text=link').click();
-  await page.waitForURL('about:blank#foo');`);
+  await page.getByText('link').click();`);
 
     expect.soft(sources.get('Playwright Test').text).toContain(`
-  // Click text=link
-  await page.locator('text=link').click();
-  await expect(page).toHaveURL('about:blank#foo');`);
+  await page.getByText('link').click();`);
 
     expect.soft(sources.get('Java').text).toContain(`
-      // Click text=link
-      page.locator("text=link").click();
-      assertThat(page).hasURL("about:blank#foo");`);
+      page.getByText("link").click();`);
 
     expect.soft(sources.get('Python').text).toContain(`
-    # Click text=link
-    page.locator("text=link").click()
-    page.wait_for_url("about:blank#foo")`);
+    page.get_by_text("link").click()`);
 
     expect.soft(sources.get('Python Async').text).toContain(`
-    # Click text=link
-    await page.locator("text=link").click()
-    await page.wait_for_url("about:blank#foo")`);
+    await page.get_by_text("link").click()`);
 
     expect.soft(sources.get('Pytest').text).toContain(`
-    # Click text=link
-    page.locator("text=link").click()
-    expect(page).to_have_url("about:blank#foo")`);
+    page.get_by_text("link").click()`);
 
     expect.soft(sources.get('C#').text).toContain(`
-        // Click text=link
-        await page.Locator("text=link").ClickAsync();
-        await page.WaitForURLAsync("about:blank#foo");`);
-
-    expect(page.url()).toContain('about:blank#foo');
-  });
-
-
-  test('should await navigation', async ({ page, openRecorder }) => {
-    const recorder = await openRecorder();
-
-    await recorder.setContentAndWait(`<a onclick="setTimeout(() => window.location.href='about:blank#foo', 1000)">link</a>`);
-
-    const selector = await recorder.hoverOverElement('a');
-    expect(selector).toBe('text=link');
-
-    const [, sources] = await Promise.all([
-      page.waitForNavigation(),
-      recorder.waitForOutput('JavaScript', 'waitForURL'),
-      page.dispatchEvent('a', 'click', { detail: 1 })
-    ]);
-
-    expect.soft(sources.get('JavaScript').text).toContain(`
-  // Click text=link
-  await page.locator('text=link').click();
-  await page.waitForURL('about:blank#foo');`);
-
-    expect.soft(sources.get('Java').text).toContain(`
-      // Click text=link
-      page.locator("text=link").click();
-      assertThat(page).hasURL("about:blank#foo");`);
-
-    expect.soft(sources.get('Python').text).toContain(`
-    # Click text=link
-    page.locator(\"text=link\").click()
-    page.wait_for_url("about:blank#foo")`);
-
-    expect.soft(sources.get('Python Async').text).toContain(`
-    # Click text=link
-    await page.locator(\"text=link\").click()
-    await page.wait_for_url("about:blank#foo")`);
-
-    expect.soft(sources.get('C#').text).toContain(`
-        // Click text=link
-        await page.Locator(\"text=link\").ClickAsync();
-        await page.WaitForURLAsync(\"about:blank#foo\");`);
+        await page.GetByText("link").ClickAsync();`);
 
     expect(page.url()).toContain('about:blank#foo');
   });
@@ -756,22 +639,22 @@ test.describe('cli codegen', () => {
     ]);
 
     expect(sources.get('JavaScript').text).toContain(`
-  await page.locator('text=Click me').click({
+  await page.getByText('Click me').click({
     button: 'middle'
   });`);
 
     expect(sources.get('Python').text).toContain(`
-    page.locator("text=Click me").click(button="middle")`);
+    page.get_by_text("Click me").click(button="middle")`);
 
     expect(sources.get('Python Async').text).toContain(`
-    await page.locator("text=Click me").click(button="middle")`);
+    await page.get_by_text("Click me").click(button="middle")`);
 
     expect(sources.get('Java').text).toContain(`
-      page.locator("text=Click me").click(new Locator.ClickOptions()
+      page.getByText("Click me").click(new Locator.ClickOptions()
         .setButton(MouseButton.MIDDLE));`);
 
     expect(sources.get('C#').text).toContain(`
-        await page.Locator("text=Click me").ClickAsync(new LocatorClickOptions
+        await page.GetByText("Click me").ClickAsync(new LocatorClickOptions
         {
             Button = MouseButton.Middle,
         });`);

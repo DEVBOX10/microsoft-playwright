@@ -18,7 +18,7 @@ import type { RootDispatcher } from './dispatcher';
 import { Dispatcher, existingDispatcher } from './dispatcher';
 import type { Android, SocketBackend } from '../android/android';
 import { AndroidDevice } from '../android/android';
-import type * as channels from '../../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { BrowserContextDispatcher } from './browserContextDispatcher';
 import type { CallMetadata } from '../instrumentation';
 
@@ -58,6 +58,7 @@ export class AndroidDeviceDispatcher extends Dispatcher<AndroidDevice, channels.
       this._dispatchEvent('webViewAdded', { webView });
     this.addObjectListener(AndroidDevice.Events.WebViewAdded, webView => this._dispatchEvent('webViewAdded', { webView }));
     this.addObjectListener(AndroidDevice.Events.WebViewRemoved, socketName => this._dispatchEvent('webViewRemoved', { socketName }));
+    this.addObjectListener(AndroidDevice.Events.Close, socketName => this._dispatchEvent('close'));
   }
 
   async wait(params: channels.AndroidDeviceWaitParams) {

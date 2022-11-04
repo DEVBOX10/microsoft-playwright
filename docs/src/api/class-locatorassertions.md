@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
 
 test('status becomes submitted', async ({ page }) => {
   // ...
-  await page.locator('#submit-button').click();
+  await page.getByRole('button').click();
   await expect(page.locator('.status')).toHaveText('Submitted');
 });
 ```
@@ -22,7 +22,7 @@ public class TestLocator {
   @Test
   void statusBecomesSubmitted() {
     ...
-    page.locator("#submit-button").click();
+    page.getByRole("button").click();
     assertThat(page.locator(".status")).hasText("Submitted");
   }
 }
@@ -33,7 +33,7 @@ from playwright.async_api import Page, expect
 
 async def test_status_becomes_submitted(page: Page) -> None:
     # ..
-    await page.locator("#submit-button").click()
+    await page.get_by_role("button").click()
     await expect(page.locator(".status")).to_have_text("Submitted")
 ```
 
@@ -42,7 +42,7 @@ from playwright.sync_api import Page, expect
 
 def test_status_becomes_submitted(page: Page) -> None:
     # ..
-    page.locator("#submit-button").click()
+    page.get_by_role("button").click()
     expect(page.locator(".status")).to_have_text("Submitted")
 ```
 
@@ -54,13 +54,14 @@ using NUnit.Framework;
 
 namespace PlaywrightTests;
 
+[TestFixture]
 public class ExampleTests : PageTest
 {
     [Test]
     public async Task StatusBecomesSubmitted()
     {
         // ..
-        await Page.Locator("#submit-button").ClickAsync();
+        await Page.GetByRole("button").ClickAsync();
         await Expect(Page.Locator(".status")).ToHaveTextAsync("Submitted");
     }
 }
@@ -113,6 +114,9 @@ The opposite of [`method: LocatorAssertions.toBeDisabled`].
 
 The opposite of [`method: LocatorAssertions.toBeEditable`].
 
+### option: LocatorAssertions.NotToBeEditable.editable
+* since: v1.26
+- `editable` <[boolean]>
 ### option: LocatorAssertions.NotToBeEditable.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
 ### option: LocatorAssertions.NotToBeEditable.timeout = %%-csharp-java-python-assertions-timeout-%%
@@ -135,6 +139,9 @@ The opposite of [`method: LocatorAssertions.toBeEmpty`].
 
 The opposite of [`method: LocatorAssertions.toBeEnabled`].
 
+### option: LocatorAssertions.NotToBeEnabled.enabled
+* since: v1.26
+- `enabled` <[boolean]>
 ### option: LocatorAssertions.NotToBeEnabled.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
 ### option: LocatorAssertions.NotToBeEnabled.timeout = %%-csharp-java-python-assertions-timeout-%%
@@ -168,6 +175,9 @@ The opposite of [`method: LocatorAssertions.toBeHidden`].
 
 The opposite of [`method: LocatorAssertions.toBeVisible`].
 
+### option: LocatorAssertions.NotToBeVisible.visible
+* since: v1.26
+- `visible` <[boolean]>
 ### option: LocatorAssertions.NotToBeVisible.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
 ### option: LocatorAssertions.NotToBeVisible.timeout = %%-csharp-java-python-assertions-timeout-%%
@@ -394,30 +404,30 @@ Expected options currently selected.
 Ensures the [Locator] points to a checked input.
 
 ```js
-const locator = page.locator('.subscribe');
+const locator = page.getByLabel('Subscribe to newsletter');
 await expect(locator).toBeChecked();
 ```
 
 ```java
-assertThat(page.locator(".subscribe")).isChecked();
+assertThat(page.getByLabel("Subscribe to newsletter")).isChecked();
 ```
 
 ```python async
 from playwright.async_api import expect
 
-locator = page.locator(".subscribe")
+locator = page.get_by_label("Subscribe to newsletter")
 await expect(locator).to_be_checked()
 ```
 
 ```python sync
 from playwright.sync_api import expect
 
-locator = page.locator(".subscribe")
+locator = page.get_by_label("Subscribe to newsletter")
 expect(locator).to_be_checked()
 ```
 
 ```csharp
-var locator = Page.Locator(".subscribe");
+var locator = Page.GetByLabel("Subscribe to newsletter");
 await Expect(locator).ToBeCheckedAsync();
 ```
 
@@ -484,33 +494,36 @@ await Expect(locator).ToBeDisabledAsync();
 Ensures the [Locator] points to an editable element.
 
 ```js
-const locator = page.locator('input');
+const locator = page.getByRole('textbox');
 await expect(locator).toBeEditable();
 ```
 
 ```java
-assertThat(page.locator("input")).isEditable();
+assertThat(page.getByRole("textbox")).isEditable();
 ```
 
 ```python async
 from playwright.async_api import expect
 
-locator = page.locator(".input")
+locator = page.get_by_role("textbox")
 await expect(locator).to_be_editable()
 ```
 
 ```python sync
 from playwright.sync_api import expect
 
-locator = page.locator(".input")
+locator = page.get_by_role("textbox")
 expect(locator).to_be_editable()
 ```
 
 ```csharp
-var locator = Page.Locator("input");
+var locator = Page.GetByRole("textbox");
 await Expect(locator).ToBeEditableAsync();
 ```
 
+### option: LocatorAssertions.toBeEditable.editable
+* since: v1.26
+- `editable` <[boolean]>
 ### option: LocatorAssertions.toBeEditable.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
 ### option: LocatorAssertions.toBeEditable.timeout = %%-csharp-java-python-assertions-timeout-%%
@@ -593,6 +606,9 @@ var locator = Page.Locator("button.submit");
 await Expect(locator).toBeEnabledAsync();
 ```
 
+### option: LocatorAssertions.toBeEnabled.enabled
+* since: v1.26
+- `enabled` <[boolean]>
 ### option: LocatorAssertions.toBeEnabled.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
 ### option: LocatorAssertions.toBeEnabled.timeout = %%-csharp-java-python-assertions-timeout-%%
@@ -607,30 +623,30 @@ await Expect(locator).toBeEnabledAsync();
 Ensures the [Locator] points to a focused DOM node.
 
 ```js
-const locator = page.locator('input');
+const locator = page.getByRole('textbox');
 await expect(locator).toBeFocused();
 ```
 
 ```java
-assertThat(page.locator("input")).isFocused();
+assertThat(page.getByRole("textbox")).isFocused();
 ```
 
 ```python async
 from playwright.async_api import expect
 
-locator = page.locator('input')
+locator = page.get_by_role("textbox")
 await expect(locator).to_be_focused()
 ```
 
 ```python sync
 from playwright.sync_api import expect
 
-locator = page.locator('input')
+locator = page.get_by_role("textbox")
 expect(locator).to_be_focused()
 ```
 
 ```csharp
-var locator = Page.Locator("input");
+var locator = Page.GetByRole("textbox");
 await Expect(locator).ToBeFocusedAsync();
 ```
 
@@ -645,7 +661,7 @@ await Expect(locator).ToBeFocusedAsync();
 * langs:
   - alias-java: isHidden
 
-Ensures the [Locator] points to a hidden DOM node, which is the opposite of [visible](./actionability.md#visible).
+Ensures that [Locator] either does not resolve to any DOM node, or resolves to a [non-visible](./actionability.md#visible) one.
 
 ```js
 const locator = page.locator('.my-element');
@@ -686,7 +702,7 @@ await Expect(locator).ToBeHiddenAsync();
 * langs:
   - alias-java: isVisible
 
-Ensures the [Locator] points to a [visible](./actionability.md#visible) DOM node.
+Ensures that [Locator] points to an [attached](./actionability.md#attached) and [visible](./actionability.md#visible) DOM node.
 
 ```js
 const locator = page.locator('.my-element');
@@ -716,6 +732,9 @@ var locator = Page.Locator(".my-element");
 await Expect(locator).ToBeVisibleAsync();
 ```
 
+### option: LocatorAssertions.toBeVisible.visible
+* since: v1.26
+- `visible` <[boolean]>
 ### option: LocatorAssertions.toBeVisible.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
 ### option: LocatorAssertions.toBeVisible.timeout = %%-csharp-java-python-assertions-timeout-%%
@@ -890,16 +909,11 @@ Whether to use `element.innerText` instead of `element.textContent` when retriev
 * langs:
   - alias-java: hasAttribute
 
-Ensures the [Locator] points to an element with given attribute. If the method
-is used without `'value'` argument, then the method will assert attribute existance.
+Ensures the [Locator] points to an element with given attribute.
 
 ```js
 const locator = page.locator('input');
-// Assert attribute with given value.
 await expect(locator).toHaveAttribute('type', 'text');
-// Assert attribute existance.
-await expect(locator).toHaveAttribute('disabled');
-await expect(locator).not.toHaveAttribute('open');
 ```
 
 ```java
@@ -933,9 +947,9 @@ Attribute name.
 
 ### param: LocatorAssertions.toHaveAttribute.value
 * since: v1.18
-- `value` ?<[string]|[RegExp]>
+- `value` <[string]|[RegExp]>
 
-Optional expected attribute value. If missing, method will assert attribute presence.
+Expected attribute value.
 
 ### option: LocatorAssertions.toHaveAttribute.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
@@ -1091,30 +1105,30 @@ Expected count.
 Ensures the [Locator] resolves to an element with the given computed CSS style.
 
 ```js
-const locator = page.locator('button');
+const locator = page.getByRole('button');
 await expect(locator).toHaveCSS('display', 'flex');
 ```
 
 ```java
-assertThat(page.locator("button")).hasCSS("display", "flex");
+assertThat(page.getByRole("button")).hasCSS("display", "flex");
 ```
 
 ```python async
 from playwright.async_api import expect
 
-locator = page.locator("button")
+locator = page.get_by_role("button")
 await expect(locator).to_have_css("display", "flex")
 ```
 
 ```python sync
 from playwright.sync_api import expect
 
-locator = page.locator("button")
+locator = page.get_by_role("button")
 expect(locator).to_have_css("display", "flex")
 ```
 
 ```csharp
-var locator = Page.Locator("button");
+var locator = Page.GetByRole("button");
 await Expect(locator).ToHaveCSSAsync("display", "flex");
 ```
 
@@ -1143,30 +1157,30 @@ CSS property value.
 Ensures the [Locator] points to an element with the given DOM Node ID.
 
 ```js
-const locator = page.locator('input');
+const locator = page.getByRole('textbox');
 await expect(locator).toHaveId('lastname');
 ```
 
 ```java
-assertThat(page.locator("input")).hasId("lastname");
+assertThat(page.getByRole("textbox")).hasId("lastname");
 ```
 
 ```python async
 from playwright.async_api import expect
 
-locator = page.locator("input")
+locator = page.get_by_role("textbox")
 await expect(locator).to_have_id("lastname")
 ```
 
 ```python sync
 from playwright.sync_api import expect
 
-locator = page.locator("input")
+locator = page.get_by_role("textbox")
 expect(locator).to_have_id("lastname")
 ```
 
 ```csharp
-var locator = Page.Locator("input");
+var locator = Page.GetByRole("textbox");
 await Expect(locator).ToHaveIdAsync("lastname");
 ```
 
@@ -1244,7 +1258,7 @@ This function will wait until two consecutive locator screenshots
 yield the same result, and then compare the last screenshot with the expectation.
 
 ```js
-const locator = page.locator('button');
+const locator = page.getByRole('button');
 await expect(locator).toHaveScreenshot('image.png');
 ```
 
@@ -1282,7 +1296,7 @@ This function will wait until two consecutive locator screenshots
 yield the same result, and then compare the last screenshot with the expectation.
 
 ```js
-const locator = page.locator('button');
+const locator = page.getByRole('button');
 await expect(locator).toHaveScreenshot();
 ```
 

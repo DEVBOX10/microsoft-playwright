@@ -21,9 +21,11 @@ import type { Browser } from '../server/browser';
 import type { Playwright } from '../server/playwright';
 import { createPlaywright } from '../server/playwright';
 import { PlaywrightConnection } from './playwrightConnection';
-import { assert } from '../utils';
+import type { ClientType } from './playwrightConnection';
 import type  { LaunchOptions } from '../server/types';
 import { ManualPromise } from '../utils/manualPromise';
+import type { AndroidDevice } from '../server/android/android';
+import { SocksProxy } from '../common/socksProxy';
 
 const debugLog = debug('pw:server');
 
@@ -35,39 +37,45 @@ function newLogger() {
   return (message: string) => debugLog(`[id=${id}] ${message}`);
 }
 
-export type Mode = 'use-pre-launched-browser' | 'reuse-browser' | 'auto';
-
 type ServerOptions = {
   path: string;
-  maxIncomingConnections: number;
-  maxConcurrentConnections: number;
-  enableSocksProxy: boolean;
+  maxConnections: number;
   preLaunchedBrowser?: Browser
+  preLaunchedAndroidDevice?: AndroidDevice
+  browserProxyMode: 'client' | 'tether' | 'disabled',
+  ownedByTetherClient?: boolean;
 };
 
 export class PlaywrightServer {
-  private _preLaunchedPlaywright: Playwright | null = null;
+  private _preLaunchedPlaywright: Playwright | undefined;
   private _wsServer: WebSocketServer | undefined;
-  private _mode: Mode;
+  private _networkTetheringSocksProxy: SocksProxy | undefined;
   private _options: ServerOptions;
+  private _networkTetheringClientTimeout: NodeJS.Timeout | undefined;
 
-  constructor(mode: Mode, options: ServerOptions) {
-    this._mode = mode;
+  constructor(options: ServerOptions) {
     this._options = options;
-    if (mode === 'use-pre-launched-browser') {
-      assert(options.preLaunchedBrowser);
+    if (options.preLaunchedBrowser)
       this._preLaunchedPlaywright = options.preLaunchedBrowser.options.rootSdkObject as Playwright;
-    }
-    if (mode === 'reuse-browser')
-      this._preLaunchedPlaywright = createPlaywright('javascript');
+    if (options.preLaunchedAndroidDevice)
+      this._preLaunchedPlaywright = options.preLaunchedAndroidDevice._android._playwrightOptions.rootSdkObject as Playwright;
   }
 
-  preLaunchedPlaywright(): Playwright | null {
+  preLaunchedPlaywright(): Playwright {
+    if (!this._preLaunchedPlaywright)
+      this._preLaunchedPlaywright = createPlaywright('javascript');
     return this._preLaunchedPlaywright;
   }
 
   async listen(port: number = 0): Promise<string> {
-    const server = http.createServer((request, response) => {
+    const server = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
+      if (request.method === 'GET' && request.url === '/json') {
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({
+          wsEndpointPath: this._options.path,
+        }));
+        return;
+      }
       response.end('Running');
     });
     server.on('error', error => debugLog(error));
@@ -83,22 +91,31 @@ export class PlaywrightServer {
         resolve(wsEndpoint);
       }).on('error', reject);
     });
+    if (this._options.browserProxyMode === 'tether') {
+      this._networkTetheringSocksProxy = new SocksProxy();
+      await this._networkTetheringSocksProxy.listen(0);
+      debugLog('Launched tethering proxy at ' + this._networkTetheringSocksProxy.port());
+    }
 
     debugLog('Listening at ' + wsEndpoint);
+    if (this._options.ownedByTetherClient) {
+      this._networkTetheringClientTimeout = setTimeout(() => {
+        this.close();
+      }, 30_000);
+    }
 
     this._wsServer = new wsServer({ server, path: this._options.path });
-    const semaphore = new Semaphore(this._options.maxConcurrentConnections);
+    const browserSemaphore = new Semaphore(this._options.maxConnections);
+    const controllerSemaphore = new Semaphore(1);
+    const reuseBrowserSemaphore = new Semaphore(1);
+    const networkTetheringSemaphore = new Semaphore(1);
     this._wsServer.on('connection', (ws, request) => {
-      if (semaphore.requested() >= this._options.maxIncomingConnections) {
-        ws.close(1013, 'Playwright Server is busy');
-        return;
-      }
       const url = new URL('http://localhost' + (request.url || ''));
       const browserHeader = request.headers['x-playwright-browser'];
       const browserName = url.searchParams.get('browser') || (Array.isArray(browserHeader) ? browserHeader[0] : browserHeader) || null;
       const proxyHeader = request.headers['x-playwright-proxy'];
       const proxyValue = url.searchParams.get('proxy') || (Array.isArray(proxyHeader) ? proxyHeader[0] : proxyHeader);
-      const enableSocksProxy = this._options.enableSocksProxy && proxyValue === '*';
+      const enableSocksProxy = this._options.browserProxyMode !== 'disabled' && proxyValue === '*';
 
       const launchOptionsHeader = request.headers['x-playwright-launch-options'] || '';
       let launchOptions: LaunchOptions = {};
@@ -109,12 +126,52 @@ export class PlaywrightServer {
 
       const log = newLogger();
       log(`serving connection: ${request.url}`);
+      const isDebugControllerClient = !!request.headers['x-playwright-debug-controller'];
+      const isNetworkTetheringClient = !!request.headers['x-playwright-network-tethering'];
+      const shouldReuseBrowser = !!request.headers['x-playwright-reuse-context'];
+
+      // If we started in the legacy reuse-browser mode, create this._preLaunchedPlaywright.
+      // If we get a reuse-controller request,  create this._preLaunchedPlaywright.
+      if (isDebugControllerClient || shouldReuseBrowser)
+        this.preLaunchedPlaywright();
+
+      let clientType: ClientType = 'playwright';
+      let semaphore: Semaphore = browserSemaphore;
+      if (isNetworkTetheringClient) {
+        clientType = 'network-tethering';
+        semaphore = networkTetheringSemaphore;
+      } else if (isDebugControllerClient) {
+        clientType = 'controller';
+        semaphore = controllerSemaphore;
+      } else if (shouldReuseBrowser) {
+        clientType = 'reuse-browser';
+        semaphore = reuseBrowserSemaphore;
+      } else if (this._options.preLaunchedBrowser || this._options.preLaunchedAndroidDevice) {
+        clientType = 'pre-launched-browser';
+        semaphore = browserSemaphore;
+      } else if (browserName) {
+        clientType = 'launch-browser';
+        semaphore = browserSemaphore;
+      }
+
+      if (clientType === 'network-tethering' && this._options.ownedByTetherClient)
+        clearTimeout(this._networkTetheringClientTimeout);
+
       const connection = new PlaywrightConnection(
           semaphore.aquire(),
-          this._mode, ws,
+          clientType, ws,
           { enableSocksProxy, browserName, launchOptions },
-          { playwright: this._preLaunchedPlaywright, browser: this._options.preLaunchedBrowser || null },
-          log, () => semaphore.release());
+          {
+            playwright: this._preLaunchedPlaywright,
+            browser: this._options.preLaunchedBrowser,
+            androidDevice: this._options.preLaunchedAndroidDevice,
+            networkTetheringSocksProxy: this._networkTetheringSocksProxy,
+          },
+          log, () => {
+            semaphore.release();
+            if (this._options.ownedByTetherClient && clientType === 'network-tethering')
+              this.close();
+          });
       (ws as any)[kConnectionSymbol] = connection;
     });
 
@@ -125,6 +182,7 @@ export class PlaywrightServer {
     const server = this._wsServer;
     if (!server)
       return;
+    await this._networkTetheringSocksProxy?.close();
     debugLog('closing websocket server');
     const waitForClose = new Promise(f => server.close(f));
     // First disconnect all remaining clients.
@@ -149,7 +207,12 @@ export class Semaphore {
   private _max: number;
   private _aquired = 0;
   private _queue: ManualPromise[] = [];
+
   constructor(max: number) {
+    this._max = max;
+  }
+
+  setMax(max: number) {
     this._max = max;
   }
 
@@ -158,10 +221,6 @@ export class Semaphore {
     this._queue.push(lock);
     this._flush();
     return lock;
-  }
-
-  requested() {
-    return this._aquired + this._queue.length;
   }
 
   release() {

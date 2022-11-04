@@ -22,7 +22,7 @@ import { debug } from 'playwright-core/lib/utilsBundle';
 import { raceAgainstTimeout } from 'playwright-core/lib/utils/timeoutRunner';
 import { launchProcess } from 'playwright-core/lib/utils/processLauncher';
 
-import type { FullConfig, Reporter } from '../../types/testReporter';
+import type { FullConfig, Reporter, Suite } from '../../types/testReporter';
 import type { TestRunnerPlugin } from '.';
 import type { FullConfigInternal } from '../types';
 import { envWithoutExperimentalLoaderOptions } from '../cli';
@@ -45,21 +45,24 @@ const DEFAULT_ENVIRONMENT_VARIABLES = {
 const debugWebServer = debug('pw:webserver');
 
 export class WebServerPlugin implements TestRunnerPlugin {
-  private _isAvailable: () => Promise<boolean>;
-  private _killProcess?: () => Promise<void>;
+  private _isAvailable?: () => Promise<boolean>;
+  private _killProcess?: (presendSigtermBeforeSigkillTimeout?: number) => Promise<void>;
   private _processExitedPromise!: Promise<any>;
   private _options: WebServerPluginOptions;
-  private _reporter: Reporter;
+  private _checkPortOnly: boolean;
+  private _reporter?: Reporter;
+  private _launchTerminateTimeout: number;
   name = 'playwright:webserver';
 
-  constructor(options: WebServerPluginOptions, checkPortOnly: boolean, reporter: Reporter) {
-    this._reporter = reporter;
+  constructor(options: WebServerPluginOptions, checkPortOnly: boolean) {
     this._options = options;
-    this._isAvailable = getIsAvailableFunction(options.url, checkPortOnly, !!options.ignoreHTTPSErrors, this._reporter.onStdErr?.bind(this._reporter));
+    this._launchTerminateTimeout = this._options.timeout || 60 * 1000;
+    this._checkPortOnly = checkPortOnly;
   }
 
-
-  public async setup(config: FullConfig, configDir: string) {
+  public async setup(config: FullConfig, configDir: string, rootSuite: Suite, reporter: Reporter) {
+    this._reporter = reporter;
+    this._isAvailable = getIsAvailableFunction(this._options.url, this._checkPortOnly, !!this._options.ignoreHTTPSErrors, this._reporter.onStdErr?.bind(this._reporter));
     this._options.cwd = this._options.cwd ? path.resolve(configDir, this._options.cwd) : configDir;
     try {
       await this._startProcess();
@@ -71,14 +74,15 @@ export class WebServerPlugin implements TestRunnerPlugin {
   }
 
   public async teardown() {
-    await this._killProcess?.();
+    // Send SIGTERM and wait for it to gracefully close.
+    await this._killProcess?.(this._launchTerminateTimeout);
   }
 
   private async _startProcess(): Promise<void> {
     let processExitedReject = (error: Error) => { };
     this._processExitedPromise = new Promise((_, reject) => processExitedReject = reject);
 
-    const isAlreadyAvailable = await this._isAvailable();
+    const isAlreadyAvailable = await this._isAvailable!();
     if (isAlreadyAvailable) {
       debugWebServer(`WebServer is already available`);
       if (this._options.reuseExistingServer)
@@ -107,10 +111,10 @@ export class WebServerPlugin implements TestRunnerPlugin {
 
     debugWebServer(`Process started`);
 
-    launchedProcess.stderr!.on('data', line => this._reporter.onStdErr?.('[WebServer] ' + line.toString()));
+    launchedProcess.stderr!.on('data', line => this._reporter!.onStdErr?.('[WebServer] ' + line.toString()));
     launchedProcess.stdout!.on('data', line => {
       if (debugWebServer.enabled)
-        this._reporter.onStdOut?.('[WebServer] ' + line.toString());
+        this._reporter!.onStdOut?.('[WebServer] ' + line.toString());
     });
   }
 
@@ -121,15 +125,14 @@ export class WebServerPlugin implements TestRunnerPlugin {
   }
 
   private async _waitForAvailability() {
-    const launchTimeout = this._options.timeout || 60 * 1000;
     const cancellationToken = { canceled: false };
     const { timedOut } = (await Promise.race([
-      raceAgainstTimeout(() => waitFor(this._isAvailable, cancellationToken), launchTimeout),
+      raceAgainstTimeout(() => waitFor(this._isAvailable!, cancellationToken), this._launchTerminateTimeout),
       this._processExitedPromise,
     ]));
     cancellationToken.canceled = true;
     if (timedOut)
-      throw new Error(`Timed out waiting ${launchTimeout}ms from config.webServer.`);
+      throw new Error(`Timed out waiting ${this._launchTerminateTimeout}ms from config.webServer.`);
   }
 }
 
@@ -203,10 +206,10 @@ function getIsAvailableFunction(url: string, checkPortOnly: boolean, ignoreHTTPS
 
 export const webServer = (options: WebServerPluginOptions): TestRunnerPlugin => {
   // eslint-disable-next-line no-console
-  return new WebServerPlugin(options, false, { onStdOut: d => console.log(d.toString()), onStdErr: d => console.error(d.toString()) });
+  return new WebServerPlugin(options, false);
 };
 
-export const webServerPluginsForConfig = (config: FullConfigInternal, reporter: Reporter): TestRunnerPlugin[] => {
+export const webServerPluginsForConfig = (config: FullConfigInternal): TestRunnerPlugin[] => {
   const shouldSetBaseUrl = !!config.webServer;
   const webServerPlugins = [];
   for (const webServerConfig of config._webServers) {
@@ -219,7 +222,7 @@ export const webServerPluginsForConfig = (config: FullConfigInternal, reporter: 
     if (shouldSetBaseUrl && !webServerConfig.url)
       process.env.PLAYWRIGHT_TEST_BASE_URL = url;
 
-    webServerPlugins.push(new WebServerPlugin({ ...webServerConfig,  url }, webServerConfig.port !== undefined, reporter));
+    webServerPlugins.push(new WebServerPlugin({ ...webServerConfig,  url }, webServerConfig.port !== undefined));
   }
 
   return webServerPlugins;

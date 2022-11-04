@@ -58,32 +58,89 @@ test('render steps', async ({ runInlineTest }) => {
       test('passes', async ({}) => {
         await test.step('outer 1.0', async () => {
           await test.step('inner 1.1', async () => {});
-          await test.step('inner 1.1', async () => {});
+          await test.step('inner 1.2', async () => {});
         });
         await test.step('outer 2.0', async () => {
           await test.step('inner 2.1', async () => {});
+          await test.step('inner 2.2', async () => {});
+        });
+      });
+    `,
+  }, { reporter: 'list' }, { PW_TEST_DEBUG_REPORTERS: '1', PW_TEST_DEBUG_REPORTERS_PRINT_STEPS: '1', PWTEST_TTY_WIDTH: '80' });
+  const text = stripAnsi(result.output);
+  const lines = text.split('\n').filter(l => l.match(/^\d :/)).map(l => l.replace(/\d+ms/, 'Xms'));
+  lines.pop(); // Remove last item that contains [v] and time in ms.
+  expect(lines).toEqual([
+    '0 :      1 a.test.ts:6:7 › passes',
+    '1 :      1.1 passes › outer 1.0',
+    '2 :      1.2 passes › outer 1.0 › inner 1.1',
+    '2 :      1.2 passes › outer 1.0 › inner 1.1 (Xms)',
+    '3 :      1.3 passes › outer 1.0 › inner 1.2',
+    '3 :      1.3 passes › outer 1.0 › inner 1.2 (Xms)',
+    '1 :      1.1 passes › outer 1.0 (Xms)',
+    '4 :      1.4 passes › outer 2.0',
+    '5 :      1.5 passes › outer 2.0 › inner 2.1',
+    '5 :      1.5 passes › outer 2.0 › inner 2.1 (Xms)',
+    '6 :      1.6 passes › outer 2.0 › inner 2.2',
+    '6 :      1.6 passes › outer 2.0 › inner 2.2 (Xms)',
+    '4 :      1.4 passes › outer 2.0 (Xms)',
+  ]);
+});
+
+test('render steps inlint', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      const { test } = pwt;
+      test('passes', async ({}) => {
+        await test.step('outer 1.0', async () => {
+          await test.step('inner 1.1', async () => {});
+          await test.step('inner 1.2', async () => {});
+        });
+        await test.step('outer 2.0', async () => {
           await test.step('inner 2.1', async () => {});
+          await test.step('inner 2.2', async () => {});
         });
       });
     `,
   }, { reporter: 'list' }, { PW_TEST_DEBUG_REPORTERS: '1', PWTEST_TTY_WIDTH: '80' });
   const text = stripAnsi(result.output);
-  const lines = text.split('\n').filter(l => l.startsWith('0 :'));
+  const lines = text.split('\n').filter(l => l.match(/^\d :/)).map(l => l.replace(/\d+ms/, 'Xms'));
   lines.pop(); // Remove last item that contains [v] and time in ms.
   expect(lines).toEqual([
-    '0 :      1 a.test.ts:6:7 › passes › outer 1.0',
-    '0 :      1 a.test.ts:6:7 › passes › outer 1.0 › inner 1.1',
-    '0 :      1 a.test.ts:6:7 › passes › outer 1.0',
-    '0 :      1 a.test.ts:6:7 › passes › outer 1.0 › inner 1.1',
-    '0 :      1 a.test.ts:6:7 › passes › outer 1.0',
     '0 :      1 a.test.ts:6:7 › passes',
-    '0 :      1 a.test.ts:6:7 › passes › outer 2.0',
-    '0 :      1 a.test.ts:6:7 › passes › outer 2.0 › inner 2.1',
-    '0 :      1 a.test.ts:6:7 › passes › outer 2.0',
-    '0 :      1 a.test.ts:6:7 › passes › outer 2.0 › inner 2.1',
-    '0 :      1 a.test.ts:6:7 › passes › outer 2.0',
+    '0 :      1 a.test.ts:7:20 › passes › outer 1.0',
+    '0 :      1 a.test.ts:8:22 › passes › outer 1.0 › inner 1.1',
+    '0 :      1 a.test.ts:7:20 › passes › outer 1.0',
+    '0 :      1 a.test.ts:9:22 › passes › outer 1.0 › inner 1.2',
+    '0 :      1 a.test.ts:7:20 › passes › outer 1.0',
+    '0 :      1 a.test.ts:6:7 › passes',
+    '0 :      1 a.test.ts:11:20 › passes › outer 2.0',
+    '0 :      1 a.test.ts:12:22 › passes › outer 2.0 › inner 2.1',
+    '0 :      1 a.test.ts:11:20 › passes › outer 2.0',
+    '0 :      1 a.test.ts:13:22 › passes › outer 2.0 › inner 2.2',
+    '0 :      1 a.test.ts:11:20 › passes › outer 2.0',
     '0 :      1 a.test.ts:6:7 › passes',
   ]);
+});
+
+test('very long console line should not mess terminal', async ({ runInlineTest }) => {
+  const TTY_WIDTH = 80;
+  const result = await runInlineTest({
+    'a.test.ts': `
+      const { test } = pwt;
+      test('passes', async ({}) => {
+        console.log('a'.repeat(80) + 'b'.repeat(20));
+      });
+    `,
+  }, { reporter: 'list' }, { PWTEST_TTY_WIDTH: TTY_WIDTH + '' });
+
+  const renderedText = simpleAnsiRenderer(result.output, TTY_WIDTH);
+  if (process.platform === 'win32')
+    expect(renderedText).toContain('  ok 1 a.test.ts:6:7 › passes');
+  else
+    expect(renderedText).toContain('  ✓  1 a.test.ts:6:7 › passes');
+  expect(renderedText).not.toContain('     1 a.test.ts:6:7 › passes');
+  expect(renderedText).toContain('a'.repeat(80) + '\n' + 'b'.repeat(20));
 });
 
 test('render retries', async ({ runInlineTest }) => {
@@ -99,7 +156,9 @@ test('render retries', async ({ runInlineTest }) => {
   const lines = text.split('\n').filter(l => l.startsWith('0 :') || l.startsWith('1 :')).map(l => l.replace(/[\dm]+s/, 'XXms'));
 
   expect(lines).toEqual([
+    `0 :      1 a.test.ts:6:7 › flaky`,
     `0 :   ${NEGATIVE_STATUS_MARK} 1 a.test.ts:6:7 › flaky (XXms)`,
+    `1 :      2 a.test.ts:6:7 › flaky (retry #1)`,
     `1 :   ${POSITIVE_STATUS_MARK} 2 a.test.ts:6:7 › flaky (retry #1) (XXms)`,
   ]);
 });
@@ -149,3 +208,63 @@ test('should truncate long test names', async ({ runInlineTest }) => {
 
   expect(lines[7]).toBe(`  -  4 …› a.test.ts:13:12 › skipped very long name`);
 });
+
+function simpleAnsiRenderer(text, ttyWidth) {
+  let lineNumber = 0;
+  let columnNumber = 0;
+  const screenLines: string[][] = [];
+  const ensureScreenSize = () => {
+    if (lineNumber < 0)
+      throw new Error('Bad terminal navigation!');
+    while (lineNumber >= screenLines.length)
+      screenLines.push(new Array(ttyWidth).fill(''));
+  };
+  const print = ch => {
+    ensureScreenSize();
+    if (ch === '\n') {
+      columnNumber = 0;
+      ++lineNumber;
+    } else {
+      screenLines[lineNumber][columnNumber++] = ch;
+      if (columnNumber === ttyWidth) {
+        columnNumber = 0;
+        ++lineNumber;
+      }
+    }
+    ensureScreenSize();
+  };
+
+  let index = 0;
+
+  const ansiCodes = [...text.matchAll(/\u001B\[(\d*)(.)/g)];
+  for (const ansiCode of ansiCodes) {
+    const [matchText, codeValue, codeType] = ansiCode;
+    const code = (codeValue + codeType).toUpperCase();
+    while (index < ansiCode.index)
+      print(text[index++]);
+    if (codeType.toUpperCase() === 'E') {
+      // Go X lines down
+      lineNumber += +codeValue;
+      ensureScreenSize();
+    } else if (codeType.toUpperCase() === 'A') {
+      // Go X lines up
+      lineNumber -= +codeValue;
+      ensureScreenSize();
+    } else if (code === '2K') {
+      // Erase full line
+      ensureScreenSize();
+      screenLines[lineNumber] = new Array(ttyWidth).fill('');
+    } else if (code === '0G') {
+      // Go to start
+      columnNumber = 0;
+    } else {
+      // Unsupported ANSI code (e.g. all colors).
+    }
+    index += matchText.length;
+  }
+  while (index < text.length)
+    print(text[index++]);
+
+  return screenLines.map(line => line.join('')).join('\n');
+}
+

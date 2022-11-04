@@ -252,6 +252,9 @@ export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
   /**
    * The maximum number of retry attempts given to failed tests. Learn more about [test retries](https://playwright.dev/docs/test-retries#retries).
    *
+   * Use [test.describe.configure([options])](https://playwright.dev/docs/api/class-test#test-describe-configure) to change
+   * the number of retries for a specific file or a group of tests.
+   *
    * Use [testConfig.retries](https://playwright.dev/docs/api/class-testconfig#test-config-retries) to change this option for
    * all projects.
    */
@@ -329,8 +332,10 @@ export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
   /**
    * Timeout for each test in milliseconds. Defaults to 30 seconds.
    *
-   * This is a base timeout for all tests. In addition, each test can configure its own timeout with
-   * [test.setTimeout(timeout)](https://playwright.dev/docs/api/class-test#test-set-timeout).
+   * This is a base timeout for all tests. Each test can configure its own timeout with
+   * [test.setTimeout(timeout)](https://playwright.dev/docs/api/class-test#test-set-timeout). Each file or a group of tests
+   * can configure the timeout with
+   * [test.describe.configure([options])](https://playwright.dev/docs/api/class-test#test-describe-configure).
    *
    * Use [testConfig.timeout](https://playwright.dev/docs/api/class-testconfig#test-config-timeout) to change this option for
    * all projects.
@@ -679,6 +684,12 @@ interface TestConfig {
   grepInvert?: RegExp|Array<RegExp>;
 
   /**
+   * Whether to skip snapshot expectations, such as `expect(value).toMatchSnapshot()` and `await
+   * expect(page).toHaveScreenshot()`.
+   */
+  ignoreSnapshots?: boolean;
+
+  /**
    * The maximum number of test failures for the whole test suite run. After reaching this number, testing will stop and exit
    * with an error. Setting to zero (default) disables this behavior.
    *
@@ -921,13 +932,14 @@ interface TestConfig {
   updateSnapshots?: "all"|"none"|"missing";
 
   /**
-   * The maximum number of concurrent worker processes to use for parallelizing tests.
+   * The maximum number of concurrent worker processes to use for parallelizing tests. Can also be set as percentage of
+   * logical CPU cores, e.g. `'50%'.`
    *
    * Playwright Test uses worker processes to run tests. There is always at least one worker process, but more can be used to
    * speed up test execution.
    *
-   * Defaults to one half of the number of CPU cores. Learn more about [parallelism and sharding](https://playwright.dev/docs/test-parallel) with
-   * Playwright Test.
+   * Defaults to half of the number of logical CPU cores. Learn more about [parallelism and sharding](https://playwright.dev/docs/test-parallel)
+   * with Playwright Test.
    *
    * ```js
    * // playwright.config.ts
@@ -940,7 +952,7 @@ interface TestConfig {
    * ```
    *
    */
-  workers?: number;}
+  workers?: number|string;}
 
 /**
  * Playwright Test provides many options to configure how your tests are collected and executed, for example `timeout` or
@@ -1195,13 +1207,14 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
    */
   updateSnapshots: 'all' | 'none' | 'missing';
   /**
-   * The maximum number of concurrent worker processes to use for parallelizing tests.
+   * The maximum number of concurrent worker processes to use for parallelizing tests. Can also be set as percentage of
+   * logical CPU cores, e.g. `'50%'.`
    *
    * Playwright Test uses worker processes to run tests. There is always at least one worker process, but more can be used to
    * speed up test execution.
    *
-   * Defaults to one half of the number of CPU cores. Learn more about [parallelism and sharding](https://playwright.dev/docs/test-parallel) with
-   * Playwright Test.
+   * Defaults to half of the number of logical CPU cores. Learn more about [parallelism and sharding](https://playwright.dev/docs/test-parallel)
+   * with Playwright Test.
    *
    * ```js
    * // playwright.config.ts
@@ -1292,6 +1305,7 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
    *
    */
   webServer: TestConfigWebServer | null;
+  configFile?: string;
 }
 
 export type TestStatus = 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
@@ -1444,7 +1458,7 @@ export interface TestInfo {
    * > NOTE: [testInfo.attach(name[, options])](https://playwright.dev/docs/api/class-testinfo#test-info-attach)
    * automatically takes care of copying attached files to a location that is accessible to reporters. You can safely remove
    * the attachment after awaiting the attach call.
-   * @param name Attachment name.
+   * @param name Attachment name. The name will also be sanitized and used as the prefix of file name when saving to disk.
    * @param options
    */
   attach(name: string, options?: {
@@ -1993,8 +2007,8 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
   only: SuiteFunction;
     };
     /**
-   * Set execution mode of execution for the enclosing scope. Can be executed either on the top level or inside a describe.
-   * Configuration applies to the entire scope, regardless of whether it run before or after the test declaration.
+   * Configures the enclosing scope. Can be executed either on the top level or inside a describe. Configuration applies to
+   * the entire scope, regardless of whether it run before or after the test declaration.
    *
    * Learn more about the execution modes [here](https://playwright.dev/docs/test-parallel).
    *
@@ -2016,9 +2030,18 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
    * test('runs second', async ({ page }) => {});
    * ```
    *
+   * Configuring retries and timeout:
+   *
+   * ```js
+   * // All tests in the file will be retried twice and have a timeout of 20 seconds.
+   * test.describe.configure({ retries: 2, timeout: 20_000 });
+   * test('runs first', async ({ page }) => {});
+   * test('runs second', async ({ page }) => {});
+   * ```
+   *
    * @param options
    */
-  configure: (options: { mode?: 'parallel' | 'serial' }) => void;
+  configure: (options: { mode?: 'parallel' | 'serial', retries?: number, timeout?: number }) => void;
   };
   /**
    * Declares a skipped test, similarly to
@@ -2348,7 +2371,7 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
    *
    * test.describe('group', () => {
    *   // Applies to all tests in this group.
-   *   test.setTimeout(60000);
+   *   test.describe.configure({ timeout: 60000 });
    *
    *   test('test one', async () => { /* ... *\/ });
    *   test('test two', async () => { /* ... *\/ });
@@ -2646,6 +2669,23 @@ type ConnectOptions = {
 };
 
 /**
+ * Playwright Test provides a `storage` fixture for passing values between project setup and tests. TODO: examples
+ */
+interface Storage {
+  /**
+   * Get named item from the store.
+   * @param name Item name.
+   */
+  get<T>(name: string): Promise<T | undefined>;
+  /**
+   * Set value to the store.
+   * @param name Item name.
+   * @param value Item value. The value must be serializable to JSON.
+   */
+  set<T>(name: string, value: T | undefined): Promise<void>;
+}
+
+/**
  * Playwright Test provides many options to configure test environment, [Browser], [BrowserContext] and more.
  *
  * These options are usually provided in the [configuration file](https://playwright.dev/docs/test-configuration) through
@@ -2819,8 +2859,8 @@ export interface PlaywrightTestOptions {
   bypassCSP: boolean | undefined;
   /**
    * Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. See
-   * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#page-emulate-media) for more details. Defaults
-   * to `'light'`.
+   * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#page-emulate-media) for more details. Passing
+   * `null` resets emulation to system defaults. Defaults to `'light'`.
    */
   colorScheme: ColorScheme | undefined;
   /**
@@ -2938,6 +2978,12 @@ export interface PlaywrightTestOptions {
    * - `'block'`: Playwright will block all registration of Service Workers.
    */
   serviceWorkers: ServiceWorkerPolicy | undefined;
+  /**
+   * Custom attribute to be used in
+   * [page.getByTestId(testId)](https://playwright.dev/docs/api/class-page#page-get-by-test-id). `data-testid` is used by
+   * default.
+   */
+  testIdAttribute: string | undefined;
 }
 
 
@@ -2975,6 +3021,10 @@ export interface PlaywrightWorkerArgs {
    * Learn how to [configure browser](https://playwright.dev/docs/test-configuration) and see [available options][TestOptions].
    */
   browser: Browser;
+  /**
+   * [Storage] is shared between all tests in the same run.
+   */
+  storage: Storage;
 }
 
 /**
@@ -3023,9 +3073,9 @@ export interface PlaywrightTestArgs {
    *
    * test('basic test', async ({ page }) => {
    *   await page.goto('/signin');
-   *   await page.locator('#username').fill('User');
-   *   await page.locator('#password').fill('pwd');
-   *   await page.locator('text=Sign in').click();
+   *   await page.getByLabel('User Name').fill('user');
+   *   await page.getByLabel('Password').fill('password');
+   *   await page.getByText('Sign in').click();
    *   // ...
    * });
    * ```
@@ -3200,7 +3250,7 @@ interface APIResponseAssertions {
  *
  * test('status becomes submitted', async ({ page }) => {
  *   // ...
- *   await page.locator('#submit-button').click();
+ *   await page.getByRole('button').click();
  *   await expect(page.locator('.status')).toHaveText('Submitted');
  * });
  * ```
@@ -3222,7 +3272,7 @@ interface LocatorAssertions {
    * Ensures the [Locator] points to a checked input.
    *
    * ```js
-   * const locator = page.locator('.subscribe');
+   * const locator = page.getByLabel('Subscribe to newsletter');
    * await expect(locator).toBeChecked();
    * ```
    *
@@ -3261,13 +3311,15 @@ interface LocatorAssertions {
    * Ensures the [Locator] points to an editable element.
    *
    * ```js
-   * const locator = page.locator('input');
+   * const locator = page.getByRole('textbox');
    * await expect(locator).toBeEditable();
    * ```
    *
    * @param options
    */
   toBeEditable(options?: {
+    editable?: boolean;
+
     /**
      * Time to retry the assertion for. Defaults to `timeout` in `TestConfig.expect`.
      */
@@ -3302,6 +3354,8 @@ interface LocatorAssertions {
    * @param options
    */
   toBeEnabled(options?: {
+    enabled?: boolean;
+
     /**
      * Time to retry the assertion for. Defaults to `timeout` in `TestConfig.expect`.
      */
@@ -3312,7 +3366,7 @@ interface LocatorAssertions {
    * Ensures the [Locator] points to a focused DOM node.
    *
    * ```js
-   * const locator = page.locator('input');
+   * const locator = page.getByRole('textbox');
    * await expect(locator).toBeFocused();
    * ```
    *
@@ -3326,7 +3380,8 @@ interface LocatorAssertions {
   }): Promise<void>;
 
   /**
-   * Ensures the [Locator] points to a hidden DOM node, which is the opposite of [visible](https://playwright.dev/docs/api/actionability#visible).
+   * Ensures that [Locator] either does not resolve to any DOM node, or resolves to a
+   * [non-visible](https://playwright.dev/docs/api/actionability#visible) one.
    *
    * ```js
    * const locator = page.locator('.my-element');
@@ -3343,7 +3398,8 @@ interface LocatorAssertions {
   }): Promise<void>;
 
   /**
-   * Ensures the [Locator] points to a [visible](https://playwright.dev/docs/api/actionability#visible) DOM node.
+   * Ensures that [Locator] points to an [attached](https://playwright.dev/docs/api/actionability#attached) and [visible](https://playwright.dev/docs/api/actionability#visible)
+   * DOM node.
    *
    * ```js
    * const locator = page.locator('.my-element');
@@ -3357,6 +3413,8 @@ interface LocatorAssertions {
      * Time to retry the assertion for. Defaults to `timeout` in `TestConfig.expect`.
      */
     timeout?: number;
+
+    visible?: boolean;
   }): Promise<void>;
 
   /**
@@ -3423,23 +3481,18 @@ interface LocatorAssertions {
   }): Promise<void>;
 
   /**
-   * Ensures the [Locator] points to an element with given attribute. If the method is used without `'value'` argument, then
-   * the method will assert attribute existance.
+   * Ensures the [Locator] points to an element with given attribute.
    *
    * ```js
    * const locator = page.locator('input');
-   * // Assert attribute with given value.
    * await expect(locator).toHaveAttribute('type', 'text');
-   * // Assert attribute existance.
-   * await expect(locator).toHaveAttribute('disabled');
-   * await expect(locator).not.toHaveAttribute('open');
    * ```
    *
    * @param name Attribute name.
-   * @param value Optional expected attribute value. If missing, method will assert attribute presence.
+   * @param value Expected attribute value.
    * @param options
    */
-  toHaveAttribute(name: string, value?: string|RegExp, options?: {
+  toHaveAttribute(name: string, value: string|RegExp, options?: {
     /**
      * Time to retry the assertion for. Defaults to `timeout` in `TestConfig.expect`.
      */
@@ -3499,7 +3552,7 @@ interface LocatorAssertions {
    * Ensures the [Locator] resolves to an element with the given computed CSS style.
    *
    * ```js
-   * const locator = page.locator('button');
+   * const locator = page.getByRole('button');
    * await expect(locator).toHaveCSS('display', 'flex');
    * ```
    *
@@ -3518,7 +3571,7 @@ interface LocatorAssertions {
    * Ensures the [Locator] points to an element with the given DOM Node ID.
    *
    * ```js
-   * const locator = page.locator('input');
+   * const locator = page.getByRole('textbox');
    * await expect(locator).toHaveId('lastname');
    * ```
    *
@@ -3557,7 +3610,7 @@ interface LocatorAssertions {
    * screenshot with the expectation.
    *
    * ```js
-   * const locator = page.locator('button');
+   * const locator = page.getByRole('button');
    * await expect(locator).toHaveScreenshot('image.png');
    * ```
    *
@@ -3607,7 +3660,7 @@ interface LocatorAssertions {
 
     /**
      * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
-     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
+     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of
      * high-dpi devices will be twice as large or even larger.
      *
      * Defaults to `"css"`.
@@ -3632,7 +3685,7 @@ interface LocatorAssertions {
    * screenshot with the expectation.
    *
    * ```js
-   * const locator = page.locator('button');
+   * const locator = page.getByRole('button');
    * await expect(locator).toHaveScreenshot();
    * ```
    *
@@ -3681,7 +3734,7 @@ interface LocatorAssertions {
 
     /**
      * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
-     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
+     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of
      * high-dpi devices will be twice as large or even larger.
      *
      * Defaults to `"css"`.
@@ -3822,7 +3875,7 @@ interface LocatorAssertions {
  *
  * test('navigates to login', async ({ page }) => {
  *   // ...
- *   await page.locator('#login').click();
+ *   await page.getByText('Sign in').click();
  *   await expect(page).toHaveURL(/.*\/login/);
  * });
  * ```
@@ -3925,7 +3978,7 @@ interface PageAssertions {
 
     /**
      * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
-     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
+     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of
      * high-dpi devices will be twice as large or even larger.
      *
      * Defaults to `"css"`.
@@ -4029,7 +4082,7 @@ interface PageAssertions {
 
     /**
      * When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will
-     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of
+     * keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of
      * high-dpi devices will be twice as large or even larger.
      *
      * Defaults to `"css"`.
@@ -4383,6 +4436,12 @@ interface TestProject {
   name?: string;
 
   /**
+   * Project setup files that would be executed before all tests in the project. If project setup fails the tests in this
+   * project will be skipped. All project setup files will run in every shard if the project is sharded.
+   */
+  setup?: string|RegExp|Array<string|RegExp>;
+
+  /**
    * The base directory, relative to the config file, for snapshot files created with `toMatchSnapshot`. Defaults to
    * [testProject.testDir](https://playwright.dev/docs/api/class-testproject#test-project-test-dir).
    *
@@ -4434,6 +4493,9 @@ interface TestProject {
 
   /**
    * The maximum number of retry attempts given to failed tests. Learn more about [test retries](https://playwright.dev/docs/test-retries#retries).
+   *
+   * Use [test.describe.configure([options])](https://playwright.dev/docs/api/class-test#test-describe-configure) to change
+   * the number of retries for a specific file or a group of tests.
    *
    * Use [testConfig.retries](https://playwright.dev/docs/api/class-testconfig#test-config-retries) to change this option for
    * all projects.
@@ -4516,8 +4578,10 @@ interface TestProject {
   /**
    * Timeout for each test in milliseconds. Defaults to 30 seconds.
    *
-   * This is a base timeout for all tests. In addition, each test can configure its own timeout with
-   * [test.setTimeout(timeout)](https://playwright.dev/docs/api/class-test#test-set-timeout).
+   * This is a base timeout for all tests. Each test can configure its own timeout with
+   * [test.setTimeout(timeout)](https://playwright.dev/docs/api/class-test#test-set-timeout). Each file or a group of tests
+   * can configure the timeout with
+   * [test.describe.configure([options])](https://playwright.dev/docs/api/class-test#test-describe-configure).
    *
    * Use [testConfig.timeout](https://playwright.dev/docs/api/class-testconfig#test-config-timeout) to change this option for
    * all projects.
@@ -4549,7 +4613,8 @@ interface TestConfigWebServer {
   ignoreHTTPSErrors?: boolean;
 
   /**
-   * How long to wait for the process to start up and be available in milliseconds. Defaults to 60000.
+   * How long to wait for the process to start up and be available in milliseconds. The same timeout is also used to
+   * terminate the process. Defaults to 60000.
    */
   timeout?: number;
 

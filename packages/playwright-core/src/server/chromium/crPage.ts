@@ -30,7 +30,7 @@ import type { PageBinding, PageDelegate } from '../page';
 import { Page, Worker } from '../page';
 import type { Progress } from '../progress';
 import type * as types from '../types';
-import type * as channels from '../../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { getAccessibilityTree } from './crAccessibility';
 import { CRBrowserContext } from './crBrowser';
 import type { CRSession } from './crConnection';
@@ -133,7 +133,7 @@ export class CRPage implements PageDelegate {
         return cb(frameSession);
       return cb(frameSession).catch(e => {
         // Broadcasting a message to the closed iframe shoule be a noop.
-        if (e.message && (e.message.includes('Target closed.') || e.message.includes('Session closed.')))
+        if (e.message && e.message.includes('Target closed'))
           return;
         throw e;
       });
@@ -1064,16 +1064,17 @@ class FrameSession {
 
   async _updateEmulateMedia(): Promise<void> {
     const emulatedMedia = this._page.emulatedMedia();
-    const colorScheme = emulatedMedia.colorScheme === null ? '' : emulatedMedia.colorScheme;
-    const reducedMotion = emulatedMedia.reducedMotion === null ? '' : emulatedMedia.reducedMotion;
-    const forcedColors = emulatedMedia.forcedColors === null ? '' : emulatedMedia.forcedColors;
+    // Empty string disables the override.
+    const media = emulatedMedia.media === 'no-override' ? '' : emulatedMedia.media;
+    const colorScheme = emulatedMedia.colorScheme === 'no-override' ? '' : emulatedMedia.colorScheme;
+    const reducedMotion = emulatedMedia.reducedMotion === 'no-override' ? '' : emulatedMedia.reducedMotion;
+    const forcedColors = emulatedMedia.forcedColors === 'no-override' ? '' : emulatedMedia.forcedColors;
     const features = [
       { name: 'prefers-color-scheme', value: colorScheme },
       { name: 'prefers-reduced-motion', value: reducedMotion },
       { name: 'forced-colors', value: forcedColors },
     ];
-    // Empty string disables the override.
-    await this._client.send('Emulation.setEmulatedMedia', { media: emulatedMedia.media || '', features });
+    await this._client.send('Emulation.setEmulatedMedia', { media, features });
   }
 
   async _updateUserAgent(): Promise<void> {

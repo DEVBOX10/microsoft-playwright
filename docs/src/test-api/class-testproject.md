@@ -162,6 +162,11 @@ Metadata that will be put directly to the test report serialized as JSON.
 
 Project name is visible in the report and during test execution.
 
+## property: TestProject.setup
+* since: v1.28
+- type: ?<[string]|[RegExp]|[Array]<[string]|[RegExp]>>
+
+Project setup files that would be executed before all tests in the project. If project setup fails the tests in this project will be skipped. All project setup files will run in every shard if the project is sharded.
 
 ## property: TestProject.screenshotsDir
 * since: v1.10
@@ -256,6 +261,8 @@ Use [`property: TestConfig.repeatEach`] to change this option for all projects.
 - type: ?<[int]>
 
 The maximum number of retry attempts given to failed tests. Learn more about [test retries](../test-retries.md#retries).
+
+Use [`method: Test.describe.configure`] to change the number of retries for a specific file or a group of tests.
 
 Use [`property: TestConfig.retries`] to change this option for all projects.
 
@@ -377,7 +384,7 @@ Use [`property: TestConfig.testMatch`] to change this option for all projects.
 
 Timeout for each test in milliseconds. Defaults to 30 seconds.
 
-This is a base timeout for all tests. In addition, each test can configure its own timeout with [`method: Test.setTimeout`].
+This is a base timeout for all tests. Each test can configure its own timeout with [`method: Test.setTimeout`]. Each file or a group of tests can configure the timeout with [`method: Test.describe.configure`].
 
 Use [`property: TestConfig.timeout`] to change this option for all projects.
 

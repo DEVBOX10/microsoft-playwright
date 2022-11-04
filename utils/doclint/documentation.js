@@ -46,8 +46,9 @@ const md = require('../markdown');
  *   clazz?: Documentation.Class,
  *   member?: Documentation.Member,
  *   param?: string,
- *   option?: string
- * }): string} Renderer
+ *   option?: string,
+ *   href?: string,
+ * }): string|undefined} Renderer
  */
 
 /**
@@ -149,19 +150,19 @@ class Documentation {
     }
     /**
      * @param {Documentation.Class|Documentation.Member|null} classOrMember
-     * @param {MarkdownNode[]} nodes
+     * @param {MarkdownNode[] | undefined} nodes
      */
     this._patchLinks = (classOrMember, nodes) => patchLinks(classOrMember, nodes, classesMap, membersMap, linkRenderer);
 
     for (const clazz of this.classesArray)
-      clazz.visit(item => this._patchLinks(item, item.spec));
+      clazz.visit(item => this._patchLinks?.(item, item.spec));
   }
 
   /**
    * @param {MarkdownNode[]} nodes
    */
   renderLinksInText(nodes) {
-    this._patchLinks(null, nodes);
+    this._patchLinks?.(null, nodes);
   }
 
   generateSourceCodeComments() {
@@ -192,11 +193,8 @@ Documentation.Class = class {
     this.extends = extendsName;
     this.comment = '';
     this.index();
-    const match = name.match(/(API|JS|CDP|[A-Z])(.*)/);
+    const match = /** @type {string[]} */(name.match(/(API|JS|CDP|[A-Z])(.*)/));
     this.varName = match[1].toLowerCase() + match[2];
-  }
-
-  index() {
     /** @type {!Map<string, !Documentation.Member>} */
     this.members = new Map();
     /** @type {!Map<string, !Documentation.Member>} */
@@ -210,6 +208,16 @@ Documentation.Class = class {
     /** @type {!Map<string, !Documentation.Member>} */
     this.events = new Map();
     /** @type {!Array<!Documentation.Member>} */
+    this.eventsArray = [];
+  }
+
+  index() {
+    this.members = new Map();
+    this.properties = new Map();
+    this.propertiesArray = [];
+    this.methods = new Map();
+    this.methodsArray = [];
+    this.events = new Map();
     this.eventsArray = [];
 
     for (const member of this.membersArray) {
@@ -342,7 +350,7 @@ Documentation.Member = class {
     /** @type {!Map<string, !Documentation.Member>} */
     this.args = new Map();
     this.index();
-    /** @type {!Documentation.Class} */
+    /** @type {!Documentation.Class | null} */
     this.clazz = null;
     /** @type {Documentation.Member=} */
     this.enclosingMethod = undefined;
@@ -357,13 +365,13 @@ Documentation.Member = class {
     this.alias = name;
     this.overloadIndex = 0;
     if (name.includes('#')) {
-      const match = name.match(/(.*)#(.*)/);
+      const match = /** @type {string[]} */(name.match(/(.*)#(.*)/));
       this.alias = match[1];
       this.overloadIndex = (+match[2]) - 1;
     }
     /**
      * Param is true and option false
-     * @type {Boolean}
+     * @type {Boolean | null}
      */
     this.paramOrOption = null;
   }
@@ -376,7 +384,9 @@ Documentation.Member = class {
       this.args.set(arg.name, arg);
       arg.enclosingMethod = this;
       if (arg.name === 'options') {
+        // @ts-ignore
         arg.type.properties.sort((p1, p2) => p1.name.localeCompare(p2.name));
+        // @ts-ignore
         arg.type.properties.forEach(p => p.enclosingMethod = this);
       }
     }
@@ -386,6 +396,8 @@ Documentation.Member = class {
    * @param {string} lang
    */
   filterForLanguage(lang) {
+    if (!this.type)
+      return;
     if (this.langs.aliases && this.langs.aliases[lang])
       this.alias = this.langs.aliases[lang];
     if (this.langs.types && this.langs.types[lang])
@@ -397,8 +409,10 @@ Documentation.Member = class {
         continue;
       const overriddenArg = (arg.langs.overrides && arg.langs.overrides[lang]) || arg;
       overriddenArg.filterForLanguage(lang);
+      // @ts-ignore
       if (overriddenArg.name === 'options' && !overriddenArg.type.properties.length)
         continue;
+      // @ts-ignore
       overriddenArg.type.filterForLanguage(lang);
       argsArray.push(overriddenArg);
     }
@@ -406,10 +420,12 @@ Documentation.Member = class {
   }
 
   filterOutExperimental() {
+    if (!this.type)
+      return;
     this.type.filterOutExperimental();
     const argsArray = [];
     for (const arg of this.argsArray) {
-      if (arg.experimental)
+      if (arg.experimental || !arg.type)
         continue;
       arg.type.filterOutExperimental();
       argsArray.push(arg);
@@ -418,7 +434,7 @@ Documentation.Member = class {
   }
 
   clone() {
-    const result = new Documentation.Member(this.kind, { langs: this.langs, experimental: this.experimental, since: this.since }, this.name, this.type.clone(), this.argsArray.map(arg => arg.clone()), this.spec, this.required);
+    const result = new Documentation.Member(this.kind, { langs: this.langs, experimental: this.experimental, since: this.since }, this.name, this.type?.clone(), this.argsArray.map(arg => arg.clone()), this.spec, this.required);
     result.alias = this.alias;
     result.async = this.async;
     result.paramOrOption = this.paramOrOption;
@@ -512,6 +528,7 @@ Documentation.Type = class {
     if (!inUnion && (parsedType.union || parsedType.unionName)) {
       const type = new Documentation.Type(parsedType.unionName || '');
       type.union = [];
+      // @ts-ignore
       for (let t = parsedType; t; t = t.union) {
         const nestedUnion = !!t.unionName && t !== parsedType;
         type.union.push(Documentation.Type.fromParsedType(t, !nestedUnion));
@@ -524,15 +541,17 @@ Documentation.Type = class {
     if (parsedType.args) {
       const type = new Documentation.Type('function');
       type.args = [];
+      // @ts-ignore
       for (let t = parsedType.args; t; t = t.next)
         type.args.push(Documentation.Type.fromParsedType(t));
-      type.returnType = parsedType.retType ? Documentation.Type.fromParsedType(parsedType.retType) : null;
+      type.returnType = parsedType.retType ? Documentation.Type.fromParsedType(parsedType.retType) : undefined;
       return type;
     }
 
     if (parsedType.template) {
       const type = new Documentation.Type(parsedType.name);
       type.templates = [];
+      // @ts-ignore
       for (let t = parsedType.template; t; t = t.next)
         type.templates.push(Documentation.Type.fromParsedType(t));
       return type;
@@ -597,7 +616,7 @@ Documentation.Type = class {
   }
 
   /**
-    * @returns {Documentation.Member[]}
+    * @returns {Documentation.Member[] | undefined}
   */
   sortedProperties() {
     if (!this.properties)
@@ -653,7 +672,7 @@ Documentation.Type = class {
 };
 
 /**
- * @param {ParsedType} type
+ * @param {ParsedType | null} type
  * @returns {boolean}
  */
 function isStringUnion(type) {
@@ -744,7 +763,7 @@ function matchingBracket(str, open, close) {
 
 /**
  * @param {Documentation.Class|Documentation.Member|null} classOrMember
- * @param {MarkdownNode[]} spec
+ * @param {MarkdownNode[]|undefined} spec
  * @param {Map<string, Documentation.Class>} classesMap
  * @param {Map<string, Documentation.Member>} membersMap
  * @param {Renderer} linkRenderer
@@ -755,13 +774,13 @@ function patchLinks(classOrMember, spec, classesMap, membersMap, linkRenderer) {
   md.visitAll(spec, node => {
     if (!node.text)
       return;
-    node.text = node.text.replace(/\[`(\w+): ([^\]]+)`\]/g, (match, p1, p2) => {
+    node.text = node.text.replace(/\[`(\w+): ([^\]]+)`\](?:\(([^)]*?)\))?/g, (match, p1, p2, href) => {
       if (['event', 'method', 'property'].includes(p1)) {
         const memberName = p1 + ': ' + p2;
         const member = membersMap.get(memberName);
         if (!member)
           throw new Error('Undefined member references: ' + match);
-        return linkRenderer({ member }) || match;
+        return linkRenderer({ member, href }) || match;
       }
       if (p1 === 'param') {
         let alias = p2;
@@ -774,32 +793,33 @@ function patchLinks(classOrMember, spec, classesMap, membersMap, linkRenderer) {
             throw new Error(`Referenced parameter ${match} not found in the parent method ${method.name} `);
           alias = param.alias;
         }
-        return linkRenderer({ param: alias }) || match;
+        return linkRenderer({ param: alias, href }) || match;
       }
       if (p1 === 'option')
-        return linkRenderer({ option: p2 }) || match;
+        return linkRenderer({ option: p2, href }) || match;
       throw new Error(`Undefined link prefix, expected event|method|property|param|option, got: ` + match);
     });
-    node.text = node.text.replace(/\[([\w]+)\]/g, (match, p1) => {
+    node.text = node.text.replace(/\[([\w]+)\](?:\(([^)]*?)\))?/g, (match, p1, href) => {
       const clazz = classesMap.get(p1);
       if (clazz)
-        return linkRenderer({ clazz }) || match;
+        return linkRenderer({ clazz, href }) || match;
       return match;
     });
   });
 }
 
 /**
- * @param {MarkdownNode[]} spec
+ * @param {MarkdownNode[] | undefined} spec
  */
 function generateSourceCodeComment(spec) {
   const comments = (spec || []).filter(n => !n.type.startsWith('h') && (n.type !== 'li' ||  n.liType !== 'default')).map(c => md.clone(c));
   md.visitAll(comments, node => {
     if (node.codeLang && node.codeLang.includes('tab=js-js'))
       node.type = 'null';
-    if (node.liType === 'bullet')
+    if (node.type === 'li' && node.liType === 'bullet')
       node.liType = 'default';
     if (node.type === 'note') {
+      // @ts-ignore
       node.type = 'text';
       node.text = '> NOTE: ' + node.text;
     }

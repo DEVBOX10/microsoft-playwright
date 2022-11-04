@@ -26,11 +26,13 @@ import { collectComponentUsages, componentInfo } from '../tsxTransform';
 import type { FullConfig } from '../types';
 import { assert, calculateSha1 } from 'playwright-core/lib/utils';
 import type { AddressInfo } from 'net';
+import { getPlaywrightVersion } from 'playwright-core/lib/common/userAgent';
+import type { PlaywrightTestConfig as BasePlaywrightTestConfig } from '@playwright/test';
 
 let stoppableServer: any;
-const VERSION = 6;
+const playwrightVersion = getPlaywrightVersion();
 
-type CtConfig = {
+type CtConfig = BasePlaywrightTestConfig['use'] & {
   ctPort?: number;
   ctTemplateDir?: string;
   ctCacheDir?: string;
@@ -65,14 +67,17 @@ export function createPlugin(
       const registerSource = await fs.promises.readFile(registerSourceFile, 'utf-8');
       const registerSourceHash = calculateSha1(registerSource);
 
+      const { version: viteVersion } = require('vite/package.json');
       try {
         buildInfo = JSON.parse(await fs.promises.readFile(buildInfoFile, 'utf-8')) as BuildInfo;
-        assert(buildInfo.version === VERSION);
+        assert(buildInfo.version === playwrightVersion);
+        assert(buildInfo.viteVersion === viteVersion);
         assert(buildInfo.registerSourceHash === registerSourceHash);
         buildExists = true;
       } catch (e) {
         buildInfo = {
-          version: VERSION,
+          version: playwrightVersion,
+          viteVersion,
           registerSourceHash,
           components: [],
           tests: {},
@@ -135,8 +140,10 @@ export function createPlugin(
         sourcemap: true,
       };
 
-      if (sourcesDirty)
+      if (sourcesDirty) {
         await build(viteConfig);
+        await fs.promises.rename(`${outDir}/${relativeTemplateDir}/index.html`, `${outDir}/index.html`);
+      }
 
       if (hasNewTests || hasNewComponents || sourcesDirty)
         await fs.promises.writeFile(buildInfoFile, JSON.stringify(buildInfo, undefined, 2));
@@ -146,7 +153,8 @@ export function createPlugin(
       const isAddressInfo = (x: any): x is AddressInfo => x?.address;
       const address = previewServer.httpServer.address();
       if (isAddressInfo(address))
-        process.env.PLAYWRIGHT_VITE_COMPONENTS_BASE_URL = `http://localhost:${address.port}/${relativeTemplateDir}/index.html`;
+        process.env.PLAYWRIGHT_TEST_BASE_URL = `http://localhost:${address.port}`;
+
     },
 
     teardown: async () => {
@@ -156,7 +164,8 @@ export function createPlugin(
 }
 
 type BuildInfo = {
-  version: number,
+  version: string,
+  viteVersion: string,
   registerSourceHash: string,
   sources: {
     [key: string]: {

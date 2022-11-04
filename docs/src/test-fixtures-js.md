@@ -3,10 +3,6 @@ id: test-fixtures
 title: "Advanced: fixtures"
 ---
 
-<!-- TOC -->
-
-## Introduction to fixtures
-
 Playwright Test is based on the concept of test fixtures. Test fixtures are used to establish environment for each test, giving the test everything it needs and nothing else. Test fixtures are isolated between tests. With fixtures, you can group tests based on their meaning, instead of their common setup.
 
 ### Built-in fixtures
@@ -338,9 +334,9 @@ exports.test = base.test.extend({
     // Create the account with Playwright.
     const page = await browser.newPage();
     await page.goto('/signup');
-    await page.locator('#username').fill(username);
-    await page.locator('#password').fill(password);
-    await page.locator('text=Sign up').click();
+    await page.getByLabel('User Name').fill(username);
+    await page.getByLabel('Password').fill(password);
+    await page.getByText('Sign up').click();
     // Make sure everything is ok.
     await expect(page.locator('#result')).toHaveText('Success');
     // Do not forget to cleanup.
@@ -354,9 +350,9 @@ exports.test = base.test.extend({
     // Sign in with our account.
     const { username, password } = account;
     await page.goto('/signin');
-    await page.locator('#username').fill(username);
-    await page.locator('#password').fill(password);
-    await page.locator('text=Sign in').click();
+    await page.getByLabel('User Name').fill(username);
+    await page.getByLabel('Password').fill(password);
+    await page.getByText('Sign in').click();
     await expect(page.locator('#userinfo')).toHaveText(username);
 
     // Use signed-in page in the test.
@@ -385,9 +381,9 @@ export const test = base.extend<{}, { account: Account }>({
     // Create the account with Playwright.
     const page = await browser.newPage();
     await page.goto('/signup');
-    await page.locator('#username').fill(username);
-    await page.locator('#password').fill(password);
-    await page.locator('text=Sign up').click();
+    await page.getByLabel('User Name').fill(username);
+    await page.getByLabel('Password').fill(password);
+    await page.getByText('Sign up').click();
     // Make sure everything is ok.
     await expect(page.locator('#result')).toHaveText('Success');
     // Do not forget to cleanup.
@@ -401,9 +397,9 @@ export const test = base.extend<{}, { account: Account }>({
     // Sign in with our account.
     const { username, password } = account;
     await page.goto('/signin');
-    await page.locator('#username').fill(username);
-    await page.locator('#password').fill(password);
-    await page.locator('text=Sign in').click();
+    await page.getByLabel('User Name').fill(username);
+    await page.getByLabel('Password').fill(password);
+    await page.getByText('Sign in').click();
     await expect(page.locator('#userinfo')).toHaveText(username);
 
     // Use signed-in page in the test.

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type * as channels from '../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { Frame } from './frame';
 import type { Locator } from './locator';
 import { JSHandle, serializeArgument, parseResult } from './jsHandle';
@@ -140,6 +140,10 @@ export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements
 
   async fill(value: string, options: channels.ElementHandleFillOptions = {}): Promise<void> {
     return await this._elementChannel.fill({ value, ...options });
+  }
+
+  async clear(options: channels.ElementHandleFillOptions = {}): Promise<void> {
+    return this.fill('', options);
   }
 
   async selectText(options: channels.ElementHandleSelectTextOptions = {}): Promise<void> {

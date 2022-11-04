@@ -91,7 +91,6 @@ it.describe('page screenshot', () => {
 
   it('should capture blinking caret in shadow dom', async ({ page, browserName }) => {
     it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16732' });
-    it.fixme(browserName !== 'firefox');
     await page.addScriptTag({
       content: `
       class CustomElementContainer extends HTMLElement {
@@ -227,8 +226,9 @@ it.describe('page screenshot', () => {
     await verifyViewport(page, 500, 500);
   });
 
-  it('should allow transparency', async ({ page, browserName }) => {
+  it('should allow transparency', async ({ page, browserName, platform }) => {
     it.fail(browserName === 'firefox');
+    it.fixme(browserName === 'webkit' && platform === 'win32', 'https://github.com/microsoft/playwright/issues/18452');
 
     await page.setViewportSize({ width: 50, height: 150 });
     await page.setContent(`
@@ -274,9 +274,10 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-canvas.png', { threshold: 0.4 });
   });
 
-  it('should capture canvas changes', async ({ page, isElectron, browserName, isMac }) => {
+  it('should capture canvas changes', async ({ page, isElectron, browserName, isMac, isWebView2 }) => {
     it.fixme(browserName === 'webkit' && isMac, 'https://github.com/microsoft/playwright/issues/8796,https://github.com/microsoft/playwright/issues/16180');
     it.skip(isElectron);
+    it.skip(isWebView2);
     await page.goto('data:text/html,<canvas></canvas>');
     await page.evaluate(() => {
       const canvas = document.querySelector('canvas');
@@ -814,3 +815,17 @@ it.describe('page screenshot animations', () => {
   });
 });
 
+it('should throw if screenshot size is too large', async ({ page, browserName, isMac }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16727' });
+  {
+    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: 32767px; background: red;'></div>`);
+    const result = await page.screenshot({ fullPage: true });
+    expect(result).toBeTruthy();
+  }
+  {
+    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: 32768px; background: red;'></div>`);
+    const exception = await page.screenshot({ fullPage: true }).catch(e => e);
+    if (browserName === 'firefox' || (browserName === 'webkit' && !isMac))
+      expect(exception.message).toContain('Cannot take screenshot larger than 32767');
+  }
+});

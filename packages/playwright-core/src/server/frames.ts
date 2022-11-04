@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import type * as channels from '../protocol/channels';
+import type * as channels from '@protocol/channels';
 import type { ConsoleMessage } from './console';
 import * as dom from './dom';
 import { helper } from './helper';
@@ -42,6 +42,7 @@ import { isInvalidSelectorError, splitSelectorByFrame, stringifySelector } from 
 import type { SelectorInfo } from './selectors';
 import type { ScreenshotOptions } from './screenshotter';
 import type { InputFilesItems } from './dom';
+import { asLocator } from './isomorphic/locatorGenerators';
 
 type ContextData = {
   contextPromise: ManualPromise<dom.FrameExecutionContext | Error>;
@@ -107,6 +108,7 @@ export class FrameManager {
   readonly _signalBarriers = new Set<SignalBarrier>();
   private _webSockets = new Map<string, network.WebSocket>();
   _openedDialogs: Set<Dialog> = new Set();
+  private _closeAllOpeningDialogs = false;
 
   constructor(page: Page) {
     this._page = page;
@@ -351,7 +353,10 @@ export class FrameManager {
     // Any ongoing evaluations will be stalled until the dialog is closed.
     for (const frame of this._frames.values())
       frame._invalidateNonStallingEvaluations('JavaScript dialog interrupted evaluation');
-    this._openedDialogs.add(dialog);
+    if (this._closeAllOpeningDialogs)
+      dialog.close().then(() => {});
+    else
+      this._openedDialogs.add(dialog);
   }
 
   dialogWillClose(dialog: Dialog) {
@@ -359,8 +364,12 @@ export class FrameManager {
   }
 
   async closeOpenDialogs() {
-    await Promise.all([...this._openedDialogs].map(dialog => dialog.dismiss())).catch(() => {});
+    await Promise.all([...this._openedDialogs].map(dialog => dialog.close())).catch(() => {});
     this._openedDialogs.clear();
+  }
+
+  setCloseAllOpeningDialogs(closeDialogs: boolean) {
+    this._closeAllOpeningDialogs = closeDialogs;
   }
 
   removeChildFramesRecursively(frame: Frame) {
@@ -461,8 +470,6 @@ export class FrameManager {
 
   private _fireInternalFrameNavigation(frame: Frame, event: NavigationEvent) {
     frame.emit(Frame.Events.InternalNavigation, event);
-    if (event.isPublic && !frame.parentFrame())
-      frame.instrumentation.onPageNavigated(frame._page, event.url);
   }
 }
 
@@ -797,7 +804,7 @@ export class Frame extends SdkObject {
     if (!['attached', 'detached', 'visible', 'hidden'].includes(state))
       throw new Error(`state: expected one of (attached|detached|visible|hidden)`);
     return controller.run(async progress => {
-      progress.log(`waiting for selector "${selector}"${state === 'attached' ? '' : ' to be ' + state}`);
+      progress.log(`waiting for "${this._asLocator(selector)}"${state === 'attached' ? '' : ' to be ' + state}`);
       return this.retryWithProgress(progress, selector, options, async (selectorInFrame, continuePolling) => {
         // Be careful, |this| can be different from |frame|.
         // We did not pass omitAttached, so it is non-null.
@@ -1107,7 +1114,7 @@ export class Frame extends SdkObject {
       const { frame, info } = selectorInFrame!;
       // Be careful, |this| can be different from |frame|.
       const task = dom.waitForSelectorTask(info, 'attached');
-      progress.log(`waiting for selector "${selector}"`);
+      progress.log(`waiting for "${this._asLocator(selector)}"`);
       const handle = await frame._scheduleRerunnableHandleTask(progress, info.world, task);
       const element = handle.asElement() as dom.ElementHandle<Element>;
       try {
@@ -1188,6 +1195,14 @@ export class Frame extends SdkObject {
     const controller = new ProgressController(metadata, this);
     await controller.run(async progress => {
       dom.assertDone(await this._retryWithProgressIfNotConnected(progress, selector, options.strict, handle => handle._focus(progress)));
+      await this._page._doSlowMo();
+    }, this._page._timeoutSettings.timeout(options));
+  }
+
+  async blur(metadata: CallMetadata, selector: string, options: types.TimeoutOptions & types.StrictOptions = {}) {
+    const controller = new ProgressController(metadata, this);
+    await controller.run(async progress => {
+      dom.assertDone(await this._retryWithProgressIfNotConnected(progress, selector, options.strict, handle => handle._blur(progress)));
       await this._page._doSlowMo();
     }, this._page._timeoutSettings.timeout(options));
   }
@@ -1287,7 +1302,7 @@ export class Frame extends SdkObject {
     return this._elementState(metadata, selector, 'checked', options);
   }
 
-  async hover(metadata: CallMetadata, selector: string, options: types.PointerActionOptions & types.PointerActionWaitOptions = {}) {
+  async hover(metadata: CallMetadata, selector: string, options: types.PointerActionOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions = {}) {
     const controller = new ProgressController(metadata, this);
     return controller.run(async progress => {
       return dom.assertDone(await this._retryWithProgressIfNotConnected(progress, selector, options.strict, handle => handle._hover(progress, options)));
@@ -1500,8 +1515,8 @@ export class Frame extends SdkObject {
     const callbackText = body.toString();
     return this.retryWithProgress(progress, selector, options, async selectorInFrame => {
       // Be careful, |this| can be different from |frame|.
-      progress.log(`waiting for selector "${selector}"`);
-      const { frame, info } = selectorInFrame || { frame: this, info: { parsed: { parts: [{ name: 'control', body: 'return-empty', source: 'control=return-empty' }] }, world: 'utility', strict: !!options.strict } };
+      progress.log(`waiting for "${this._asLocator(selector)}"`);
+      const { frame, info } = selectorInFrame || { frame: this, info: { parsed: { parts: [{ name: 'internal:control', body: 'return-empty', source: 'internal:control=return-empty' }] }, world: 'utility', strict: !!options.strict } };
       return await frame._scheduleRerunnableTaskInFrame(progress, info, callbackText, taskData, options);
     });
   }
@@ -1626,6 +1641,7 @@ export class Frame extends SdkObject {
     if (this._networkIdleTimer)
       clearTimeout(this._networkIdleTimer);
     this._networkIdleTimer = undefined;
+    this._firedNetworkIdleSelf = false;
   }
 
   async extendInjectedScript(source: string, arg?: any): Promise<js.JSHandle> {
@@ -1694,20 +1710,24 @@ export class Frame extends SdkObject {
       progress.cleanupWhenAborted(() => result.dispose());
       return result;
     } catch (e) {
-      throw new Error(`Error: frame navigated while waiting for selector "${selector}"`);
+      throw new Error(`Error: frame navigated while waiting for "${this._asLocator(selector)}"`);
     }
   }
 
-  async clearStorageForCurrentOriginBestEffort() {
+  async resetStorageForCurrentOriginBestEffort(newStorage: channels.OriginStorage | undefined) {
     const context = await this._utilityContext();
-    await context.evaluate(async () => {
-      // Clean DOMStorage
+    await context.evaluate(async ({ ls }) => {
+      // Clean DOMStorage.
       sessionStorage.clear();
       localStorage.clear();
 
+      // Add new DOM Storage values.
+      for (const entry of ls || [])
+        localStorage[entry.name] = entry.value;
+
       // Clean Service Workers
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(r => r.unregister()));
+      const registrations = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : [];
+      await Promise.all(registrations.map(r => r.unregister())).catch(() => {});
 
       // Clean IndexedDB
       for (const db of await indexedDB.databases?.() || []) {
@@ -1715,7 +1735,11 @@ export class Frame extends SdkObject {
         if (db.name)
           indexedDB.deleteDatabase(db.name!);
       }
-    });
+    }, { ls: newStorage?.localStorage }).catch(() => {});
+  }
+
+  private _asLocator(selector: string) {
+    return asLocator(this._page.context()._browser.options.sdkLanguage, selector);
   }
 }
 

@@ -17,26 +17,39 @@
 import type EventEmitter from 'events';
 import fs from 'fs';
 import path from 'path';
-import type * as channels from '../../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { ManualPromise } from '../../utils/manualPromise';
 import { assert, createGuid } from '../../utils';
 import type { RootDispatcher } from './dispatcher';
 import { Dispatcher } from './dispatcher';
 import { yazl, yauzl } from '../../zipBundle';
 import { ZipFile } from '../../utils/zipFile';
-import type * as har from '../har/har';
+import type * as har from '@trace/har';
 import type { HeadersArray } from '../types';
+import { JsonPipeDispatcher } from '../dispatchers/jsonPipeDispatcher';
+import { WebSocketTransport } from '../transport';
+import { SocksInterceptor } from '../socksInterceptor';
+import type { CallMetadata } from '../instrumentation';
+import { getUserAgent } from '../../common/userAgent';
+import type { Progress } from '../progress';
+import { ProgressController } from '../progress';
+import { fetchData } from '../../common/netUtils';
+import type { HTTPRequestParams } from '../../common/netUtils';
+import type http from 'http';
+import type { Playwright } from '../playwright';
+import { SdkObject } from '../../server/instrumentation';
 
 export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.LocalUtilsChannel, RootDispatcher> implements channels.LocalUtilsChannel {
   _type_LocalUtils: boolean;
   private _harBakends = new Map<string, HarBackend>();
 
-  constructor(scope: RootDispatcher) {
-    super(scope, { guid: 'localUtils@' + createGuid() }, 'LocalUtils', {});
+  constructor(scope: RootDispatcher, playwright: Playwright) {
+    const localUtils = new SdkObject(playwright, 'localUtils', 'localUtils');
+    super(scope, localUtils, 'LocalUtils', {});
     this._type_LocalUtils = true;
   }
 
-  async zip(params: channels.LocalUtilsZipParams, metadata?: channels.Metadata): Promise<void> {
+  async zip(params: channels.LocalUtilsZipParams, metadata: CallMetadata): Promise<void> {
     const promise = new ManualPromise<void>();
     const zipFile = new yazl.ZipFile();
     (zipFile as any as EventEmitter).on('error', error => promise.reject(error));
@@ -91,7 +104,7 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
     return promise;
   }
 
-  async harOpen(params: channels.LocalUtilsHarOpenParams, metadata?: channels.Metadata): Promise<channels.LocalUtilsHarOpenResult> {
+  async harOpen(params: channels.LocalUtilsHarOpenParams, metadata: CallMetadata): Promise<channels.LocalUtilsHarOpenResult> {
     let harBackend: HarBackend;
     if (params.file.endsWith('.zip')) {
       const zipFile = new ZipFile(params.file);
@@ -110,14 +123,14 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
     return { harId: harBackend.id };
   }
 
-  async harLookup(params: channels.LocalUtilsHarLookupParams, metadata?: channels.Metadata): Promise<channels.LocalUtilsHarLookupResult> {
+  async harLookup(params: channels.LocalUtilsHarLookupParams, metadata: CallMetadata): Promise<channels.LocalUtilsHarLookupResult> {
     const harBackend = this._harBakends.get(params.harId);
     if (!harBackend)
       return { action: 'error', message: `Internal error: har was not opened` };
     return await harBackend.lookup(params.url, params.method, params.headers, params.postData, params.isNavigationRequest);
   }
 
-  async harClose(params: channels.LocalUtilsHarCloseParams, metadata?: channels.Metadata): Promise<void> {
+  async harClose(params: channels.LocalUtilsHarCloseParams, metadata: CallMetadata): Promise<void> {
     const harBackend = this._harBakends.get(params.harId);
     if (harBackend) {
       this._harBakends.delete(harBackend.id);
@@ -125,7 +138,7 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
     }
   }
 
-  async harUnzip(params: channels.LocalUtilsHarUnzipParams, metadata?: channels.Metadata): Promise<void> {
+  async harUnzip(params: channels.LocalUtilsHarUnzipParams, metadata: CallMetadata): Promise<void> {
     const dir = path.dirname(params.zipFile);
     const zipFile = new ZipFile(params.zipFile);
     for (const entry of await zipFile.entries()) {
@@ -138,6 +151,44 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
     zipFile.close();
     await fs.promises.unlink(params.zipFile);
   }
+
+  async connect(params: channels.LocalUtilsConnectParams, metadata: CallMetadata): Promise<channels.LocalUtilsConnectResult> {
+    const controller = new ProgressController(metadata, this._object as SdkObject);
+    controller.setLogName('browser');
+    return await controller.run(async progress => {
+      const paramsHeaders = Object.assign({ 'User-Agent': getUserAgent() }, params.headers || {});
+      const wsEndpoint = await urlToWSEndpoint(progress, params.wsEndpoint);
+
+      const transport = await WebSocketTransport.connect(progress, wsEndpoint, paramsHeaders, true);
+      const socksInterceptor = new SocksInterceptor(transport, params.socksProxyRedirectPortForTest);
+      const pipe = new JsonPipeDispatcher(this);
+      transport.onmessage = json => {
+        if (socksInterceptor.interceptMessage(json))
+          return;
+        const cb = () => {
+          try {
+            pipe.dispatch(json);
+          } catch (e) {
+            transport.close();
+          }
+        };
+        if (params.slowMo)
+          setTimeout(cb, params.slowMo);
+        else
+          cb();
+      };
+      pipe.on('message', message => {
+        transport.send(message);
+      });
+      transport.onclose = () => {
+        socksInterceptor?.cleanup();
+        pipe.wasClosed();
+      };
+      pipe.on('close', () => transport.close());
+      return { pipe };
+    }, params.timeout || 0);
+  }
+
 }
 
 const redirectStatus = [301, 302, 303, 307, 308];
@@ -272,3 +323,33 @@ function countMatchingHeaders(harHeaders: har.Header[], headers: HeadersArray): 
   return matches;
 }
 
+export async function urlToWSEndpoint(progress: Progress|undefined, endpointURL: string): Promise<string> {
+  if (endpointURL.startsWith('ws'))
+    return endpointURL;
+
+  progress?.log(`<ws preparing> retrieving websocket url from ${endpointURL}`);
+  const fetchUrl = new URL(endpointURL);
+  if (!fetchUrl.pathname.endsWith('/'))
+    fetchUrl.pathname += '/';
+  fetchUrl.pathname += 'json';
+  const json = await fetchData({
+    url: fetchUrl.toString(),
+    method: 'GET',
+    timeout: progress?.timeUntilDeadline() ?? 30_000,
+    headers: { 'User-Agent': getUserAgent() },
+  }, async (params: HTTPRequestParams, response: http.IncomingMessage) => {
+    return new Error(`Unexpected status ${response.statusCode} when connecting to ${fetchUrl.toString()}.\n` +
+        `This does not look like a Playwright server, try connecting via ws://.`);
+  });
+  progress?.throwIfAborted();
+
+  const wsUrl = new URL(endpointURL);
+  let wsEndpointPath = JSON.parse(json).wsEndpointPath;
+  if (wsEndpointPath.startsWith('/'))
+    wsEndpointPath = wsEndpointPath.substring(1);
+  if (!wsUrl.pathname.endsWith('/'))
+    wsUrl.pathname += '/';
+  wsUrl.pathname += wsEndpointPath;
+  wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  return wsUrl.toString();
+}

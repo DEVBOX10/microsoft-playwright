@@ -33,6 +33,7 @@ const sourceMaps: Map<string, string> = new Map();
 type ParsedTsConfigData = {
   absoluteBaseUrl: string;
   paths: { key: string, values: string[] }[];
+  allowJs: boolean;
 };
 const cachedTSConfigs = new Map<string, ParsedTsConfigData | undefined>();
 
@@ -73,14 +74,17 @@ function validateTsConfig(tsconfig: TsConfigLoaderResult): ParsedTsConfigData | 
   // Make 'baseUrl' absolute, because it is relative to the tsconfig.json, not to cwd.
   const absoluteBaseUrl = path.resolve(path.dirname(tsconfig.tsConfigPath), tsconfig.baseUrl);
   const paths = tsconfig.paths || { '*': ['*'] };
-  return { absoluteBaseUrl, paths: Object.entries(paths).map(([key, values]) => ({ key, values })) };
+  return {
+    allowJs: tsconfig.allowJs,
+    absoluteBaseUrl,
+    paths: Object.entries(paths).map(([key, values]) => ({ key, values }))
+  };
 }
 
 function loadAndValidateTsconfigForFile(file: string): ParsedTsConfigData | undefined {
   const cwd = path.dirname(file);
   if (!cachedTSConfigs.has(cwd)) {
     const loaded = tsConfigLoader({
-      getEnv: (name: string) => process.env[name],
       cwd
     });
     cachedTSConfigs.set(cwd, validateTsConfig(loaded));
@@ -94,11 +98,17 @@ const scriptPreprocessor = process.env.PW_TEST_SOURCE_TRANSFORM ?
 const builtins = new Set(Module.builtinModules);
 
 export function resolveHook(filename: string, specifier: string): string | undefined {
-  if (builtins.has(specifier))
+  if (specifier.startsWith('node:') || builtins.has(specifier))
     return;
+  if (belongsToNodeModules(filename))
+    return;
+
+  if (isRelativeSpecifier(specifier))
+    return js2ts(path.resolve(path.dirname(filename), specifier));
+
   const isTypeScript = filename.endsWith('.ts') || filename.endsWith('.tsx');
-  const tsconfig = isTypeScript ? loadAndValidateTsconfigForFile(filename) : undefined;
-  if (tsconfig && !isRelativeSpecifier(specifier)) {
+  const tsconfig = loadAndValidateTsconfigForFile(filename);
+  if (tsconfig && (isTypeScript || tsconfig.allowJs)) {
     let longestPrefixLength = -1;
     let pathMatchedByLongestPrefix: string | undefined;
 
@@ -127,17 +137,24 @@ export function resolveHook(filename: string, specifier: string): string | undef
         matchedPartOfSpecifier = specifier;
       }
 
+      if (keyPrefix.length <= longestPrefixLength)
+        continue;
+
       for (const value of values) {
         let candidate: string = value;
 
         if (value.includes('*'))
           candidate = candidate.replace('*', matchedPartOfSpecifier);
         candidate = path.resolve(tsconfig.absoluteBaseUrl, candidate.replace(/\//g, path.sep));
-        for (const ext of ['', '.js', '.ts', '.mjs', '.cjs', '.jsx', '.tsx', '.cjs', '.mts', '.cts']) {
-          if (fs.existsSync(candidate + ext)) {
-            if (keyPrefix.length > longestPrefixLength) {
+        const ts = js2ts(candidate);
+        if (ts) {
+          longestPrefixLength = keyPrefix.length;
+          pathMatchedByLongestPrefix = ts;
+        } else {
+          for (const ext of ['', '.js', '.ts', '.mjs', '.cjs', '.jsx', '.tsx', '.cjs', '.mts', '.cts']) {
+            if (fs.existsSync(candidate + ext)) {
               longestPrefixLength = keyPrefix.length;
-              pathMatchedByLongestPrefix = candidate;
+              pathMatchedByLongestPrefix = candidate + ext;
             }
           }
         }
@@ -146,13 +163,16 @@ export function resolveHook(filename: string, specifier: string): string | undef
     if (pathMatchedByLongestPrefix)
       return pathMatchedByLongestPrefix;
   }
-  if (specifier.endsWith('.js')) {
-    const resolved = path.resolve(path.dirname(filename), specifier);
-    if (resolved.endsWith('.js')) {
-      const tsResolved = resolved.substring(0, resolved.length - 3) + '.ts';
-      if (!fs.existsSync(resolved) && fs.existsSync(tsResolved))
-        return tsResolved;
-    }
+
+  return js2ts(path.resolve(path.dirname(filename), specifier));
+}
+
+export function js2ts(resolved: string): string | undefined {
+  const match = resolved.match(/(.*)(\.js|\.jsx|\.mjs)$/);
+  if (match) {
+    const tsResolved = match[1] + match[2].replace('j', 't');
+    if (!fs.existsSync(resolved) && fs.existsSync(tsResolved))
+      return tsResolved;
   }
 }
 

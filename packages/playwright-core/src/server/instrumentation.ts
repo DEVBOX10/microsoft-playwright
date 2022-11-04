@@ -33,8 +33,8 @@ export type Attribution = {
   frame?: Frame;
 };
 
-import type { CallMetadata } from '../protocol/callMetadata';
-export type { CallMetadata } from '../protocol/callMetadata';
+import type { CallMetadata } from '@protocol/callMetadata';
+export type { CallMetadata } from '@protocol/callMetadata';
 
 export const kTestSdkObjects = new WeakSet<SdkObject>();
 
@@ -43,7 +43,7 @@ export class SdkObject extends EventEmitter {
   attribution: Attribution;
   instrumentation: Instrumentation;
 
-  protected constructor(parent: SdkObject, guidPrefix?: string, guid?: string) {
+  constructor(parent: SdkObject, guidPrefix?: string, guid?: string) {
     super();
     this.guid = guid || `${guidPrefix || ''}@${createGuid()}`;
     this.setMaxListeners(0);
@@ -63,7 +63,6 @@ export interface Instrumentation {
   onAfterCall(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onEvent(sdkObject: SdkObject, metadata: CallMetadata): void;
   onPageOpen(page: Page): void;
-  onPageNavigated(page: Page, url: string): void;
   onPageClose(page: Page): void;
   onBrowserOpen(browser: Browser): void;
   onBrowserClose(browser: Browser): void;
@@ -76,7 +75,6 @@ export interface InstrumentationListener {
   onAfterCall?(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onEvent?(sdkObject: SdkObject, metadata: CallMetadata): void;
   onPageOpen?(page: Page): void;
-  onPageNavigated?(page: Page, url: string): void;
   onPageClose?(page: Page): void;
   onBrowserOpen?(browser: Browser): void;
   onBrowserClose?(browser: Browser): void;

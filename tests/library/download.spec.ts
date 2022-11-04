@@ -50,7 +50,8 @@ it.describe('download event', () => {
     });
   });
 
-  it('should report download when navigation turns into download @smoke', async ({ browser, server, browserName }) => {
+  it('should report download when navigation turns into download @smoke', async ({ browser, server, browserName, mode }) => {
+    it.skip(mode === 'docker', 'local paths do not work remote connection');
     const page = await browser.newPage();
     const [download, responseOrError] = await Promise.all([
       page.waitForEvent('download'),
@@ -70,8 +71,8 @@ it.describe('download event', () => {
       expect(responseOrError.message).toContain('Download is starting');
       expect(page.url()).toBe('about:blank');
     } else {
-      expect(responseOrError.status()).toBe(200);
-      expect(page.url()).toBe(server.PREFIX + '/download');
+      expect(responseOrError instanceof Error).toBeTruthy();
+      expect(responseOrError.message).toContain('Download is starting');
     }
     await page.close();
   });
@@ -96,8 +97,8 @@ it.describe('download event', () => {
       expect(responseOrError.message).toContain('Download is starting');
       expect(page.url()).toBe('about:blank');
     } else {
-      expect(responseOrError.status()).toBe(200);
-      expect(page.url()).toBe(server.PREFIX + '/downloadWithCOOP');
+      expect(responseOrError instanceof Error).toBeTruthy();
+      expect(responseOrError.message).toContain('Download is starting');
     }
     await page.close();
   });

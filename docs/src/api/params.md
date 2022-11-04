@@ -324,19 +324,19 @@ Query parameters to be sent with the URL.
 
 Optional request parameters.
 
-## js-python-fetch-option-headers
+## js-python-csharp-fetch-option-headers
 * langs: js, python, csharp
 - `headers` <[Object]<[string], [string]>>
 
 Allows to set HTTP headers.
 
-## js-python-fetch-option-timeout
+## js-python-csharp-fetch-option-timeout
 * langs: js, python, csharp
 - `timeout` <[float]>
 
 Request timeout in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout.
 
-## js-python-fetch-option-failonstatuscode
+## js-python-csharp-fetch-option-failonstatuscode
 * langs: js, python, csharp
 - `failOnStatusCode` <[boolean]>
 
@@ -384,7 +384,7 @@ or as file-like object containing file name, mime-type and its content.
 
 An instance of [FormData] can be created via [`method: APIRequestContext.createFormData`].
 
-## js-python-fetch-option-data
+## js-python-csharp-fetch-option-data
 * langs: js, python, csharp
 - `data` <[string]|[Buffer]|[Serializable]>
 
@@ -392,18 +392,24 @@ Allows to set post data of the request. If the data parameter is an object, it w
 and `content-type` header will be set to `application/json` if not explicitly set. Otherwise the `content-type` header will be
 set to `application/octet-stream` if not explicitly set.
 
-## js-python-fetch-option-ignorehttpserrors
+## js-python-csharp-fetch-option-ignorehttpserrors
 * langs: js, python, csharp
 - `ignoreHTTPSErrors` <[boolean]>
 
 Whether to ignore HTTPS errors when sending network requests. Defaults to `false`.
 
+## js-python-csharp-fetch-option-maxredirects
+* langs: js, python, csharp
+- `maxRedirects` <[int]>
+
+Maximum number of request redirects that will be followed automatically. An error will be thrown if the number is exceeded.
+Defaults to `20`. Pass `0` to not follow redirects.
+
 ## evaluate-expression
 - `expression` <[string]>
 
-JavaScript expression to be evaluated in the browser context. If it looks like
-a function declaration, it is interpreted as a function. Otherwise, evaluated
-as an expression.
+JavaScript expression to be evaluated in the browser context. If the expression evaluates
+to a function, the function is automatically invoked.
 
 ## js-evaluate-pagefunction
 * langs: js
@@ -517,22 +523,42 @@ Whether to emulate network being offline. Defaults to `false`.
 Credentials for [HTTP authentication](https://developer.mozilla.org/en-US/docs/Web/HTTP/Authentication).
 
 ## context-option-colorscheme
-- `colorScheme` <[ColorScheme]<"light"|"dark"|"no-preference">>
+* langs: js, java
+- `colorScheme` <null|[ColorScheme]<"light"|"dark"|"no-preference">>
 
 Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. See
-[`method: Page.emulateMedia`] for more details. Defaults to `'light'`.
+[`method: Page.emulateMedia`] for more details. Passing `null` resets emulation to system defaults. Defaults to `'light'`.
+
+## context-option-colorscheme-csharp-python
+* langs: csharp, python
+- `colorScheme` <[ColorScheme]<"light"|"dark"|"no-preference"|"null">>
+
+Emulates `'prefers-colors-scheme'` media feature, supported values are `'light'`, `'dark'`, `'no-preference'`. See
+[`method: Page.emulateMedia`] for more details. Passing `'null'` resets emulation to system defaults. Defaults to `'light'`.
 
 ## context-option-reducedMotion
-- `reducedMotion` <[ReducedMotion]<"reduce"|"no-preference">>
+* langs: js, java
+- `reducedMotion` <null|[ReducedMotion]<"reduce"|"no-preference">>
 
-Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Defaults
-to `'no-preference'`.
+Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Passing `null` resets emulation to system defaults. Defaults to `'no-preference'`.
+
+## context-option-reducedMotion-csharp-python
+* langs: csharp, python
+- `reducedMotion` <[ReducedMotion]<"reduce"|"no-preference"|"null">>
+
+Emulates `'prefers-reduced-motion'` media feature, supported values are `'reduce'`, `'no-preference'`. See [`method: Page.emulateMedia`] for more details. Passing `'null'` resets emulation to system defaults. Defaults to `'no-preference'`.
 
 ## context-option-forcedColors
-- `forcedColors` <[ForcedColors]<"active"|"none">>
+* langs: js, java
+- `forcedColors` <null|[ForcedColors]<"active"|"none">>
 
-Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See [`method: Page.emulateMedia`] for more details. Defaults
-to `'none'`.
+Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See [`method: Page.emulateMedia`] for more details. Passing `null` resets emulation to system defaults. Defaults to `'none'`.
+
+## context-option-forcedColors-csharp-python
+* langs: csharp, python
+- `forcedColors` <[ForcedColors]<"active"|"none"|"null">>
+
+Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See [`method: Page.emulateMedia`] for more details. Passing `'null'` resets emulation to system defaults. Defaults to `'none'`.
 
 ## context-option-logger
 * langs: js
@@ -559,7 +585,7 @@ Logger sink for Playwright logging.
 - `recordHar` <[Object]>
   - `omitContent` ?<[boolean]> Optional setting to control whether to omit request content from the HAR. Defaults to
     `false`. Deprecated, use `content` policy instead.
-  - `content` ?<[HarContentPolicy]<"omit"|"embed"|"attach">> Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persistet as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for all other file extensions.
+  - `content` ?<[HarContentPolicy]<"omit"|"embed"|"attach">> Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persisted as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for all other file extensions.
   - `path` <[path]> Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by default.
   - `mode` ?<[HarMode]<"full"|"minimal">> When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies, security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
   - `urlFilter` ?<[string]|[RegExp]> A glob or regex pattern to filter requests that are stored in the HAR. When a [`option: baseURL`] via the context options was provided and the passed URL is a path, it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
@@ -589,7 +615,7 @@ Optional setting to control whether to omit request content from the HAR. Defaul
   - alias-python: record_har_content
 - `recordHarContent` ?<[HarContentPolicy]<"omit"|"embed"|"attach">>
 
-Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persistet as separate files and all of these files are archived along with the HAR file. Defaults to `embed`, which stores content inline the HAR file as per HAR specification.
+Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persisted as separate files and all of these files are archived along with the HAR file. Defaults to `embed`, which stores content inline the HAR file as per HAR specification.
 
 ## context-option-recordhar-mode
 * langs: csharp, java, python
@@ -811,8 +837,11 @@ An acceptable perceived color difference in the [YIQ color space](https://en.wik
 - %%-context-option-offline-%%
 - %%-context-option-httpcredentials-%%
 - %%-context-option-colorscheme-%%
+- %%-context-option-colorscheme-csharp-python-%%
 - %%-context-option-reducedMotion-%%
+- %%-context-option-reducedMotion-csharp-python-%%
 - %%-context-option-forcedColors-%%
+- %%-context-option-forcedColors-csharp-python-%%
 - %%-context-option-logger-%%
 - %%-context-option-videospath-%%
 - %%-context-option-videosize-%%
@@ -1025,14 +1054,14 @@ An object which specifies clipping of the resulting image. Should have the follo
 ## screenshot-option-scale
 - `scale` <[ScreenshotScale]<"css"|"device">>
 
-When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of high-dpi devices will be twice as large or even larger.
+When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of high-dpi devices will be twice as large or even larger.
 
 Defaults to `"device"`.
 
 ## screenshot-option-scale-default-css
 - `scale` <[ScreenshotScale]<"css"|"device">>
 
-When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenhots of high-dpi devices will be twice as large or even larger.
+When set to `"css"`, screenshot will have a single pixel per each css pixel on the page. For high-dpi devices, this will keep screenshots small. Using `"device"` option will produce a single pixel per each device pixel, so screenshots of high-dpi devices will be twice as large or even larger.
 
 Defaults to `"css"`.
 
@@ -1051,3 +1080,273 @@ When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, 
 - %%-screenshot-option-type-%%
 - %%-screenshot-option-mask-%%
 - %%-input-timeout-%%
+
+## locator-get-by-test-id-test-id
+* since: v1.27
+- `testId` <[string]>
+
+Id to locate the element by.
+
+## locator-get-by-text-text
+* since: v1.27
+- `text` <[string]|[RegExp]>
+
+Text to locate the element for.
+
+## locator-get-by-text-exact
+* since: v1.27
+- `exact` <[boolean]>
+
+Whether to find an exact match: case-sensitive and whole-string. Default to false. Ignored when locating by a regular expression. Note that exact match still trims whitespace.
+
+## locator-get-by-role-role
+* since: v1.27
+- `role` <[AriaRole]<"alert"|"alertdialog"|"application"|"article"|"banner"|"blockquote"|"button"|"caption"|"cell"|"checkbox"|"code"|"columnheader"|"combobox"|"complementary"|"contentinfo"|"definition"|"deletion"|"dialog"|"directory"|"document"|"emphasis"|"feed"|"figure"|"form"|"generic"|"grid"|"gridcell"|"group"|"heading"|"img"|"insertion"|"link"|"list"|"listbox"|"listitem"|"log"|"main"|"marquee"|"math"|"meter"|"menu"|"menubar"|"menuitem"|"menuitemcheckbox"|"menuitemradio"|"navigation"|"none"|"note"|"option"|"paragraph"|"presentation"|"progressbar"|"radio"|"radiogroup"|"region"|"row"|"rowgroup"|"rowheader"|"scrollbar"|"search"|"searchbox"|"separator"|"slider"|"spinbutton"|"status"|"strong"|"subscript"|"superscript"|"switch"|"tab"|"table"|"tablist"|"tabpanel"|"term"|"textbox"|"time"|"timer"|"toolbar"|"tooltip"|"tree"|"treegrid"|"treeitem">>
+
+Required aria role.
+
+## locator-get-by-role-option-checked
+* since: v1.27
+- `checked` <[boolean]>
+
+An attribute that is usually set by `aria-checked` or native `<input type=checkbox>` controls. Available values for checked are `true`, `false` and `"mixed"`.
+
+Learn more about [`aria-checked`](https://www.w3.org/TR/wai-aria-1.2/#aria-checked).
+
+## locator-get-by-role-option-disabled
+* since: v1.27
+- `disabled` <[boolean]>
+
+A boolean attribute that is usually set by `aria-disabled` or `disabled`.
+
+:::note
+Unlike most other attributes, `disabled` is inherited through the DOM hierarchy.
+Learn more about [`aria-disabled`](https://www.w3.org/TR/wai-aria-1.2/#aria-disabled).
+:::
+
+## locator-get-by-role-option-expanded
+* since: v1.27
+- `expanded` <[boolean]>
+
+A boolean attribute that is usually set by `aria-expanded`.
+
+  Learn more about [`aria-expanded`](https://www.w3.org/TR/wai-aria-1.2/#aria-expanded).
+
+## locator-get-by-role-option-includeHidden
+* since: v1.27
+- `includeHidden` <[boolean]>
+
+A boolean attribute that controls whether hidden elements are matched. By default, only non-hidden elements, as [defined by ARIA](https://www.w3.org/TR/wai-aria-1.2/#tree_exclusion), are matched by role selector.
+
+Learn more about [`aria-hidden`](https://www.w3.org/TR/wai-aria-1.2/#aria-hidden).
+
+## locator-get-by-role-option-level
+* since: v1.27
+- `level` <[int]>
+
+A number attribute that is usually present for roles `heading`, `listitem`, `row`, `treeitem`, with default values for `<h1>-<h6>` elements.
+
+Learn more about [`aria-level`](https://www.w3.org/TR/wai-aria-1.2/#aria-level).
+
+## locator-get-by-role-option-name
+* since: v1.27
+- `name` <[string]|[RegExp]>
+
+A string attribute that matches [accessible name](https://w3c.github.io/accname/#dfn-accessible-name).
+
+Learn more about [accessible name](https://w3c.github.io/accname/#dfn-accessible-name).
+
+## locator-get-by-role-option-pressed
+* since: v1.27
+- `pressed` <[boolean]>
+
+An attribute that is usually set by `aria-pressed`. Available values for pressed are `true`, `false` and `"mixed"`.
+
+Learn more about [`aria-pressed`](https://www.w3.org/TR/wai-aria-1.2/#aria-pressed).
+
+## locator-get-by-role-option-selected
+* since: v1.27
+- `selected` <boolean>
+
+A boolean attribute that is usually set by `aria-selected`.
+
+Learn more about [`aria-selected`](https://www.w3.org/TR/wai-aria-1.2/#aria-selected).
+
+## locator-get-by-role-option-list-v1.27
+- %%-locator-get-by-role-option-checked-%%
+- %%-locator-get-by-role-option-disabled-%%
+- %%-locator-get-by-role-option-expanded-%%
+- %%-locator-get-by-role-option-includeHidden-%%
+- %%-locator-get-by-role-option-level-%%
+- %%-locator-get-by-role-option-name-%%
+- %%-locator-get-by-role-option-pressed-%%
+- %%-locator-get-by-role-option-selected-%%
+
+## template-locator-locator
+
+The method finds an element matching the specified selector in the locator's subtree. It also accepts filter options, similar to [`method: Locator.filter`] method.
+
+[Learn more about locators](../locators.md).
+
+## template-locator-root-locator
+
+The method returns an element locator that can be used to perform actions on this page / frame.
+Locator is resolved to the element immediately before performing an action, so a series of actions on the same locator can in fact be performed on different DOM elements. That would happen if the DOM structure between those actions has changed.
+
+[Learn more about locators](../locators.md).
+
+## template-locator-get-by-test-id
+
+Locate element by the test id. By default, the `data-testid` attribute is used as a test id. Use [`method: Selectors.setTestIdAttribute`] to configure a different test id attribute if necessary.
+
+```js
+// Set custom test id attribute from @playwright/test config:
+use: {
+  testIdAttribute: 'data-pw'
+}
+```
+
+## template-locator-get-by-text
+
+Allows locating elements that contain given text. Consider the following DOM structure:
+
+```html
+<div>Hello <span>world</span></div>
+<div>Hello</div>
+```
+
+You can locate by text substring, exact string, or a regular expression:
+
+```js
+// Matches <span>
+page.getByText('world')
+
+// Matches first <div>
+page.getByText('Hello world')
+
+// Matches second <div>
+page.getByText('Hello', { exact: true })
+
+// Matches both <div>s
+page.getByText(/Hello/)
+
+// Matches second <div>
+page.getByText(/^hello$/i)
+```
+
+```python async
+# Matches <span>
+page.get_by_text("world")
+
+# Matches first <div>
+page.get_by_text("Hello world")
+
+# Matches second <div>
+page.get_by_text("Hello", exact=True)
+
+# Matches both <div>s
+page.get_by_text(re.compile("Hello"))
+
+# Matches second <div>
+page.get_by_text(re.compile("^hello$", re.IGNORECASE))
+```
+
+```python sync
+# Matches <span>
+page.get_by_text("world")
+
+# Matches first <div>
+page.get_by_text("Hello world")
+
+# Matches second <div>
+page.get_by_text("Hello", exact=True)
+
+# Matches both <div>s
+page.get_by_text(re.compile("Hello"))
+
+# Matches second <div>
+page.get_by_text(re.compile("^hello$", re.IGNORECASE))
+```
+
+```java
+// Matches <span>
+page.getByText("world")
+
+// Matches first <div>
+page.getByText("Hello world")
+
+// Matches second <div>
+page.getByText("Hello", new Page.GetByTextOptions().setExact(true))
+
+// Matches both <div>s
+page.getByText(Pattern.compile("Hello"))
+
+// Matches second <div>
+page.getByText(Pattern.compile("^hello$", Pattern.CASE_INSENSITIVE))
+```
+
+```csharp
+// Matches <span>
+page.GetByText("world")
+
+// Matches first <div>
+page.GetByText("Hello world")
+
+// Matches second <div>
+page.GetByText("Hello", new() { Exact: true })
+
+// Matches both <div>s
+page.GetByText(new Regex("Hello"))
+
+// Matches second <div>
+page.GetByText(new Regex("^hello$", RegexOptions.IgnoreCase))
+```
+
+See also [`method: Locator.filter`] that allows to match by another criteria, like an accessible role, and then filter by the text content.
+
+:::note
+Matching by text always normalizes whitespace, even with exact match. For example, it turns multiple spaces into one, turns line breaks into spaces and ignores leading and trailing whitespace.
+:::
+
+:::note
+Input elements of the type `button` and `submit` are matched by their `value` instead of the text content. For example, locating by text `"Log in"` matches `<input type=button value="Log in">`.
+:::
+
+## template-locator-get-by-alt-text
+
+Allows locating elements by their alt text. For example, this method will find the image by alt text "Castle":
+
+```html
+<img alt='Castle'>
+```
+
+## template-locator-get-by-label-text
+
+Allows locating input elements by the text of the associated label. For example, this method will find the input by label text "Password" in the following DOM:
+
+```html
+<label for="password-input">Password:</label>
+<input id="password-input">
+```
+
+## template-locator-get-by-placeholder-text
+
+Allows locating input elements by the placeholder text. For example, this method will find the input by placeholder "Country":
+
+```html
+<input placeholder="Country">
+```
+
+## template-locator-get-by-role
+
+Allows locating elements by their [ARIA role](https://www.w3.org/TR/wai-aria-1.2/#roles), [ARIA attributes](https://www.w3.org/TR/wai-aria-1.2/#aria-attributes) and [accessible name](https://w3c.github.io/accname/#dfn-accessible-name). Note that role selector **does not replace** accessibility audits and conformance tests, but rather gives early feedback about the ARIA guidelines.
+
+Note that many html elements have an implicitly [defined role](https://w3c.github.io/html-aam/#html-element-role-mappings) that is recognized by the role selector. You can find all the [supported roles here](https://www.w3.org/TR/wai-aria-1.2/#role_definitions). ARIA guidelines **do not recommend** duplicating implicit roles and attributes by setting `role` and/or `aria-*` attributes to default values.
+
+## template-locator-get-by-title
+
+Allows locating elements by their title. For example, this method will find the button by its title "Place the order":
+
+```html
+<button title='Place the order'>Order Now</button>
+```

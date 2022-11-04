@@ -76,32 +76,32 @@ await handle.ClickAsync();
 With the locator, every time the `element` is used, up-to-date DOM element is located in the page using the selector. So in the snippet below, underlying DOM element is going to be located twice.
 
 ```js
-const locator = page.locator('text=Submit');
+const locator = page.getByText('Submit');
 // ...
 await locator.hover();
 await locator.click();
 ```
 
 ```java
-Locator locator = page.locator("text=Submit");
+Locator locator = page.getByText("Submit");
 locator.hover();
 locator.click();
 ```
 
 ```python async
-locator = page.locator("text=Submit")
+locator = page.get_by_text("Submit")
 await locator.hover()
 await locator.click()
 ```
 
 ```python sync
-locator = page.locator("text=Submit")
+locator = page.get_by_text("Submit")
 locator.hover()
 locator.click()
 ```
 
 ```csharp
-var locator = page.Locator("text=Submit");
+var locator = page.GetByText("Submit");
 await locator.HoverAsync();
 await locator.ClickAsync();
 ```
@@ -183,6 +183,20 @@ When all steps combined have not finished during the specified [`option: timeout
 
 ### option: ElementHandle.check.trial = %%-input-trial-%%
 * since: v1.11
+
+## async method: ElementHandle.clear
+* since: v1.28
+
+This method waits for [actionability](../actionability.md) checks, focuses the element, clears it and triggers an `input` event after clearing.
+
+If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be cleared instead.
+
+### option: ElementHandle.clear.force = %%-input-force-%%
+* since: v1.28
+### option: ElementHandle.clear.noWaitAfter = %%-input-no-wait-after-%%
+* since: v1.28
+### option: ElementHandle.clear.timeout = %%-input-timeout-%%
+* since: v1.28
 
 ## async method: ElementHandle.click
 * since: v1.8
@@ -554,6 +568,9 @@ When all steps combined have not finished during the specified [`option: timeout
 
 ### option: ElementHandle.hover.trial = %%-input-trial-%%
 * since: v1.11
+
+### option: ElementHandle.hover.noWaitAfter = %%-input-no-wait-after-%%
+* since: v1.28
 
 ## async method: ElementHandle.innerHTML
 * since: v1.8

@@ -24,6 +24,7 @@ import { Runner, builtInReporters, kDefaultConfigFiles } from './runner';
 import type { ConfigCLIOverrides } from './runner';
 import { stopProfiling, startProfiling } from './profiler';
 import type { TestFileFilter } from './util';
+import { createTitleMatcher } from './util';
 import { showHTMLReport } from './reporters/html';
 import { baseFullConfig, defaultTimeout, fileIsModule } from './loader';
 import type { TraceMode } from './types';
@@ -36,17 +37,18 @@ export function addTestCommands(program: Command) {
 
 function addTestCommand(program: Command) {
   const command = program.command('test [test-filter...]');
-  command.description('Run tests with Playwright Test');
+  command.description('run tests with Playwright Test');
   command.option('--browser <browser>', `Browser to use for tests, one of "all", "chromium", "firefox" or "webkit" (default: "chromium")`);
   command.option('--headed', `Run tests in headed browsers (default: headless)`);
-  command.option('--debug', `Run tests with Playwright Inspector. Shortcut for "PWDEBUG=1" environment variable and "--timeout=0 --maxFailures=1 --headed --workers=1" options`);
+  command.option('--debug', `Run tests with Playwright Inspector. Shortcut for "PWDEBUG=1" environment variable and "--timeout=0 --max-failures=1 --headed --workers=1" options`);
   command.option('-c, --config <file>', `Configuration file, or a test directory with optional ${kDefaultConfigFiles.map(file => `"${file}"`).join('/')}`);
   command.option('--forbid-only', `Fail if test.only is called (default: false)`);
   command.option('--fully-parallel', `Run all tests in parallel (default: false)`);
   command.option('-g, --grep <grep>', `Only run tests matching this regular expression (default: ".*")`);
   command.option('-gv, --grep-invert <grep>', `Only run tests that do not match this regular expression`);
   command.option('--global-timeout <timeout>', `Maximum time this test suite can run in milliseconds (default: unlimited)`);
-  command.option('-j, --workers <workers>', `Number of concurrent workers, use 1 to run in a single worker (default: number of CPU cores / 2)`);
+  command.option('--ignore-snapshots', `Ignore screenshot and snapshot expectations`);
+  command.option('-j, --workers <workers>', `Number of concurrent workers or percentage of logical CPU cores, use 1 to run in a single worker (default: 50%)`);
   command.option('--list', `Collect all the tests and report them, but do not run`);
   command.option('--max-failures <N>', `Stop after the first N failures`);
   command.option('--output <dir>', `Folder for output artifacts (default: "test-results")`);
@@ -98,7 +100,9 @@ function addListFilesCommand(program: Command) {
 function addShowReportCommand(program: Command) {
   const command = program.command('show-report [report]');
   command.description('show HTML report');
-  command.action(report => showHTMLReport(report));
+  command.action((report, options) => showHTMLReport(report, options.host, +options.port));
+  command.option('--host <host>', 'Host to serve report on', 'localhost');
+  command.option('--port <port>', 'Port to serve report on', '9323');
   command.addHelpText('afterAll', `
 Arguments [report]:
   When specified, opens given report, otherwise opens last generated report.
@@ -161,11 +165,15 @@ async function runTests(args: string[], opts: { [key: string]: any }) {
     };
   });
 
+  const grepMatcher = opts.grep ? createTitleMatcher(forceRegExp(opts.grep)) : () => true;
+  const grepInvertMatcher = opts.grepInvert ? createTitleMatcher(forceRegExp(opts.grepInvert)) : () => false;
+  const testTitleMatcher = (title: string) => !grepInvertMatcher(title) && grepMatcher(title);
+
   const result = await runner.runAllTests({
     listOnly: !!opts.list,
     testFileFilters,
+    testTitleMatcher,
     projectFilter: opts.project || undefined,
-    watchMode: !!process.env.PW_TEST_WATCH,
     passWithNoTests: opts.passWithNoTests,
   });
   await stopProfiling(undefined);
@@ -206,8 +214,6 @@ function overridesFromOptions(options: { [key: string]: any }): ConfigCLIOverrid
     forbidOnly: options.forbidOnly ? true : undefined,
     fullyParallel: options.fullyParallel ? true : undefined,
     globalTimeout: options.globalTimeout ? parseInt(options.globalTimeout, 10) : undefined,
-    grep: options.grep ? forceRegExp(options.grep) : undefined,
-    grepInvert: options.grepInvert ? forceRegExp(options.grepInvert) : undefined,
     maxFailures: options.x ? 1 : (options.maxFailures ? parseInt(options.maxFailures, 10) : undefined),
     outputDir: options.output ? path.resolve(process.cwd(), options.output) : undefined,
     quiet: options.quiet ? options.quiet : undefined,
@@ -216,8 +222,9 @@ function overridesFromOptions(options: { [key: string]: any }): ConfigCLIOverrid
     reporter: (options.reporter && options.reporter.length) ? options.reporter.split(',').map((r: string) => [resolveReporter(r)]) : undefined,
     shard: shardPair ? { current: shardPair[0], total: shardPair[1] } : undefined,
     timeout: options.timeout ? parseInt(options.timeout, 10) : undefined,
+    ignoreSnapshots: options.ignoreSnapshots ? !!options.ignoreSnapshots : undefined,
     updateSnapshots: options.updateSnapshots ? 'all' as const : undefined,
-    workers: options.workers ? parseInt(options.workers, 10) : undefined,
+    workers: options.workers,
   };
 }
 
@@ -260,7 +267,7 @@ function restartWithExperimentalTsEsm(configFile: string | null): boolean {
 }
 
 export function experimentalLoaderOption() {
-  return ` --experimental-loader=${url.pathToFileURL(require.resolve('@playwright/test/lib/experimentalLoader')).toString()}`;
+  return ` --no-warnings --experimental-loader=${url.pathToFileURL(require.resolve('@playwright/test/lib/experimentalLoader')).toString()}`;
 }
 
 export function envWithoutExperimentalLoaderOptions(): NodeJS.ProcessEnv {

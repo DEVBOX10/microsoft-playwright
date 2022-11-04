@@ -16,7 +16,7 @@
 
 import { mime } from '../utilsBundle';
 import * as injectedScriptSource from '../generated/injectedScriptSource';
-import type * as channels from '../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { isSessionClosedError } from './protocolError';
 import type { ScreenshotOptions } from './screenshotter';
 import type * as frames from './frames';
@@ -98,12 +98,14 @@ export class FrameExecutionContext extends js.ExecutionContext {
       const custom: string[] = [];
       for (const [name, { source }] of this.frame._page.selectors._engines)
         custom.push(`{ name: '${name}', engine: (${source}) }`);
+      const sdkLanguage = this.frame._page.context()._browser.options.sdkLanguage;
       const source = `
         (() => {
         const module = {};
         ${injectedScriptSource.source}
         return new module.exports(
           ${isUnderTest()},
+          "${sdkLanguage}",
           ${this.frame._page._delegate.rafCountForStablePosition()},
           "${this.frame._page._browserContext._browser.options.name}",
           [${custom.join(',\n')}]
@@ -499,7 +501,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
     }, this._page._timeoutSettings.timeout(options));
   }
 
-  _hover(progress: Progress, options: types.PointerActionOptions & types.PointerActionWaitOptions): Promise<'error:notconnected' | 'done'> {
+  _hover(progress: Progress, options: types.PointerActionOptions & types.PointerActionWaitOptions & types.NavigatingActionWaitOptions): Promise<'error:notconnected' | 'done'> {
     return this._retryPointerAction(progress, 'hover', false /* waitForEnabled */, point => this._page.mouse.move(point.x, point.y), options);
   }
 
@@ -664,6 +666,11 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
   async _focus(progress: Progress, resetSelectionIfNotFocused?: boolean): Promise<'error:notconnected' | 'done'> {
     progress.throwIfAborted();  // Avoid action that has side-effects.
     return await this.evaluateInUtility(([injected, node, resetSelectionIfNotFocused]) => injected.focusNode(node, resetSelectionIfNotFocused), resetSelectionIfNotFocused);
+  }
+
+  async _blur(progress: Progress): Promise<'error:notconnected' | 'done'> {
+    progress.throwIfAborted();  // Avoid action that has side-effects.
+    return await this.evaluateInUtility(([injected, node]) => injected.blurNode(node), {});
   }
 
   async type(metadata: CallMetadata, text: string, options: { delay?: number } & types.NavigatingActionWaitOptions): Promise<void> {
@@ -882,8 +889,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       const point = data[i].pointInFrame;
       // Hit target in the parent frame should hit the child frame element.
       const hitTargetResult = await element.evaluateInUtility(([injected, element, hitPoint]) => {
-        const hitElement = injected.deepElementFromPoint(document, hitPoint.x, hitPoint.y);
-        return injected.expectHitTargetParent(hitElement, element);
+        return injected.expectHitTarget(hitPoint, element);
       }, point);
       if (hitTargetResult !== 'done')
         return hitTargetResult;

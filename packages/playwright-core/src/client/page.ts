@@ -22,7 +22,7 @@ import type * as api from '../../types/types';
 import { isSafeCloseError } from '../common/errors';
 import { urlMatches } from '../common/netUtils';
 import { TimeoutSettings } from '../common/timeoutSettings';
-import type * as channels from '../protocol/channels';
+import type * as channels from '@protocol/channels';
 import { parseError, serializeError } from '../protocol/serializers';
 import { assert, headersObjectToArray, isObject, isRegExp, isString } from '../utils';
 import { mkdirIfNeeded } from '../utils/fileUtils';
@@ -45,7 +45,7 @@ import { Frame, verifyLoadState } from './frame';
 import { HarRouter } from './harRouter';
 import { Keyboard, Mouse, Touchscreen } from './input';
 import { assertMaxArguments, JSHandle, parseResult, serializeArgument } from './jsHandle';
-import type { FrameLocator, Locator, LocatorOptions } from './locator';
+import type { ByRoleOptions, FrameLocator, Locator, LocatorOptions } from './locator';
 import type { RouteHandlerCallback } from './network';
 import { Response, Route, RouteHandler, validateHeaders, WebSocket } from './network';
 import type { Request } from './network';
@@ -424,10 +424,10 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   async emulateMedia(options: { media?: 'screen' | 'print' | null, colorScheme?: 'dark' | 'light' | 'no-preference' | null, reducedMotion?: 'reduce' | 'no-preference' | null, forcedColors?: 'active' | 'none' | null } = {}) {
     await this._channel.emulateMedia({
-      media: options.media === null ? 'null' : options.media,
-      colorScheme: options.colorScheme === null ? 'null' : options.colorScheme,
-      reducedMotion: options.reducedMotion === null ? 'null' : options.reducedMotion,
-      forcedColors: options.forcedColors === null ? 'null' : options.forcedColors,
+      media: options.media === null ? 'no-override' : options.media,
+      colorScheme: options.colorScheme === null ? 'no-override' : options.colorScheme,
+      reducedMotion: options.reducedMotion === null ? 'no-override' : options.reducedMotion,
+      forcedColors: options.forcedColors === null ? 'no-override' : options.forcedColors,
     });
   }
 
@@ -560,8 +560,40 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return this._mainFrame.fill(selector, value, options);
   }
 
+  async clear(selector: string, options?: channels.FrameFillOptions) {
+    return this.fill(selector, '', options);
+  }
+
   locator(selector: string, options?: LocatorOptions): Locator {
     return this.mainFrame().locator(selector, options);
+  }
+
+  getByTestId(testId: string): Locator {
+    return this.mainFrame().getByTestId(testId);
+  }
+
+  getByAltText(text: string | RegExp, options?: { exact?: boolean }): Locator {
+    return this.mainFrame().getByAltText(text, options);
+  }
+
+  getByLabel(text: string | RegExp, options?: { exact?: boolean }): Locator {
+    return this.mainFrame().getByLabel(text, options);
+  }
+
+  getByPlaceholder(text: string | RegExp, options?: { exact?: boolean }): Locator {
+    return this.mainFrame().getByPlaceholder(text, options);
+  }
+
+  getByText(text: string | RegExp, options?: { exact?: boolean }): Locator {
+    return this.mainFrame().getByText(text, options);
+  }
+
+  getByTitle(text: string | RegExp, options?: { exact?: boolean }): Locator {
+    return this.mainFrame().getByTitle(text, options);
+  }
+
+  getByRole(role: string, options: ByRoleOptions = {}): Locator {
+    return this.mainFrame().getByRole(role, options);
   }
 
   frameLocator(selector: string): FrameLocator {

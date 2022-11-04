@@ -113,7 +113,7 @@ export default config;
 ```
 
 ## property: TestConfig.fullyParallel
-* since: v1.10
+* since: v1.20
 - type: ?<[boolean]>
 
 Playwright Test runs tests in parallel. In order to achieve that, it runs several worker processes that run at the same time.
@@ -226,6 +226,11 @@ Filter to only run tests with a title **not** matching one of the patterns. This
 
 `grepInvert` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
+## property: TestConfig.ignoreSnapshots
+* since: v1.26
+- type: ?<[boolean]>
+
+Whether to skip snapshot expectations, such as `expect(value).toMatchSnapshot()` and `await expect(page).toHaveScreenshot()`.
 
 ## property: TestConfig.maxFailures
 * since: v1.10
@@ -651,7 +656,7 @@ export default config;
   - `port` ?<[int]> The port that your http server is expected to appear on. It does wait until it accepts connections. Exactly one of `port` or `url` is required.
   - `url` ?<[string]> The url on your http server that is expected to return a 2xx, 3xx, 400, 401, 402, or 403 status code when the server is ready to accept connections. Exactly one of `port` or `url` is required.
   - `ignoreHTTPSErrors` ?<[boolean]> Whether to ignore HTTPS errors when fetching the `url`. Defaults to `false`.
-  - `timeout` ?<[int]> How long to wait for the process to start up and be available in milliseconds. Defaults to 60000.
+  - `timeout` ?<[int]> How long to wait for the process to start up and be available in milliseconds. The same timeout is also used to terminate the process. Defaults to 60000.
   - `reuseExistingServer` ?<[boolean]> If true, it will re-use an existing server on the `port` or `url` when available. If no server is running on that `port` or `url`, it will run the command to start a new server. If `false`, it will throw if an existing process is listening on the `port` or `url`. This should be commonly set to `!process.env.CI` to allow the local dev server when running tests locally.
   - `cwd` ?<[string]> Current working directory of the spawned process, defaults to the directory of the configuration file.
   - `env` ?<[Object]<[string], [string]>> Environment variables to set for the command, `process.env` by default.
@@ -780,13 +785,13 @@ module.exports = config;
 
 ## property: TestConfig.workers
 * since: v1.10
-- type: ?<[int]>
+- type: ?<[int]|[string]>
 
-The maximum number of concurrent worker processes to use for parallelizing tests.
+The maximum number of concurrent worker processes to use for parallelizing tests. Can also be set as percentage of logical CPU cores, e.g. `'50%'.`
 
 Playwright Test uses worker processes to run tests. There is always at least one worker process, but more can be used to speed up test execution.
 
-Defaults to one half of the number of CPU cores. Learn more about [parallelism and sharding](../test-parallel.md) with Playwright Test.
+Defaults to half of the number of logical CPU cores. Learn more about [parallelism and sharding](../test-parallel.md) with Playwright Test.
 
 ```js tab=js-js
 // playwright.config.js

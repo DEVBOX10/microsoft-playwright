@@ -228,12 +228,39 @@ test.describe('toHaveURL', () => {
 
 test.describe('toHaveAttribute', () => {
   test('pass', async ({ page }) => {
+    await page.setContent('<div id=node>Text content</div>');
+    const locator = page.locator('#node');
+    await expect(locator).toHaveAttribute('id', 'node');
+  });
+
+  test('should not match missing attribute', async ({ page }) => {
     await page.setContent('<div checked id=node>Text content</div>');
     const locator = page.locator('#node');
-    await expect(locator).toHaveAttribute('id');
-    await expect(locator).toHaveAttribute('checked');
-    await expect(locator).not.toHaveAttribute('open');
-    await expect(locator).toHaveAttribute('id', 'node');
+    {
+      const error = await expect(locator).toHaveAttribute('disabled', '', { timeout: 1000 }).catch(e => e);
+      expect(error.message).toContain('expect.toHaveAttribute with timeout 1000ms');
+    }
+    {
+      const error = await expect(locator).toHaveAttribute('disabled', /.*/, { timeout: 1000 }).catch(e => e);
+      expect(error.message).toContain('expect.toHaveAttribute with timeout 1000ms');
+    }
+    await expect(locator).not.toHaveAttribute('disabled', '');
+    await expect(locator).not.toHaveAttribute('disabled', /.*/);
+  });
+
+  test('should match boolean attribute', async ({ page }) => {
+    await page.setContent('<div checked id=node>Text content</div>');
+    const locator = page.locator('#node');
+    await expect(locator).toHaveAttribute('checked', '');
+    await expect(locator).toHaveAttribute('checked', /.*/);
+    {
+      const error = await expect(locator).not.toHaveAttribute('checked', '', { timeout: 1000 }).catch(e => e);
+      expect(error.message).toContain('expect.toHaveAttribute with timeout 1000ms');
+    }
+    {
+      const error = await expect(locator).not.toHaveAttribute('checked', /.*/, { timeout: 1000 }).catch(e => e);
+      expect(error.message).toContain('expect.toHaveAttribute with timeout 1000ms');
+    }
   });
 });
 

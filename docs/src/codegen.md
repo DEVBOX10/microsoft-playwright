@@ -5,28 +5,31 @@ title: "Test Generator"
 
 Playwright comes with the ability to generate tests out of the box and is a great way to quickly get started with testing. It will open two windows, a browser window where you interact with the website you wish to test and the Playwright Inspector window where you can record your tests, copy the tests, clear your tests as well as change the language of your tests.
 
+
 ## Running Codegen
 
 ```bash js
-npx playwright codegen playwright.dev
+npx playwright codegen demo.playwright.dev/todomvc
 ```
 
 ```bash java
-mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="codegen playwright.dev"
+mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="codegen demo.playwright.dev/todomvc"
 ```
 
 ```bash python
-playwright codegen playwright.dev
+playwright codegen demo.playwright.dev/todomvc
 ```
 
 ```bash csharp
-pwsh bin/Debug/netX/playwright.ps1 codegen playwright.dev
+pwsh bin/Debug/netX/playwright.ps1 codegen demo.playwright.dev/todomvc
 ```
 
 Run `codegen` and perform actions in the browser. Playwright will generate the code for the user interactions. `Codegen` will attempt to generate resilient text-based selectors.
 
-<img width="1183" alt="Codegen generating code for tests for playwright.dev website" src="https://user-images.githubusercontent.com/13063165/181852815-971c10da-0b55-4e54-8a73-77e1e825193c.png" />
-
+<video width="100%" height="100%" controls muted>
+  <source src="https://user-images.githubusercontent.com/13063165/197979804-c4fa3347-8fab-4526-a728-c1b2fbd079b4.mp4" type="video/mp4" />
+  Your browser does not support the video tag.
+</video>
 
 ## Emulate viewport size
 
@@ -72,8 +75,7 @@ playwright codegen --device="iPhone 11" playwright.dev
 pwsh bin/Debug/netX/playwright.ps1 codegen --device="iPhone 11" playwright.dev
 ```
 
-<img width="1239" alt="Codegen generating code for tests for playwright.dev website emulated for iPhone 11" src="https://user-images.githubusercontent.com/13063165/182360089-9dc6d33d-480e-4bb2-86a3-fec51c1c228e.png" />
-
+<img width="1254" alt="Codegen generating code for tests for playwright.dev website emulated for iPhone 11" src="https://user-images.githubusercontent.com/13063165/197976789-ee25ed24-69af-4684-b6a4-098673cfb035.png" />
 
 ## Emulate color scheme
 
@@ -121,9 +123,9 @@ pwsh bin/Debug/netX/playwright.ps1 codegen --timezone="Europe/Rome" --geolocatio
 
 ## Preserve authenticated state
 
-Run `codegen` with `--save-storage` to save [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) and [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) at the end of the session. This is useful to separately record an authentication step and reuse it later in the tests. 
+Run `codegen` with `--save-storage` to save [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) and [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) at the end of the session. This is useful to separately record an authentication step and reuse it later in the tests.
 
-After performing authentication and closing the browser, `auth.json` will contain the storage state. 
+After performing authentication and closing the browser, `auth.json` will contain the storage state.
 
 ```bash js
 npx playwright codegen --save-storage=auth.json
@@ -269,7 +271,7 @@ var browser = await chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless
 
 // Setup context however you like.
 var context = await browser.NewContextAsync(); // Pass any options
-await context.RouteAsync('**/*', route => route.ContinueAsync());
+await context.RouteAsync("**/*", route => route.ContinueAsync());
 
 // Pause the page, and start recording manually.
 var page = await context.NewPageAsync();

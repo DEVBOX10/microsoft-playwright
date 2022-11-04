@@ -77,9 +77,9 @@ const { test, expect } = require('@playwright/test');
 
 test('basic test', async ({ page }) => {
   await page.goto('/signin');
-  await page.locator('#username').fill('User');
-  await page.locator('#password').fill('pwd');
-  await page.locator('text=Sign in').click();
+  await page.getByLabel('User Name').fill('user');
+  await page.getByLabel('Password').fill('password');
+  await page.getByText('Sign in').click();
   // ...
 });
 ```
@@ -89,9 +89,9 @@ import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }) => {
   await page.goto('/signin');
-  await page.locator('#username').fill('User');
-  await page.locator('#password').fill('pwd');
-  await page.locator('text=Sign in').click();
+  await page.getByLabel('User Name').fill('user');
+  await page.getByLabel('Password').fill('password');
+  await page.getByText('Sign in').click();
   // ...
 });
 ```
@@ -128,3 +128,9 @@ test('basic test', async ({ request }) => {
   // ...
 });
 ```
+
+## property: Fixtures.storage
+* since: v1.28
+- type: <[Storage]>
+
+[Storage] is shared between all tests in the same run.

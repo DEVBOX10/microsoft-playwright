@@ -409,20 +409,83 @@ it('should return error with wrong credentials', async ({ context, server }) => 
   expect(response2.status()).toBe(401);
 });
 
-for (const method of ['delete', 'patch', 'post', 'put']) {
-  it(`${method} should support post data`, async ({ context, server }) => {
-    const [request, response] = await Promise.all([
-      server.waitForRequest('/simple.json'),
-      context.request[method](`${server.PREFIX}/simple.json`, {
-        data: 'My request'
-      })
-    ]);
-    expect(request.method).toBe(method.toUpperCase());
-    expect((await request.postBody).toString()).toBe('My request');
-    expect(response.status()).toBe(200);
-    expect(request.url).toBe('/simple.json');
-  });
-}
+it('delete should support post data', async ({ context, server }) => {
+  const [request, response] = await Promise.all([
+    server.waitForRequest('/simple.json'),
+    context.request.delete(`${server.PREFIX}/simple.json`, {
+      data: 'My request'
+    })
+  ]);
+  expect(request.method).toBe('DELETE');
+  expect((await request.postBody).toString()).toBe('My request');
+  expect(response.status()).toBe(200);
+  expect(request.url).toBe('/simple.json');
+});
+
+it('get should support post data', async ({ context, server }) => {
+  const [request, response] = await Promise.all([
+    server.waitForRequest('/simple.json'),
+    context.request.get(`${server.PREFIX}/simple.json`, {
+      data: 'My request'
+    })
+  ]);
+  expect(request.method).toBe('GET');
+  expect((await request.postBody).toString()).toBe('My request');
+  expect(response.status()).toBe(200);
+  expect(request.url).toBe('/simple.json');
+});
+
+it('head should support post data', async ({ context, server }) => {
+  const [request, response] = await Promise.all([
+    server.waitForRequest('/simple.json'),
+    context.request.head(`${server.PREFIX}/simple.json`, {
+      data: 'My request'
+    })
+  ]);
+  expect(request.method).toBe('HEAD');
+  expect((await request.postBody).toString()).toBe('My request');
+  expect(response.status()).toBe(200);
+  expect(request.url).toBe('/simple.json');
+});
+
+it('patch should support post data', async ({ context, server }) => {
+  const [request, response] = await Promise.all([
+    server.waitForRequest('/simple.json'),
+    context.request.patch(`${server.PREFIX}/simple.json`, {
+      data: 'My request'
+    })
+  ]);
+  expect(request.method).toBe('PATCH');
+  expect((await request.postBody).toString()).toBe('My request');
+  expect(response.status()).toBe(200);
+  expect(request.url).toBe('/simple.json');
+});
+
+it('post should support post data', async ({ context, server }) => {
+  const [request, response] = await Promise.all([
+    server.waitForRequest('/simple.json'),
+    context.request.post(`${server.PREFIX}/simple.json`, {
+      data: 'My request'
+    })
+  ]);
+  expect(request.method).toBe('POST');
+  expect((await request.postBody).toString()).toBe('My request');
+  expect(response.status()).toBe(200);
+  expect(request.url).toBe('/simple.json');
+});
+
+it('put should support post data', async ({ context, server }) => {
+  const [request, response] = await Promise.all([
+    server.waitForRequest('/simple.json'),
+    context.request.put(`${server.PREFIX}/simple.json`, {
+      data: 'My request'
+    })
+  ]);
+  expect(request.method).toBe('PUT');
+  expect((await request.postBody).toString()).toBe('My request');
+  expect(response.status()).toBe(200);
+  expect(request.url).toBe('/simple.json');
+});
 
 it('should add default headers', async ({ context, server, page }) => {
   const [request] = await Promise.all([
@@ -695,6 +758,29 @@ it('should respect timeout after redirects', async function({ context, server })
   expect(error.message).toContain(`Request timed out after 100ms`);
 });
 
+it('should not hang on a brotli encoded Range request', async ({ context, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/18190' });
+  it.skip(+process.versions.node.split('.')[0] < 18);
+
+  const encodedRequestPayload = zlib.brotliCompressSync(Buffer.from('A'));
+  server.setRoute('/brotli', (req, res) => {
+    res.writeHead(206, {
+      'Content-Type': 'text/plain',
+      'content-length': 1,
+      'Content-Encoding': 'br',
+      'content-range': `bytes 0-2/${encodedRequestPayload.byteLength}`,
+      'Accept-Ranges': 'bytes',
+    });
+    res.write(encodedRequestPayload.slice(0, 2));
+  });
+
+  await expect(context.request.get(server.PREFIX + '/brotli', {
+    headers: {
+      range: 'bytes=0-2',
+    },
+  })).rejects.toThrow(`failed to decompress 'br' encoding: Error: unexpected end of file`);
+});
+
 it('should dispose', async function({ context, server }) {
   const response = await context.request.get(server.PREFIX + '/simple.json');
   expect(await response.json()).toEqual({ foo: 'bar' });
@@ -876,16 +962,6 @@ it('should throw nice error on unsupported data type', async function({ context,
   expect(error.message).toContain(`Unexpected 'data' type`);
 });
 
-it('should throw when data passed for unsupported request', async function({ context, server }) {
-  const error = await context.request.fetch(server.EMPTY_PAGE, {
-    method: 'GET',
-    data: {
-      foo: 'bar'
-    }
-  }).catch(e => e);
-  expect(error.message).toContain(`Method GET does not accept post data`);
-});
-
 it('context request should export same storage state as context', async ({ context, page, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['a=b', 'c=d']);
@@ -971,5 +1047,46 @@ it('should work with connectOverCDP', async ({ browserName, browserType, server 
     expect(await response.text()).toBe('{"foo": "bar"}\n');
   } finally {
     await browserServer.close();
+  }
+});
+
+it('should support SameSite cookie attribute over https', async ({ contextFactory, httpsServer, browserName, isWindows }) => {
+  // Cookies with SameSite=None must also specify the Secure attribute. WebKit navigation
+  // to HTTP url will fail if the response contains a cookie with Secure attribute, so
+  // we do HTTPS navigation.
+  const context = await contextFactory({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  for (const value of ['None', 'Lax', 'Strict']) {
+    await it.step(`SameSite=${value}`, async () => {
+      httpsServer.setRoute('/empty.html', (req, res) => {
+        res.setHeader('Set-Cookie', `SID=2022; Path=/; Secure; SameSite=${value}`);
+        res.end();
+      });
+      await page.request.get(httpsServer.EMPTY_PAGE);
+      const [cookie] = await page.context().cookies();
+      if (browserName === 'webkit' && isWindows)
+        expect(cookie.sameSite).toBe('None');
+      else
+        expect(cookie.sameSite).toBe(value);
+    });
+  }
+});
+
+it('should support set-cookie with SameSite and without Secure attribute over HTTP', async ({ page, server, browserName, isWindows }) => {
+  for (const value of ['None', 'Lax', 'Strict']) {
+    await it.step(`SameSite=${value}`, async () => {
+      server.setRoute('/empty.html', (req, res) => {
+        res.setHeader('Set-Cookie', `SID=2022; Path=/; SameSite=${value}`);
+        res.end();
+      });
+      await page.request.get(server.EMPTY_PAGE);
+      const [cookie] = await page.context().cookies();
+      if (browserName === 'chromium' && value === 'None')
+        expect(cookie).toBeFalsy();
+      else if (browserName === 'webkit' && isWindows)
+        expect(cookie.sameSite).toBe('None');
+      else
+        expect(cookie.sameSite).toBe(value);
+    });
   }
 });

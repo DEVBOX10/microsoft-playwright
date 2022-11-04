@@ -107,8 +107,12 @@ export class BaseReporter implements ReporterInternal  {
     this.result = result;
   }
 
+  protected ttyWidth() {
+    return this._ttyWidthForTest || process.stdout.columns || 0;
+  }
+
   protected fitToScreen(line: string, prefix?: string): string {
-    const ttyWidth = this._ttyWidthForTest || process.stdout.columns || 0;
+    const ttyWidth = this.ttyWidth();
     if (!ttyWidth) {
       // Guard against the case where we cannot determine available width.
       return line;
@@ -117,12 +121,9 @@ export class BaseReporter implements ReporterInternal  {
   }
 
   protected generateStartingMessage() {
-    const jobs = Math.min(this.config.workers, this.config._testGroupsCount);
+    const jobs = Math.min(this.config.workers, this.config._maxConcurrentTestGroups);
     const shardDetails = this.config.shard ? `, shard ${this.config.shard.current} of ${this.config.shard.total}` : '';
-    if (this.config._watchMode)
-      return `\nRunning tests in the --watch mode`;
-    else
-      return `\nRunning ${this.totalTestCount} test${this.totalTestCount !== 1 ? 's' : ''} using ${jobs} worker${jobs !== 1 ? 's' : ''}${shardDetails}`;
+    return `\nRunning ${this.totalTestCount} test${this.totalTestCount !== 1 ? 's' : ''} using ${jobs} worker${jobs !== 1 ? 's' : ''}${shardDetails}`;
   }
 
   protected getSlowTests(): [string, number][] {
@@ -351,7 +352,7 @@ function relativeTestPath(config: FullConfig, test: TestCase): string {
   return relativeFilePath(config, test.location.file);
 }
 
-function stepSuffix(step: TestStep | undefined) {
+export function stepSuffix(step: TestStep | undefined) {
   const stepTitles = step ? step.titlePath() : [];
   return stepTitles.map(t => ' › ' + t).join('');
 }
@@ -363,7 +364,7 @@ export function formatTestTitle(config: FullConfig, test: TestCase, step?: TestS
   if (omitLocation)
     location = `${relativeTestPath(config, test)}`;
   else
-    location = `${relativeTestPath(config, test)}:${test.location.line}:${test.location.column}`;
+    location = `${relativeTestPath(config, test)}:${step?.location?.line ?? test.location.line}:${step?.location?.column ?? test.location.column}`;
   const projectTitle = projectName ? `[${projectName}] › ` : '';
   return `${projectTitle}${location} › ${titles.join(' › ')}${stepSuffix(step)}`;
 }
@@ -438,6 +439,8 @@ export function prepareErrorStack(stack: string): {
     const { frame: parsed, fileName: resolvedFile } = parseStackTraceLine(line);
     if (!parsed || !resolvedFile)
       continue;
+    if (belongsToNodeModules(resolvedFile))
+      continue;
     location = { file: resolvedFile, column: parsed.column || 0, line: parsed.line || 0 };
     break;
   }
@@ -479,4 +482,8 @@ function fitToWidth(line: string, width: number, prefix?: string): string {
     }
   }
   return taken.reverse().join('');
+}
+
+function belongsToNodeModules(file: string) {
+  return file.includes(`${path.sep}node_modules${path.sep}`);
 }

@@ -16,7 +16,7 @@
 
 import * as fs from 'fs';
 import type * as actions from './recorder/recorderActions';
-import type * as channels from '../protocol/channels';
+import type * as channels from '@protocol/channels';
 import type { ActionInContext } from './recorder/codeGenerator';
 import { CodeGenerator } from './recorder/codeGenerator';
 import { toClickOptions, toModifiers } from './recorder/utils';
@@ -34,13 +34,14 @@ import type { IRecorderApp } from './recorder/recorderApp';
 import { RecorderApp } from './recorder/recorderApp';
 import type { CallMetadata, InstrumentationListener, SdkObject } from './instrumentation';
 import type { Point } from '../common/types';
-import type { CallLog, CallLogStatus, EventData, Mode, Source, UIState } from './recorder/recorderTypes';
+import type { CallLog, CallLogStatus, EventData, Mode, Source, UIState } from '@recorder/recorderTypes';
 import { createGuid, monotonicTime } from '../utils';
 import { metadataToCallLog } from './recorder/recorderUtils';
 import { Debugger } from './debugger';
 import { EventEmitter } from 'events';
 import { raceAgainstTimeout } from '../utils/timeoutRunner';
-import type { LanguageGenerator } from './recorder/language';
+import type { Language, LanguageGenerator } from './recorder/language';
+import { locatorOrSelectorAsSelector } from './isomorphic/locatorParser';
 
 type BindingSource = { frame: Frame, page: Page };
 
@@ -59,6 +60,7 @@ export class Recorder implements InstrumentationListener {
   private _handleSIGINT: boolean | undefined;
   private _recorderAppFactory: (recorder: Recorder) => Promise<IRecorderApp>;
   private _omitCallTracking = false;
+  private _currentLanguage: Language;
 
   static showInspector(context: BrowserContext) {
     Recorder.show(context, {}).catch(() => {});
@@ -83,6 +85,7 @@ export class Recorder implements InstrumentationListener {
     this._debugger = Debugger.lookup(context)!;
     this._handleSIGINT = params.handleSIGINT;
     context.instrumentation.addListener(this, context);
+    this._currentLanguage = this._contextRecorder.languageName();
   }
 
   private static async defaultRecorderAppFactory(recorder: Recorder) {
@@ -104,11 +107,16 @@ export class Recorder implements InstrumentationListener {
         return;
       }
       if (data.event === 'selectorUpdated') {
-        this.setHighlightedSelector(data.params.selector);
+        this.setHighlightedSelector(data.params.language, data.params.selector);
         return;
       }
       if (data.event === 'step') {
         this._debugger.resume(true);
+        return;
+      }
+      if (data.event === 'fileChanged') {
+        this._currentLanguage = this._contextRecorder.languageName(data.params.file);
+        this._refreshOverlay();
         return;
       }
       if (data.event === 'resume') {
@@ -155,6 +163,7 @@ export class Recorder implements InstrumentationListener {
         mode: this._mode,
         actionPoint,
         actionSelector,
+        language: this._currentLanguage
       };
       return uiState;
     });
@@ -201,13 +210,18 @@ export class Recorder implements InstrumentationListener {
     this._refreshOverlay();
   }
 
-  setHighlightedSelector(selector: string) {
-    this._highlightedSelector = selector;
+  setHighlightedSelector(language: Language, selector: string) {
+    this._highlightedSelector = locatorOrSelectorAsSelector(language, selector);
     this._refreshOverlay();
   }
 
-  setOutput(language: string, outputFile: string | undefined) {
-    this._contextRecorder.setOutput(language, outputFile);
+  hideHighlightedSelecor() {
+    this._highlightedSelector = '';
+    this._refreshOverlay();
+  }
+
+  setOutput(codegenId: string, outputFile: string | undefined) {
+    this._contextRecorder.setOutput(codegenId, outputFile);
   }
 
   private _refreshOverlay() {
@@ -331,16 +345,20 @@ class ContextRecorder extends EventEmitter {
     generator.on('change', () => {
       this._recorderSources = [];
       for (const languageGenerator of this._orderedLanguages) {
+        const { header, footer, actions, text } = generator.generateStructure(languageGenerator);
         const source: Source = {
           isRecorded: true,
           label: languageGenerator.name,
           group: languageGenerator.groupName,
           id: languageGenerator.id,
-          text: generator.generateText(languageGenerator),
+          text,
+          header,
+          footer,
+          actions,
           language: languageGenerator.highlighter,
           highlight: []
         };
-        source.revealLine = source.text.split('\n').length - 1;
+        source.revealLine = text.split('\n').length - 1;
         this._recorderSources.push(source);
         if (languageGenerator === this._orderedLanguages[0])
           this._throttledOutputFile?.setContent(source.text);
@@ -359,7 +377,7 @@ class ContextRecorder extends EventEmitter {
     this._generator = generator;
   }
 
-  setOutput(language: string, outputFile: string | undefined) {
+  setOutput(codegenId: string, outputFile?: string) {
     const languages = new Set([
       new JavaLanguageGenerator(),
       new JavaScriptLanguageGenerator(/* isPlaywrightTest */false),
@@ -371,14 +389,21 @@ class ContextRecorder extends EventEmitter {
       new CSharpLanguageGenerator('nunit'),
       new CSharpLanguageGenerator('library'),
     ]);
-    const primaryLanguage = [...languages].find(l => l.id === language);
+    const primaryLanguage = [...languages].find(l => l.id === codegenId);
     if (!primaryLanguage)
-      throw new Error(`\n===============================\nUnsupported language: '${language}'\n===============================\n`);
-
+      throw new Error(`\n===============================\nUnsupported language: '${codegenId}'\n===============================\n`);
     languages.delete(primaryLanguage);
     this._orderedLanguages = [primaryLanguage, ...languages];
     this._throttledOutputFile = outputFile ? new ThrottledFile(outputFile) : null;
     this._generator?.restart();
+  }
+
+  languageName(id?: string): Language {
+    for (const lang of this._orderedLanguages) {
+      if (!id || lang.id === id)
+        return lang.highlighter;
+    }
+    return 'javascript';
   }
 
   async install() {

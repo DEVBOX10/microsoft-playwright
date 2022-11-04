@@ -294,6 +294,9 @@ export class SocksProxy extends EventEmitter implements SocksConnectionClient {
 
   private _server: net.Server;
   private _connections = new Map<string, SocksConnection>();
+  private _sockets = new Set<net.Socket>();
+  private _closed = false;
+  private _port: number | undefined;
 
   constructor() {
     super();
@@ -302,12 +305,25 @@ export class SocksProxy extends EventEmitter implements SocksConnectionClient {
       const connection = new SocksConnection(uid, socket, this);
       this._connections.set(uid, connection);
     });
+    this._server.on('connection', socket => {
+      if (this._closed) {
+        socket.destroy();
+        return;
+      }
+      this._sockets.add(socket);
+      socket.once('close', () => this._sockets.delete(socket));
+    });
+  }
+
+  port() {
+    return this._port;
   }
 
   async listen(port: number): Promise<number> {
     return new Promise(f => {
       this._server.listen(port, () => {
         const port = (this._server.address() as AddressInfo).port;
+        this._port = port;
         debugLogger.log('proxy', `Starting socks proxy server on port ${port}`);
         f(port);
       });
@@ -315,6 +331,10 @@ export class SocksProxy extends EventEmitter implements SocksConnectionClient {
   }
 
   async close() {
+    this._closed = true;
+    for (const socket of this._sockets)
+      socket.destroy();
+    this._sockets.clear();
     await new Promise(f => this._server.close(f));
   }
 
