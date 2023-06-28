@@ -177,13 +177,11 @@ it('should work for frame', async ({ page, server }) => {
   // give the promise a chance to resolve, even though it shouldn't
   await page.evaluate('1');
   expect(resolved).toBe(false);
-  request.continue();
+  await request.continue();
   await loadPromise;
 });
 
 it('should work with javascript: iframe', async ({ page, server, browserName }) => {
-  it.fixme(browserName === 'firefox', 'no load event');
-
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`<iframe src="javascript:false"></iframe>`, { waitUntil: 'commit' });
   await page.waitForLoadState('domcontentloaded');
@@ -200,9 +198,6 @@ it('should work with broken data-url iframe', async ({ page, server }) => {
 });
 
 it('should work with broken blob-url iframe', async ({ page, server, browserName }) => {
-  it.fixme(browserName === 'chromium', 'no load event');
-  it.fixme(browserName === 'firefox', 'no load event');
-
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`<iframe src="blob:"></iframe>`, { waitUntil: 'commit' });
   await page.waitForLoadState('domcontentloaded');

@@ -37,7 +37,7 @@ export class HarRouter {
     return new HarRouter(localUtils, harId!, notFoundAction, options);
   }
 
-  constructor(localUtils: LocalUtils, harId: string, notFoundAction: HarNotFoundAction, options: { urlMatch?: URLMatch }) {
+  private constructor(localUtils: LocalUtils, harId: string, notFoundAction: HarNotFoundAction, options: { urlMatch?: URLMatch }) {
     this._localUtils = localUtils;
     this._harId = harId;
     this._options = options;

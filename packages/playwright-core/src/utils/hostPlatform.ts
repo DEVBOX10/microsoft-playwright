@@ -25,7 +25,8 @@ export type HostPlatform = 'win64' |
                            'mac12' | 'mac12-arm64' |
                            'ubuntu18.04' | 'ubuntu18.04-arm64' |
                            'ubuntu20.04' | 'ubuntu20.04-arm64' |
-                           'debian11' |
+                           'ubuntu22.04' | 'ubuntu22.04-arm64' |
+                           'debian11' | 'debian11-arm64' |
                            'generic-linux' | 'generic-linux-arm64' |
                            '<unknown>';
 
@@ -43,7 +44,7 @@ export const hostPlatform = ((): HostPlatform => {
       macVersion = 'mac10.15';
     } else {
       // ver[0] >= 20
-      const LAST_STABLE_MAC_MAJOR_VERSION = 12;
+      const LAST_STABLE_MAC_MAJOR_VERSION = 13;
       // Best-effort support for MacOS beta versions.
       macVersion = 'mac' + Math.min(ver[0] - 9, LAST_STABLE_MAC_MAJOR_VERSION);
       // BigSur is the first version that might run on Apple Silicon.
@@ -57,15 +58,17 @@ export const hostPlatform = ((): HostPlatform => {
     const distroInfo = getLinuxDistributionInfoSync();
 
     // Pop!_OS is ubuntu-based and has the same versions.
-    if (distroInfo?.id === 'ubuntu' || distroInfo?.id === 'pop') {
+    // KDE Neon is ubuntu-based and has the same versions.
+    // TUXEDO OS is ubuntu-based and has the same versions.
+    if (distroInfo?.id === 'ubuntu' || distroInfo?.id === 'pop' || distroInfo?.id === 'neon' || distroInfo?.id === 'tuxedo') {
       if (parseInt(distroInfo.version, 10) <= 19)
         return ('ubuntu18.04' + archSuffix) as HostPlatform;
       if (parseInt(distroInfo.version, 10) <= 21)
         return ('ubuntu20.04' + archSuffix) as HostPlatform;
       return ('ubuntu22.04' + archSuffix) as HostPlatform;
     }
-    if (distroInfo?.id === 'debian' && distroInfo?.version === '11' && !archSuffix)
-      return 'debian11';
+    if (distroInfo?.id === 'debian' && distroInfo?.version === '11')
+      return ('debian11' + archSuffix) as HostPlatform;
     return ('generic-linux' + archSuffix) as HostPlatform;
   }
   if (platform === 'win32')

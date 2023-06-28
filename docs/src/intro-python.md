@@ -3,7 +3,7 @@ id: intro
 title: "Installation"
 ---
 
-Playwright was created specifically to accommodate the needs of end-to-end testing. Playwright supports all modern rendering engines including Chromium, WebKit, and Firefox. Test on Windows, Linux, and macOS, locally or on CI, headless or headed with native mobile emulation. 
+Playwright was created specifically to accommodate the needs of end-to-end testing. Playwright supports all modern rendering engines including Chromium, WebKit, and Firefox. Test on Windows, Linux, and macOS, locally or on CI, headless or headed with native mobile emulation.
 
 Playwright recommends using the official [Playwright Pytest plugin](./test-runners.md) to write end-to-end tests. It provides context isolation, running it on multiple browser configurations out of the box. Alternatively you can use the [library](./library.md) to manually write the testing infrastructure with your preferred test-runner. The Pytest plugin utilizes the sync version of Playwright, there is also an async version accessible via the library.
 
@@ -37,7 +37,7 @@ def test_homepage_has_Playwright_in_title_and_get_started_link_linking_to_the_in
     expect(page).to_have_title(re.compile("Playwright"))
 
     # create a locator
-    get_started = page.locator("text=Get Started")
+    get_started = page.get_by_role("link", name="Get started")
 
     # Expect an attribute "to be strictly equal" to the value.
     expect(get_started).to_have_attribute("href", "/docs/intro")
@@ -56,6 +56,13 @@ By default tests will be run on chromium. This can be configured via the CLI opt
 ```bash
 pytest
 ```
+
+## System requirements
+
+- Python 3.8 or higher.
+- Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
+- MacOS 12 Monterey or MacOS 13 Ventura.
+- Debian 11, Ubuntu 20.04 or Ubuntu 22.04.
 
 ## What's next
 

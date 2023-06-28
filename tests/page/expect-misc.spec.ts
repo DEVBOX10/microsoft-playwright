@@ -73,7 +73,7 @@ test.describe('toHaveCount', () => {
     await page.setContent('<div><span></span></div>');
     const locator = page.locator('span');
     const error = await expect(locator).not.toHaveCount(1, { timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain('expect.toHaveCount with timeout 1000ms');
+    expect(error.message).toContain('expect.not.toHaveCount with timeout 1000ms');
   });
 });
 
@@ -255,11 +255,11 @@ test.describe('toHaveAttribute', () => {
     await expect(locator).toHaveAttribute('checked', /.*/);
     {
       const error = await expect(locator).not.toHaveAttribute('checked', '', { timeout: 1000 }).catch(e => e);
-      expect(error.message).toContain('expect.toHaveAttribute with timeout 1000ms');
+      expect(error.message).toContain('expect.not.toHaveAttribute with timeout 1000ms');
     }
     {
       const error = await expect(locator).not.toHaveAttribute('checked', /.*/, { timeout: 1000 }).catch(e => e);
-      expect(error.message).toContain('expect.toHaveAttribute with timeout 1000ms');
+      expect(error.message).toContain('expect.not.toHaveAttribute with timeout 1000ms');
     }
   });
 });
@@ -284,4 +284,89 @@ test.describe('toHaveId', () => {
     const locator = page.locator('#node');
     await expect(locator).toHaveId('node');
   });
+});
+
+test.describe('toBeInViewport', () => {
+  test('should work', async ({ page }) => {
+    await page.setContent(`
+      <div id=big style="height: 10000px;"></div>
+      <div id=small>foo</div>
+    `);
+    await expect(page.locator('#big')).toBeInViewport();
+    await expect(page.locator('#small')).not.toBeInViewport();
+    await page.locator('#small').scrollIntoViewIfNeeded();
+    await expect(page.locator('#small')).toBeInViewport();
+    await expect(page.locator('#small')).toBeInViewport({ ratio: 1 });
+  });
+
+  test('should respect ratio option', async ({ page, isAndroid }) => {
+    test.fixme(isAndroid, 'fails due an upstream bug in Chrome, updating Chrome will fix it.');
+    await page.setContent(`
+      <style>body, div, html { padding: 0; margin: 0; }</style>
+      <div id=big style="height: 400vh;"></div>
+    `);
+    await expect(page.locator('div')).toBeInViewport();
+    await expect(page.locator('div')).toBeInViewport({ ratio: 0.1 });
+    await expect(page.locator('div')).toBeInViewport({ ratio: 0.2 });
+
+    await expect(page.locator('div')).toBeInViewport({ ratio: 0.24 });
+    // In this test, element's ratio is 0.25.
+    await expect(page.locator('div')).toBeInViewport({ ratio: 0.25 });
+    await expect(page.locator('div')).not.toBeInViewport({ ratio: 0.26 });
+
+    await expect(page.locator('div')).not.toBeInViewport({ ratio: 0.3 });
+    await expect(page.locator('div')).not.toBeInViewport({ ratio: 0.7 });
+    await expect(page.locator('div')).not.toBeInViewport({ ratio: 0.8 });
+  });
+
+  test('should have good stack', async ({ page }) => {
+    let error;
+    try {
+      await expect(page.locator('body')).not.toBeInViewport({ timeout: 100 });
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeTruthy();
+    expect(/unexpected value "viewport ratio \d+/.test(error.stack)).toBe(true);
+    const stackFrames = error.stack.split('\n').filter(line => line.trim().startsWith('at '));
+    expect(stackFrames.length).toBe(1);
+    expect(stackFrames[0]).toContain(__filename);
+  });
+
+  test('should report intersection even if fully covered by other element', async ({ page }) => {
+    await page.setContent(`
+      <h1>hello</h1>
+      <div style="position: relative; height: 10000px; top: -5000px;></div>
+    `);
+    await expect(page.locator('h1')).toBeInViewport();
+  });
+});
+
+test('toHaveCount should not produce logs twice', async ({ page }) => {
+  await page.setContent('<select><option>One</option></select>');
+  const error = await expect(page.locator('option')).toHaveCount(2, { timeout: 2000 }).catch(e => e);
+  const waitingForMessage = `waiting for locator('option')`;
+  expect(error.message).toContain(waitingForMessage);
+  expect(error.message).toContain(`locator resolved to 1 element`);
+  expect(error.message).toContain(`unexpected value "1"`);
+  expect(error.message.replace(waitingForMessage, '<redacted>')).not.toContain(waitingForMessage);
+});
+
+test('toHaveText should not produce logs twice', async ({ page }) => {
+  await page.setContent('<div>hello</div>');
+  const error = await expect(page.locator('div')).toHaveText('world', { timeout: 2000 }).catch(e => e);
+  const waitingForMessage = `waiting for locator('div')`;
+  expect(error.message).toContain(waitingForMessage);
+  expect(error.message).toContain(`locator resolved to <div>hello</div>`);
+  expect(error.message).toContain(`unexpected value "hello"`);
+  expect(error.message.replace(waitingForMessage, '<redacted>')).not.toContain(waitingForMessage);
+});
+
+test('toHaveText that does not match should not produce logs twice', async ({ page }) => {
+  await page.setContent('<div>hello</div>');
+  const error = await expect(page.locator('span')).toHaveText('world', { timeout: 2000 }).catch(e => e);
+  const waitingForMessage = `waiting for locator('span')`;
+  expect(error.message).toContain(waitingForMessage);
+  expect(error.message).not.toContain('locator resolved to');
+  expect(error.message.replace(waitingForMessage, '<redacted>')).not.toContain(waitingForMessage);
 });

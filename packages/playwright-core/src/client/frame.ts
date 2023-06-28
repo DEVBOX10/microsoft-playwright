@@ -18,8 +18,10 @@
 import { assert } from '../utils';
 import type * as channels from '@protocol/channels';
 import { ChannelOwner } from './channelOwner';
-import { FrameLocator, getByAltTextSelector, getByLabelSelector, getByPlaceholderSelector, getByRoleSelector, getByTestIdSelector, getByTextSelector, getByTitleSelector, Locator } from './locator';
-import type { ByRoleOptions, LocatorOptions } from './locator';
+import { FrameLocator, Locator, testIdAttributeName } from './locator';
+import type { LocatorOptions } from './locator';
+import { getByAltTextSelector, getByLabelSelector, getByPlaceholderSelector, getByRoleSelector, getByTestIdSelector, getByTextSelector, getByTitleSelector } from '../utils/isomorphic/locatorUtils';
+import type { ByRoleOptions } from '../utils/isomorphic/locatorUtils';
 import { ElementHandle, convertSelectOptionValues, convertInputFiles } from './elementHandle';
 import { assertMaxArguments, JSHandle, serializeArgument, parseResult } from './jsHandle';
 import fs from 'fs';
@@ -30,7 +32,7 @@ import { Waiter } from './waiter';
 import { Events } from './events';
 import type { LifecycleEvent, URLMatch, SelectOption, SelectOptionOptions, FilePayload, WaitForFunctionOptions, StrictOptions } from './types';
 import { kLifecycleEvents } from './types';
-import { urlMatches } from '../common/netUtils';
+import { urlMatches } from '../utils/network';
 import type * as api from '../../types/types';
 import type * as structs from '../../types/structs';
 import { debugLogger } from '../common/debugLogger';
@@ -185,6 +187,12 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
     return parseResult(result.value);
   }
 
+  async _evaluateExposeUtilityScript<R, Arg>(pageFunction: structs.PageFunction<Arg, R>, arg?: Arg): Promise<R> {
+    assertMaxArguments(arguments.length, 2);
+    const result = await this._channel.evaluateExpression({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', exposeUtilityScript: true, arg: serializeArgument(arg) });
+    return parseResult(result.value);
+  }
+
   async $(selector: string, options?: { strict?: boolean }): Promise<ElementHandle<SVGElement | HTMLElement> | null> {
     const result = await this._channel.querySelector({ selector, ...options });
     return ElementHandle.fromNullable(result.element) as ElementHandle<SVGElement | HTMLElement> | null;
@@ -293,10 +301,6 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
     return await this._channel.fill({ selector, value, ...options });
   }
 
-  async clear(selector: string, options: channels.FrameFillOptions = {}) {
-    return this.fill(selector, '', options);
-  }
-
   async _highlight(selector: string) {
     return await this._channel.highlight({ selector });
   }
@@ -305,8 +309,8 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
     return new Locator(this, selector, options);
   }
 
-  getByTestId(testId: string): Locator {
-    return this.locator(getByTestIdSelector(testId));
+  getByTestId(testId: string | RegExp): Locator {
+    return this.locator(getByTestIdSelector(testIdAttributeName(), testId));
   }
 
   getByAltText(text: string | RegExp, options?: { exact?: boolean }): Locator {

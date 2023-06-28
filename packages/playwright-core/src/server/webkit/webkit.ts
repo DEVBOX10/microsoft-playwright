@@ -21,18 +21,19 @@ import path from 'path';
 import { kBrowserCloseMessageId } from './wkConnection';
 import { BrowserType, kNoXServerRunningError } from '../browserType';
 import type { ConnectionTransport } from '../transport';
-import type { BrowserOptions, PlaywrightOptions } from '../browser';
+import type { BrowserOptions } from '../browser';
 import type * as types from '../types';
 import { rewriteErrorMessage } from '../../utils/stackTrace';
 import { wrapInASCIIBox } from '../../utils';
+import type { SdkObject } from '../instrumentation';
 
 export class WebKit extends BrowserType {
-  constructor(playwrightOptions: PlaywrightOptions) {
-    super('webkit', playwrightOptions);
+  constructor(parent: SdkObject) {
+    super(parent, 'webkit');
   }
 
   _connectToTransport(transport: ConnectionTransport, options: BrowserOptions): Promise<WKBrowser> {
-    return WKBrowser.connect(transport, options);
+    return WKBrowser.connect(this.attribution.playwright, transport, options);
   }
 
   _amendEnvironment(env: Env, userDataDir: string, executable: string, browserArguments: string[]): Env {
@@ -75,7 +76,9 @@ export class WebKit extends BrowserType {
         if (proxy.bypass)
           webkitArguments.push(...proxy.bypass.split(',').map(t => `--ignore-host=${t}`));
       } else if (process.platform === 'win32') {
-        webkitArguments.push(`--curl-proxy=${proxy.server}`);
+        // Enable socks5 hostname resolution on Windows. Workaround can be removed once fixed upstream.
+        // See https://github.com/microsoft/playwright/issues/20451
+        webkitArguments.push(`--curl-proxy=${proxy.server.replace(/^socks5:\/\//, 'socks5h://')}`);
         if (proxy.bypass)
           webkitArguments.push(`--curl-noproxy=${proxy.bypass}`);
       }

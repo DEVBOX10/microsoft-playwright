@@ -23,10 +23,10 @@ const kRawReporterPath = path.join(__dirname, '..', '..', 'packages', 'playwrigh
 test('should generate raw report', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('passes', async ({ page }, testInfo) => {});
     `,
-  }, { reporter: 'dot,' + kRawReporterPath }, {}, { usesCustomOutputDir: true });
+  }, { reporter: 'dot,' + kRawReporterPath });
   const json = JSON.parse(fs.readFileSync(testInfo.outputPath('test-results', 'report', 'project.report'), 'utf-8'));
   expect(json.config).toBeTruthy();
   expect(json.project).toBeTruthy();
@@ -44,11 +44,11 @@ test('should use project name', async ({ runInlineTest }, testInfo) => {
       }
     `,
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('passes', async ({ page }, testInfo) => {});
     `,
-  }, { reporter: 'dot,' + kRawReporterPath }, {}, { usesCustomOutputDir: true });
-  const json = JSON.parse(fs.readFileSync(testInfo.outputPath('output', 'report', 'project-name.report'), 'utf-8'));
+  }, { reporter: 'dot,' + kRawReporterPath });
+  const json = JSON.parse(fs.readFileSync(testInfo.outputPath('output', 'report', 'project-name-656a9b.report'), 'utf-8'));
   expect(json.project.name).toBe('project-name');
   expect(result.exitCode).toBe(0);
 });
@@ -56,7 +56,7 @@ test('should use project name', async ({ runInlineTest }, testInfo) => {
 test('should save stdio', async ({ runInlineTest }, testInfo) => {
   await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('passes', async ({ page }, testInfo) => {
         console.log('STDOUT');
         process.stdout.write(Buffer.from([1, 2, 3]));
@@ -64,7 +64,7 @@ test('should save stdio', async ({ runInlineTest }, testInfo) => {
         process.stderr.write(Buffer.from([4, 5, 6]));
       });
     `,
-  }, { reporter: 'dot,' + kRawReporterPath }, {}, { usesCustomOutputDir: true });
+  }, { reporter: 'dot,' + kRawReporterPath });
   const json = JSON.parse(fs.readFileSync(testInfo.outputPath('test-results', 'report', 'project.report'), 'utf-8'));
   const result = json.suites[0].tests[0].results[0];
   expect(result.attachments).toEqual([
@@ -86,7 +86,7 @@ test('should save stdio', async ({ runInlineTest }, testInfo) => {
 test('should save attachments', async ({ runInlineTest }, testInfo) => {
   await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('passes', async ({ page }, testInfo) => {
         testInfo.attachments.push({
           name: 'binary',
@@ -100,7 +100,7 @@ test('should save attachments', async ({ runInlineTest }, testInfo) => {
         });
       });
     `,
-  }, { reporter: 'dot,' + kRawReporterPath }, {}, { usesCustomOutputDir: true });
+  }, { reporter: 'dot,' + kRawReporterPath });
   const json = JSON.parse(fs.readFileSync(testInfo.outputPath('test-results', 'report', 'project.report'), 'utf-8'));
   const result = json.suites[0].tests[0].results[0];
   expect(result.attachments[0].name).toBe('binary');
@@ -115,7 +115,7 @@ test(`testInfo.attach should save attachments via path`, async ({ runInlineTest 
     'a.test.js': `
       const path = require('path');
       const fs = require('fs');
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('infer contentType from path', async ({}, testInfo) => {
         const tmpPath = testInfo.outputPath('example.json');
         await fs.promises.writeFile(tmpPath, 'We <3 Playwright!');
@@ -148,7 +148,7 @@ test(`testInfo.attach should save attachments via path`, async ({ runInlineTest 
         await fs.promises.unlink(tmpPath);
       });
     `,
-  }, { reporter: 'dot,' + kRawReporterPath, workers: 1 }, {}, { usesCustomOutputDir: true });
+  }, { reporter: 'dot,' + kRawReporterPath, workers: 1 });
   const json = JSON.parse(fs.readFileSync(testInfo.outputPath('test-results', 'report', 'project.report'), 'utf-8'));
   {
     const result = json.suites[0].tests[0].results[0];
@@ -173,7 +173,7 @@ test(`testInfo.attach should save attachments via path`, async ({ runInlineTest 
     expect(result.attachments[0].name).toBe('example.png');
     expect(result.attachments[0].contentType).toBe('x-playwright/custom');
     const p = result.attachments[0].path;
-    expect(p).toMatch(/[/\\]attachments[/\\]example-png-[0-9a-f]+\.json$/);
+    expect(p).toMatch(/[/\\]attachments[/\\]example-png-[0-9a-f]{6}-[0-9a-f]+\.json$/);
     const contents = fs.readFileSync(p);
     expect(contents.toString()).toBe('We <3 Playwright!');
   }
@@ -193,7 +193,7 @@ test(`testInfo.attach should save attachments via inline attachment`, async ({ r
     'a.test.js': `
       const path = require('path');
       const fs = require('fs');
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('default contentType - string', async ({}, testInfo) => {
         await testInfo.attach('example.json', { body: 'We <3 Playwright!' });
       });
@@ -210,7 +210,7 @@ test(`testInfo.attach should save attachments via inline attachment`, async ({ r
         await testInfo.attach('example.json', { body: Buffer.from('We <3 Playwright!'), contentType: 'x-playwright/custom' });
       });
   `,
-  }, { reporter: 'dot,' + kRawReporterPath, workers: 1 }, {}, { usesCustomOutputDir: true });
+  }, { reporter: 'dot,' + kRawReporterPath, workers: 1 });
   const json = JSON.parse(fs.readFileSync(testInfo.outputPath('test-results', 'report', 'project.report'), 'utf-8'));
   {
     const result = json.suites[0].tests[0].results[0];
@@ -250,10 +250,10 @@ test('dupe project names', async ({ runInlineTest }, testInfo) => {
       }
     `,
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('passes', async ({ page }, testInfo) => {});
     `,
-  }, { reporter: 'dot,' + kRawReporterPath }, {}, { usesCustomOutputDir: true });
+  }, { reporter: 'dot,' + kRawReporterPath });
   const files = fs.readdirSync(testInfo.outputPath('test-results', 'report'));
-  expect(new Set(files)).toEqual(new Set(['project-name.report', 'project-name-1.report', 'project-name-2.report']));
+  expect(new Set(files)).toEqual(new Set(['project-name-656a9b.report', 'project-name-656a9b-1.report', 'project-name-656a9b-2.report']));
 });

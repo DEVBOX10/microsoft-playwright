@@ -36,13 +36,11 @@ import { ManualPromise } from '../utils/manualPromise';
 import { debugLogger } from '../common/debugLogger';
 import type { ImageComparatorOptions } from '../utils/comparators';
 import { getComparator } from '../utils/comparators';
-import type { SelectorInfo, Selectors } from './selectors';
 import type { CallMetadata } from './instrumentation';
 import { SdkObject } from './instrumentation';
 import type { Artifact } from './artifact';
 import type { TimeoutOptions } from '../common/types';
-import type { ParsedSelector } from './isomorphic/selectorParser';
-import { isInvalidSelectorError } from './isomorphic/selectorParser';
+import { isInvalidSelectorError } from '../utils/isomorphic/selectorParser';
 import { parseEvaluationResultValue, source } from './isomorphic/utilityScriptSerializers';
 import type { SerializedValue } from './isomorphic/utilityScriptSerializers';
 
@@ -80,7 +78,7 @@ export interface PageDelegate {
   getOwnerFrame(handle: dom.ElementHandle): Promise<string | null>; // Returns frameId.
   getContentQuads(handle: dom.ElementHandle): Promise<types.Quad[] | null>;
   setInputFiles(handle: dom.ElementHandle<HTMLInputElement>, files: types.FilePayload[]): Promise<void>;
-  setInputFilePaths(handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void>;
+  setInputFilePaths(progress: Progress, handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void>;
   getBoundingBox(handle: dom.ElementHandle): Promise<types.Rect | null>;
   getFrameElement(frame: frames.Frame): Promise<dom.ElementHandle>;
   scrollRectIntoViewIfNeeded(handle: dom.ElementHandle, rect?: types.Rect): Promise<'error:notvisible' | 'error:notconnected' | 'done'>;
@@ -96,6 +94,8 @@ export interface PageDelegate {
   inputActionEpilogue(): Promise<void>;
   // Work around for asynchronously dispatched CSP errors in Firefox.
   readonly cspErrorsAsynchronousForInlineScipts?: boolean;
+  // Work around for mouse position in Firefox.
+  resetForReuse(): Promise<void>;
 }
 
 type EmulatedSize = { screen: types.Size, viewport: types.Size };
@@ -123,8 +123,6 @@ export class Page extends SdkObject {
   static Events = {
     Close: 'close',
     Crash: 'crash',
-    Console: 'console',
-    Dialog: 'dialog',
     Download: 'download',
     FileChooser: 'filechooser',
     // Can't use just 'error' due to node.js special treatment of error events.
@@ -143,6 +141,7 @@ export class Page extends SdkObject {
   private _closedPromise = new ManualPromise<void>();
   private _disconnected = false;
   private _initialized = false;
+  private _eventsToEmitAfterInitialized: { event: string | symbol, args: any[] }[] = [];
   readonly _disconnectedPromise = new ManualPromise<Error>();
   readonly _crashedPromise = new ManualPromise<Error>();
   readonly _browserContext: BrowserContext;
@@ -166,7 +165,6 @@ export class Page extends SdkObject {
   _clientRequestInterceptor: network.RouteHandler | undefined;
   _serverRequestInterceptor: network.RouteHandler | undefined;
   _ownedContext: BrowserContext | undefined;
-  selectors: Selectors;
   _pageIsError: Error | undefined;
   _video: Artifact | null = null;
   _opener: Page | undefined;
@@ -191,7 +189,6 @@ export class Page extends SdkObject {
     if (delegate.pdf)
       this.pdf = delegate.pdf.bind(delegate);
     this.coverage = delegate.coverage ? delegate.coverage() : null;
-    this.selectors = browserContext.selectors();
   }
 
   async initOpener(opener: PageDelegate | null) {
@@ -212,12 +209,18 @@ export class Page extends SdkObject {
     }
     this._initialized = true;
     this.emitOnContext(contextEvent, this);
-    // I may happen that page initialization finishes after Close event has already been sent,
+
+    for (const { event, args } of this._eventsToEmitAfterInitialized)
+      this._browserContext.emit(event, ...args);
+    this._eventsToEmitAfterInitialized = [];
+
+    // It may happen that page initialization finishes after Close event has already been sent,
     // in that case we fire another Close event to ensure that each reported Page will have
     // corresponding Close event after it is reported on the context.
     if (this.isClosed())
       this.emit(Page.Events.Close);
-    this.instrumentation.onPageOpen(this);
+    else
+      this.instrumentation.onPageOpen(this);
   }
 
   initializedOrUndefined() {
@@ -228,6 +231,19 @@ export class Page extends SdkObject {
     if (this._isServerSideOnly)
       return;
     this._browserContext.emit(event, ...args);
+  }
+
+  emitOnContextOnceInitialized(event: string | symbol, ...args: any[]) {
+    if (this._isServerSideOnly)
+      return;
+    // Some events, like console messages, may come before page is ready.
+    // In this case, postpone the event until page is initialized,
+    // and dispatch it to the client later, either on the live Page,
+    // or on the "errored" Page.
+    if (this._initialized)
+      this._browserContext.emit(event, ...args);
+    else
+      this._eventsToEmitAfterInitialized.push({ event, args });
   }
 
   async resetForReuse(metadata: CallMetadata) {
@@ -247,17 +263,12 @@ export class Page extends SdkObject {
     this._interceptFileChooser = false;
 
     await Promise.all([
-      this._delegate.updateEmulatedViewportSize(true),
+      this._delegate.updateEmulatedViewportSize(),
       this._delegate.updateEmulateMedia(),
       this._delegate.updateFileChooserInterception(),
     ]);
-  }
 
-  async _doSlowMo() {
-    const slowMo = this._browserContext._browser.options.slowMo;
-    if (!slowMo)
-      return;
-    await new Promise(x => setTimeout(x, slowMo));
+    await this._delegate.resetForReuse();
   }
 
   _didClose() {
@@ -362,10 +373,11 @@ export class Page extends SdkObject {
   _addConsoleMessage(type: string, args: js.JSHandle[], location: types.ConsoleMessageLocation, text?: string) {
     const message = new ConsoleMessage(this, type, text, args, location);
     const intercepted = this._frameManager.interceptConsoleMessage(message);
-    if (intercepted || !this.listenerCount(Page.Events.Console))
+    if (intercepted) {
       args.forEach(arg => arg.dispose());
-    else
-      this.emit(Page.Events.Console, message);
+      return;
+    }
+    this.emitOnContextOnceInitialized(BrowserContext.Events.Console, message);
   }
 
   async reload(metadata: CallMetadata, options: types.NavigateOptions): Promise<network.Response | null> {
@@ -378,7 +390,6 @@ export class Page extends SdkObject {
         this.mainFrame()._waitForNavigation(progress, true /* requiresNewDocument */, options),
         this._delegate.reload(),
       ]);
-      await this._doSlowMo();
       return response;
     }), this._timeoutSettings.navigationTimeout(options));
   }
@@ -399,7 +410,6 @@ export class Page extends SdkObject {
       const response = await waitPromise;
       if (error)
         throw error;
-      await this._doSlowMo();
       return response;
     }), this._timeoutSettings.navigationTimeout(options));
   }
@@ -420,7 +430,6 @@ export class Page extends SdkObject {
       const response = await waitPromise;
       if (error)
         throw error;
-      await this._doSlowMo();
       return response;
     }), this._timeoutSettings.navigationTimeout(options));
   }
@@ -436,7 +445,6 @@ export class Page extends SdkObject {
       this._emulatedMedia.forcedColors = options.forcedColors;
 
     await this._delegate.updateEmulateMedia();
-    await this._doSlowMo();
   }
 
   emulatedMedia(): EmulatedMedia {
@@ -452,7 +460,6 @@ export class Page extends SdkObject {
   async setViewportSize(viewportSize: types.Size) {
     this._emulatedSize = { viewport: { ...viewportSize }, screen: { ...viewportSize } };
     await this._delegate.updateEmulatedViewportSize();
-    await this._doSlowMo();
   }
 
   viewportSize(): types.Size | null {
@@ -624,6 +631,10 @@ export class Page extends SdkObject {
     return this._closedState === 'closed';
   }
 
+  isClosedOrClosingOrCrashed() {
+    return this._closedState !== 'open' || this._crashedPromise.isDone();
+  }
+
   _addWorker(workerId: string, worker: Worker) {
     this._workers.set(workerId, worker);
     this.emit(Page.Events.Worker, worker);
@@ -689,11 +700,6 @@ export class Page extends SdkObject {
     this.emit(Page.Events.PageError, error);
   }
 
-  parseSelector(selector: string | ParsedSelector, options?: types.StrictOptions): SelectorInfo {
-    const strict = typeof options?.strict === 'boolean' ? options.strict : !!this.context()._options.strictSelectors;
-    return this.selectors.parseSelector(selector, strict);
-  }
-
   async hideHighlight() {
     await Promise.all(this.frames().map(frame => frame.hideHighlight().catch(() => {})));
   }
@@ -721,7 +727,7 @@ export class Worker extends SdkObject {
   }
 
   _createExecutionContext(delegate: js.ExecutionContextDelegate) {
-    this._existingExecutionContext = new js.ExecutionContext(this, delegate);
+    this._existingExecutionContext = new js.ExecutionContext(this, delegate, 'worker');
     this._executionContextCallback(this._existingExecutionContext);
   }
 
@@ -736,11 +742,11 @@ export class Worker extends SdkObject {
   }
 
   async evaluateExpression(expression: string, isFunction: boolean | undefined, arg: any): Promise<any> {
-    return js.evaluateExpression(await this._executionContextPromise, true /* returnByValue */, expression, isFunction, arg);
+    return js.evaluateExpression(await this._executionContextPromise, expression, { returnByValue: true, isFunction }, arg);
   }
 
   async evaluateExpressionHandle(expression: string, isFunction: boolean | undefined, arg: any): Promise<any> {
-    return js.evaluateExpression(await this._executionContextPromise, false /* returnByValue */, expression, isFunction, arg);
+    return js.evaluateExpression(await this._executionContextPromise, expression, { returnByValue: false, isFunction }, arg);
   }
 }
 
@@ -835,9 +841,12 @@ function addPageBinding(bindingName: string, needsHandle: boolean, utilityScript
       handles.set(seq, args[0]);
       payload = { name: bindingName, seq };
     } else {
-      const serializedArgs = args.map(a => utilityScriptSerializers.serializeAsCallArgument(a, v => {
-        return { fallThrough: v };
-      }));
+      const serializedArgs = [];
+      for (let i = 0; i < args.length; i++) {
+        serializedArgs[i] = utilityScriptSerializers.serializeAsCallArgument(args[i], v => {
+          return { fallThrough: v };
+        });
+      }
       payload = { name: bindingName, seq, serializedArgs };
     }
     binding(JSON.stringify(payload));

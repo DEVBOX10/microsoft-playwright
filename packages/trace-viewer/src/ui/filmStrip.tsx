@@ -17,18 +17,17 @@
 import './filmStrip.css';
 import type { Boundaries, Size } from '../geometry';
 import * as React from 'react';
-import { useMeasure } from './helpers';
-import { upperBound } from '@web/uiUtils';
+import { useMeasure, upperBound } from '@web/uiUtils';
 import type { PageEntry } from '../entries';
 import type { MultiTraceModel } from './modelUtil';
 
 const tileSize = { width: 200, height: 45 };
 
 export const FilmStrip: React.FunctionComponent<{
-  context: MultiTraceModel,
+  model?: MultiTraceModel,
   boundaries: Boundaries,
   previewPoint?: { x: number, clientY: number },
-}> = ({ context, boundaries, previewPoint }) => {
+}> = ({ model, boundaries, previewPoint }) => {
   const [measure, ref] = useMeasure<HTMLDivElement>();
 
   let pageIndex = 0;
@@ -37,7 +36,7 @@ export const FilmStrip: React.FunctionComponent<{
     pageIndex = ((previewPoint.clientY - bounds.top) / tileSize.height) | 0;
   }
 
-  const screencastFrames = context.pages[pageIndex]?.screencastFrames;
+  const screencastFrames = model?.pages?.[pageIndex]?.screencastFrames;
   let previewImage = undefined;
   let previewSize = undefined;
   if (previewPoint !== undefined && screencastFrames) {
@@ -48,7 +47,7 @@ export const FilmStrip: React.FunctionComponent<{
   }
 
   return <div className='film-strip' ref={ref}>{
-    context.pages.filter(p => p.screencastFrames.length).map((page, index) => <FilmStripLane
+    model?.pages.filter(p => p.screencastFrames.length).map((page, index) => <FilmStripLane
       boundaries={boundaries}
       page={page}
       width={measure.width}

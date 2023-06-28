@@ -19,22 +19,19 @@ import fs from 'fs';
 import path from 'path';
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
-import { isSafeCloseError } from '../common/errors';
-import { urlMatches } from '../common/netUtils';
+import { isSafeCloseError, kBrowserOrContextClosedError } from '../common/errors';
+import { urlMatches } from '../utils/network';
 import { TimeoutSettings } from '../common/timeoutSettings';
 import type * as channels from '@protocol/channels';
 import { parseError, serializeError } from '../protocol/serializers';
-import { assert, headersObjectToArray, isObject, isRegExp, isString } from '../utils';
+import { assert, headersObjectToArray, isObject, isRegExp, isString, ScopedRace, urlMatchesEqual } from '../utils';
 import { mkdirIfNeeded } from '../utils/fileUtils';
-import type { ParsedStackTrace } from '../utils/stackTrace';
 import { Accessibility } from './accessibility';
 import { Artifact } from './artifact';
 import type { BrowserContext } from './browserContext';
 import { ChannelOwner } from './channelOwner';
 import { evaluationScript } from './clientHelper';
-import { ConsoleMessage } from './consoleMessage';
 import { Coverage } from './coverage';
-import { Dialog } from './dialog';
 import { Download } from './download';
 import { determineScreenshotType, ElementHandle } from './elementHandle';
 import { Events } from './events';
@@ -42,17 +39,16 @@ import type { APIRequestContext } from './fetch';
 import { FileChooser } from './fileChooser';
 import type { WaitForNavigationOptions } from './frame';
 import { Frame, verifyLoadState } from './frame';
-import { HarRouter } from './harRouter';
 import { Keyboard, Mouse, Touchscreen } from './input';
 import { assertMaxArguments, JSHandle, parseResult, serializeArgument } from './jsHandle';
-import type { ByRoleOptions, FrameLocator, Locator, LocatorOptions } from './locator';
-import type { RouteHandlerCallback } from './network';
-import { Response, Route, RouteHandler, validateHeaders, WebSocket } from './network';
-import type { Request } from './network';
+import type { FrameLocator, Locator, LocatorOptions } from './locator';
+import type { ByRoleOptions } from '../utils/isomorphic/locatorUtils';
+import { type RouteHandlerCallback, type Request, Response, Route, RouteHandler, validateHeaders, WebSocket } from './network';
 import type { FilePayload, Headers, LifecycleEvent, SelectOption, SelectOptionOptions, Size, URLMatch, WaitForEventOptions, WaitForFunctionOptions } from './types';
 import { Video } from './video';
 import { Waiter } from './waiter';
 import { Worker } from './worker';
+import { HarRouter } from './harRouter';
 
 type PDFOptions = Omit<channels.PagePdfParams, 'width' | 'height' | 'margin'> & {
   width?: string | number,
@@ -65,7 +61,6 @@ type PDFOptions = Omit<channels.PagePdfParams, 'width' | 'height' | 'margin'> & 
   },
   path?: string,
 };
-type Listener = (...args: any[]) => void;
 
 type ExpectScreenshotOptions = Omit<channels.PageExpectScreenshotOptions, 'screenshotOptions' | 'locator' | 'expected'> & {
   expected?: Buffer,
@@ -83,7 +78,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
   private _frames = new Set<Frame>();
   _workers = new Set<Worker>();
   private _closed = false;
-  _closedOrCrashedPromise: Promise<void>;
+  readonly _closedOrCrashedRace = new ScopedRace();
   private _viewportSize: Size | null;
   private _routes: RouteHandler[] = [];
 
@@ -127,17 +122,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
     this._channel.on('bindingCall', ({ binding }) => this._onBinding(BindingCall.from(binding)));
     this._channel.on('close', () => this._onClose());
-    this._channel.on('console', ({ message }) => this.emit(Events.Page.Console, ConsoleMessage.from(message)));
     this._channel.on('crash', () => this._onCrash());
-    this._channel.on('dialog', ({ dialog }) => {
-      const dialogObj = Dialog.from(dialog);
-      if (!this.emit(Events.Page.Dialog, dialogObj)) {
-        if (dialogObj.type() === 'beforeunload')
-          dialog.accept({}).catch(() => {});
-        else
-          dialog.dismiss().catch(() => {});
-      }
-    });
     this._channel.on('download', ({ url, suggestedFilename, artifact }) => {
       const artifactObject = Artifact.from(artifact);
       this.emit(Events.Page.Download, new Download(this, url, suggestedFilename, artifactObject));
@@ -156,10 +141,18 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
     this.coverage = new Coverage(this._channel);
 
-    this._closedOrCrashedPromise = Promise.race([
-      new Promise<void>(f => this.once(Events.Page.Close, f)),
-      new Promise<void>(f => this.once(Events.Page.Crash, f)),
-    ]);
+    this.once(Events.Page.Close, () => this._closedOrCrashedRace.scopeClosed(new Error(kBrowserOrContextClosedError)));
+    this.once(Events.Page.Crash, () => this._closedOrCrashedRace.scopeClosed(new Error(kBrowserOrContextClosedError)));
+
+    this._setEventToSubscriptionMapping(new Map<string, channels.PageUpdateSubscriptionParams['event']>([
+      [Events.Page.Console, 'console'],
+      [Events.Page.Dialog, 'dialog'],
+      [Events.Page.Request, 'request'],
+      [Events.Page.Response, 'response'],
+      [Events.Page.RequestFinished, 'requestFinished'],
+      [Events.Page.RequestFailed, 'requestFailed'],
+      [Events.Page.FileChooser, 'fileChooser'],
+    ]));
   }
 
   private _onFrameAttached(frame: Frame) {
@@ -187,7 +180,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
         this._routes.splice(this._routes.indexOf(routeHandler), 1);
       const handled = await routeHandler.handle(route);
       if (!this._routes.length)
-        this._wrapApiCall(() => this._disableInterception(), true).catch(() => {});
+        this._wrapApiCall(() => this._updateInterceptionPatterns(), true).catch(() => {});
       if (handled)
         return;
     }
@@ -452,11 +445,10 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   async route(url: URLMatch, handler: RouteHandlerCallback, options: { times?: number } = {}): Promise<void> {
     this._routes.unshift(new RouteHandler(this._browserContext._options.baseURL, url, handler, options.times));
-    if (this._routes.length === 1)
-      await this._channel.setNetworkInterceptionEnabled({ enabled: true });
+    await this._updateInterceptionPatterns();
   }
 
-  async routeFromHAR(har: string, options: { url?: string | RegExp, notFound?: 'abort' | 'fallback', update?: boolean } = {}): Promise<void> {
+  async routeFromHAR(har: string, options: { url?: string | RegExp, notFound?: 'abort' | 'fallback', update?: boolean, updateContent?: 'attach' | 'embed', updateMode?: 'minimal' | 'full'} = {}): Promise<void> {
     if (options.update) {
       await this._browserContext._recordIntoHAR(har, this, options);
       return;
@@ -466,13 +458,13 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
   }
 
   async unroute(url: URLMatch, handler?: RouteHandlerCallback): Promise<void> {
-    this._routes = this._routes.filter(route => route.url !== url || (handler && route.handler !== handler));
-    if (!this._routes.length)
-      await this._disableInterception();
+    this._routes = this._routes.filter(route => !urlMatchesEqual(route.url, url) || (handler && route.handler !== handler));
+    await this._updateInterceptionPatterns();
   }
 
-  private async _disableInterception() {
-    await this._channel.setNetworkInterceptionEnabled({ enabled: false });
+  private async _updateInterceptionPatterns() {
+    const patterns = RouteHandler.prepareInterceptionPatterns(this._routes);
+    await this._channel.setNetworkInterceptionPatterns({ patterns });
   }
 
   async screenshot(options: Omit<channels.PageScreenshotOptions, 'mask'> & { path?: string, mask?: Locator[] } = {}): Promise<Buffer> {
@@ -493,26 +485,24 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return result.binary;
   }
 
-  async _expectScreenshot(customStackTrace: ParsedStackTrace, options: ExpectScreenshotOptions): Promise<{ actual?: Buffer, previous?: Buffer, diff?: Buffer, errorMessage?: string, log?: string[]}> {
-    return this._wrapApiCall(async () => {
-      const mask = options.screenshotOptions?.mask ? options.screenshotOptions?.mask.map(locator => ({
-        frame: locator._frame._channel,
-        selector: locator._selector,
-      })) : undefined;
-      const locator = options.locator ? {
-        frame: options.locator._frame._channel,
-        selector: options.locator._selector,
-      } : undefined;
-      return await this._channel.expectScreenshot({
-        ...options,
-        isNot: !!options.isNot,
-        locator,
-        screenshotOptions: {
-          ...options.screenshotOptions,
-          mask,
-        }
-      });
-    }, false /* isInternal */, customStackTrace);
+  async _expectScreenshot(options: ExpectScreenshotOptions): Promise<{ actual?: Buffer, previous?: Buffer, diff?: Buffer, errorMessage?: string, log?: string[]}> {
+    const mask = options.screenshotOptions?.mask ? options.screenshotOptions?.mask.map(locator => ({
+      frame: locator._frame._channel,
+      selector: locator._selector,
+    })) : undefined;
+    const locator = options.locator ? {
+      frame: options.locator._frame._channel,
+      selector: options.locator._selector,
+    } : undefined;
+    return await this._channel.expectScreenshot({
+      ...options,
+      isNot: !!options.isNot,
+      locator,
+      screenshotOptions: {
+        ...options.screenshotOptions,
+        mask,
+      }
+    });
   }
 
   async title(): Promise<string> {
@@ -530,7 +520,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
       else
         await this._channel.close(options);
     } catch (e) {
-      if (isSafeCloseError(e))
+      if (isSafeCloseError(e) && !options.runBeforeUnload)
         return;
       throw e;
     }
@@ -560,15 +550,11 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return this._mainFrame.fill(selector, value, options);
   }
 
-  async clear(selector: string, options?: channels.FrameFillOptions) {
-    return this.fill(selector, '', options);
-  }
-
   locator(selector: string, options?: LocatorOptions): Locator {
     return this.mainFrame().locator(selector, options);
   }
 
-  getByTestId(testId: string): Locator {
+  getByTestId(testId: string | RegExp): Locator {
     return this.mainFrame().getByTestId(testId);
   }
 
@@ -692,44 +678,17 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return [...this._workers];
   }
 
-  override on(event: string | symbol, listener: Listener): this {
-    if (event === Events.Page.FileChooser && !this.listenerCount(event))
-      this._channel.setFileChooserInterceptedNoReply({ intercepted: true });
-    super.on(event, listener);
-    return this;
-  }
-
-  override addListener(event: string | symbol, listener: Listener): this {
-    if (event === Events.Page.FileChooser && !this.listenerCount(event))
-      this._channel.setFileChooserInterceptedNoReply({ intercepted: true });
-    super.addListener(event, listener);
-    return this;
-  }
-
-  override prependListener(event: string | symbol, listener: Listener): this {
-    if (event === Events.Page.FileChooser && !this.listenerCount(event))
-      this._channel.setFileChooserInterceptedNoReply({ intercepted: true });
-    super.prependListener(event, listener);
-    return this;
-  }
-
-  override off(event: string | symbol, listener: Listener): this {
-    super.off(event, listener);
-    if (event === Events.Page.FileChooser && !this.listenerCount(event))
-      this._channel.setFileChooserInterceptedNoReply({ intercepted: false });
-    return this;
-  }
-
-  override removeListener(event: string | symbol, listener: Listener): this {
-    super.removeListener(event, listener);
-    if (event === Events.Page.FileChooser && !this.listenerCount(event))
-      this._channel.setFileChooserInterceptedNoReply({ intercepted: false });
-    return this;
-  }
-
   async pause() {
-    if (!require('inspector').url())
-      await this.context()._channel.pause();
+    if (require('inspector').url())
+      return;
+    const defaultNavigationTimeout = this._browserContext._timeoutSettings.defaultNavigationTimeout();
+    const defaultTimeout = this._browserContext._timeoutSettings.defaultTimeout();
+    this._browserContext.setDefaultNavigationTimeout(0);
+    this._browserContext.setDefaultTimeout(0);
+    this._instrumentation?.onWillPause();
+    await this._closedOrCrashedRace.safeRace(this.context()._channel.pause());
+    this._browserContext.setDefaultNavigationTimeout(defaultNavigationTimeout);
+    this._browserContext.setDefaultTimeout(defaultTimeout);
   }
 
   async pdf(options: PDFOptions = {}): Promise<Buffer> {

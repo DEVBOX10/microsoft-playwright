@@ -1,10 +1,10 @@
 ---
 id: chrome-extensions
-title: "Chrome Extensions"
+title: "Chrome extensions"
 ---
 
 :::note
-Extensions only work in Chrome / Chromium in non-headless mode, launched with a persistent context.
+Extensions only work in Chrome / Chromium launched with a persistent context.
 :::
 
 The following is code for getting a handle to the [background page](https://developer.chrome.com/extensions/background_pages) of a [Manifest v2](https://developer.chrome.com/docs/extensions/mv2/) extension whose source is located in `./my-extension`:
@@ -99,17 +99,19 @@ with sync_playwright() as playwright:
 
 To have the extension loaded when running tests you can use a test fixture to set the context. You can also dynamically retrieve the extension id and use it to load and test the popup page for example.
 
-```ts
-import { test as base, expect, BrowserContext } from "@playwright/test";
-import path from "path";
+First, add fixtures that will load the extension:
+
+```js title="fixtures.ts"
+import { test as base, expect, chromium, type BrowserContext } from '@playwright/test';
+import path from 'path';
 
 export const test = base.extend<{
   context: BrowserContext;
   extensionId: string;
 }>({
   context: async ({ }, use) => {
-    const pathToExtension = path.join(__dirname, "my-extension");
-    const context = await chromium.launchPersistentContext("", {
+    const pathToExtension = path.join(__dirname, 'my-extension');
+    const context = await chromium.launchPersistentContext('', {
       headless: false,
       args: [
         `--disable-extensions-except=${pathToExtension}`,
@@ -124,32 +126,22 @@ export const test = base.extend<{
     // for manifest v2:
     let [background] = context.backgroundPages()
     if (!background)
-      background = await context.waitForEvent("backgroundpage")
+      background = await context.waitForEvent('backgroundpage')
     */
 
     // for manifest v3:
     let [background] = context.serviceWorkers();
     if (!background)
-      background = await context.waitForEvent("serviceworker");
+      background = await context.waitForEvent('serviceworker');
 
-    const extensionId = background.url().split("/")[2];
+    const extensionId = background.url().split('/')[2];
     await use(extensionId);
   },
 });
-
-test("example test", async ({ page }) => {
-  await page.goto("https://example.com");
-  await expect(page.locator("body")).toHaveText("Changed by my-extension");
-});
-
-test("popup page", async ({ page, extensionId }) => {
-  await page.goto(`chrome-extension://${extensionId}/popup.html`);
-  await expect(page.locator("body")).toHaveText("my-extension popup");
-});
+export const expect = test.expect;
 ```
 
-```py
-# conftest.py
+```python title="conftest.py"
 from typing import Generator
 from pathlib import Path
 from playwright.sync_api import Playwright, BrowserContext
@@ -188,8 +180,23 @@ def extension_id(context) -> Generator[str, None, None]:
 
 ```
 
-```py
-# test_foo.py
+Then use these fixtures in a test:
+
+```js
+import { test, expect } from './fixtures';
+
+test('example test', async ({ page }) => {
+  await page.goto('https://example.com');
+  await expect(page.locator('body')).toHaveText('Changed by my-extension');
+});
+
+test('popup page', async ({ page, extensionId }) => {
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await expect(page.locator('body')).toHaveText('my-extension popup');
+});
+```
+
+```python title="test_foo.py"
 from playwright.sync_api import expect, Page
 
 
@@ -201,4 +208,36 @@ def test_example_test(page: Page) -> None:
 def test_popup_page(page: Page, extension_id: str) -> None:
     page.goto(f"chrome-extension://{extension_id}/popup.html")
     expect(page.locator("body")).to_have_text("my-extension popup")
+```
+
+## Headless mode
+
+By default, Chrome's headless mode in Playwright does not support Chrome extensions. To overcome this limitation, you can run Chrome's persistent context with a new headless mode by using the following code:
+
+```js title="fixtures.ts"
+// ...
+
+const pathToExtension = path.join(__dirname, 'my-extension');
+const context = await chromium.launchPersistentContext('', {
+  headless: false,
+  args: [
+    `--headless=new`, // the new headless arg for chrome v109+. Use '--headless=chrome' as arg for browsers v94-108.
+    `--disable-extensions-except=${pathToExtension}`,
+    `--load-extension=${pathToExtension}`,
+  ],
+});
+// ...
+```
+
+```python title="conftest.py"
+path_to_extension = Path(__file__).parent.joinpath("my-extension")
+context = playwright.chromium.launch_persistent_context(
+    "",
+    headless=False,
+    args=[
+        "--headless=new", # the new headless arg for chrome v109+. Use '--headless=chrome' as arg for browsers v94-108.
+        f"--disable-extensions-except={path_to_extension}",
+        f"--load-extension={path_to_extension}",
+    ],
+)
 ```

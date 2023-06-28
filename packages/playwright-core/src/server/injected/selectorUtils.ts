@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-import { type AttributeSelectorPart } from '../isomorphic/selectorParser';
+import type { AttributeSelectorPart } from '../../utils/isomorphic/selectorParser';
+import { getAriaLabelledByElements } from './roleUtils';
 
 export function matchesComponentAttribute(obj: any, attr: AttributeSelectorPart) {
   for (const token of attr.jsonPath) {
@@ -50,39 +51,8 @@ export function matchesAttributePart(value: any, attr: AttributeSelectorPart) {
   return false;
 }
 
-
-export function createLaxTextMatcher(text: string): TextMatcher {
-  text = text.trim().replace(/\s+/g, ' ').toLowerCase();
-  return (elementText: ElementText) => {
-    const s = elementText.full.trim().replace(/\s+/g, ' ').toLowerCase();
-    return s.includes(text);
-  };
-}
-
-export function createStrictTextMatcher(text: string): TextMatcher {
-  text = text.trim().replace(/\s+/g, ' ');
-  return (elementText: ElementText) => {
-    if (!text && !elementText.immediate.length)
-      return true;
-    return elementText.immediate.some(s => s.trim().replace(/\s+/g, ' ') === text);
-  };
-}
-
-export function createStrictFullTextMatcher(text: string): TextMatcher {
-  text = text.trim().replace(/\s+/g, ' ');
-  return (elementText: ElementText) => {
-    return elementText.full.trim().replace(/\s+/g, ' ') === text;
-  };
-}
-
-export function createRegexTextMatcher(source: string, flags?: string): TextMatcher {
-  const re = new RegExp(source, flags);
-  return (elementText: ElementText) => {
-    return re.test(elementText.full);
-  };
-}
-
 export function shouldSkipForTextMatching(element: Element | ShadowRoot) {
+  const document = element.ownerDocument;
   return element.nodeName === 'SCRIPT' || element.nodeName === 'NOSCRIPT' || element.nodeName === 'STYLE' || document.head && document.head.contains(element);
 }
 
@@ -133,4 +103,22 @@ export function elementMatchesText(cache: Map<Element | ShadowRoot, ElementText>
   if (element.shadowRoot && matcher(elementText(cache, element.shadowRoot)))
     return 'selfAndChildren';
   return 'self';
+}
+
+export function getElementLabels(textCache: Map<Element | ShadowRoot, ElementText>, element: Element): ElementText[] {
+  const labels = getAriaLabelledByElements(element);
+  if (labels)
+    return labels.map(label => elementText(textCache, label));
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel !== null && !!ariaLabel.trim())
+    return [{ full: ariaLabel, immediate: [ariaLabel] }];
+
+  // https://html.spec.whatwg.org/multipage/forms.html#category-label
+  const isNonHiddenInput = element.nodeName === 'INPUT' && (element as HTMLInputElement).type !== 'hidden';
+  if (['BUTTON', 'METER', 'OUTPUT', 'PROGRESS', 'SELECT', 'TEXTAREA'].includes(element.nodeName) || isNonHiddenInput) {
+    const labels = (element as HTMLInputElement).labels;
+    if (labels)
+      return [...labels].map(label => elementText(textCache, label));
+  }
+  return [];
 }

@@ -4,8 +4,9 @@
 
 "use strict";
 
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
+const {Helper, EventWatcher} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
+const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
 const {NetworkObserver, PageNetwork} = ChromeUtils.import('chrome://juggler/content/NetworkObserver.js');
 const {PageTarget} = ChromeUtils.import('chrome://juggler/content/TargetRegistry.js');
 const {setTimeout} = ChromeUtils.import('resource://gre/modules/Timer.jsm');
@@ -79,6 +80,9 @@ class PageHandler {
       return (...args) => this._session.emitEvent(eventName, ...args);
     }
 
+    this._isDragging = false;
+    this._lastMousePosition = { x: 0, y: 0 };
+
     this._reportedFrameIds = new Set();
     this._networkEventsForUnreportedFrameIds = new Map();
 
@@ -92,6 +96,10 @@ class PageHandler {
     if (this._pageTarget.videoRecordingInfo())
       this._onVideoRecordingStarted();
 
+    this._pageEventSink = {};
+    helper.decorateAsEventEmitter(this._pageEventSink);
+
+    this._pendingEventWatchers = new Set();
     this._eventListeners = [
       helper.on(this._pageTarget, PageTarget.Events.DialogOpened, this._onDialogOpened.bind(this)),
       helper.on(this._pageTarget, PageTarget.Events.DialogClosed, this._onDialogClosed.bind(this)),
@@ -117,6 +125,7 @@ class PageHandler {
         pageNavigationCommitted: emitProtocolEvent('Page.navigationCommitted'),
         pageNavigationStarted: emitProtocolEvent('Page.navigationStarted'),
         pageReady: this._onPageReady.bind(this),
+        pageInputEvent: (event) => this._pageEventSink.emit(event.type, event),
         pageSameDocumentNavigation: emitProtocolEvent('Page.sameDocumentNavigation'),
         pageUncaughtError: emitProtocolEvent('Page.uncaughtError'),
         pageWorkerCreated: this._onWorkerCreated.bind(this),
@@ -129,10 +138,11 @@ class PageHandler {
               return;
             }
           }
-          emitProtocolEvent('Runtime.console')(params);
+          this._session.emitEvent('Runtime.console', params);
         },
         runtimeExecutionContextCreated: emitProtocolEvent('Runtime.executionContextCreated'),
         runtimeExecutionContextDestroyed: emitProtocolEvent('Runtime.executionContextDestroyed'),
+        runtimeExecutionContextsCleared: emitProtocolEvent('Runtime.executionContextsCleared'),
 
         webSocketCreated: emitProtocolEvent('Page.webSocketCreated'),
         webSocketOpened: emitProtocolEvent('Page.webSocketOpened'),
@@ -145,6 +155,8 @@ class PageHandler {
 
   async dispose() {
     this._contentPage.dispose();
+    for (const watcher of this._pendingEventWatchers)
+      watcher.dispose();
     helper.removeListeners(this._eventListeners);
   }
 
@@ -288,15 +300,15 @@ class PageHandler {
   }
 
   async ['Page.bringToFront'](options) {
-    this._pageTarget._window.focus();
+    await this._pageTarget.activateAndRun(() => {});
   }
 
   async ['Page.setCacheDisabled'](options) {
     return await this._contentPage.send('setCacheDisabled', options);
   }
 
-  async ['Page.addBinding'](options) {
-    return await this._contentPage.send('addBinding', options);
+  async ['Page.addBinding']({ worldName, name, script }) {
+    return await this._pageTarget.addBinding(worldName, name, script);
   }
 
   async ['Page.adoptNode'](options) {
@@ -354,20 +366,74 @@ class PageHandler {
     return await this._contentPage.send('getContentQuads', options);
   }
 
-  async ['Page.navigate'](options) {
-    return await this._contentPage.send('navigate', options);
+  async ['Page.navigate']({frameId, url, referer}) {
+    const browsingContext = this._pageTarget.frameIdToBrowsingContext(frameId);
+    let sameDocumentNavigation = false;
+    try {
+      const uri = NetUtil.newURI(url);
+      // This is the same check that verifes browser-side if this is the same-document navigation.
+      // See CanonicalBrowsingContext::SupportsLoadingInParent.
+      sameDocumentNavigation = browsingContext.currentURI && uri.hasRef && uri.equalsExceptRef(browsingContext.currentURI);
+    } catch (e) {
+      throw new Error(`Invalid url: "${url}"`);
+    }
+    let referrerURI = null;
+    let referrerInfo = null;
+    if (referer) {
+      try {
+        referrerURI = NetUtil.newURI(referer);
+        const ReferrerInfo = Components.Constructor(
+          '@mozilla.org/referrer-info;1',
+          'nsIReferrerInfo',
+          'init'
+        );
+        referrerInfo = new ReferrerInfo(Ci.nsIHttpChannel.REFERRER_POLICY_UNSET, true, referrerURI);
+      } catch (e) {
+        throw new Error(`Invalid referer: "${referer}"`);
+      }
+    }
+
+    let navigationId;
+    const unsubscribe = helper.addObserver((browsingContext, topic, loadIdentifier) => {
+      navigationId = helper.toProtocolNavigationId(loadIdentifier);
+    }, 'juggler-navigation-started-browser');
+    browsingContext.loadURI(Services.io.newURI(url), {
+      triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+      loadFlags: Ci.nsIWebNavigation.LOAD_FLAGS_IS_LINK,
+      referrerInfo,
+      // postData: null,
+      // headers: null,
+      // Fake user activation.
+      hasValidUserGestureActivation: true,
+    });
+    unsubscribe();
+
+    return {
+      navigationId: sameDocumentNavigation ? null : navigationId,
+    };
   }
 
-  async ['Page.goBack'](options) {
-    return await this._contentPage.send('goBack', options);
+  async ['Page.goBack']({}) {
+    const browsingContext = this._pageTarget.linkedBrowser().browsingContext;
+    if (!browsingContext.embedderElement?.canGoBack)
+      return { success: false };
+    browsingContext.goBack();
+    return { success: true };
   }
 
-  async ['Page.goForward'](options) {
-    return await this._contentPage.send('goForward', options);
+  async ['Page.goForward']({}) {
+    const browsingContext = this._pageTarget.linkedBrowser().browsingContext;
+    if (!browsingContext.embedderElement?.canGoForward)
+      return { success: false };
+    browsingContext.goForward();
+    return { success: true };
   }
 
-  async ['Page.reload'](options) {
-    return await this._contentPage.send('reload', options);
+  async ['Page.reload']() {
+    await this._pageTarget.activateAndRun(() => {
+      const doc = this._pageTarget._tab.linkedBrowser.ownerDocument;
+      doc.getElementById('Browser:Reload').doCommand();
+    });
   }
 
   async ['Page.describeNode'](options) {
@@ -382,8 +448,22 @@ class PageHandler {
     return await this._pageTarget.setInitScripts(scripts);
   }
 
-  async ['Page.dispatchKeyEvent'](options) {
-    return await this._contentPage.send('dispatchKeyEvent', options);
+  async ['Page.dispatchKeyEvent']({type, keyCode, code, key, repeat, location, text}) {
+    // key events don't fire if we are dragging.
+    if (this._isDragging) {
+      if (type === 'keydown' && key === 'Escape') {
+        await this._contentPage.send('dispatchDragEvent', {
+          type: 'dragover',
+          x: this._lastMousePosition.x,
+          y: this._lastMousePosition.y,
+          modifiers: 0
+        });
+        await this._contentPage.send('dispatchDragEvent', {type: 'dragend'});
+        this._isDragging = false;
+      }
+      return;
+    }
+    return await this._contentPage.send('dispatchKeyEvent', {type, keyCode, code, key, repeat, location, text});
   }
 
   async ['Page.dispatchTouchEvent'](options) {
@@ -394,30 +474,126 @@ class PageHandler {
     return await this._contentPage.send('dispatchTapEvent', options);
   }
 
-  async ['Page.dispatchMouseEvent'](options) {
-    return await this._contentPage.send('dispatchMouseEvent', options);
+  async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {
+    const win = this._pageTarget._window;
+    const sendEvents = async (types) => {
+      // 1. Scroll element to the desired location first; the coordinates are relative to the element.
+      this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
+      // 2. Get element's bounding box in the browser after the scroll is completed.
+      const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
+
+      const watcher = new EventWatcher(this._pageEventSink, types, this._pendingEventWatchers);
+      const promises = [];
+      for (const type of types) {
+        // This dispatches to the renderer synchronously.
+        const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
+          type,
+          x + boundingBox.left,
+          y + boundingBox.top,
+          button,
+          clickCount,
+          modifiers,
+          false /* aIgnoreRootScrollFrame */,
+          0.0 /* pressure */,
+          0 /* inputSource */,
+          true /* isDOMEventSynthesized */,
+          false /* isWidgetEventSynthesized */,
+          buttons,
+          win.windowUtils.DEFAULT_MOUSE_POINTER_ID /* pointerIdentifier */,
+          false /* disablePointerEvent */
+        );
+        promises.push(watcher.ensureEvent(type, eventObject => eventObject.jugglerEventId === jugglerEventId));
+      }
+      await Promise.all(promises);
+      await watcher.dispose();
+    };
+
+    // We must switch to proper tab in the tabbed browser so that
+    // 1. Event is dispatched to a proper renderer.
+    // 2. We receive an ack from the renderer for the dispatched event.
+    await this._pageTarget.activateAndRun(async () => {
+      this._pageTarget.ensureContextMenuClosed();
+
+      if (type === 'mousedown') {
+        if (this._isDragging)
+          return;
+
+        const eventNames = button === 2 ? ['mousedown', 'contextmenu'] : ['mousedown'];
+        await sendEvents(eventNames);
+        return;
+      }
+
+      if (type === 'mousemove') {
+        this._lastMousePosition = { x, y };
+        if (this._isDragging) {
+          const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
+          await this._contentPage.send('dispatchDragEvent', {type:'dragover', x, y, modifiers});
+          await watcher.ensureEventsAndDispose(['dragover']);
+          return;
+        }
+
+        const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
+        await sendEvents(['mousemove']);
+
+        // The order of events after 'mousemove' is sent:
+        // 1. [dragstart] - might or might NOT be emitted
+        // 2. [mousemove] - always emitted. This was awaited as part of `sendEvents` call.
+        // 3. [juggler-drag-finalized] - only emitted if dragstart was emitted.
+
+        if (watcher.hasEvent('dragstart')) {
+          const eventObject = await watcher.ensureEvent('juggler-drag-finalized');
+          this._isDragging = eventObject.dragSessionStarted;
+        }
+        watcher.dispose();
+        return;
+      }
+
+      if (type === 'mouseup') {
+        if (this._isDragging) {
+          const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
+          await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x, y, modifiers});
+          await this._contentPage.send('dispatchDragEvent', {type: 'drop', x, y, modifiers});
+          await this._contentPage.send('dispatchDragEvent', {type: 'dragend', x, y, modifiers});
+          // NOTE:
+          // - 'drop' event might not be dispatched at all, depending on dropAction.
+          // - 'dragend' event might not be dispatched at all, if the source element was removed
+          //   during drag. However, it'll be dispatched synchronously in the renderer.
+          await watcher.ensureEventsAndDispose(['dragover']);
+          this._isDragging = false;
+        } else {
+          await sendEvents(['mouseup']);
+        }
+        return;
+      }
+    });
   }
 
   async ['Page.dispatchWheelEvent']({x, y, button, deltaX, deltaY, deltaZ, modifiers }) {
-    const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
-    x += boundingBox.left;
-    y += boundingBox.top;
     const deltaMode = 0; // WheelEvent.DOM_DELTA_PIXEL
     const lineOrPageDeltaX = deltaX > 0 ? Math.floor(deltaX) : Math.ceil(deltaX);
     const lineOrPageDeltaY = deltaY > 0 ? Math.floor(deltaY) : Math.ceil(deltaY);
 
-    const win = this._pageTarget._window;
-    win.windowUtils.sendWheelEvent(
-      x,
-      y,
-      deltaX,
-      deltaY,
-      deltaZ,
-      deltaMode,
-      modifiers,
-      lineOrPageDeltaX,
-      lineOrPageDeltaY,
-      0 /* options */);
+    await this._pageTarget.activateAndRun(() => {
+      this._pageTarget.ensureContextMenuClosed();
+
+      // 1. Scroll element to the desired location first; the coordinates are relative to the element.
+      this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
+      // 2. Get element's bounding box in the browser after the scroll is completed.
+      const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
+
+      const win = this._pageTarget._window;
+      win.windowUtils.sendWheelEvent(
+        x + boundingBox.left,
+        y + boundingBox.top,
+        deltaX,
+        deltaY,
+        deltaZ,
+        deltaMode,
+        modifiers,
+        lineOrPageDeltaX,
+        lineOrPageDeltaY,
+        0 /* options */);
+    });
   }
 
   async ['Page.insertText'](options) {
@@ -438,8 +614,8 @@ class PageHandler {
       dialog.dismiss();
   }
 
-  async ['Page.setInterceptFileChooserDialog'](options) {
-    return await this._contentPage.send('setInterceptFileChooserDialog', options);
+  async ['Page.setInterceptFileChooserDialog']({ enabled }) {
+    return await this._pageTarget.setInterceptFileChooserDialog(enabled);
   }
 
   async ['Page.startScreencast'](options) {

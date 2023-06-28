@@ -36,7 +36,7 @@ test('should render counters', async ({ mount }) => {
   await expect(component.locator('a', { hasText: 'Skipped' }).locator('.counter')).toHaveText('10');
 });
 
-test('should toggle filters', async ({ page, mount: mount }) => {
+test('should toggle filters', async ({ page, mount }) => {
   const filters: string[] = [];
   const component = await mount(<HeaderView
     stats={{
@@ -49,7 +49,8 @@ test('should toggle filters', async ({ page, mount: mount }) => {
       duration: 100000
     }}
     filterText=''
-    setFilterText={(filterText: string) => filters.push(filterText)}>
+    setFilterText={(filterText: string) => filters.push(filterText)}
+  >
   </HeaderView>);
   await component.locator('a', { hasText: 'All' }).click();
   await component.locator('a', { hasText: 'Passed' }).click();

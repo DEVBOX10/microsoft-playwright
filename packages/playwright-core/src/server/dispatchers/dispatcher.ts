@@ -18,7 +18,7 @@ import { EventEmitter } from 'events';
 import type * as channels from '@protocol/channels';
 import { serializeError } from '../../protocol/serializers';
 import { findValidator, ValidationError, createMetadataValidator, type ValidatorContext } from '../../protocol/validator';
-import { assert, debugAssert, isUnderTest, monotonicTime } from '../../utils';
+import { assert, isUnderTest, monotonicTime } from '../../utils';
 import { kBrowserOrContextClosedError } from '../../common/errors';
 import type { CallMetadata } from '../instrumentation';
 import { SdkObject } from '../instrumentation';
@@ -26,22 +26,13 @@ import { rewriteErrorMessage } from '../../utils/stackTrace';
 import type { PlaywrightDispatcher } from './playwrightDispatcher';
 import { eventsHelper } from '../..//utils/eventsHelper';
 import type { RegisteredListener } from '../..//utils/eventsHelper';
+import type * as trace from '@trace/trace';
 
 export const dispatcherSymbol = Symbol('dispatcher');
 const metadataValidator = createMetadataValidator();
 
-export function lookupDispatcher<DispatcherType>(object: any): DispatcherType {
-  const result = object[dispatcherSymbol];
-  debugAssert(result);
-  return result;
-}
-
-export function existingDispatcher<DispatcherType>(object: any): DispatcherType {
+export function existingDispatcher<DispatcherType>(object: any): DispatcherType | undefined {
   return object[dispatcherSymbol];
-}
-
-export function lookupNullableDispatcher<DispatcherType>(object: any | null): DispatcherType | undefined {
-  return object ? lookupDispatcher(object) : undefined;
 }
 
 export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeType extends DispatcherScope> extends EventEmitter implements channels.Channel {
@@ -112,8 +103,12 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
     this._connection.sendDispose(this);
   }
 
+  protected _onDispose() {
+  }
+
   private _disposeRecursively() {
     assert(!this._disposed, `${this._guid} is disposed more than once`);
+    this._onDispose();
     this._disposed = true;
     eventsHelper.removeEventListeners(this._eventListeners);
 
@@ -192,21 +187,15 @@ export class DispatcherConnection {
 
   private _sendMessageToClient(guid: string, type: string, method: string, params: any, sdkObject?: SdkObject) {
     if (sdkObject) {
-      const eventMetadata: CallMetadata = {
-        id: `event@${++lastEventId}`,
-        objectId: sdkObject?.guid,
-        pageId: sdkObject?.attribution?.page?.guid,
-        frameId: sdkObject?.attribution?.frame?.guid,
-        wallTime: Date.now(),
-        startTime: monotonicTime(),
-        endTime: 0,
-        type,
+      const event: trace.EventTraceEvent = {
+        type: 'event',
+        class: type,
         method,
         params: params || {},
-        log: [],
-        snapshots: []
+        time: monotonicTime(),
+        pageId: sdkObject?.attribution?.page?.guid,
       };
-      sdkObject.instrumentation?.onEvent(sdkObject, eventMetadata);
+      sdkObject.instrumentation?.onEvent(sdkObject, event);
     }
     this.onmessage({ guid, method, params });
   }
@@ -257,20 +246,19 @@ export class DispatcherConnection {
     const sdkObject = dispatcher._object instanceof SdkObject ? dispatcher._object : undefined;
     const callMetadata: CallMetadata = {
       id: `call@${id}`,
-      stack: validMetadata.stack,
+      wallTime: validMetadata.wallTime || Date.now(),
+      location: validMetadata.location,
       apiName: validMetadata.apiName,
       internal: validMetadata.internal,
       objectId: sdkObject?.guid,
       pageId: sdkObject?.attribution?.page?.guid,
       frameId: sdkObject?.attribution?.frame?.guid,
-      wallTime: Date.now(),
       startTime: monotonicTime(),
       endTime: 0,
       type: dispatcher._type,
       method,
       params: params || {},
       log: [],
-      snapshots: []
     };
 
     if (sdkObject && params?.info?.waitId) {
@@ -337,5 +325,3 @@ function formatLogRecording(log: string[]): string {
   const rightLength = headerLength - header.length - leftLength;
   return `\n${'='.repeat(leftLength)}${header}${'='.repeat(rightLength)}\n${log.join('\n')}\n${'='.repeat(headerLength)}`;
 }
-
-let lastEventId = 0;

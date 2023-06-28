@@ -28,8 +28,6 @@ it('should work for open shadow roots', async ({ page, server }) => {
 });
 
 it('should click on links in shadow dom', async ({ page, server, browserName, browserMajorVersion }) => {
-  it.fixme(browserName === 'chromium' && browserMajorVersion < 91, 'Remove when crrev.com/864024 gets to the stable channel');
-
   await page.goto(server.PREFIX + '/shadow-dom-link.html');
   expect(await page.evaluate(() => (window as any).clickCount)).toBe(0);
   await page.click('#inner-link');
@@ -400,6 +398,42 @@ it('should work with internal:has=', async ({ page, server }) => {
   expect(error3.message).toContain('Malformed selector: internal:has=33');
   const error4 = await page.$(`div >> internal:has="span!"`).catch(e => e);
   expect(error4.message).toContain('Unexpected token "!" while parsing selector "span!"');
+});
+
+it('should work with internal:has-not=', async ({ page }) => {
+  await page.setContent(`<section><span></span><div></div></section><section><br></section>`);
+  expect(await page.$$eval(`section >> internal:has-not="span"`, els => els.length)).toBe(1);
+  expect(await page.$$eval(`section >> internal:has-not="span, div, br"`, els => els.length)).toBe(0);
+  expect(await page.$$eval(`section >> internal:has-not="br"`, els => els.length)).toBe(1);
+  expect(await page.$$eval(`section >> internal:has-not="span, div"`, els => els.length)).toBe(1);
+  expect(await page.$$eval(`section >> internal:has-not="article"`, els => els.length)).toBe(2);
+});
+
+it('should work with internal:and=', async ({ page, server }) => {
+  await page.setContent(`
+    <div class=foo>hello</div><div class=bar>world</div>
+    <span class=foo>hello2</span><span class=bar>world2</span>
+  `);
+  expect(await page.$$eval(`div >> internal:and="span"`, els => els.map(e => e.textContent))).toEqual([]);
+  expect(await page.$$eval(`div >> internal:and=".foo"`, els => els.map(e => e.textContent))).toEqual(['hello']);
+  expect(await page.$$eval(`div >> internal:and=".bar"`, els => els.map(e => e.textContent))).toEqual(['world']);
+  expect(await page.$$eval(`span >> internal:and="span"`, els => els.map(e => e.textContent))).toEqual(['hello2', 'world2']);
+  expect(await page.$$eval(`.foo >> internal:and="div"`, els => els.map(e => e.textContent))).toEqual(['hello']);
+  expect(await page.$$eval(`.bar >> internal:and="span"`, els => els.map(e => e.textContent))).toEqual(['world2']);
+});
+
+it('should work with internal:or=', async ({ page, server }) => {
+  await page.setContent(`
+    <div>hello</div>
+    <span>world</span>
+  `);
+  expect(await page.$$eval(`div >> internal:or="span"`, els => els.map(e => e.textContent))).toEqual(['hello', 'world']);
+  expect(await page.$$eval(`span >> internal:or="div"`, els => els.map(e => e.textContent))).toEqual(['hello', 'world']);
+  expect(await page.$$eval(`article >> internal:or="something"`, els => els.length)).toBe(0);
+  expect(await page.locator(`article >> internal:or="div"`).textContent()).toBe('hello');
+  expect(await page.locator(`article >> internal:or="span"`).textContent()).toBe('world');
+  expect(await page.locator(`div >> internal:or="article"`).textContent()).toBe('hello');
+  expect(await page.locator(`span >> internal:or="article"`).textContent()).toBe('world');
 });
 
 it('chaining should work with large DOM @smoke', async ({ page, server }) => {

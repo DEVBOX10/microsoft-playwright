@@ -48,7 +48,7 @@ export class BrowserDispatcher extends Dispatcher<Browser, channels.BrowserChann
   }
 
   async newContextForReuse(params: channels.BrowserNewContextForReuseParams, metadata: CallMetadata): Promise<channels.BrowserNewContextForReuseResult> {
-    return newContextForReuse(this._object, this, params, null, metadata);
+    return await newContextForReuse(this._object, this, params, null, metadata);
   }
 
   async close(): Promise<void> {
@@ -57,6 +57,10 @@ export class BrowserDispatcher extends Dispatcher<Browser, channels.BrowserChann
 
   async killForTests(): Promise<void> {
     await this._object.killForTests();
+  }
+
+  async defaultUserAgentForTest(): Promise<channels.BrowserDefaultUserAgentForTestResult> {
+    return { userAgent: this._object.userAgent() };
   }
 
   async newBrowserCDPSession(): Promise<channels.BrowserNewBrowserCDPSessionResult> {
@@ -105,7 +109,7 @@ export class ConnectedBrowserDispatcher extends Dispatcher<Browser, channels.Bro
   }
 
   async newContextForReuse(params: channels.BrowserNewContextForReuseParams, metadata: CallMetadata): Promise<channels.BrowserNewContextForReuseResult> {
-    return newContextForReuse(this._object, this as any as BrowserDispatcher, params, this.selectors, metadata);
+    return await newContextForReuse(this._object, this as any as BrowserDispatcher, params, this.selectors, metadata);
   }
 
   async close(): Promise<void> {
@@ -114,6 +118,10 @@ export class ConnectedBrowserDispatcher extends Dispatcher<Browser, channels.Bro
 
   async killForTests(): Promise<void> {
     // Client should not send us Browser.killForTests.
+  }
+
+  async defaultUserAgentForTest(): Promise<channels.BrowserDefaultUserAgentForTestResult> {
+    throw new Error('Client should not send us Browser.defaultUserAgentForTest');
   }
 
   async newBrowserCDPSession(): Promise<channels.BrowserNewBrowserCDPSessionResult> {

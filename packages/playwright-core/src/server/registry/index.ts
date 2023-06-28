@@ -21,8 +21,8 @@ import * as util from 'util';
 import * as fs from 'fs';
 import { lockfile } from '../../utilsBundle';
 import { getLinuxDistributionInfo } from '../../utils/linuxUtils';
-import { fetchData } from '../../common/netUtils';
-import { getEmbedderName } from '../../common/userAgent';
+import { fetchData } from '../../utils/network';
+import { getEmbedderName } from '../../utils/userAgent';
 import { getFromENV, getAsBooleanFromENV, calculateSha1, wrapInASCIIBox } from '../../utils';
 import { removeFolders, existsAsync, canAccessFile } from '../../utils/fileUtils';
 import { hostPlatform } from '../../utils/hostPlatform';
@@ -85,6 +85,7 @@ const DOWNLOAD_PATHS = {
     'ubuntu20.04-arm64': 'builds/chromium/%s/chromium-linux-arm64.zip',
     'ubuntu22.04-arm64': 'builds/chromium/%s/chromium-linux-arm64.zip',
     'debian11': 'builds/chromium/%s/chromium-linux.zip',
+    'debian11-arm64': 'builds/chromium/%s/chromium-linux-arm64.zip',
     'mac10.13': 'builds/chromium/%s/chromium-mac.zip',
     'mac10.14': 'builds/chromium/%s/chromium-mac.zip',
     'mac10.15': 'builds/chromium/%s/chromium-mac.zip',
@@ -92,6 +93,8 @@ const DOWNLOAD_PATHS = {
     'mac11-arm64': 'builds/chromium/%s/chromium-mac-arm64.zip',
     'mac12': 'builds/chromium/%s/chromium-mac.zip',
     'mac12-arm64': 'builds/chromium/%s/chromium-mac-arm64.zip',
+    'mac13': 'builds/chromium/%s/chromium-mac.zip',
+    'mac13-arm64': 'builds/chromium/%s/chromium-mac-arm64.zip',
     'win64': 'builds/chromium/%s/chromium-win64.zip',
   },
   'chromium-tip-of-tree': {
@@ -105,6 +108,7 @@ const DOWNLOAD_PATHS = {
     'ubuntu20.04-arm64': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-linux-arm64.zip',
     'ubuntu22.04-arm64': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-linux-arm64.zip',
     'debian11': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-linux.zip',
+    'debian11-arm64': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-linux-arm64.zip',
     'mac10.13': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac.zip',
     'mac10.14': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac.zip',
     'mac10.15': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac.zip',
@@ -112,6 +116,8 @@ const DOWNLOAD_PATHS = {
     'mac11-arm64': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac-arm64.zip',
     'mac12': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac.zip',
     'mac12-arm64': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac-arm64.zip',
+    'mac13': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac.zip',
+    'mac13-arm64': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-mac-arm64.zip',
     'win64': 'builds/chromium-tip-of-tree/%s/chromium-tip-of-tree-win64.zip',
   },
   'chromium-with-symbols': {
@@ -125,6 +131,7 @@ const DOWNLOAD_PATHS = {
     'ubuntu20.04-arm64': 'builds/chromium/%s/chromium-with-symbols-linux-arm64.zip',
     'ubuntu22.04-arm64': 'builds/chromium/%s/chromium-with-symbols-linux-arm64.zip',
     'debian11': 'builds/chromium/%s/chromium-with-symbols-linux.zip',
+    'debian11-arm64': 'builds/chromium/%s/chromium-with-symbols-linux-arm64.zip',
     'mac10.13': 'builds/chromium/%s/chromium-with-symbols-mac.zip',
     'mac10.14': 'builds/chromium/%s/chromium-with-symbols-mac.zip',
     'mac10.15': 'builds/chromium/%s/chromium-with-symbols-mac.zip',
@@ -132,6 +139,8 @@ const DOWNLOAD_PATHS = {
     'mac11-arm64': 'builds/chromium/%s/chromium-with-symbols-mac-arm64.zip',
     'mac12': 'builds/chromium/%s/chromium-with-symbols-mac.zip',
     'mac12-arm64': 'builds/chromium/%s/chromium-with-symbols-mac-arm64.zip',
+    'mac13': 'builds/chromium/%s/chromium-with-symbols-mac.zip',
+    'mac13-arm64': 'builds/chromium/%s/chromium-with-symbols-mac-arm64.zip',
     'win64': 'builds/chromium/%s/chromium-with-symbols-win64.zip',
   },
   'firefox': {
@@ -145,13 +154,16 @@ const DOWNLOAD_PATHS = {
     'ubuntu20.04-arm64': 'builds/firefox/%s/firefox-ubuntu-20.04-arm64.zip',
     'ubuntu22.04-arm64': 'builds/firefox/%s/firefox-ubuntu-22.04-arm64.zip',
     'debian11': 'builds/firefox/%s/firefox-debian-11.zip',
-    'mac10.13': 'builds/firefox/%s/firefox-mac-11.zip',
-    'mac10.14': 'builds/firefox/%s/firefox-mac-11.zip',
-    'mac10.15': 'builds/firefox/%s/firefox-mac-11.zip',
-    'mac11': 'builds/firefox/%s/firefox-mac-11.zip',
-    'mac11-arm64': 'builds/firefox/%s/firefox-mac-11-arm64.zip',
-    'mac12': 'builds/firefox/%s/firefox-mac-11.zip',
-    'mac12-arm64': 'builds/firefox/%s/firefox-mac-11-arm64.zip',
+    'debian11-arm64': 'builds/firefox/%s/firefox-debian-11-arm64.zip',
+    'mac10.13': 'builds/firefox/%s/firefox-mac-13.zip',
+    'mac10.14': 'builds/firefox/%s/firefox-mac-13.zip',
+    'mac10.15': 'builds/firefox/%s/firefox-mac-13.zip',
+    'mac11': 'builds/firefox/%s/firefox-mac-13.zip',
+    'mac11-arm64': 'builds/firefox/%s/firefox-mac-13-arm64.zip',
+    'mac12': 'builds/firefox/%s/firefox-mac-13.zip',
+    'mac12-arm64': 'builds/firefox/%s/firefox-mac-13-arm64.zip',
+    'mac13': 'builds/firefox/%s/firefox-mac-13.zip',
+    'mac13-arm64': 'builds/firefox/%s/firefox-mac-13-arm64.zip',
     'win64': 'builds/firefox/%s/firefox-win64.zip',
   },
   'firefox-beta': {
@@ -165,26 +177,30 @@ const DOWNLOAD_PATHS = {
     'ubuntu20.04-arm64': undefined,
     'ubuntu22.04-arm64': 'builds/firefox-beta/%s/firefox-beta-ubuntu-22.04-arm64.zip',
     'debian11': 'builds/firefox-beta/%s/firefox-beta-debian-11.zip',
-    'mac10.13': 'builds/firefox-beta/%s/firefox-beta-mac-11.zip',
-    'mac10.14': 'builds/firefox-beta/%s/firefox-beta-mac-11.zip',
-    'mac10.15': 'builds/firefox-beta/%s/firefox-beta-mac-11.zip',
-    'mac11': 'builds/firefox-beta/%s/firefox-beta-mac-11.zip',
-    'mac11-arm64': 'builds/firefox-beta/%s/firefox-beta-mac-11-arm64.zip',
-    'mac12': 'builds/firefox-beta/%s/firefox-beta-mac-11.zip',
-    'mac12-arm64': 'builds/firefox-beta/%s/firefox-beta-mac-11-arm64.zip',
+    'debian11-arm64': 'builds/firefox-beta/%s/firefox-beta-debian-11-arm64.zip',
+    'mac10.13': 'builds/firefox-beta/%s/firefox-beta-mac-13.zip',
+    'mac10.14': 'builds/firefox-beta/%s/firefox-beta-mac-13.zip',
+    'mac10.15': 'builds/firefox-beta/%s/firefox-beta-mac-13.zip',
+    'mac11': 'builds/firefox-beta/%s/firefox-beta-mac-13.zip',
+    'mac11-arm64': 'builds/firefox-beta/%s/firefox-beta-mac-13-arm64.zip',
+    'mac12': 'builds/firefox-beta/%s/firefox-beta-mac-13.zip',
+    'mac12-arm64': 'builds/firefox-beta/%s/firefox-beta-mac-13-arm64.zip',
+    'mac13': 'builds/firefox-beta/%s/firefox-beta-mac-13.zip',
+    'mac13-arm64': 'builds/firefox-beta/%s/firefox-beta-mac-13-arm64.zip',
     'win64': 'builds/firefox-beta/%s/firefox-beta-win64.zip',
   },
   'webkit': {
     '<unknown>': undefined,
     'generic-linux': 'builds/webkit/%s/webkit-ubuntu-20.04.zip',
     'generic-linux-arm64': 'builds/webkit/%s/webkit-ubuntu-20.04-arm64.zip',
-    'ubuntu18.04': 'builds/webkit/%s/webkit-ubuntu-18.04.zip',
+    'ubuntu18.04': 'builds/deprecated-webkit-ubuntu-18.04/%s/deprecated-webkit-ubuntu-18.04.zip',
     'ubuntu20.04': 'builds/webkit/%s/webkit-ubuntu-20.04.zip',
     'ubuntu22.04': 'builds/webkit/%s/webkit-ubuntu-22.04.zip',
     'ubuntu18.04-arm64': undefined,
     'ubuntu20.04-arm64': 'builds/webkit/%s/webkit-ubuntu-20.04-arm64.zip',
     'ubuntu22.04-arm64': 'builds/webkit/%s/webkit-ubuntu-22.04-arm64.zip',
     'debian11': 'builds/webkit/%s/webkit-debian-11.zip',
+    'debian11-arm64': 'builds/webkit/%s/webkit-debian-11-arm64.zip',
     'mac10.13': undefined,
     'mac10.14': 'builds/deprecated-webkit-mac-10.14/%s/deprecated-webkit-mac-10.14.zip',
     'mac10.15': 'builds/deprecated-webkit-mac-10.15/%s/deprecated-webkit-mac-10.15.zip',
@@ -192,6 +208,8 @@ const DOWNLOAD_PATHS = {
     'mac11-arm64': 'builds/webkit/%s/webkit-mac-11-arm64.zip',
     'mac12': 'builds/webkit/%s/webkit-mac-12.zip',
     'mac12-arm64': 'builds/webkit/%s/webkit-mac-12-arm64.zip',
+    'mac13': 'builds/webkit/%s/webkit-mac-13.zip',
+    'mac13-arm64': 'builds/webkit/%s/webkit-mac-13-arm64.zip',
     'win64': 'builds/webkit/%s/webkit-win64.zip',
   },
   'ffmpeg': {
@@ -205,6 +223,7 @@ const DOWNLOAD_PATHS = {
     'ubuntu20.04-arm64': 'builds/ffmpeg/%s/ffmpeg-linux-arm64.zip',
     'ubuntu22.04-arm64': 'builds/ffmpeg/%s/ffmpeg-linux-arm64.zip',
     'debian11': 'builds/ffmpeg/%s/ffmpeg-linux.zip',
+    'debian11-arm64': 'builds/ffmpeg/%s/ffmpeg-linux-arm64.zip',
     'mac10.13': 'builds/ffmpeg/%s/ffmpeg-mac.zip',
     'mac10.14': 'builds/ffmpeg/%s/ffmpeg-mac.zip',
     'mac10.15': 'builds/ffmpeg/%s/ffmpeg-mac.zip',
@@ -212,6 +231,8 @@ const DOWNLOAD_PATHS = {
     'mac11-arm64': 'builds/ffmpeg/%s/ffmpeg-mac-arm64.zip',
     'mac12': 'builds/ffmpeg/%s/ffmpeg-mac.zip',
     'mac12-arm64': 'builds/ffmpeg/%s/ffmpeg-mac-arm64.zip',
+    'mac13': 'builds/ffmpeg/%s/ffmpeg-mac.zip',
+    'mac13-arm64': 'builds/ffmpeg/%s/ffmpeg-mac-arm64.zip',
     'win64': 'builds/ffmpeg/%s/ffmpeg-win64.zip',
   },
   'android': {
@@ -610,7 +631,6 @@ export class Registry {
         return undefined;
 
       const location = prefixes.length ? ` at ${path.join(prefixes[0], suffix)}` : ``;
-      // TODO: language-specific error message
       const installation = install ? `\nRun "${buildPlaywrightCLICommand(sdkLanguage, 'install ' + name)}"` : '';
       throw new Error(`Chromium distribution '${name}' is not found${location}${installation}`);
     };
@@ -654,12 +674,12 @@ export class Registry {
 
   private async _validateHostRequirements(sdkLanguage: string, browserName: BrowserName, browserDirectory: string, linuxLddDirectories: string[], dlOpenLibraries: string[], windowsExeAndDllDirectories: string[]) {
     if (getAsBooleanFromENV('PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS')) {
-      process.stdout.write('Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.\n');
+      process.stderr.write('Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.\n');
       return;
     }
     const distributionInfo = await getLinuxDistributionInfo();
     if (browserName === 'firefox' && distributionInfo?.id === 'ubuntu' && distributionInfo?.version === '16.04')
-      throw new Error(`Cannot launch Firefox on Ubuntu 16.04! Minimum required Ubuntu version for Firefox browser is 18.04`);
+      throw new Error(`Cannot launch Firefox on Ubuntu 16.04! Minimum required Ubuntu version for Firefox browser is 20.04`);
 
     if (os.platform() === 'linux')
       return await validateDependenciesLinux(sdkLanguage, linuxLddDirectories.map(d => path.join(browserDirectory, d)), dlOpenLibraries);
@@ -760,6 +780,23 @@ export class Registry {
     }
   }
 
+  async uninstall(all: boolean): Promise<{ numberOfBrowsersLeft: number }> {
+    const linksDir = path.join(registryDirectory, '.links');
+    if (all) {
+      const links = await fs.promises.readdir(linksDir).catch(() => []);
+      for (const link of links)
+        await fs.promises.unlink(path.join(linksDir, link));
+    } else {
+      await fs.promises.unlink(path.join(linksDir, calculateSha1(PACKAGE_PATH))).catch(() => {});
+    }
+
+    // Remove stale browsers.
+    await this._validateInstallationCache(linksDir);
+    return {
+      numberOfBrowsersLeft: (await fs.promises.readdir(registryDirectory).catch(() => [])).filter(browserDirectory => isBrowserDirectory(browserDirectory)).length
+    };
+  }
+
   private _downloadURLs(descriptor: BrowsersJSONDescriptor): string[] {
     const paths = (DOWNLOAD_PATHS as any)[descriptor.name];
     const downloadPathTemplate: string|undefined = paths[hostPlatform] || paths['<unknown>'];
@@ -802,7 +839,6 @@ export class Registry {
     await downloadBrowserWithProgressBar(title, descriptor.dir, executablePath, downloadURLs, downloadFileName, downloadConnectionTimeout).catch(e => {
       throw new Error(`Failed to download ${title}, caused by\n${e.stack}`);
     });
-    await fs.promises.writeFile(markerFilePath(descriptor.dir), '');
   }
 
   private async _installMSEdgeChannel(channel: 'msedge'|'msedge-beta'|'msedge-dev', scripts: Record<'linux' | 'darwin' | 'win32', string>) {
@@ -877,12 +913,13 @@ export class Registry {
           const usedBrowserPath = descriptor.dir;
           const browserRevision = parseInt(descriptor.revision, 10);
           // Old browser installations don't have marker file.
-          const shouldHaveMarkerFile = (browserName === 'chromium' && browserRevision >= 786218) ||
+          // We switched chromium from 999999 to 1000, 300000 is the new Y2K.
+          const shouldHaveMarkerFile = (browserName === 'chromium' && (browserRevision >= 786218 || browserRevision < 300000)) ||
               (browserName === 'firefox' && browserRevision >= 1128) ||
               (browserName === 'webkit' && browserRevision >= 1307) ||
               // All new applications have a marker file right away.
               (browserName !== 'firefox' && browserName !== 'chromium' && browserName !== 'webkit');
-          if (!shouldHaveMarkerFile || (await existsAsync(markerFilePath(usedBrowserPath))))
+          if (!shouldHaveMarkerFile || (await existsAsync(browserDirectoryToMarkerFilePath(usedBrowserPath))))
             usedBrowserPaths.add(usedBrowserPath);
         }
       } catch (e) {
@@ -904,7 +941,7 @@ export class Registry {
   }
 }
 
-function markerFilePath(browserDirectory: string): string {
+export function browserDirectoryToMarkerFilePath(browserDirectory: string): string {
   return path.join(browserDirectory, 'INSTALLATION_COMPLETE');
 }
 
@@ -913,7 +950,7 @@ export function buildPlaywrightCLICommand(sdkLanguage: string, parameters: strin
     case 'python':
       return `playwright ${parameters}`;
     case 'java':
-      return `mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="${parameters}"`;
+      return `mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="${parameters}"`;
     case 'csharp':
       return `pwsh bin/Debug/netX/playwright.ps1 ${parameters}`;
     default:

@@ -19,17 +19,15 @@ import path from 'path';
 import * as util from 'util';
 import type { Serializable } from '../../types/structs';
 import type * as api from '../../types/types';
-import type { HeadersArray } from '../common/types';
+import type { HeadersArray, NameValue } from '../common/types';
 import type * as channels from '@protocol/channels';
 import { kBrowserOrContextClosedError } from '../common/errors';
-import { assert, headersObjectToArray, isFilePayload, isString, objectToArray } from '../utils';
+import { assert, headersObjectToArray, isString } from '../utils';
 import { mkdirIfNeeded } from '../utils/fileUtils';
 import { ChannelOwner } from './channelOwner';
-import * as network from './network';
 import { RawHeaders } from './network';
 import type { FilePayload, Headers, StorageState } from './types';
 import type { Playwright } from './playwright';
-import { createInstrumentation } from './clientInstrumentation';
 import { Tracing } from './tracing';
 
 export type FetchOptions = {
@@ -45,7 +43,7 @@ export type FetchOptions = {
   maxRedirects?: number,
 };
 
-type NewContextOptions = Omit<channels.PlaywrightNewRequestOptions, 'extraHTTPHeaders' | 'storageState'> & {
+type NewContextOptions = Omit<channels.PlaywrightNewRequestOptions, 'extraHTTPHeaders' | 'storageState' | 'tracesDir'> & {
   extraHTTPHeaders?: Headers,
   storageState?: string | StorageState,
 };
@@ -57,25 +55,29 @@ export class APIRequest implements api.APIRequest {
   readonly _contexts = new Set<APIRequestContext>();
 
   // Instrumentation.
-  _onDidCreateContext?: (context: APIRequestContext) => Promise<void>;
-  _onWillCloseContext?: (context: APIRequestContext) => Promise<void>;
+  _defaultContextOptions?: NewContextOptions & { tracesDir?: string };
 
   constructor(playwright: Playwright) {
     this._playwright = playwright;
   }
 
   async newContext(options: NewContextOptions = {}): Promise<APIRequestContext> {
+    options = { ...this._defaultContextOptions, ...options };
     const storageState = typeof options.storageState === 'string' ?
       JSON.parse(await fs.promises.readFile(options.storageState, 'utf8')) :
       options.storageState;
+    // We do not expose tracesDir in the API, so do not allow options to accidentally override it.
+    const tracesDir = this._defaultContextOptions?.tracesDir;
     const context = APIRequestContext.from((await this._playwright._channel.newRequest({
       ...options,
       extraHTTPHeaders: options.extraHTTPHeaders ? headersObjectToArray(options.extraHTTPHeaders) : undefined,
       storageState,
+      tracesDir,
     })).request);
     this._contexts.add(context);
     context._request = this;
-    await this._onDidCreateContext?.(context);
+    context._tracing._tracesDir = tracesDir;
+    await context._instrumentation.onDidCreateRequestContext(context);
     return context;
   }
 }
@@ -89,12 +91,12 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
   }
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.APIRequestContextInitializer) {
-    super(parent, type, guid, initializer, createInstrumentation());
+    super(parent, type, guid, initializer);
     this._tracing = Tracing.from(initializer.tracing);
   }
 
   async dispose(): Promise<void> {
-    await this._request?._onWillCloseContext?.(this);
+    await this._instrumentation.onWillCloseRequestContext(this);
     await this._channel.dispose();
     this._request?._contexts.delete(this);
   }
@@ -142,17 +144,22 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
   }
 
   async fetch(urlOrRequest: string | api.Request, options: FetchOptions = {}): Promise<APIResponse> {
+    const url = isString(urlOrRequest) ? urlOrRequest : undefined;
+    const request = isString(urlOrRequest) ? undefined : urlOrRequest;
+    return this._innerFetch({ url, request, ...options });
+  }
+
+  async _innerFetch(options: FetchOptions & { url?: string, request?: api.Request } = {}): Promise<APIResponse> {
     return this._wrapApiCall(async () => {
-      const request: network.Request | undefined = (urlOrRequest instanceof network.Request) ? urlOrRequest as network.Request : undefined;
-      assert(request || typeof urlOrRequest === 'string', 'First argument must be either URL string or Request');
+      assert(options.request || typeof options.url === 'string', 'First argument must be either URL string or Request');
       assert((options.data === undefined ? 0 : 1) + (options.form === undefined ? 0 : 1) + (options.multipart === undefined ? 0 : 1) <= 1, `Only one of 'data', 'form' or 'multipart' can be specified`);
       assert(options.maxRedirects === undefined || options.maxRedirects >= 0, `'maxRedirects' should be greater than or equal to '0'`);
-      const url = request ? request.url() : urlOrRequest as string;
+      const url = options.url !== undefined ? options.url : options.request!.url();
       const params = objectToArray(options.params);
-      const method = options.method || request?.method();
+      const method = options.method || options.request?.method();
       const maxRedirects = options.maxRedirects;
       // Cannot call allHeaders() here as the request may be paused inside route handler.
-      const headersObj = options.headers || request?.headers() ;
+      const headersObj = options.headers || options.request?.headers() ;
       const headers = headersObj ? headersObjectToArray(headersObj) : undefined;
       let jsonData: any;
       let formData: channels.NameValue[] | undefined;
@@ -190,7 +197,10 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
         }
       }
       if (postDataBuffer === undefined && jsonData === undefined && formData === undefined && multipartData === undefined)
-        postDataBuffer = request?.postDataBuffer() || undefined;
+        postDataBuffer = options.request?.postDataBuffer() || undefined;
+      const fixtures = {
+        __testHookLookup: (options as any).__testHookLookup
+      };
       const result = await this._channel.fetch({
         url,
         params,
@@ -204,6 +214,7 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
         failOnStatusCode: options.failOnStatusCode,
         ignoreHTTPSErrors: options.ignoreHTTPSErrors,
         maxRedirects: maxRedirects,
+        ...fixtures
       });
       return new APIResponse(this, result.response);
     });
@@ -328,4 +339,17 @@ function isJsonContentType(headers?: HeadersArray): boolean {
       return value === 'application/json';
   }
   return false;
+}
+
+function objectToArray(map?:  { [key: string]: any }): NameValue[] | undefined {
+  if (!map)
+    return undefined;
+  const result = [];
+  for (const [name, value] of Object.entries(map))
+    result.push({ name, value: String(value) });
+  return result;
+}
+
+function isFilePayload(value: any): boolean {
+  return typeof value === 'object' && value['name'] && value['mimeType'] && value['buffer'];
 }

@@ -2,18 +2,9 @@
 * since: v1.10
 * langs: js
 
-`TestInfo` contains information about currently running test. It is available to any test function, [`method: Test.beforeEach`] and [`method: Test.afterEach`] hooks and test-scoped fixtures. `TestInfo` provides utilities to control test execution: attach files, update test timeout, determine which test is currently running and whether it was retried, etc.
+`TestInfo` contains information about currently running test. It is available to test functions, [`method: Test.beforeEach`], [`method: Test.afterEach`], [`method: Test.beforeAll`] and [`method: Test.afterAll`] hooks, and test-scoped fixtures. `TestInfo` provides utilities to control test execution: attach files, update test timeout, determine which test is currently running and whether it was retried, etc.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({ page }, testInfo) => {
-  expect(testInfo.title).toBe('basic test');
-  await page.screenshot(testInfo.outputPath('screenshot.png'));
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }, testInfo) => {
@@ -52,17 +43,7 @@ Attach a value or a file from disk to the current test. Some reporters show test
 
 For example, you can attach a screenshot to the test:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({ page }, testInfo) => {
-  await page.goto('https://playwright.dev');
-  const screenshot = await page.screenshot();
-  await testInfo.attach('screenshot', { body: screenshot, contentType: 'image/png' });
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }, testInfo) => {
@@ -74,21 +55,11 @@ test('basic test', async ({ page }, testInfo) => {
 
 Or you can attach files returned by your APIs:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({}, testInfo) => {
-  const { download } = require('./my-custom-helpers');
-  const tmpPath = await download('a');
-  await testInfo.attach('downloaded', { path: tmpPath });
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
+import { download } from './my-custom-helpers';
 
 test('basic test', async ({}, testInfo) => {
-  const { download } = require('./my-custom-helpers');
   const tmpPath = await download('a');
   await testInfo.attach('downloaded', { path: tmpPath });
 });
@@ -149,14 +120,14 @@ The number of milliseconds the test took to finish. Always zero before the test 
 
 ## property: TestInfo.error
 * since: v1.10
-- type: ?<[TestError]>
+- type: ?<[TestInfoError]>
 
 First error thrown during test execution, if any. This is equal to the first
 element in [`property: TestInfo.errors`].
 
 ## property: TestInfo.errors
 * since: v1.10
-- type: <[Array]<[TestError]>>
+- type: <[Array]<[TestInfoError]>>
 
 Errors thrown during test execution, if any.
 
@@ -171,16 +142,7 @@ Expected status for the currently running test. This is usually `'passed'`, exce
 
 Expected status is usually compared with the actual [`property: TestInfo.status`]:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.afterEach(async ({}, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus)
-    console.log(`${testInfo.title} did not run as expected!`);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.afterEach(async ({}, testInfo) => {
@@ -248,6 +210,12 @@ Optional description that will be reflected in a test report.
 
 Test function as passed to `test(title, testFunction)`.
 
+## property: TestInfo.testId
+* since: v1.32
+- type: <[string]>
+
+Test id matching the test case id in the reporter API.
+
 ## property: TestInfo.line
 * since: v1.10
 - type: <[int]>
@@ -259,6 +227,8 @@ Line number where the currently running test is declared.
 - type: <[string]>
 
 Absolute path to the snapshot output directory for this specific test. Each test suite gets its own directory so they cannot conflict.
+
+This property does not account for the [`property: TestProject.snapshotPathTemplate`] configuration.
 
 ## property: TestInfo.outputDir
 * since: v1.10
@@ -272,17 +242,7 @@ Absolute path to the output directory for this specific test run. Each test run 
 
 Returns a path inside the [`property: TestInfo.outputDir`] where the test can safely put a temporary file. Guarantees that tests running in parallel will not interfere with each other.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-const fs = require('fs');
-
-test('example test', async ({}, testInfo) => {
-  const file = testInfo.outputPath('dir', 'temporary-file.txt');
-  await fs.promises.writeFile(file, 'Put some data to the dir/temporary-file.txt', 'utf8');
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
@@ -328,24 +288,7 @@ Specifies a unique repeat index when running in "repeat each" mode. This mode is
 
 Specifies the retry number when the test is retried after a failure. The first test run has [`property: TestInfo.retry`] equal to zero, the first retry has it equal to one, and so on. Learn more about [retries](../test-retries.md#retries).
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({}, testInfo) => {
-  // You can access testInfo.retry in any hook or fixture.
-  if (testInfo.retry > 0)
-    console.log(`Retrying!`);
-});
-
-test('my test', async ({ page }, testInfo) => {
-  // Here we clear some server-side state when retrying.
-  if (testInfo.retry)
-    await cleanSomeCachesOnTheServer();
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({}, testInfo) => {
@@ -369,16 +312,7 @@ Changes the timeout for the currently running test. Zero means no timeout. Learn
 
 Timeout is usually specified in the [configuration file](../test-configuration.md), but it could be useful to change the timeout in certain scenarios:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({ page }, testInfo) => {
-  // Extend timeout for all tests running this hook by 30 seconds.
-  testInfo.setTimeout(testInfo.timeout + 30000);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -458,6 +392,11 @@ The name of the snapshot or the path segments to define the snapshot file path. 
 * since: v1.10
 - type: <[string]>
 
+:::note
+Use of [`property: TestInfo.snapshotSuffix`] is discouraged. Please use [`property: TestConfig.snapshotPathTemplate`] to configure
+snapshot paths.
+:::
+
 Suffix used to differentiate snapshots between multiple test configurations. For example, if snapshots depend on the platform, you can set `testInfo.snapshotSuffix` equal to `process.platform`. In this case `expect(value).toMatchSnapshot(snapshotName)` will use different snapshots depending on the platform. Learn more about [snapshots](../test-snapshots.md).
 
 ## property: TestInfo.status
@@ -468,16 +407,7 @@ Actual status for the currently running test. Available after the test has finis
 
 Status is usually compared with the [`property: TestInfo.expectedStatus`]:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.afterEach(async ({}, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus)
-    console.log(`${testInfo.title} did not run as expected!`);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.afterEach(async ({}, testInfo) => {
@@ -506,16 +436,7 @@ Timeout in milliseconds for the currently running test. Zero means no timeout. L
 
 Timeout is usually specified in the [configuration file](../test-configuration.md)
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({ page }, testInfo) => {
-  // Extend timeout for all tests running this hook by 30 seconds.
-  testInfo.setTimeout(testInfo.timeout + 30000);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }, testInfo) => {

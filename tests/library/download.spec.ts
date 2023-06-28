@@ -51,7 +51,6 @@ it.describe('download event', () => {
   });
 
   it('should report download when navigation turns into download @smoke', async ({ browser, server, browserName, mode }) => {
-    it.skip(mode === 'docker', 'local paths do not work remote connection');
     const page = await browser.newPage();
     const [download, responseOrError] = await Promise.all([
       page.waitForEvent('download'),
@@ -280,7 +279,7 @@ it.describe('download event', () => {
     const page = await browser.newPage();
     const onDownloadPath = new Promise<string>(res => {
       page.on('download', dl => {
-        dl.path().then(res);
+        void dl.path().then(res);
       });
     });
     await page.setContent(`<a href="${server.PREFIX}/download">download</a>`);
@@ -294,7 +293,7 @@ it.describe('download event', () => {
     const page = await browser.newPage();
     const onDownloadPath = new Promise<string>(res => {
       page.on('download', dl => {
-        dl.path().then(res);
+        void dl.path().then(res);
       });
     });
     await page.goto(server.PREFIX + '/download-blob.html');
@@ -305,7 +304,7 @@ it.describe('download event', () => {
   });
 
   it('should report alt-click downloads', async ({ browser, server, browserName }) => {
-    it.fixme(browserName === 'firefox' || browserName === 'webkit');
+    it.fixme(browserName === 'firefox');
 
     // Firefox does not download on alt-click by default.
     // Our WebKit embedder does not download on alt-click, although Safari does.
@@ -524,8 +523,6 @@ it.describe('download event', () => {
   });
 
   it('should be able to cancel pending downloads', async ({ browser, server, browserName, browserVersion }) => {
-    // The exact upstream change is in b449b5c, which still does not appear in the first few 91.* tags until 91.0.4437.0.
-    it.fixme(browserName === 'chromium' && Number(browserVersion.split('.')[0]) < 91, 'The upstream Browser.cancelDownload command is not available before Chrome 91');
     const page = await browser.newPage();
     await page.setContent(`<a href="${server.PREFIX}/downloadWithDelay">download</a>`);
     const [download] = await Promise.all([
@@ -539,8 +536,6 @@ it.describe('download event', () => {
   });
 
   it('should not fail explicitly to cancel a download even if that is already finished', async ({ browser, server, browserName, browserVersion }) => {
-    // The exact upstream change is in b449b5c, which still does not appear in the first few 91.* tags until 91.0.4437.0.
-    it.fixme(browserName === 'chromium' && Number(browserVersion.split('.')[0]) < 91, 'The upstream Browser.cancelDownload command is not available before Chrome 91');
     const page = await browser.newPage();
     await page.setContent(`<a href="${server.PREFIX}/download">download</a>`);
     const [download] = await Promise.all([
@@ -639,8 +634,8 @@ it('should be able to download a inline PDF file via response interception', asy
   await page.close();
 });
 
-it('should be able to download a inline PDF file via navigation', async ({ browser, server, asset, browserName }) => {
-  it.fixme(browserName === 'chromium' || browserName === 'webkit');
+it('should be able to download a inline PDF file via navigation', async ({ browser, server, asset, browserName, headless }) => {
+  it.fixme(((!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW) && browserName === 'chromium'));
   const page = await browser.newPage();
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
@@ -678,6 +673,47 @@ it('should save to user-specified path', async ({ browser, server, mode }, testI
   await page.close();
 });
 
+it('should download even if there is no "attachment" value', async ({ browser, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/19939' });
+  server.setRoute('/download', (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    // Do not set the "attachment" value.
+    res.setHeader('Content-Disposition', 'filename=foo.txt');
+    res.end(`Hello world`);
+  });
+
+  const page = await browser.newPage();
+  await page.setContent(`<a href="${server.PREFIX}/download">download</a>`);
+  await Promise.all([
+    page.waitForEvent('download'),
+    page.click('a')
+  ]);
+  await page.close();
+});
+
+it('should convert navigation to a resource with unsupported mime type into download', async ({ browser, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/19939' });
+  server.setRoute('/download', (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.end(`Hello world`);
+  });
+  const page = await browser.newPage();
+  await Promise.all([
+    page.waitForEvent('download'),
+    page.goto(`${server.PREFIX}/download`).catch(() => {})
+  ]);
+  await page.close();
+});
+
+it('should download links with data url', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21892' });
+  await page.setContent('<a download="SomeFile.txt" href="data:text/plain;charset=utf8;,hello world">Download!</a>');
+  const donwloadPromise = page.waitForEvent('download');
+  await page.getByText('Download').click();
+  const download = await donwloadPromise;
+  expect(download.suggestedFilename()).toBe('SomeFile.txt');
+});
+
 async function assertDownloadToPDF(download: Download, filePath: string) {
   expect(download.suggestedFilename()).toBe(path.basename(filePath));
   const stream = await download.createReadStream();
@@ -694,7 +730,7 @@ async function assertDownloadToPDF(download: Download, filePath: string) {
   assertBuffer(data, fs.readFileSync(filePath));
 }
 
-async function assertBuffer(expected: Buffer, actual: Buffer) {
+function assertBuffer(expected: Buffer, actual: Buffer) {
   expect(expected.byteLength).toBe(actual.byteLength);
   for (let i = 0; i < expected.byteLength; i++)
     expect(expected[i]).toBe(actual[i]);

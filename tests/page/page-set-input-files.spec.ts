@@ -85,6 +85,44 @@ it('should upload large file', async ({ page, server, browserName, isMac, isAndr
   await Promise.all([uploadFile, file1.filepath].map(fs.promises.unlink));
 });
 
+it('should upload multiple large files', async ({ page, server, browserName, isMac, isAndroid }, testInfo) => {
+  it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
+  it.skip(isAndroid);
+  it.slow();
+  const filesCount = 10;
+  await page.goto(server.PREFIX + '/input/fileupload-multi.html');
+  const uploadFile = testInfo.outputPath('50MB_1.zip');
+  const str = 'A'.repeat(1024);
+  const stream = fs.createWriteStream(uploadFile);
+  // 49 is close to the actual limit
+  for (let i = 0; i < 49 * 1024; i++) {
+    await new Promise<void>((fulfill, reject) => {
+      stream.write(str, err => {
+        if (err)
+          reject(err);
+        else
+          fulfill();
+      });
+    });
+  }
+  await new Promise(f => stream.end(f));
+  const input = page.locator('input[type="file"]');
+  const uploadFiles = [uploadFile];
+  for (let i = 2; i <= filesCount; i++) {
+    const dstFile = testInfo.outputPath(`50MB_${i}.zip`);
+    fs.copyFileSync(uploadFile, dstFile);
+    uploadFiles.push(dstFile);
+  }
+  const fileChooserPromise = page.waitForEvent('filechooser');
+  await input.click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles(uploadFiles);
+  const filesLen = await page.evaluate('document.getElementsByTagName("input")[0].files.length');
+  expect(fileChooser.isMultiple()).toBe(true);
+  expect(filesLen).toEqual(filesCount);
+  await Promise.all(uploadFiles.map(path => fs.promises.unlink(path)));
+});
+
 it('should upload large file with relative path', async ({ page, server, browserName, isMac, isAndroid }, testInfo) => {
   it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
   it.skip(isAndroid);
@@ -548,3 +586,25 @@ it('should trigger listener added before navigation', async ({ page, server, bro
   expect(chooser).toBeTruthy();
 });
 
+it('input should trigger events when files changed second time', async ({ page, asset }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20079' });
+  await page.setContent(`<input type=file multiple=true/>`);
+
+  const input = page.locator('input');
+  const events = await input.evaluateHandle(e => {
+    const events = [];
+    e.addEventListener('input', () => events.push('input'));
+    e.addEventListener('change', () => events.push('change'));
+    return events;
+  });
+
+  await input.setInputFiles(asset('file-to-upload.txt'));
+  expect(await input.evaluate(e => (e as HTMLInputElement).files[0].name)).toBe('file-to-upload.txt');
+  expect(await events.evaluate(e => e)).toEqual(['input', 'change']);
+
+  await events.evaluate(e => e.length = 0);
+
+  await input.setInputFiles(asset('pptr.png'));
+  expect(await input.evaluate(e => (e as HTMLInputElement).files[0].name)).toBe('pptr.png');
+  expect(await events.evaluate(e => e)).toEqual(['input', 'change']);
+});

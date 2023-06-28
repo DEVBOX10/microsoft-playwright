@@ -23,10 +23,10 @@ import { spawnAsync } from '../../utils/spawnAsync';
 import { hostPlatform } from '../../utils/hostPlatform';
 import { buildPlaywrightCLICommand } from '.';
 import { deps } from './nativeDeps';
-import { getPlaywrightVersion } from '../../common/userAgent';
+import { getPlaywrightVersion } from '../../utils/userAgent';
 
 const BIN_DIRECTORY = path.join(__dirname, '..', '..', '..', 'bin');
-const packageJSON = require('../../../package.json');
+const languageBindingVersion = process.env.PW_CLI_DISPLAY_VERSION || require('../../../package.json').version;
 
 const dockerVersionFilePath = '/ms-playwright/.docker-info';
 export async function writeDockerVersion(dockerImageNameTemplate: string) {
@@ -38,8 +38,8 @@ export async function writeDockerVersion(dockerImageNameTemplate: string) {
 
 export function dockerVersion(dockerImageNameTemplate: string): { driverVersion: string, dockerImageName: string } {
   return {
-    driverVersion: packageJSON.version,
-    dockerImageName: dockerImageNameTemplate.replace('%version%', packageJSON.version),
+    driverVersion: languageBindingVersion,
+    dockerImageName: dockerImageNameTemplate.replace('%version%', languageBindingVersion),
   };
 }
 

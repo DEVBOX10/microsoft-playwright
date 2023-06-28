@@ -180,6 +180,8 @@ Name of the key to press or a character to generate, such as `ArrowLeft` or `a`.
 
 Dispatches only `input` event, does not emit the `keydown`, `keyup` or `keypress` events.
 
+**Usage**
+
 ```js
 page.keyboard.insertText('嗨');
 ```
@@ -230,6 +232,8 @@ respective texts.
 
 Shortcuts such as `key: "Control+o"` or `key: "Control+Shift+T"` are supported as well. When specified with the
 modifier, modifier is pressed and being held while the subsequent key is being pressed.
+
+**Usage**
 
 ```js
 const page = await browser.newPage();
@@ -282,11 +286,11 @@ browser.close()
 ```csharp
 await page.GotoAsync("https://keycode.info");
 await page.Keyboard.PressAsync("A");
-await page.ScreenshotAsync(new PageScreenshotOptions { Path = "A.png" });
+await page.ScreenshotAsync(new() { Path = "A.png" });
 await page.Keyboard.PressAsync("ArrowLeft");
-await page.ScreenshotAsync(new PageScreenshotOptions { Path = "ArrowLeft.png" });
+await page.ScreenshotAsync(new() { Path = "ArrowLeft.png" });
 await page.Keyboard.PressAsync("Shift+O");
-await page.ScreenshotAsync(new PageScreenshotOptions { Path = "O.png" });
+await page.ScreenshotAsync(new() { Path = "O.png" });
 await browser.CloseAsync();
 ```
 
@@ -311,9 +315,11 @@ Sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in t
 
 To press a special key, like `Control` or `ArrowDown`, use [`method: Keyboard.press`].
 
+**Usage**
+
 ```js
 await page.keyboard.type('Hello'); // Types instantly
-await page.keyboard.type('World', {delay: 100}); // Types slower, like a user
+await page.keyboard.type('World', { delay: 100 }); // Types slower, like a user
 ```
 
 ```java
@@ -335,7 +341,7 @@ page.keyboard.type("World", delay=100) # types slower, like a user
 
 ```csharp
 await page.Keyboard.TypeAsync("Hello"); // types instantly
-await page.Keyboard.TypeAsync("World", new KeyboardTypeOptions { Delay = 100 }); // types slower, like a user
+await page.Keyboard.TypeAsync("World", new() { Delay = 100 }); // types slower, like a user
 ```
 
 :::note

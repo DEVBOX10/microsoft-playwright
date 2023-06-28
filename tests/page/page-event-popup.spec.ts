@@ -47,8 +47,6 @@ it('should emit for immediately closed popups', async ({ page }) => {
 });
 
 it('should emit for immediately closed popups 2', async ({ page, server, browserName, video }) => {
-  it.fixme(browserName === 'firefox' && video === 'on');
-
   await page.goto(server.EMPTY_PAGE);
   const [popup] = await Promise.all([
     page.waitForEvent('popup'),
@@ -65,9 +63,12 @@ it('should be able to capture alert', async ({ page }) => {
     const win = window.open('');
     win.alert('hello');
   });
-  const popup = await page.waitForEvent('popup');
-  const dialog = await popup.waitForEvent('dialog');
+  const [popup, dialog] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.context().waitForEvent('dialog'),
+  ]);
   expect(dialog.message()).toBe('hello');
+  expect(dialog.page()).toBe(popup);
   await dialog.dismiss();
   await evaluatePromise;
 });

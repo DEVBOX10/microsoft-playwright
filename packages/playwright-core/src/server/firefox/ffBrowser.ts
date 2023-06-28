@@ -28,6 +28,7 @@ import type * as channels from '@protocol/channels';
 import { ConnectionEvents, FFConnection } from './ffConnection';
 import { FFPage } from './ffPage';
 import type { Protocol } from './protocol';
+import type { SdkObject } from '../instrumentation';
 
 export class FFBrowser extends Browser {
   _connection: FFConnection;
@@ -36,13 +37,19 @@ export class FFBrowser extends Browser {
   private _version = '';
   private _userAgent: string = '';
 
-  static async connect(transport: ConnectionTransport, options: BrowserOptions): Promise<FFBrowser> {
+  static async connect(parent: SdkObject, transport: ConnectionTransport, options: BrowserOptions): Promise<FFBrowser> {
     const connection = new FFConnection(transport, options.protocolLogger, options.browserLogsCollector);
-    const browser = new FFBrowser(connection, options);
+    const browser = new FFBrowser(parent, connection, options);
     if ((options as any).__testHookOnConnectToBrowser)
       await (options as any).__testHookOnConnectToBrowser();
+    let firefoxUserPrefs = options.persistent ? {} : options.originalLaunchOptions.firefoxUserPrefs ?? {};
+    if (Object.keys(kBandaidFirefoxUserPrefs).length)
+      firefoxUserPrefs = { ...kBandaidFirefoxUserPrefs, ...firefoxUserPrefs };
     const promises: Promise<any>[] = [
-      connection.send('Browser.enable', { attachToDefaultContext: !!options.persistent }),
+      connection.send('Browser.enable', {
+        attachToDefaultContext: !!options.persistent,
+        userPrefs: Object.entries(firefoxUserPrefs).map(([name, value]) => ({ name, value })),
+      }),
       browser._initVersion(),
     ];
     if (options.persistent) {
@@ -55,8 +62,8 @@ export class FFBrowser extends Browser {
     return browser;
   }
 
-  constructor(connection: FFConnection, options: BrowserOptions) {
-    super(options);
+  constructor(parent: SdkObject, connection: FFConnection, options: BrowserOptions) {
+    super(parent, options);
     this._connection = connection;
     this._ffPages = new Map();
     this._contexts = new Map();
@@ -118,8 +125,7 @@ export class FFBrowser extends Browser {
   }
 
   _onDownloadCreated(payload: Protocol.Browser.downloadCreatedPayload) {
-    const ffPage = this._ffPages.get(payload.pageTargetId)!;
-    assert(ffPage);
+    const ffPage = this._ffPages.get(payload.pageTargetId);
     if (!ffPage)
       return;
 
@@ -358,6 +364,11 @@ export class FFBrowserContext extends BrowserContext {
 
   onClosePersistent() {}
 
+  override async clearCache(): Promise<void> {
+    // Clearing only the context cache does not work: https://bugzilla.mozilla.org/show_bug.cgi?id=1819147
+    await this._browser._connection.send('Browser.clearCache');
+  }
+
   async doClose() {
     if (!this._browserContextId) {
       if (this._options.recordVideo) {
@@ -404,3 +415,8 @@ function toJugglerProxyOptions(proxy: types.ProxySettings) {
     password: proxy.password
   };
 }
+
+// Prefs for quick fixes that didn't make it to the build.
+// Should all be moved to `playwright.cfg`.
+const kBandaidFirefoxUserPrefs = {};
+

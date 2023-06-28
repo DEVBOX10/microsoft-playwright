@@ -186,7 +186,7 @@ Playwright methods might throw errors if they are unable to fulfill a request. F
 [`method: Locator.waitFor`] might fail if the selector doesn't match any nodes during the given timeframe.
 
 For certain types of errors Playwright uses specific error classes. These classes are available via
-[`playwright.errors`](#playwrighterrors).
+[`playwright.errors`](#playwright-errors).
 
 An example of handling a timeout error:
 
@@ -233,10 +233,59 @@ Exposes API that can be used for the Web API testing.
 - type: <[Selectors]>
 
 Selectors can be used to install custom selector engines. See
-[Working with selectors](../selectors.md) for more information.
+[extensibility](../extensibility.md) for more information.
 
 ## property: Playwright.webkit
 * since: v1.8
 - type: <[BrowserType]>
 
 This object can be used to launch or connect to WebKit, returning instances of [Browser].
+
+## method: Playwright.close
+* since: v1.9
+* langs: java
+
+Terminates this instance of Playwright, will also close all created browsers if they are still running.
+
+## method: Playwright.create
+* since: v1.10
+* langs: java
+- returns: <[Playwright]>
+
+Launches new Playwright driver process and connects to it. [`method: Playwright.close`] should be called when the instance is no longer needed.
+
+```java
+Playwright playwright = Playwright.create();
+Browser browser = playwright.webkit().launch();
+Page page = browser.newPage();
+page.navigate("https://www.w3.org/");
+playwright.close();
+```
+
+### option: Playwright.create.env
+* since: v1.13
+* langs: java
+- `env` <[Object]<[string], [string]>>
+
+Additional environment variables that will be passed to the driver process. By default driver
+process inherits environment variables of the Playwright process.
+
+## async method: Playwright.stop
+* since: v1.8
+* langs: python
+
+Terminates this instance of Playwright in case it was created bypassing the Python context manager. This is useful in REPL applications.
+
+```py
+>>> from playwright.sync_api import sync_playwright
+
+>>> playwright = sync_playwright().start()
+
+>>> browser = playwright.chromium.launch()
+>>> page = browser.new_page()
+>>> page.goto("https://playwright.dev/")
+>>> page.screenshot(path="example.png")
+>>> browser.close()
+
+>>> playwright.stop()
+```

@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { debug, wsServer } from '../utilsBundle';
+import { wsServer } from '../utilsBundle';
 import type { WebSocketServer } from '../utilsBundle';
-import http from 'http';
+import type http from 'http';
 import type { Browser } from '../server/browser';
 import type { Playwright } from '../server/playwright';
 import { createPlaywright } from '../server/playwright';
@@ -25,50 +25,39 @@ import type { ClientType } from './playwrightConnection';
 import type  { LaunchOptions } from '../server/types';
 import { ManualPromise } from '../utils/manualPromise';
 import type { AndroidDevice } from '../server/android/android';
-import { SocksProxy } from '../common/socksProxy';
-
-const debugLog = debug('pw:server');
+import type { SocksProxy } from '../common/socksProxy';
+import { debugLogger } from '../common/debugLogger';
+import { createHttpServer } from '../utils';
 
 let lastConnectionId = 0;
 const kConnectionSymbol = Symbol('kConnection');
 
-function newLogger() {
-  const id = ++lastConnectionId;
-  return (message: string) => debugLog(`[id=${id}] ${message}`);
-}
-
 type ServerOptions = {
   path: string;
   maxConnections: number;
-  preLaunchedBrowser?: Browser
-  preLaunchedAndroidDevice?: AndroidDevice
-  browserProxyMode: 'client' | 'tether' | 'disabled',
-  ownedByTetherClient?: boolean;
+  mode: 'default' | 'launchServer' | 'extension';
+  preLaunchedBrowser?: Browser;
+  preLaunchedAndroidDevice?: AndroidDevice;
+  preLaunchedSocksProxy?: SocksProxy;
 };
 
 export class PlaywrightServer {
   private _preLaunchedPlaywright: Playwright | undefined;
   private _wsServer: WebSocketServer | undefined;
-  private _networkTetheringSocksProxy: SocksProxy | undefined;
   private _options: ServerOptions;
-  private _networkTetheringClientTimeout: NodeJS.Timeout | undefined;
 
   constructor(options: ServerOptions) {
     this._options = options;
     if (options.preLaunchedBrowser)
-      this._preLaunchedPlaywright = options.preLaunchedBrowser.options.rootSdkObject as Playwright;
+      this._preLaunchedPlaywright = options.preLaunchedBrowser.attribution.playwright;
     if (options.preLaunchedAndroidDevice)
-      this._preLaunchedPlaywright = options.preLaunchedAndroidDevice._android._playwrightOptions.rootSdkObject as Playwright;
-  }
-
-  preLaunchedPlaywright(): Playwright {
-    if (!this._preLaunchedPlaywright)
-      this._preLaunchedPlaywright = createPlaywright('javascript');
-    return this._preLaunchedPlaywright;
+      this._preLaunchedPlaywright = options.preLaunchedAndroidDevice._android.attribution.playwright;
   }
 
   async listen(port: number = 0): Promise<string> {
-    const server = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
+    debugLogger.log('server', `Server started at ${new Date()}`);
+
+    const server = createHttpServer((request: http.IncomingMessage, response: http.ServerResponse) => {
       if (request.method === 'GET' && request.url === '/json') {
         response.setHeader('Content-Type', 'application/json');
         response.end(JSON.stringify({
@@ -78,7 +67,7 @@ export class PlaywrightServer {
       }
       response.end('Running');
     });
-    server.on('error', error => debugLog(error));
+    server.on('error', error => debugLogger.log('server', String(error)));
 
     const wsEndpoint = await new Promise<string>((resolve, reject) => {
       server.listen(port, () => {
@@ -91,87 +80,67 @@ export class PlaywrightServer {
         resolve(wsEndpoint);
       }).on('error', reject);
     });
-    if (this._options.browserProxyMode === 'tether') {
-      this._networkTetheringSocksProxy = new SocksProxy();
-      await this._networkTetheringSocksProxy.listen(0);
-      debugLog('Launched tethering proxy at ' + this._networkTetheringSocksProxy.port());
-    }
 
-    debugLog('Listening at ' + wsEndpoint);
-    if (this._options.ownedByTetherClient) {
-      this._networkTetheringClientTimeout = setTimeout(() => {
-        this.close();
-      }, 30_000);
-    }
-
+    debugLogger.log('server', 'Listening at ' + wsEndpoint);
     this._wsServer = new wsServer({ server, path: this._options.path });
     const browserSemaphore = new Semaphore(this._options.maxConnections);
     const controllerSemaphore = new Semaphore(1);
     const reuseBrowserSemaphore = new Semaphore(1);
-    const networkTetheringSemaphore = new Semaphore(1);
+    if (process.env.PWTEST_SERVER_WS_HEADERS) {
+      this._wsServer.on('headers', (headers, request) => {
+        headers.push(process.env.PWTEST_SERVER_WS_HEADERS!);
+      });
+    }
     this._wsServer.on('connection', (ws, request) => {
       const url = new URL('http://localhost' + (request.url || ''));
       const browserHeader = request.headers['x-playwright-browser'];
       const browserName = url.searchParams.get('browser') || (Array.isArray(browserHeader) ? browserHeader[0] : browserHeader) || null;
       const proxyHeader = request.headers['x-playwright-proxy'];
       const proxyValue = url.searchParams.get('proxy') || (Array.isArray(proxyHeader) ? proxyHeader[0] : proxyHeader);
-      const enableSocksProxy = this._options.browserProxyMode !== 'disabled' && proxyValue === '*';
 
       const launchOptionsHeader = request.headers['x-playwright-launch-options'] || '';
+      const launchOptionsHeaderValue = Array.isArray(launchOptionsHeader) ? launchOptionsHeader[0] : launchOptionsHeader;
+      const launchOptionsParam = url.searchParams.get('launch-options');
       let launchOptions: LaunchOptions = {};
       try {
-        launchOptions = JSON.parse(Array.isArray(launchOptionsHeader) ? launchOptionsHeader[0] : launchOptionsHeader);
+        launchOptions = JSON.parse(launchOptionsParam || launchOptionsHeaderValue);
       } catch (e) {
       }
 
-      const log = newLogger();
-      log(`serving connection: ${request.url}`);
-      const isDebugControllerClient = !!request.headers['x-playwright-debug-controller'];
-      const isNetworkTetheringClient = !!request.headers['x-playwright-network-tethering'];
-      const shouldReuseBrowser = !!request.headers['x-playwright-reuse-context'];
+      const id = String(++lastConnectionId);
+      debugLogger.log('server', `[${id}] serving connection: ${request.url}`);
 
-      // If we started in the legacy reuse-browser mode, create this._preLaunchedPlaywright.
-      // If we get a reuse-controller request,  create this._preLaunchedPlaywright.
-      if (isDebugControllerClient || shouldReuseBrowser)
-        this.preLaunchedPlaywright();
-
-      let clientType: ClientType = 'playwright';
-      let semaphore: Semaphore = browserSemaphore;
-      if (isNetworkTetheringClient) {
-        clientType = 'network-tethering';
-        semaphore = networkTetheringSemaphore;
-      } else if (isDebugControllerClient) {
-        clientType = 'controller';
-        semaphore = controllerSemaphore;
-      } else if (shouldReuseBrowser) {
-        clientType = 'reuse-browser';
-        semaphore = reuseBrowserSemaphore;
-      } else if (this._options.preLaunchedBrowser || this._options.preLaunchedAndroidDevice) {
-        clientType = 'pre-launched-browser';
-        semaphore = browserSemaphore;
-      } else if (browserName) {
-        clientType = 'launch-browser';
-        semaphore = browserSemaphore;
+      // Instantiate playwright for the extension modes.
+      const isExtension = this._options.mode === 'extension';
+      if (isExtension) {
+        if (!this._preLaunchedPlaywright)
+          this._preLaunchedPlaywright = createPlaywright({ sdkLanguage: 'javascript', isServer: true });
       }
 
-      if (clientType === 'network-tethering' && this._options.ownedByTetherClient)
-        clearTimeout(this._networkTetheringClientTimeout);
+      let clientType: ClientType = 'launch-browser';
+      let semaphore: Semaphore = browserSemaphore;
+      if (isExtension && url.searchParams.has('debug-controller')) {
+        clientType = 'controller';
+        semaphore = controllerSemaphore;
+      } else if (isExtension) {
+        clientType = 'reuse-browser';
+        semaphore = reuseBrowserSemaphore;
+      } else if (this._options.mode === 'launchServer') {
+        clientType = 'pre-launched-browser-or-android';
+        semaphore = browserSemaphore;
+      }
 
       const connection = new PlaywrightConnection(
           semaphore.aquire(),
           clientType, ws,
-          { enableSocksProxy, browserName, launchOptions },
+          { socksProxyPattern: proxyValue, browserName, launchOptions },
           {
             playwright: this._preLaunchedPlaywright,
             browser: this._options.preLaunchedBrowser,
             androidDevice: this._options.preLaunchedAndroidDevice,
-            networkTetheringSocksProxy: this._networkTetheringSocksProxy,
+            socksProxy: this._options.preLaunchedSocksProxy,
           },
-          log, () => {
-            semaphore.release();
-            if (this._options.ownedByTetherClient && clientType === 'network-tethering')
-              this.close();
-          });
+          id, () => semaphore.release());
       (ws as any)[kConnectionSymbol] = connection;
     });
 
@@ -182,8 +151,7 @@ export class PlaywrightServer {
     const server = this._wsServer;
     if (!server)
       return;
-    await this._networkTetheringSocksProxy?.close();
-    debugLog('closing websocket server');
+    debugLogger.log('server', 'closing websocket server');
     const waitForClose = new Promise(f => server.close(f));
     // First disconnect all remaining clients.
     await Promise.all(Array.from(server.clients).map(async ws => {
@@ -196,10 +164,15 @@ export class PlaywrightServer {
       }
     }));
     await waitForClose;
-    debugLog('closing http server');
+    debugLogger.log('server', 'closing http server');
     await new Promise(f => server.options.server!.close(f));
     this._wsServer = undefined;
-    debugLog('closed server');
+    debugLogger.log('server', 'closed server');
+
+    debugLogger.log('server', 'closing browsers');
+    if (this._preLaunchedPlaywright)
+      await Promise.all(this._preLaunchedPlaywright.allBrowsers().map(browser => browser.close()));
+    debugLogger.log('server', 'closed browsers');
   }
 }
 

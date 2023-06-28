@@ -36,7 +36,7 @@ const testFiles = {
     import path from 'path';
     import rimraf from 'rimraf';
 
-    const { test } = pwt;
+    import { test, expect } from '@playwright/test';
 
     test.describe('shared', () => {
       let page;
@@ -54,7 +54,7 @@ const testFiles = {
         await page.click('text=Click me');
       });
 
-      test('shared  failing', async ({ }) => {
+      test('shared failing', async ({ }) => {
         await page.click('text=And me');
         expect(1).toBe(2);
       });
@@ -123,6 +123,7 @@ const testFiles = {
 };
 
 test.slow(true, 'Multiple browser launches in each test');
+test.describe.configure({ mode: 'parallel' });
 
 test('should work with screenshot: on', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
@@ -150,15 +151,16 @@ test('should work with screenshot: on', async ({ runInlineTest }, testInfo) => {
     '  test-finished-1.png',
     'artifacts-shared-shared-failing',
     '  test-failed-1.png',
+    '  test-failed-2.png',
     'artifacts-shared-shared-passing',
     '  test-finished-1.png',
+    '  test-finished-2.png',
     'artifacts-two-contexts',
     '  test-finished-1.png',
     '  test-finished-2.png',
     'artifacts-two-contexts-failing',
     '  test-failed-1.png',
     '  test-failed-2.png',
-    'report.json',
   ]);
 });
 
@@ -182,11 +184,39 @@ test('should work with screenshot: only-on-failure', async ({ runInlineTest }, t
     '  test-failed-1.png',
     'artifacts-shared-shared-failing',
     '  test-failed-1.png',
+    '  test-failed-2.png',
     'artifacts-two-contexts-failing',
     '  test-failed-1.png',
     '  test-failed-2.png',
-    'report.json',
   ]);
+});
+
+test('should work with screenshot: only-on-failure & fullPage', async ({ runInlineTest, server }, testInfo) => {
+  const result = await runInlineTest({
+    'artifacts.spec.ts': `
+    import { test, expect } from '@playwright/test';
+
+    test('should fail and take fullPage screenshots', async ({ page }) => {
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto('${server.PREFIX}/grid.html');
+      expect(1).toBe(2);
+    });
+    `,
+    'playwright.config.ts': `
+      module.exports = { use: { screenshot: { mode: 'only-on-failure', fullPage: true } } };
+    `,
+  }, { workers: 1 });
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(0);
+  expect(result.failed).toBe(1);
+  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
+    'artifacts-should-fail-and-take-fullPage-screenshots',
+    '  test-failed-1.png',
+  ]);
+  const screenshotFailure = fs.readFileSync(
+      testInfo.outputPath('test-results', 'artifacts-should-fail-and-take-fullPage-screenshots', 'test-failed-1.png')
+  );
+  expect.soft(screenshotFailure).toMatchSnapshot('screenshot-grid-fullpage.png');
 });
 
 test('should work with trace: on', async ({ runInlineTest }, testInfo) => {
@@ -218,12 +248,9 @@ test('should work with trace: on', async ({ runInlineTest }, testInfo) => {
     'artifacts-shared-shared-passing',
     '  trace.zip',
     'artifacts-two-contexts',
-    '  trace-1.zip',
     '  trace.zip',
     'artifacts-two-contexts-failing',
-    '  trace-1.zip',
     '  trace.zip',
-    'report.json',
   ]);
 });
 
@@ -248,9 +275,7 @@ test('should work with trace: retain-on-failure', async ({ runInlineTest }, test
     'artifacts-shared-shared-failing',
     '  trace.zip',
     'artifacts-two-contexts-failing',
-    '  trace-1.zip',
     '  trace.zip',
-    'report.json',
   ]);
 });
 
@@ -275,9 +300,42 @@ test('should work with trace: on-first-retry', async ({ runInlineTest }, testInf
     'artifacts-shared-shared-failing-retry1',
     '  trace.zip',
     'artifacts-two-contexts-failing-retry1',
-    '  trace-1.zip',
     '  trace.zip',
-    'report.json',
+  ]);
+});
+
+test('should work with trace: on-all-retries', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    ...testFiles,
+    'playwright.config.ts': `
+      module.exports = { use: { trace: 'on-all-retries' } };
+    `,
+  }, { workers: 1, retries: 2 });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(5);
+  expect(result.failed).toBe(5);
+  expect(listFiles(testInfo.outputPath('test-results'))).toEqual([
+    'artifacts-failing-retry1',
+    '  trace.zip',
+    'artifacts-failing-retry2',
+    '  trace.zip',
+    'artifacts-own-context-failing-retry1',
+    '  trace.zip',
+    'artifacts-own-context-failing-retry2',
+    '  trace.zip',
+    'artifacts-persistent-failing-retry1',
+    '  trace.zip',
+    'artifacts-persistent-failing-retry2',
+    '  trace.zip',
+    'artifacts-shared-shared-failing-retry1',
+    '  trace.zip',
+    'artifacts-shared-shared-failing-retry2',
+    '  trace.zip',
+    'artifacts-two-contexts-failing-retry1',
+    '  trace.zip',
+    'artifacts-two-contexts-failing-retry2',
+    '  trace.zip',
   ]);
 });
 
@@ -287,7 +345,7 @@ test('should take screenshot when page is closed in afterEach', async ({ runInli
       module.exports = { use: { screenshot: 'on' } };
     `,
     'a.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
 
       test.afterEach(async ({ page }) => {
         await page.close();

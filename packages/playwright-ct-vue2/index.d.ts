@@ -23,21 +23,17 @@ import type {
   PlaywrightWorkerOptions,
   Locator,
 } from '@playwright/test';
+import type { JsonObject } from '@playwright/experimental-ct-core/types/component';
 import type { InlineConfig } from 'vite';
 
-export type PlaywrightTestConfig = Omit<BasePlaywrightTestConfig, 'use'> & {
-  use?: BasePlaywrightTestConfig['use'] & {
+export type PlaywrightTestConfig<T = {}, W = {}> = Omit<BasePlaywrightTestConfig<T, W>, 'use'> & {
+  use?: BasePlaywrightTestConfig<T, W>['use'] & {
     ctPort?: number;
     ctTemplateDir?: string;
     ctCacheDir?: string;
-    ctViteConfig?: InlineConfig;
+    ctViteConfig?: InlineConfig | (() => Promise<InlineConfig>);
   };
 };
-
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-type JsonArray = JsonValue[];
-type JsonObject = { [Key in string]?: JsonValue };
 
 type Slot = string | string[];
 
@@ -48,17 +44,12 @@ export interface MountOptions<
   props?: Props;
   slots?: Record<string, Slot> & { default?: Slot };
   on?: Record<string, Function>;
-  hooksConfig?: JsonObject;
+  hooksConfig?: HooksConfig;
 }
 
-interface MountResult<
-  HooksConfig extends JsonObject,
-  Props extends Record<string, unknown>
-> extends Locator {
+interface MountResult<Props extends Record<string, unknown>> extends Locator {
   unmount(): Promise<void>;
-  update(
-    options: Omit<MountOptions<HooksConfig, Props>, 'hooksConfig'>
-  ): Promise<void>;
+  update(options: Omit<MountOptions<never, Props>, 'hooksConfig'>): Promise<void>;
 }
 
 interface MountResultJsx extends Locator {
@@ -70,20 +61,27 @@ export interface ComponentFixtures {
   mount(component: JSX.Element): Promise<MountResultJsx>;
   mount<HooksConfig extends JsonObject>(
     component: any,
-    options?: MountOptions<HooksConfig, any>
-  ): Promise<MountResult<HooksConfig, any>>;
+    options?: MountOptions<HooksConfig, Record<string, unknown>>
+  ): Promise<MountResult<Record<string, unknown>>>;
   mount<
     HooksConfig extends JsonObject,
     Props extends Record<string, unknown> = Record<string, unknown>
   >(
     component: any,
-    options: MountOptions<HooksConfig, any> & { props: Props }
-  ): Promise<MountResult<HooksConfig, Props>>;
+    options: MountOptions<HooksConfig, never> & { props: Props }
+  ): Promise<MountResult<Props>>;
 }
 
 export const test: TestType<
   PlaywrightTestArgs & PlaywrightTestOptions & ComponentFixtures,
   PlaywrightWorkerArgs & PlaywrightWorkerOptions
 >;
+
+/**
+ * Defines Playwright config
+ */
+export function defineConfig(config: PlaywrightTestConfig): PlaywrightTestConfig;
+export function defineConfig<T>(config: PlaywrightTestConfig<T>): PlaywrightTestConfig<T>;
+export function defineConfig<T, W>(config: PlaywrightTestConfig<T, W>): PlaywrightTestConfig<T, W>;
 
 export { expect, devices } from '@playwright/test';

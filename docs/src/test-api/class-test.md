@@ -2,19 +2,9 @@
 * since: v1.10
 * langs: js
 
-Playwright Test provides a `test` function to declare tests and [`expect` function](https://jestjs.io/docs/expect) to write assertions.
+Playwright Test provides a `test` function to declare tests and `expect` function to write assertions.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
-  const name = await page.innerText('.navbar__title');
-  expect(name).toBe('Playwright');
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }) => {
@@ -29,23 +19,14 @@ test('basic test', async ({ page }) => {
 
 Declares a test.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('basic test', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
-  const name = await page.innerText('.navbar__title');
-  expect(name).toBe('Playwright');
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }) => {
   await page.goto('https://playwright.dev/');
-  const name = await page.innerText('.navbar__title');
-  expect(name).toBe('Playwright');
+  // ...
 });
 ```
 
@@ -66,9 +47,22 @@ Test function that takes one or two arguments: an object with fixtures and optio
 ## method: Test.afterAll
 * since: v1.10
 
-Declares an `afterAll` hook that is executed once per worker after all tests. When called in the scope of a test file, runs after all tests in the file. When called inside a [`method: Test.describe#1`] group, runs after all tests in the group. If multiple `afterAll` hooks are added, they will run in the order of their registration.
+Declares an `afterAll` hook that is executed once per worker after all tests.
+
+**Details**
+
+When called in the scope of a test file, runs after all tests in the file. When called inside a [`method: Test.describe#1`] group, runs after all tests in the group. If multiple `afterAll` hooks are added, they will run in the order of their registration.
 
 Note that worker process is restarted on test failures, and `afterAll` hook runs again in the new worker. Learn more about [workers and failures](../test-retries.md).
+
+**Usage**
+
+```js
+test.afterAll(async () => {
+  console.log('Done with tests');
+  // ...
+});
+```
 
 ### param: Test.afterAll.hookFunction
 * since: v1.10
@@ -81,28 +75,17 @@ Hook function that takes one or two arguments: an object with worker fixtures an
 ## method: Test.afterEach
 * since: v1.10
 
-Declares an `afterEach` hook that is executed after each test. When called in the scope of a test file, runs after each test in the file. When called inside a [`method: Test.describe#1`] group, runs after each test in the group. If multiple `afterEach` hooks are added, they will run in the order of their registration.
+Declares an `afterEach` hook that is executed after each test.
+
+**Details**
+
+When called in the scope of a test file, runs after each test in the file. When called inside a [`method: Test.describe#1`] group, runs after each test in the group. If multiple `afterEach` hooks are added, they will run in the order of their registration.
 
 You can access all the same [Fixtures] as the test function itself, and also the [TestInfo] object that gives a lot of useful information. For example, you can check whether the test succeeded or failed.
 
-```js tab=js-js
-// example.spec.js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.afterEach(async ({ page }, testInfo) => {
-  console.log(`Finished ${testInfo.title} with status ${testInfo.status}`);
-
-  if (testInfo.status !== testInfo.expectedStatus)
-    console.log(`Did not run as expected, ended up at ${page.url()}`);
-});
-
-test('my test', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
-// example.spec.ts
+```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 
 test.afterEach(async ({ page }, testInfo) => {
@@ -127,27 +110,19 @@ Hook function that takes one or two arguments: an object with fixtures and optio
 ## method: Test.beforeAll
 * since: v1.10
 
-Declares a `beforeAll` hook that is executed once per worker process before all tests. When called in the scope of a test file, runs before all tests in the file. When called inside a [`method: Test.describe#1`] group, runs before all tests in the group. If multiple `beforeAll` hooks are added, they will run in the order of their registration.
+Declares a `beforeAll` hook that is executed once per worker process before all tests.
 
-```js tab=js-js
-// example.spec.js
-const { test, expect } = require('@playwright/test');
+**Details**
 
-test.beforeAll(async () => {
-  console.log('Before tests');
-});
+When called in the scope of a test file, runs before all tests in the file. When called inside a [`method: Test.describe#1`] group, runs before all tests in the group. If multiple `beforeAll` hooks are added, they will run in the order of their registration.
 
-test.afterAll(async () => {
-  console.log('After tests');
-});
+Note that worker process is restarted on test failures, and `beforeAll` hook runs again in the new worker. Learn more about [workers and failures](../test-retries.md).
 
-test('my test', async ({ page }) => {
-  // ...
-});
-```
+You can use [`method: Test.afterAll`] to teardown any resources set up in `beforeAll`.
 
-```js tab=js-ts
-// example.spec.ts
+**Usage**
+
+```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 
 test.beforeAll(async () => {
@@ -162,10 +137,6 @@ test('my test', async ({ page }) => {
   // ...
 });
 ```
-
-Note that worker process is restarted on test failures, and `beforeAll` hook runs again in the new worker. Learn more about [workers and failures](../test-retries.md).
-
-You can use [`method: Test.afterAll`] to teardown any resources set up in `beforeAll`.
 
 ### param: Test.beforeAll.hookFunction
 * since: v1.10
@@ -178,26 +149,19 @@ Hook function that takes one or two arguments: an object with worker fixtures an
 ## method: Test.beforeEach
 * since: v1.10
 
-Declares a `beforeEach` hook that is executed before each test. When called in the scope of a test file, runs before each test in the file. When called inside a [`method: Test.describe#1`] group, runs before each test in the group.  If multiple `beforeEach` hooks are added, they will run in the order of their registration.
+Declares a `beforeEach` hook that is executed before each test.
+
+**Details**
+
+When called in the scope of a test file, runs before each test in the file. When called inside a [`method: Test.describe#1`] group, runs before each test in the group.  If multiple `beforeEach` hooks are added, they will run in the order of their registration.
 
 You can access all the same [Fixtures] as the test function itself, and also the [TestInfo] object that gives a lot of useful information. For example, you can navigate the page before starting the test.
 
-```js tab=js-js
-// example.spec.js
-const { test, expect } = require('@playwright/test');
+You can use [`method: Test.afterEach`] to teardown any resources set up in `beforeEach`.
 
-test.beforeEach(async ({ page }, testInfo) => {
-  console.log(`Running ${testInfo.title}`);
-  await page.goto('https://my.start.url/');
-});
+**Usage**
 
-test('my test', async ({ page }) => {
-  expect(page.url()).toBe('https://my.start.url/');
-});
-```
-
-```js tab=js-ts
-// example.spec.ts
+```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -209,8 +173,6 @@ test('my test', async ({ page }) => {
   expect(page.url()).toBe('https://my.start.url/');
 });
 ```
-
-You can use [`method: Test.afterEach`] to teardown any resources set up in `beforeEach`.
 
 ### param: Test.beforeEach.hookFunction
 * since: v1.10
@@ -226,19 +188,9 @@ Hook function that takes one or two arguments: an object with fixtures and optio
 
 Declares a group of tests.
 
-```js tab=js-js
-test.describe('two tests', () => {
-  test('one', async ({ page }) => {
-    // ...
-  });
+**Usage**
 
-  test('two', async ({ page }) => {
-    // ...
-  });
-});
-```
-
-```js tab=js-ts
+```js
 test.describe('two tests', () => {
   test('one', async ({ page }) => {
     // ...
@@ -268,21 +220,9 @@ A callback that is run immediately when calling [`method: Test.describe#1`]. Any
 
 Declares an anonymous group of tests. This is convenient to give a group of tests a common option with [`method: Test.use`].
 
-```js tab=js-js
-test.describe(() => {
-  test.use({ colorScheme: 'dark' });
+**Usage**
 
-  test('one', async ({ page }) => {
-    // ...
-  });
-
-  test('two', async ({ page }) => {
-    // ...
-  });
-});
-```
-
-```js tab=js-ts
+```js
 test.describe(() => {
   test.use({ colorScheme: 'dark' });
 
@@ -311,65 +251,74 @@ Configures the enclosing scope. Can be executed either on the top level or insid
 
 Learn more about the execution modes [here](../test-parallel.md).
 
-Running tests in parallel:
+**Usage**
 
-```js tab=js-js
-// Run all the tests in the file concurrently using parallel workers.
-test.describe.configure({ mode: 'parallel' });
-test('runs in parallel 1', async ({ page }) => {});
-test('runs in parallel 2', async ({ page }) => {});
-```
+* Running tests in parallel.
 
-```js tab=js-ts
-// Run all the tests in the file concurrently using parallel workers.
-test.describe.configure({ mode: 'parallel' });
-test('runs in parallel 1', async ({ page }) => {});
-test('runs in parallel 2', async ({ page }) => {});
-```
+  ```js
+  // Run all the tests in the file concurrently using parallel workers.
+  test.describe.configure({ mode: 'parallel' });
+  test('runs in parallel 1', async ({ page }) => {});
+  test('runs in parallel 2', async ({ page }) => {});
+  ```
 
-Running tests sequentially:
+* Running tests serially, retrying from the start.
 
-```js tab=js-js
-// Annotate tests as inter-dependent.
-test.describe.configure({ mode: 'serial' });
-test('runs first', async ({ page }) => {});
-test('runs second', async ({ page }) => {});
-```
+  :::note
+  Running serially is not recommended. It is usually better to make your tests isolated, so they can be run independently.
+  :::
 
-```js tab=js-ts
-// Annotate tests as inter-dependent.
-test.describe.configure({ mode: 'serial' });
-test('runs first', async ({ page }) => {});
-test('runs second', async ({ page }) => {});
-```
+  ```js
+  // Annotate tests as inter-dependent.
+  test.describe.configure({ mode: 'serial' });
+  test('runs first', async ({ page }) => {});
+  test('runs second', async ({ page }) => {});
+  ```
 
-Configuring retries and timeout:
+* Configuring retries and timeout for each test.
 
-```js tab=js-js
-// All tests in the file will be retried twice and have a timeout of 20 seconds.
-test.describe.configure({ retries: 2, timeout: 20_000 });
-test('runs first', async ({ page }) => {});
-test('runs second', async ({ page }) => {});
-```
+  ```js
+  // Each test in the file will be retried twice and have a timeout of 20 seconds.
+  test.describe.configure({ retries: 2, timeout: 20_000 });
+  test('runs first', async ({ page }) => {});
+  test('runs second', async ({ page }) => {});
+  ```
 
-```js tab=js-ts
-// All tests in the file will be retried twice and have a timeout of 20 seconds.
-test.describe.configure({ retries: 2, timeout: 20_000 });
-test('runs first', async ({ page }) => {});
-test('runs second', async ({ page }) => {});
-```
+* Run multiple describes in parallel, but tests inside each describe in order.
+
+  ```js
+  test.describe.configure({ mode: 'parallel' });
+
+  test.describe('A, runs in parallel with B', () => {
+    test.describe.configure({ mode: 'default' });
+    test('in order A1', async ({ page }) => {});
+    test('in order A2', async ({ page }) => {});
+  });
+
+  test.describe('B, runs in parallel with A', () => {
+    test.describe.configure({ mode: 'default' });
+    test('in order B1', async ({ page }) => {});
+    test('in order B2', async ({ page }) => {});
+  });
+  ```
 
 ### option: Test.describe.configure.mode
 * since: v1.10
-- `mode` <[TestMode]<"parallel"|"serial">>
+- `mode` <[TestMode]<"default"|"parallel"|"serial">>
+
+Execution mode. Learn more about the execution modes [here](../test-parallel.md).
 
 ### option: Test.describe.configure.retries
 * since: v1.28
 - `retries` <[int]>
 
+The number of retries for each test.
+
 ### option: Test.describe.configure.timeout
 * since: v1.28
 - `timeout` <[int]>
+
+Timeout for each test in milliseconds. Overrides [`property: TestProject.timeout`] and [`property: TestConfig.timeout`].
 
 
 ## method: Test.describe.fixme
@@ -377,15 +326,9 @@ test('runs second', async ({ page }) => {});
 
 Declares a test group similarly to [`method: Test.describe#1`]. Tests in this group are marked as "fixme" and will not be executed.
 
-```js tab=js-js
-test.describe.fixme('broken tests', () => {
-  test('example', async ({ page }) => {
-    // This test will not run
-  });
-});
-```
+**Usage**
 
-```js tab=js-ts
+```js
 test.describe.fixme('broken tests', () => {
   test('example', async ({ page }) => {
     // This test will not run
@@ -412,18 +355,9 @@ A callback that is run immediately when calling [`method: Test.describe.fixme`].
 
 Declares a focused group of tests. If there are some focused tests or suites, all of them will be run but nothing else.
 
-```js tab=js-js
-test.describe.only('focused group', () => {
-  test('in the focused group', async ({ page }) => {
-    // This test will run
-  });
-});
-test('not in the focused group', async ({ page }) => {
-  // This test will not run
-});
-```
+**Usage**
 
-```js tab=js-ts
+```js
 test.describe.only('focused group', () => {
   test('in the focused group', async ({ page }) => {
     // This test will run
@@ -450,21 +384,13 @@ A callback that is run immediately when calling [`method: Test.describe.only`]. 
 
 ## method: Test.describe.parallel
 * since: v1.10
+* discouraged: See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
 
 Declares a group of tests that could be run in parallel. By default, tests in a single test file run one after another, but using [`method: Test.describe.parallel`] allows them to run in parallel.
 
-:::note
-See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
-:::
+**Usage**
 
-```js tab=js-js
-test.describe.parallel('group', () => {
-  test('runs in parallel 1', async ({ page }) => {});
-  test('runs in parallel 2', async ({ page }) => {});
-});
-```
-
-```js tab=js-ts
+```js
 test.describe.parallel('group', () => {
   test('runs in parallel 1', async ({ page }) => {});
   test('runs in parallel 2', async ({ page }) => {});
@@ -489,8 +415,18 @@ A callback that is run immediately when calling [`method: Test.describe.parallel
 
 ## method: Test.describe.parallel.only
 * since: v1.10
+* discouraged: See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
 
 Declares a focused group of tests that could be run in parallel. This is similar to [`method: Test.describe.parallel`], but focuses the group. If there are some focused tests or suites, all of them will be run but nothing else.
+
+**Usage**
+
+```js
+test.describe.parallel.only('group', () => {
+  test('runs in parallel 1', async ({ page }) => {});
+  test('runs in parallel 2', async ({ page }) => {});
+});
+```
 
 ### param: Test.describe.parallel.only.title
 * since: v1.10
@@ -508,25 +444,17 @@ A callback that is run immediately when calling [`method: Test.describe.parallel
 
 ## method: Test.describe.serial
 * since: v1.10
+* discouraged: See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
 
 Declares a group of tests that should always be run serially. If one of the tests fails, all subsequent tests are skipped. All tests in a group are retried together.
-
-:::note
-See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
-:::
 
 :::note
 Using serial is not recommended. It is usually better to make your tests isolated, so they can be run independently.
 :::
 
-```js tab=js-js
-test.describe.serial('group', () => {
-  test('runs first', async ({ page }) => {});
-  test('runs second', async ({ page }) => {});
-});
-```
+**Usage**
 
-```js tab=js-ts
+```js
 test.describe.serial('group', () => {
   test('runs first', async ({ page }) => {});
   test('runs second', async ({ page }) => {});
@@ -549,6 +477,7 @@ A callback that is run immediately when calling [`method: Test.describe.serial`]
 
 ## method: Test.describe.serial.only
 * since: v1.10
+* discouraged: See [`method: Test.describe.configure`] for the preferred way of configuring the execution mode.
 
 Declares a focused group of tests that should always be run serially. If one of the tests fails, all subsequent tests are skipped. All tests in a group are retried together. If there are some focused tests or suites, all of them will be run but nothing else.
 
@@ -556,16 +485,9 @@ Declares a focused group of tests that should always be run serially. If one of 
 Using serial is not recommended. It is usually better to make your tests isolated, so they can be run independently.
 :::
 
-```js tab=js-js
-test.describe.serial.only('group', () => {
-  test('runs first', async ({ page }) => {
-  });
-  test('runs second', async ({ page }) => {
-  });
-});
-```
+**Usage**
 
-```js tab=js-ts
+```js
 test.describe.serial.only('group', () => {
   test('runs first', async ({ page }) => {
   });
@@ -594,15 +516,9 @@ A callback that is run immediately when calling [`method: Test.describe.serial.o
 
 Declares a skipped test group, similarly to [`method: Test.describe#1`]. Tests in the skipped group are never run.
 
-```js tab=js-js
-test.describe.skip('skipped group', () => {
-  test('example', async ({ page }) => {
-    // This test will not run
-  });
-});
-```
+**Usage**
 
-```js tab=js-ts
+```js
 test.describe.skip('skipped group', () => {
   test('example', async ({ page }) => {
     // This test will not run
@@ -628,9 +544,15 @@ A callback that is run immediately when calling [`method: Test.describe.skip`]. 
 * since: v1.10
 - type: <[Object]>
 
-`expect` function can be used to create test assertions. Read [expect library documentation](https://jestjs.io/docs/expect) for more details.
+`expect` function can be used to create test assertions. Read more about [test assertions](../test-assertions.md).
 
+**Usage**
 
+```js
+test('example', async ({ page }) => {
+  await test.expect(page).toHaveTitle('Title');
+});
+```
 
 
 
@@ -640,10 +562,11 @@ A callback that is run immediately when calling [`method: Test.describe.skip`]. 
 
 Extends the `test` object by defining fixtures and/or options that can be used in the tests.
 
+**Usage**
+
 First define a fixture and/or an option.
 
-```js tab=js-js
-// my-test.js
+```js tab=js-js title="my-test.js"
 const base = require('@playwright/test');
 const { TodoPage } = require('./todo-page');
 
@@ -691,18 +614,7 @@ export const test = base.extend<Options & { todoPage: TodoPage }>({
 
 Then use the fixture in the test.
 
-```js tab=js-js
-// example.spec.js
-const { test } = require('./my-test');
-
-test('test 1', async ({ todoPage }) => {
-  await todoPage.addToDo('my todo');
-  // ...
-});
-```
-
-```js tab=js-ts
-// example.spec.ts
+```js title="example.spec.ts"
 import { test } from './my-test';
 
 test('test 1', async ({ todoPage }) => {
@@ -713,12 +625,10 @@ test('test 1', async ({ todoPage }) => {
 
 Configure the option in config file.
 
-```js tab=js-js
-// playwright.config.js
+```js tab=js-js title="playwright.config.ts"
 // @ts-check
 
-/** @type {import('@playwright/test').PlaywrightTestConfig<{ defaultItem: string }>} */
-const config = {
+module.exports = defineConfig({
   projects: [
     {
       name: 'shopping',
@@ -729,17 +639,14 @@ const config = {
       use: { defaultItem: 'Exercise!' },
     },
   ]
-};
-
-module.exports = config;
+});
 ```
 
-```js tab=js-ts
-// playwright.config.ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-import { Options } from './my-test';
+```js tab=js-ts title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+import type { Options } from './my-test';
 
-const config: PlaywrightTestConfig<Options> = {
+export default defineConfig<Options>({
   projects: [
     {
       name: 'shopping',
@@ -750,8 +657,7 @@ const config: PlaywrightTestConfig<Options> = {
       use: { defaultItem: 'Exercise!' },
     },
   ]
-};
-export default config;
+});
 ```
 
 Learn more about [fixtures](../test-fixtures.md) and [parametrizing tests](../test-parameterize.md).
@@ -769,18 +675,11 @@ An object containing fixtures and/or options. Learn more about [fixtures format]
 ## method: Test.fail#1
 * since: v1.10
 
-Unconditonally marks a test as "should fail". Playwright Test runs this test and ensures that it is actually failing. This is useful for documentation purposes to acknowledge that some functionality is broken until it is fixed.
+Unconditionally marks a test as "should fail". Playwright Test runs this test and ensures that it is actually failing. This is useful for documentation purposes to acknowledge that some functionality is broken until it is fixed.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('not yet ready', async ({ page }) => {
-  test.fail();
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('not yet ready', async ({ page }) => {
@@ -794,16 +693,9 @@ test('not yet ready', async ({ page }) => {
 
 Conditionally mark a test as "should fail" with an optional description.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('fail in WebKit', async ({ page, browserName }) => {
-  test.fail(browserName === 'webkit', 'This feature is not implemented for Mac yet');
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('fail in WebKit', async ({ page, browserName }) => {
@@ -830,20 +722,9 @@ Optional description that will be reflected in a test report.
 
 Conditionally mark all tests in a file or [`method: Test.describe#1`] group as "should fail".
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.fail(({ browserName }) => browserName === 'webkit');
-
-test('fail in WebKit 1', async ({ page }) => {
-  // ...
-});
-test('fail in WebKit 2', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.fail(({ browserName }) => browserName === 'webkit');
@@ -874,15 +755,10 @@ Optional description that will be reflected in a test report.
 
 Declares a test to be fixed, similarly to [`method: Test.(call)`]. This test will not be run.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.fixme('test to be fixed', async ({ page }) => {
-  // ...
-});
-```
 
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.fixme('test to be fixed', async ({ page }) => {
@@ -909,16 +785,9 @@ Test function that takes one or two arguments: an object with fixtures and optio
 
 Mark a test as "fixme", with the intention to fix it. Test is immediately aborted when you call [`method: Test.fixme#2`].
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('test to be fixed', async ({ page }) => {
-  test.fixme();
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('test to be fixed', async ({ page }) => {
@@ -929,20 +798,7 @@ test('test to be fixed', async ({ page }) => {
 
 Mark all tests in a file or [`method: Test.describe#1`] group as "fixme".
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.fixme();
-
-test('test to be fixed 1', async ({ page }) => {
-  // ...
-});
-test('test to be fixed 2', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.fixme();
@@ -961,16 +817,9 @@ test('test to be fixed 2', async ({ page }) => {
 
 Conditionally mark a test as "fixme" with an optional description.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('broken in WebKit', async ({ page, browserName }) => {
-  test.fixme(browserName === 'webkit', 'This feature is not implemented on Mac yet');
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('broken in WebKit', async ({ page, browserName }) => {
@@ -1000,20 +849,9 @@ Optional description that will be reflected in a test report.
 
 Conditionally mark all tests in a file or [`method: Test.describe#1`] group as "fixme".
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.fixme(({ browserName }) => browserName === 'webkit');
-
-test('broken in WebKit 1', async ({ page }) => {
-  // ...
-});
-test('broken in WebKit 2', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.fixme(({ browserName }) => browserName === 'webkit');
@@ -1046,18 +884,24 @@ Optional description that will be reflected in a test report.
 
 Returns information about the currently running test. This method can only be called during the test execution, otherwise it throws.
 
+**Usage**
+
+```js
+test('example test', async ({ page }) => {
+  // ...
+  await test.info().attach('screenshot', { body: await page.screenshot(), contentType: 'image/png' });
+});
+```
+
+
 ## method: Test.only
 * since: v1.10
 
 Declares a focused test. If there are some focused tests or suites, all of them will be run but nothing else.
 
-```js tab=js-js
-test.only('focus this test', async ({ page }) => {
-  // Run only focused tests in the entire project.
-});
-```
+**Usage**
 
-```js tab=js-ts
+```js
 test.only('focus this test', async ({ page }) => {
   // Run only focused tests in the entire project.
 });
@@ -1076,100 +920,54 @@ Test title.
 Test function that takes one or two arguments: an object with fixtures and optional [TestInfo].
 
 
-
-
 ## method: Test.setTimeout
 * since: v1.10
 
 Changes the timeout for the test. Zero means no timeout. Learn more about [various timeouts](../test-timeouts.md).
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('very slow test', async ({ page }) => {
-  test.setTimeout(120000);
-  // ...
-});
-```
-
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
-
-test('very slow test', async ({ page }) => {
-  test.setTimeout(120000);
-  // ...
-});
-```
-
-Changing timeout from a slow `beforeEach` or `afterEach` hook. Note that this affects the test timeout that is shared with `beforeEach`/`afterEach` hooks.
-
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({ page }, testInfo) => {
-  // Extend timeout for all tests running this hook by 30 seconds.
-  test.setTimeout(testInfo.timeout + 30000);
-});
-```
-
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
-
-test.beforeEach(async ({ page }, testInfo) => {
-  // Extend timeout for all tests running this hook by 30 seconds.
-  test.setTimeout(testInfo.timeout + 30000);
-});
-```
-
-Changing timeout for a `beforeAll` or `afterAll` hook. Note this affects the hook's timeout, not the test timeout.
-
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeAll(async () => {
-  // Set timeout for this hook.
-  test.setTimeout(60000);
-});
-```
-
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
-
-test.beforeAll(async () => {
-  // Set timeout for this hook.
-  test.setTimeout(60000);
-});
-```
-
-Changing timeout for all tests in a [`method: Test.describe#1`] group.
-
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.describe('group', () => {
-  // Applies to all tests in this group.
-  test.describe.configure({ timeout: 60000 });
-
-  test('test one', async () => { /* ... */ });
-  test('test two', async () => { /* ... */ });
-  test('test three', async () => { /* ... */ });
-});
-```
-
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
-
-test.describe('group', () => {
-  // Applies to all tests in this group.
-  test.describe.configure({ timeout: 60000 });
-
-  test('test one', async () => { /* ... */ });
-  test('test two', async () => { /* ... */ });
-  test('test three', async () => { /* ... */ });
-});
-```
-
 Timeout for the currently running test is available through [`property: TestInfo.timeout`].
+
+**Usage**
+
+* Changing test timeout.
+
+  ```js
+  test('very slow test', async ({ page }) => {
+    test.setTimeout(120000);
+    // ...
+  });
+  ```
+
+* Changing timeout from a slow `beforeEach` or `afterEach` hook. Note that this affects the test timeout that is shared with `beforeEach`/`afterEach` hooks.
+
+  ```js
+  test.beforeEach(async ({ page }, testInfo) => {
+    // Extend timeout for all tests running this hook by 30 seconds.
+    test.setTimeout(testInfo.timeout + 30000);
+  });
+  ```
+
+* Changing timeout for a `beforeAll` or `afterAll` hook. Note this affects the hook's timeout, not the test timeout.
+
+  ```js
+  test.beforeAll(async () => {
+    // Set timeout for this hook.
+    test.setTimeout(60000);
+  });
+  ```
+
+* Changing timeout for all tests in a [`method: Test.describe#1`] group.
+
+  ```js
+  test.describe('group', () => {
+    // Applies to all tests in this group.
+    test.describe.configure({ timeout: 60000 });
+
+    test('test one', async () => { /* ... */ });
+    test('test two', async () => { /* ... */ });
+    test('test three', async () => { /* ... */ });
+  });
+  ```
 
 ### param: Test.setTimeout.timeout
 * since: v1.10
@@ -1184,15 +982,9 @@ Timeout in milliseconds.
 
 Declares a skipped test, similarly to [`method: Test.(call)`]. Skipped test is never run.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.skip('broken test', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.skip('broken test', async ({ page }) => {
@@ -1219,16 +1011,9 @@ Test function that takes one or two arguments: an object with fixtures and optio
 
 Unconditionally skip a test. Test is immediately aborted when you call [`method: Test.skip#2`].
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('skipped test', async ({ page }) => {
-  test.skip();
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('skipped test', async ({ page }) => {
@@ -1239,20 +1024,7 @@ test('skipped test', async ({ page }) => {
 
 Unconditionally skip all tests in a file or [`method: Test.describe#1`] group:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.skip();
-
-test('skipped test 1', async ({ page }) => {
-  // ...
-});
-test('skipped test 2', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.skip();
@@ -1271,16 +1043,9 @@ test('skipped test 2', async ({ page }) => {
 
 Conditionally skip a test with an optional description.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('skip in WebKit', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit', 'This feature is not implemented for Mac');
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('skip in WebKit', async ({ page, browserName }) => {
@@ -1291,16 +1056,7 @@ test('skip in WebKit', async ({ page, browserName }) => {
 
 Skip from [`method: Test.beforeEach`] hook:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({ page }) => {
-  test.skip(process.env.APP_VERSION === 'v1', 'There are no settings in v1');
-  await page.goto('/settings');
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
@@ -1329,20 +1085,9 @@ Optional description that will be reflected in a test report.
 
 Conditionally skips all tests in a file or [`method: Test.describe#1`] group.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.skip(({ browserName }) => browserName === 'webkit');
-
-test('skip in WebKit 1', async ({ page }) => {
-  // ...
-});
-test('skip in WebKit 2', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.skip(({ browserName }) => browserName === 'webkit');
@@ -1375,16 +1120,13 @@ Optional description that will be reflected in a test report.
 
 Unconditionally marks a test as "slow". Slow test will be given triple the default timeout.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Details**
 
-test('slow test', async ({ page }) => {
-  test.slow();
-  // ...
-});
-```
+[`method: Test.slow#1`] cannot be used in a `beforeAll` or `afterAll` hook. Use [`method: Test.setTimeout`] instead.
 
-```js tab=js-ts
+**Usage**
+
+```js
 import { test, expect } from '@playwright/test';
 
 test('slow test', async ({ page }) => {
@@ -1393,25 +1135,14 @@ test('slow test', async ({ page }) => {
 });
 ```
 
-:::note
-[`method: Test.slow#1`] cannot be used in a `beforeAll` or `afterAll` hook. Use [`method: Test.setTimeout`] instead.
-:::
-
 ## method: Test.slow#2
 * since: v1.10
 
 Conditionally mark a test as "slow" with an optional description. Slow test will be given triple the default timeout.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('slow in WebKit', async ({ page, browserName }) => {
-  test.slow(browserName === 'webkit', 'This feature is slow on Mac');
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('slow in WebKit', async ({ page, browserName }) => {
@@ -1438,20 +1169,9 @@ Optional description that will be reflected in a test report.
 
 Conditionally mark all tests in a file or [`method: Test.describe#1`] group as "slow". Slow tests will be given triple the default timeout.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.slow(({ browserName }) => browserName === 'webkit');
-
-test('slow in WebKit 1', async ({ page }) => {
-  // ...
-});
-test('slow in WebKit 2', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.slow(({ browserName }) => browserName === 'webkit');
@@ -1483,17 +1203,9 @@ Optional description that will be reflected in a test report.
 
 Declares a test step.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('test', async ({ page }) => {
-  await test.step('Log in', async () => {
-    // ...
-  });
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('test', async ({ page }) => {
@@ -1503,21 +1215,11 @@ test('test', async ({ page }) => {
 });
 ```
 
-The method returns value retuned by the step callback.
+**Details**
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+The method returns the value returned by the step callback.
 
-test('test', async ({ page }) => {
-  const user = await test.step('Log in', async () => {
-    // ...
-    return 'john';
-  });
-  expect(user).toBe('john');
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('test', async ({ page }) => {
@@ -1547,19 +1249,11 @@ Step body.
 ## method: Test.use
 * since: v1.10
 
-Specifies options or fixtures to use in a single test file or a [`method: Test.describe#1`] group. Most useful to set an option, for example set `locale` to configure `context` fixture. `test.use` can be called either in the global scope or inside `test.describe`, it's is an error to call it within `beforeEach` or `beforeAll`.
+Specifies options or fixtures to use in a single test file or a [`method: Test.describe#1`] group. Most useful to set an option, for example set `locale` to configure `context` fixture.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test.use({ locale: 'en-US' });
-
-test('test with locale', async ({ page }) => {
-  // Default context and page have locale as specified
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.use({ locale: 'en-US' });
@@ -1569,25 +1263,13 @@ test('test with locale', async ({ page }) => {
 });
 ```
 
+**Details**
+
+`test.use` can be called either in the global scope or inside `test.describe`. It is an error to call it within `beforeEach` or `beforeAll`.
+
 It is also possible to override a fixture by providing a function.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.use({
-  locale: async ({}, use) => {
-    // Read locale from some configuration file.
-    const locale = await fs.promises.readFile('test-locale', 'utf-8');
-    await use(locale);
-  },
-});
-
-test('test with locale', async ({ page }) => {
-  // Default context and page have locale as specified
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.use({

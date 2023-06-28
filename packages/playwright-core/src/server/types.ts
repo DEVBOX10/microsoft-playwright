@@ -25,7 +25,7 @@ export type StrictOptions = {
 
 export type QueryOnSelectorOptions = StrictOptions & TimeoutOptions;
 
-export type WaitForElementOptions = TimeoutOptions & StrictOptions & { state?: 'attached' | 'detached' | 'visible' | 'hidden' };
+export type WaitForElementOptions = TimeoutOptions & StrictOptions & { state?: 'attached' | 'detached' | 'visible' | 'hidden' } & { omitReturnValue?: boolean };
 
 export type WaitForFunctionOptions = TimeoutOptions & { pollingInterval?: number };
 
@@ -57,6 +57,7 @@ export type PageScreencastOptions = {
 export type Credentials = {
   username: string;
   password: string;
+  origin?: string;
 };
 
 export type Geolocation = {
@@ -145,6 +146,7 @@ export type NormalizedContinueOverrides = {
   method?: string,
   headers?: HeadersArray,
   postData?: Buffer,
+  isFallback: boolean,
 };
 
 export type EmulatedSize = { viewport: Size, screen: Size };

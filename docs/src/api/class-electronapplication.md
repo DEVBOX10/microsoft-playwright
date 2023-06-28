@@ -87,6 +87,9 @@ some additional values that are not serializable by `JSON`: `-0`, `NaN`, `Infini
 ### param: ElectronApplication.evaluate.expression = %%-evaluate-expression-%%
 * since: v1.9
 
+### param: ElectronApplication.evaluate.expression = %%-js-electron-evaluate-workerfunction-%%
+* since: v1.9
+
 ### param: ElectronApplication.evaluate.arg
 * since: v1.9
 - `arg` ?<[EvaluationArgument]>
@@ -107,6 +110,9 @@ If the function passed to the [`method: ElectronApplication.evaluateHandle`] ret
 ### param: ElectronApplication.evaluateHandle.expression = %%-evaluate-expression-%%
 * since: v1.9
 
+### param: ElectronApplication.evaluateHandle.expression = %%-js-electron-evaluate-workerfunction-%%
+* since: v1.9
+
 ### param: ElectronApplication.evaluateHandle.arg
 * since: v1.9
 - `arg` ?<[EvaluationArgument]>
@@ -118,15 +124,24 @@ Optional argument to pass to [`param: expression`].
 - returns: <[Page]>
 
 Convenience method that waits for the first application window to be opened.
-Typically your script will start with:
+
+**Usage**
 
 ```js
-  const electronApp = await electron.launch({
-    args: ['main.js']
-  });
-  const window = await electronApp.firstWindow();
-  // ...
+const electronApp = await electron.launch({
+  args: ['main.js']
+});
+const window = await electronApp.firstWindow();
+// ...
 ```
+
+### option: ElectronApplication.firstWindow.timeout
+* since: v1.33
+- `timeout` ?<[float]>
+
+Maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds).
+Pass `0` to disable timeout. The default value can be changed by using the
+[`method: BrowserContext.setDefaultTimeout`].
 
 ## method: ElectronApplication.process
 * since: v1.21
@@ -140,11 +155,12 @@ Returns the main process for this Electron Application.
 
 Waits for event to fire and passes its value into the predicate function. Returns when the predicate returns truthy value. Will throw an error if the application is closed before the event is fired. Returns the event data value.
 
+**Usage**
+
 ```js
-const [window] = await Promise.all([
-  electronApp.waitForEvent('window'),
-  mainWindow.click('button')
-]);
+const windowPromise = electronApp.waitForEvent('window');
+await mainWindow.click('button');
+const window = await windowPromise;
 ```
 
 ### param: ElectronApplication.waitForEvent.event = %%-wait-for-event-event-%%

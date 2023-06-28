@@ -1,6 +1,6 @@
 ---
 id: writing-tests
-title: "Writing Tests"
+title: "Writing tests"
 ---
 
 Playwright assertions are created specifically for the dynamic web. Checks are automatically retried until the necessary conditions are met. Playwright comes with [auto-wait](./actionability.md) built in meaning it waits for elements to be actionable prior to performing actions. Playwright provides [assertThat](./test-assertions.md) overloads to write assertions.
@@ -12,6 +12,7 @@ package org.example;
 
 import java.util.regex.Pattern;
 import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.AriaRole;
 
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
@@ -26,7 +27,7 @@ public class App {
             assertThat(page).hasTitle(Pattern.compile("Playwright"));
 
             // create a locator
-            Locator getStarted = page.locator("text=Get Started");
+            Locator getStarted = page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("Get Started"));
 
             // Expect an attribute "to be strictly equal" to the value.
             assertThat(getStarted).hasAttribute("href", "/docs/intro");
@@ -67,7 +68,7 @@ assertThat(getStarted).hasAttribute("href", "/docs/intro");
 getStarted.click();
 ```
 
-[Selectors](./selectors.md) are strings that are used to create Locators. Playwright supports many different selectors like [Text](./selectors.md#text-selector), [CSS](./selectors.md#css-selector), [XPath](./selectors.md#xpath-selectors) and many more. Learn more about available selectors and how to pick one in this [in-depth guide](./selectors.md).
+Playwright supports many different locators like [role](./locators.md#locate-by-role) [text](./locators.md#get-by-text), [test id](./locators.md#get-by-test-id) and many more. Learn more about available locators and how to pick one in this [in-depth guide](./locators.md).
 
 
 ```java

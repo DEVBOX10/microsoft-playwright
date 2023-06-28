@@ -18,6 +18,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import type stream from 'stream';
 import { CRBrowser } from './crBrowser';
 import type { Env } from '../../utils/processLauncher';
 import { gracefullyCloseSet } from '../../utils/processLauncher';
@@ -27,35 +28,35 @@ import { BrowserType, kNoXServerRunningError } from '../browserType';
 import type { ConnectionTransport, ProtocolRequest } from '../transport';
 import { WebSocketTransport } from '../transport';
 import { CRDevTools } from './crDevTools';
-import type { BrowserOptions, BrowserProcess, PlaywrightOptions } from '../browser';
+import type { BrowserOptions, BrowserProcess } from '../browser';
 import { Browser } from '../browser';
 import type * as types from '../types';
 import type * as channels from '@protocol/channels';
-import type { HTTPRequestParams } from '../../common/netUtils';
-import { NET_DEFAULT_TIMEOUT } from '../../common/netUtils';
-import { fetchData } from '../../common/netUtils';
-import { getUserAgent } from '../../common/userAgent';
-import { debugMode, headersArrayToObject, streamToString, wrapInASCIIBox } from '../../utils';
+import type { HTTPRequestParams } from '../../utils/network';
+import { fetchData } from '../../utils/network';
+import { getUserAgent } from '../../utils/userAgent';
+import { wrapInASCIIBox } from '../../utils/ascii';
+import { debugMode, headersArrayToObject, headersObjectToArray, } from '../../utils';
 import { removeFolders } from '../../utils/fileUtils';
 import { RecentLogsCollector } from '../../common/debugLogger';
 import type { Progress } from '../progress';
 import { ProgressController } from '../progress';
 import { TimeoutSettings } from '../../common/timeoutSettings';
 import { helper } from '../helper';
-import type { CallMetadata } from '../instrumentation';
-import http from 'http';
-import https from 'https';
+import type { CallMetadata, SdkObject } from '../instrumentation';
+import type http from 'http';
 import { registry } from '../registry';
 import { ManualPromise } from '../../utils/manualPromise';
 import { validateBrowserContextOptions } from '../browserContext';
+import { chromiumSwitches } from './chromiumSwitches';
 
 const ARTIFACTS_FOLDER = path.join(os.tmpdir(), 'playwright-artifacts-');
 
 export class Chromium extends BrowserType {
   private _devtools: CRDevTools | undefined;
 
-  constructor(playwrightOptions: PlaywrightOptions) {
-    super('chromium', playwrightOptions);
+  constructor(parent: SdkObject) {
+    super(parent, 'chromium');
 
     if (debugMode())
       this._devtools = this._createDevTools();
@@ -69,7 +70,7 @@ export class Chromium extends BrowserType {
     }, TimeoutSettings.timeout({ timeout }));
   }
 
-  async _connectOverCDPInternal(progress: Progress, endpointURL: string, options: { slowMo?: number, headers?: types.HeadersArray }, onClose?: () => Promise<void>) {
+  async _connectOverCDPInternal(progress: Progress, endpointURL: string, options: types.LaunchOptions & { headers?: types.HeadersArray }, onClose?: () => Promise<void>) {
     let headersMap: { [key: string]: string; } | undefined;
     if (options.headers)
       headersMap = headersArrayToObject(options.headers, false);
@@ -98,7 +99,6 @@ export class Chromium extends BrowserType {
     const browserProcess: BrowserProcess = { close: doClose, kill: doClose };
     const persistent: channels.BrowserNewContextParams = { noDefaultViewport: true };
     const browserOptions: BrowserOptions = {
-      ...this._playwrightOptions,
       slowMo: options.slowMo,
       name: 'chromium',
       isChromium: true,
@@ -107,8 +107,8 @@ export class Chromium extends BrowserType {
       protocolLogger: helper.debugProtocolLogger(),
       browserLogsCollector: new RecentLogsCollector(),
       artifactsDir,
-      downloadsPath: artifactsDir,
-      tracesDir: artifactsDir,
+      downloadsPath: options.downloadsPath || artifactsDir,
+      tracesDir: options.tracesDir || artifactsDir,
       // On Windows context level proxies only work, if there isn't a global proxy
       // set. This is currently a bug in the CR/Windows networking stack. By
       // passing an arbitrary value we disable the check in PW land which warns
@@ -119,7 +119,7 @@ export class Chromium extends BrowserType {
     };
     validateBrowserContextOptions(persistent, browserOptions);
     progress.throwIfAborted();
-    const browser = await CRBrowser.connect(chromeTransport, browserOptions);
+    const browser = await CRBrowser.connect(this.attribution.playwright, chromeTransport, browserOptions);
     browser.on(Browser.Events.Disconnected, doCleanup);
     return browser;
   }
@@ -136,7 +136,7 @@ export class Chromium extends BrowserType {
       devtools = this._createDevTools();
       await (options as any).__testHookForDevTools(devtools);
     }
-    return CRBrowser.connect(transport, options, devtools);
+    return CRBrowser.connect(this.attribution.playwright, transport, options, devtools);
   }
 
   _rewriteStartupError(error: Error): Error {
@@ -167,6 +167,8 @@ export class Chromium extends BrowserType {
   }
 
   override async _launchWithSeleniumHub(progress: Progress, hubUrl: string, options: types.LaunchOptions): Promise<CRBrowser> {
+    await this._createArtifactDirs(options);
+
     if (!hubUrl.endsWith('/'))
       hubUrl = hubUrl + '/';
 
@@ -177,20 +179,28 @@ export class Chromium extends BrowserType {
       'browserName': isEdge ? 'MicrosoftEdge' : 'chrome',
       [isEdge ? 'ms:edgeOptions' : 'goog:chromeOptions']: { args }
     };
-    try {
-      if (process.env.SELENIUM_REMOTE_CAPABILITIES) {
-        const parsed = JSON.parse(process.env.SELENIUM_REMOTE_CAPABILITIES);
-        desiredCapabilities = { ...desiredCapabilities, ...parsed };
-        progress.log(`<selenium> using additional capabilities "${process.env.SELENIUM_REMOTE_CAPABILITIES}"`);
-      }
-    } catch (e) {
-      progress.log(`<selenium> ignoring additional capabilities "${process.env.SELENIUM_REMOTE_CAPABILITIES}": ${e}`);
+
+    if (process.env.SELENIUM_REMOTE_CAPABILITIES) {
+      const remoteCapabilities = parseSeleniumRemoteParams({ name: 'capabilities', value: process.env.SELENIUM_REMOTE_CAPABILITIES }, progress);
+      if (remoteCapabilities)
+        desiredCapabilities = { ...desiredCapabilities, ...remoteCapabilities };
+    }
+
+    let headers: { [key: string]: string } = {};
+    if (process.env.SELENIUM_REMOTE_HEADERS) {
+      const remoteHeaders = parseSeleniumRemoteParams({ name: 'headers', value: process.env.SELENIUM_REMOTE_HEADERS }, progress);
+      if (remoteHeaders)
+        headers = remoteHeaders;
     }
 
     progress.log(`<selenium> connecting to ${hubUrl}`);
     const response = await fetchData({
       url: hubUrl + 'session',
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        ...headers,
+      },
       data: JSON.stringify({
         desiredCapabilities,
         capabilities: { alwaysMatch: desiredCapabilities }
@@ -206,6 +216,7 @@ export class Chromium extends BrowserType {
       await fetchData({
         url: hubUrl + 'session/' + sessionId,
         method: 'DELETE',
+        headers,
       }).catch(error => progress.log(`<error disconnecting from selenium>: ${error}`));
       progress.log(`<selenium> disconnected from sessionId=${sessionId}`);
       gracefullyCloseSet.delete(disconnectFromSelenium);
@@ -242,6 +253,7 @@ export class Chromium extends BrowserType {
               url: sessionInfoUrl,
               method: 'GET',
               timeout: progress.timeUntilDeadline(),
+              headers,
             }, seleniumErrorHandler);
             const proxyId = JSON.parse(sessionResponse).proxyId;
             endpointURL.hostname = new URL(proxyId).hostname;
@@ -252,7 +264,10 @@ export class Chromium extends BrowserType {
         }
       }
 
-      return await this._connectOverCDPInternal(progress, endpointURL.toString(), { slowMo: options.slowMo }, disconnectFromSelenium);
+      return await this._connectOverCDPInternal(progress, endpointURL.toString(), {
+        ...options,
+        headers: headersObjectToArray(headers),
+      }, disconnectFromSelenium);
     } catch (e) {
       await disconnectFromSelenium();
       throw e;
@@ -282,17 +297,25 @@ export class Chromium extends BrowserType {
       throw new Error('Playwright manages remote debugging connection itself.');
     if (args.find(arg => !arg.startsWith('-')))
       throw new Error('Arguments can not specify page to be opened');
-    const chromeArguments = [...DEFAULT_ARGS];
+    const chromeArguments = [...chromiumSwitches];
 
-    // See https://github.com/microsoft/playwright/issues/7362
-    if (os.platform() === 'darwin')
+    if (os.platform() === 'darwin') {
+      // See https://github.com/microsoft/playwright/issues/7362
       chromeArguments.push('--enable-use-zoom-for-dsf=false');
+      // See https://bugs.chromium.org/p/chromium/issues/detail?id=1407025.
+      if (options.headless)
+        chromeArguments.push('--use-angle');
+    }
 
     if (options.devtools)
       chromeArguments.push('--auto-open-devtools-for-tabs');
     if (options.headless) {
+      if (process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW)
+        chromeArguments.push('--headless=new');
+      else
+        chromeArguments.push('--headless');
+
       chromeArguments.push(
-          '--headless',
           '--hide-scrollbars',
           '--mute-audio',
           '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4',
@@ -304,14 +327,14 @@ export class Chromium extends BrowserType {
       const proxyURL = new URL(proxy.server);
       const isSocks = proxyURL.protocol === 'socks5:';
       // https://www.chromium.org/developers/design-documents/network-settings
-      if (isSocks && !this._playwrightOptions.socksProxyPort) {
+      if (isSocks && !this.attribution.playwright.options.socksProxyPort) {
         // https://www.chromium.org/developers/design-documents/network-stack/socks-proxy
         chromeArguments.push(`--host-resolver-rules="MAP * ~NOTFOUND , EXCLUDE ${proxyURL.hostname}"`);
       }
       chromeArguments.push(`--proxy-server=${proxy.server}`);
       const proxyBypassRules = [];
       // https://source.chromium.org/chromium/chromium/src/+/master:net/docs/proxy.md;l=548;drc=71698e610121078e0d1a811054dcf9fd89b49578
-      if (this._playwrightOptions.socksProxyPort)
+      if (this.attribution.playwright.options.socksProxyPort)
         proxyBypassRules.push('<-loopback>');
       if (proxy.bypass)
         proxyBypassRules.push(...proxy.bypass.split(',').map(t => t.trim()).map(t => t.startsWith('.') ? '*' + t : t));
@@ -325,59 +348,16 @@ export class Chromium extends BrowserType {
   }
 }
 
-export const DEFAULT_ARGS = [
-  '--disable-field-trial-config', // https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
-  '--disable-background-networking',
-  '--enable-features=NetworkService,NetworkServiceInProcess',
-  '--disable-background-timer-throttling',
-  '--disable-backgrounding-occluded-windows',
-  '--disable-back-forward-cache', // Avoids surprises like main request not being intercepted during page.goBack().
-  '--disable-breakpad',
-  '--disable-client-side-phishing-detection',
-  '--disable-component-extensions-with-background-pages',
-  '--disable-default-apps',
-  '--disable-dev-shm-usage',
-  '--disable-extensions',
-  // AvoidUnnecessaryBeforeUnloadCheckSync - https://github.com/microsoft/playwright/issues/14047
-  // Translate - https://github.com/microsoft/playwright/issues/16126
-  '--disable-features=ImprovedCookieControls,LazyFrameLoading,GlobalMediaControls,DestroyProfileOnBrowserClose,MediaRouter,DialMediaRouteProvider,AcceptCHFrame,AutoExpandDetailsElement,CertificateTransparencyComponentUpdater,AvoidUnnecessaryBeforeUnloadCheckSync,Translate',
-  '--allow-pre-commit-input',
-  '--disable-hang-monitor',
-  '--disable-ipc-flooding-protection',
-  '--disable-popup-blocking',
-  '--disable-prompt-on-repost',
-  '--disable-renderer-backgrounding',
-  '--disable-sync',
-  '--force-color-profile=srgb',
-  '--metrics-recording-only',
-  '--no-first-run',
-  '--enable-automation',
-  '--password-store=basic',
-  '--use-mock-keychain',
-  // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
-  '--no-service-autorun',
-  '--export-tagged-pdf'
-];
-
 async function urlToWSEndpoint(progress: Progress, endpointURL: string) {
   if (endpointURL.startsWith('ws'))
     return endpointURL;
   progress.log(`<ws preparing> retrieving websocket url from ${endpointURL}`);
   const httpURL = endpointURL.endsWith('/') ? `${endpointURL}json/version/` : `${endpointURL}/json/version/`;
-  const request = endpointURL.startsWith('https') ? https : http;
-  const json = await new Promise<string>((resolve, reject) => {
-    request.get(httpURL, {
-      timeout: NET_DEFAULT_TIMEOUT,
-    }, resp => {
-      if (resp.statusCode! < 200 || resp.statusCode! >= 400) {
-        reject(new Error(`Unexpected status ${resp.statusCode} when connecting to ${httpURL}.\n` +
-        `This does not look like a DevTools server, try connecting via ws://.`));
-      }
-      let data = '';
-      resp.on('data', chunk => data += chunk);
-      resp.on('end', () => resolve(data));
-    }).on('error', reject);
-  });
+  const json = await fetchData({
+    url: httpURL,
+  }, async (_, resp) => new Error(`Unexpected status ${resp.statusCode} when connecting to ${httpURL}.\n` +
+    `This does not look like a DevTools server, try connecting via ws://.`)
+  );
   return JSON.parse(json).webSocketDebuggerUrl;
 }
 
@@ -396,4 +376,23 @@ function addProtocol(url: string) {
   if (!['ws://', 'wss://', 'http://', 'https://'].some(protocol => url.startsWith(protocol)))
     return 'http://' + url;
   return url;
+}
+
+function streamToString(stream: stream.Readable): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+  });
+}
+
+function parseSeleniumRemoteParams(env: {name: string, value: string}, progress: Progress) {
+  try {
+    const parsed = JSON.parse(env.value);
+    progress.log(`<selenium> using additional ${env.name} "${env.value}"`);
+    return parsed;
+  } catch (e) {
+    progress.log(`<selenium> ignoring additional ${env.name} "${env.value}": ${e}`);
+  }
 }

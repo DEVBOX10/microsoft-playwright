@@ -27,12 +27,12 @@ export class SocksInterceptor {
   private _socksSupportObjectGuid?: string;
   private _ids = new Set<number>();
 
-  constructor(transport: WebSocketTransport, redirectPortForTest: number | undefined) {
-    this._handler = new socks.SocksProxyHandler(redirectPortForTest);
+  constructor(transport: WebSocketTransport, pattern: string | undefined, redirectPortForTest: number | undefined) {
+    this._handler = new socks.SocksProxyHandler(pattern,  redirectPortForTest);
 
     let lastId = -1;
     this._channel = new Proxy(new EventEmitter(), {
-      get: (obj: any, prop) => {
+      get: (obj: any, prop: string | symbol) => {
         if ((prop in obj) || obj[prop] !== undefined || typeof prop !== 'string')
           return obj[prop];
         return (params: any) => {

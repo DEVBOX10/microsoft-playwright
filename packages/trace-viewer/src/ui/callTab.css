@@ -19,7 +19,6 @@
   line-height: 24px;
   white-space: pre;
   overflow: auto;
-  padding: 6px 0;
   user-select: text;
 }
 
@@ -29,7 +28,7 @@
 }
 
 .call-error .codicon {
-  color: red;
+  color: var(--vscode-errorForeground);
   position: relative;
   top: 2px;
   margin-right: 2px;
@@ -37,19 +36,20 @@
 
 .call-section {
   padding-left: 6px;
-  border-top: 1px solid var(--vscode-panel-border);
   font-weight: bold;
   text-transform: uppercase;
   font-size: 10px;
-  border-bottom: 1px solid var(--vscode-panel-border);
-  background-color: var(--vscode-sideBar-background);
   color: var(--vscode-sideBarTitle-foreground);
-  line-height: 18px;
+  line-height: 24px;
+}
+
+.call-section:not(:first-child) {
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .call-line {
   padding: 4px 0 4px 6px;
-  flex: none;
+  display: flex;
   align-items: center;
   text-overflow: ellipsis;
   overflow: hidden;
@@ -57,13 +57,43 @@
   white-space: nowrap;
 }
 
-.call-line .datetime,
-.call-line .string {
+.copy-icon {
+  display: none;
+  margin-right: 4px;
+}
+
+.call-line:hover .copy-icon {
+  display: block;
+  cursor: pointer;
+}
+
+.call-value {
+  margin-left: 2px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  flex: 1;
+}
+
+.call-value::before {
+  content: '\00a0';
+}
+
+.call-value.datetime,
+.call-value.string,
+.call-value.locator {
   color: var(--orange);
 }
 
-.call-line .number,
-.call-line .boolean,
-.call-line .object {
+.call-value.number,
+.call-value.bigint,
+.call-value.boolean,
+.call-value.symbol,
+.call-value.undefined,
+.call-value.function,
+.call-value.object {
   color: var(--blue);
+}
+
+.call-tab .error-message {
+  padding: 5px;
 }

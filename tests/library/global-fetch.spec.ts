@@ -14,31 +14,12 @@
  * limitations under the License.
  */
 
-import http from 'http';
 import os from 'os';
 import * as util from 'util';
-import { getPlaywrightVersion } from '../../packages/playwright-core/lib/common/userAgent';
+import { getPlaywrightVersion } from '../../packages/playwright-core/lib/utils/userAgent';
 import { expect, playwrightTest as it } from '../config/browserTest';
 
 it.skip(({ mode }) => mode !== 'default');
-
-let prevAgent: http.Agent;
-it.beforeAll(() => {
-  prevAgent = http.globalAgent;
-  http.globalAgent = new http.Agent({
-    // @ts-expect-error
-    lookup: (hostname, options, callback) => {
-      if (hostname === 'localhost' || hostname.endsWith('playwright.dev'))
-        callback(null, '127.0.0.1', 4);
-      else
-        throw new Error(`Failed to resolve hostname: ${hostname}`);
-    }
-  });
-});
-
-it.afterAll(() => {
-  http.globalAgent = prevAgent;
-});
 
 for (const method of ['fetch', 'delete', 'get', 'head', 'patch', 'post', 'put'] as const) {
   it(`${method} should work @smoke`, async ({ playwright, server }) => {
@@ -75,10 +56,10 @@ it('should support global userAgent option', async ({ playwright, server }) => {
 });
 
 it('should support global timeout option', async ({ playwright, server }) => {
-  const request = await playwright.request.newContext({ timeout: 1 });
+  const request = await playwright.request.newContext({ timeout: 100 });
   server.setRoute('/empty.html', (req, res) => {});
   const error = await request.get(server.EMPTY_PAGE).catch(e => e);
-  expect(error.message).toContain('Request timed out after 1ms');
+  expect(error.message).toContain('Request timed out after 100ms');
 });
 
 it('should propagate extra http headers with redirects', async ({ playwright, server }) => {
@@ -116,6 +97,44 @@ it('should return error with wrong credentials', async ({ playwright, server }) 
   expect(response.status()).toBe(401);
 });
 
+it('should work with correct credentials and matching origin', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(200);
+});
+
+it('should work with correct credentials and matching origin case insensitive', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.toUpperCase() } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(200);
+});
+
+it('should return error with correct credentials and mismatching scheme', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.replace('http://', 'https://') } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(401);
+});
+
+it('should return error with correct credentials and mismatching hostname', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const hostname = new URL(server.PREFIX).hostname;
+  const origin = server.PREFIX.replace(hostname, 'mismatching-hostname');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: origin } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(401);
+});
+
+it('should return error with correct credentials and mismatching port', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const origin = server.PREFIX.replace(server.PORT.toString(), (server.PORT + 1).toString());
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: origin } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(401);
+});
+
 it('should support WWW-Authenticate: Basic', async ({ playwright, server }) => {
   let credentials;
   server.setRoute('/empty.html', (req, res) => {
@@ -132,31 +151,6 @@ it('should support WWW-Authenticate: Basic', async ({ playwright, server }) => {
   const response = await request.get(server.EMPTY_PAGE);
   expect(response.status()).toBe(200);
   expect(credentials).toBe('user:pass');
-});
-
-it('should use socks proxy', async ({ playwright, server, socksPort }) => {
-  const request = await playwright.request.newContext({ proxy: {
-    server: `socks5://localhost:${socksPort}`,
-  } });
-  const response = await request.get(server.EMPTY_PAGE);
-  expect(await response.text()).toContain('Served by the SOCKS proxy');
-});
-
-it('should pass proxy credentials', async ({ playwright, server, proxyServer }) => {
-  proxyServer.forwardTo(server.PORT);
-  let auth;
-  proxyServer.setAuthHandler(req => {
-    auth = req.headers['proxy-authorization'];
-    return !!auth;
-  });
-  const request = await playwright.request.newContext({
-    proxy: { server: `localhost:${proxyServer.PORT}`, username: 'user', password: 'secret' }
-  });
-  const response = await request.get('http://non-existent.com/simple.json');
-  expect(proxyServer.connectHosts).toContain('non-existent.com:80');
-  expect(auth).toBe('Basic ' + Buffer.from('user:secret').toString('base64'));
-  expect(await response.json()).toEqual({ foo: 'bar' });
-  await request.dispose();
 });
 
 it('should support global ignoreHTTPSErrors option', async ({ playwright, httpsServer }) => {
@@ -418,5 +412,21 @@ it('should throw an error when maxRedirects is less than 0', async ({ playwright
   const request = await playwright.request.newContext();
   for (const method of ['GET', 'PUT', 'POST', 'OPTIONS', 'HEAD', 'PATCH'])
     await expect(async () => request.fetch(`${server.PREFIX}/a/redirect1`, { method, maxRedirects: -1 })).rejects.toThrow(`'maxRedirects' should be greater than or equal to '0'`);
+  await request.dispose();
+});
+
+it('should keep headers capitalization', async ({ playwright, server }) => {
+  const request = await playwright.request.newContext();
+  const [serverRequest, response] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    request.get(server.EMPTY_PAGE, {
+      headers: {
+        'X-fOo': 'vaLUE',
+      }
+    }),
+  ]);
+  expect(response.ok()).toBeTruthy();
+  expect(serverRequest.rawHeaders).toContain('X-fOo');
+  expect(serverRequest.rawHeaders).toContain('vaLUE');
   await request.dispose();
 });

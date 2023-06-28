@@ -23,21 +23,17 @@ import type {
   PlaywrightWorkerOptions,
   Locator,
 } from '@playwright/test';
+import type { JsonObject } from '@playwright/experimental-ct-core/types/component';
 import type { InlineConfig } from 'vite';
 
-export type PlaywrightTestConfig = Omit<BasePlaywrightTestConfig, 'use'> & {
-  use?: BasePlaywrightTestConfig['use'] & {
+export type PlaywrightTestConfig<T = {}, W = {}> = Omit<BasePlaywrightTestConfig<T, W>, 'use'> & {
+  use?: BasePlaywrightTestConfig<T, W>['use'] & {
     ctPort?: number;
     ctTemplateDir?: string;
     ctCacheDir?: string;
-    ctViteConfig?: InlineConfig;
+    ctViteConfig?: InlineConfig | (() => Promise<InlineConfig>);
   };
 };
-
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-type JsonArray = JsonValue[];
-type JsonObject = { [Key in string]?: JsonValue };
 
 export interface MountOptions<HooksConfig extends JsonObject> {
   hooksConfig?: HooksConfig;
@@ -59,5 +55,12 @@ export const test: TestType<
   PlaywrightTestArgs & PlaywrightTestOptions & ComponentFixtures,
   PlaywrightWorkerArgs & PlaywrightWorkerOptions
 >;
+
+/**
+ * Defines Playwright config
+ */
+export function defineConfig(config: PlaywrightTestConfig): PlaywrightTestConfig;
+export function defineConfig<T>(config: PlaywrightTestConfig<T>): PlaywrightTestConfig<T>;
+export function defineConfig<T, W>(config: PlaywrightTestConfig<T, W>): PlaywrightTestConfig<T, W>;
 
 export { expect, devices } from '@playwright/test';

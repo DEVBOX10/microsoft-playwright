@@ -19,27 +19,13 @@ Video files will appear in the test output directory, typically `test-results`. 
 
 Videos are saved upon [browser context](./browser-contexts.md) closure at the end of a test. If you create a browser context manually, make sure to await [`method: BrowserContext.close`].
 
-```js tab=js-js
-// @ts-check
-
-/** @type {import('@playwright/test').PlaywrightTestConfig} */
-const config = {
+```js tab=js-test title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
   use: {
     video: 'on-first-retry',
   },
-};
-
-module.exports = config;
-```
-
-```js tab=js-ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-const config: PlaywrightTestConfig = {
-  use: {
-    video: 'on-first-retry',
-  },
-};
-export default config;
+});
 ```
 
 ```js tab=js-library
@@ -50,33 +36,16 @@ await context.close();
 
 You can also specify video size. The video size defaults to the viewport size scaled down to fit 800x800. The video of the viewport is placed in the top-left corner of the output video, scaled down to fit if necessary. You may need to set the viewport size to match your desired video size.
 
-```js tab=js-js
-// @ts-check
-
-/** @type {import('@playwright/test').PlaywrightTestConfig} */
-const config = {
+```js tab=js-test title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
   use: {
     video: {
-      mode: 'on-first-retry', 
+      mode: 'on-first-retry',
       size: { width: 640, height: 480 }
     }
   },
-};
-
-module.exports = config;
-```
-
-```js tab=js-ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-const config: PlaywrightTestConfig = {
-  use: {
-    video: {
-      mode: 'on-first-retry', 
-      size: { width: 640, height: 480 }
-    }
-  },
-};
-export default config;
+});
 ```
 
 ```js tab=js-library
@@ -92,15 +61,7 @@ For multi-page scenarios, you can access the video file associated with the page
 [`method: Page.video`].
 
 
-```js tab=js-js
-const path = await page.video().path();
-```
-
-```js tab=js-ts
-const path = await page.video().path();
-```
-
-```js tab=js-library
+```js
 const path = await page.video().path();
 ```
 

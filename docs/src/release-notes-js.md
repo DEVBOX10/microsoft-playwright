@@ -4,11 +4,558 @@ title: "Release notes"
 toc_max_heading_level: 2
 ---
 
+import LiteYouTube from '@site/src/components/LiteYouTube';
+
+## Version 1.35
+
+<LiteYouTube
+  id="pJiirfyJwcA"
+  title="Playwright 1.35"
+/>
+
+### Highlights
+
+* UI mode is now available in VSCode Playwright extension via a new "Show trace viewer" button:
+
+  ![Playwright UI Mode](https://github.com/microsoft/playwright/assets/746130/13094128-259b-477a-8bbb-c1181178e8a2)
+
+* UI mode and trace viewer mark network requests handled with [`method: Page.route`] and [`method: BrowserContext.route`] handlers, as well as those issued via the [API testing](./api-testing):
+
+  ![Trace Viewer](https://github.com/microsoft/playwright/assets/746130/0df2d4b6-faa3-465c-aff3-c435b430bfe1)
+
+* New option `maskColor` for methods [`method: Page.screenshot`], [`method: Locator.screenshot`], [`method: PageAssertions.toHaveScreenshot#1`] and [`method: LocatorAssertions.toHaveScreenshot#1`] to change default masking color:
+  ```js
+  await page.goto('https://playwright.dev');
+  await expect(page).toHaveScreenshot({
+    mask: [page.locator('img')],
+    maskColor: '#00FF00', // green
+  });
+  ```
+
+* New `uninstall` CLI command to uninstall browser binaries:
+  ```bash
+  $ npx playwright uninstall # remove browsers installed by this installation
+  $ npx playwright uninstall --all # remove all ever-install Playwright browsers
+  ```
+
+* Both UI mode and trace viewer now could be opened in a browser tab:
+  ```bash
+  $ npx playwright test --ui-port 0 # open UI mode in a tab on a random port
+  $ npx playwright show-trace --port 0 # open trace viewer in tab on a random port
+  ```
+
+### ⚠️ Breaking changes
+
+* `playwright-core` binary got renamed from `playwright` to `playwright-core`. So if you use `playwright-core` CLI, make sure to update the name:
+  ```bash
+  $ npx playwright-core install # the new way to install browsers when using playwright-core
+  ```
+
+  This change **does not** affect `@playwright/test` and `playwright` package users.
+
+### Browser Versions
+
+* Chromium 115.0.5790.13
+* Mozilla Firefox 113.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 114
+* Microsoft Edge 114
+
+## Version 1.34
+
+<LiteYouTube
+  id="JeFD6rqDbBo"
+  title="Playwright 1.34"
+/>
+
+### Highlights
+
+* UI Mode now shows steps, fixtures and attachments:
+  ![UI Mode attachments](https://github.com/microsoft/playwright/assets/746130/1d280419-d79a-4a56-b2dc-54d631281d56)
+* New property [`property: TestProject.teardown`] to specify a project that needs to run after this
+  and all dependent projects have finished. Teardown is useful to cleanup any resources acquired by this project.
+
+  A common pattern would be a `setup` dependency with a corresponding `teardown`:
+  ```js title="playwright.config.ts"
+  import { defineConfig } from '@playwright/test';
+
+  export default defineConfig({
+    projects: [
+      {
+        name: 'setup',
+        testMatch: /global.setup\.ts/,
+        teardown: 'teardown',
+      },
+      {
+        name: 'teardown',
+        testMatch: /global.teardown\.ts/,
+      },
+      {
+        name: 'chromium',
+        use: devices['Desktop Chrome'],
+        dependencies: ['setup'],
+      },
+      {
+        name: 'firefox',
+        use: devices['Desktop Firefox'],
+        dependencies: ['setup'],
+      },
+      {
+        name: 'webkit',
+        use: devices['Desktop Safari'],
+        dependencies: ['setup'],
+      },
+    ],
+  });
+  ```
+* New method [`expect.configure`](./test-assertions.md#expectconfigure) to
+  create pre-configured expect instance with its own defaults such as `timeout`
+  and `soft`.
+
+  ```js
+  const slowExpect = expect.configure({ timeout: 10000 });
+  await slowExpect(locator).toHaveText('Submit');
+
+  // Always do soft assertions.
+  const softExpect = expect.configure({ soft: true });
+  ```
+
+* New options `stderr` and `stdout`  in [`property: TestConfig.webServer`] to configure output handling:
+
+  ```js title="playwright.config.ts"
+  import { defineConfig } from '@playwright/test';
+
+  export default defineConfig({
+    // Run your local dev server before starting the tests
+    webServer: {
+      command: 'npm run start',
+      url: 'http://127.0.0.1:3000',
+      reuseExistingServer: !process.env.CI,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  });
+  ```
+* New [`method: Locator.and`] to create a locator that matches both locators.
+
+    ```js
+    const button = page.getByRole('button').and(page.getByTitle('Subscribe'));
+    ```
+
+* New events [`event: BrowserContext.console`] and [`event: BrowserContext.dialog`] to subscribe to any dialogs
+  and console messages from any page from the given browser context. Use the new methods [`method: ConsoleMessage.page`]
+  and [`method: Dialog.page`] to pin-point event source.
+
+### ⚠️ Breaking changes
+
+* `npx playwright test` no longer works if you install both `playwright` and `@playwright/test`. There's no need
+  to install both, since you can always import browser automation APIs from `@playwright/test` directly:
+
+  ```js title="automation.ts"
+  import { chromium, firefox, webkit } from '@playwright/test';
+  /* ... */
+  ```
+* Node.js 14 is no longer supported since it [reached its end-of-life](https://nodejs.dev/en/about/releases/) on April 30, 2023.
+
+### Browser Versions
+
+* Chromium 114.0.5735.26
+* Mozilla Firefox 113.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 113
+* Microsoft Edge 113
+
+## Version 1.33
+
+<LiteYouTube
+  id="JeFD6rqDbBo"
+  title="Playwright 1.33"
+/>
+
+### Locators Update
+
+* Use [`method: Locator.or`] to create a locator that matches either of the two locators.
+  Consider a scenario where you'd like to click on a "New email" button, but sometimes a security settings dialog shows up instead.
+  In this case, you can wait for either a "New email" button, or a dialog and act accordingly:
+
+    ```js
+    const newEmail = page.getByRole('button', { name: 'New email' });
+    const dialog = page.getByText('Confirm security settings');
+    await expect(newEmail.or(dialog)).toBeVisible();
+    if (await dialog.isVisible())
+      await page.getByRole('button', { name: 'Dismiss' }).click();
+    await newEmail.click();
+    ```
+* Use new options [`option: hasNot`] and [`option: hasNotText`] in [`method: Locator.filter`]
+  to find elements that **do not match** certain conditions.
+
+    ```js
+    const rowLocator = page.locator('tr');
+    await rowLocator
+        .filter({ hasNotText: 'text in column 1' })
+        .filter({ hasNot: page.getByRole('button', { name: 'column 2 button' }) })
+        .screenshot();
+    ```
+* Use new web-first assertion [`method: LocatorAssertions.toBeAttached`] to ensure that the element
+  is present in the page's DOM. Do not confuse with the [`method: LocatorAssertions.toBeVisible`] that ensures that
+  element is both attached & visible.
+
+### New APIs
+
+- [`method: Locator.or`]
+- New option [`option: hasNot`] in [`method: Locator.filter`]
+- New option [`option: hasNotText`] in [`method: Locator.filter`]
+- [`method: LocatorAssertions.toBeAttached`]
+- New option [`option: timeout`] in [`method: Route.fetch`]
+- [`method: Reporter.onExit`]
+
+### ⚠️ Breaking change
+
+* The `mcr.microsoft.com/playwright:v1.33.0` now serves a Playwright image based on Ubuntu Jammy.
+  To use the focal-based image, please use `mcr.microsoft.com/playwright:v1.33.0-focal` instead.
+
+### Browser Versions
+
+* Chromium 113.0.5672.53
+* Mozilla Firefox 112.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 112
+* Microsoft Edge 112
+
+## Version 1.32
+
+<LiteYouTube
+  id="jF0yA-JLQW0"
+  title="Playwright 1.32"
+/>
+
+### Introducing UI Mode (preview)
+
+New [UI Mode](./test-ui-mode.md) lets you explore, run and debug tests. Comes with a built-in watch mode.
+
+![Playwright UI Mode](https://user-images.githubusercontent.com/746130/227004851-3901a691-4f8e-43d6-8d6b-cbfeafaeb999.png)
+
+Engage with a new flag `--ui`:
+
+```sh
+npx playwright test --ui
+```
+
+### New APIs
+
+- New options [`option: updateMode`] and [`option: updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
+- Chaining existing locator objects, see [locator docs](./locators.md#chaining-locators) for details.
+- New property [`property: TestInfo.testId`].
+- New option [`option: name`] in method [`method: Tracing.startChunk`].
+
+
+### ⚠️ Breaking change in component tests
+
+Note: **component tests only**, does not affect end-to-end tests.
+
+* `@playwright/experimental-ct-react` now supports **React 18 only**.
+* If you're running component tests with React 16 or 17, please replace
+  `@playwright/experimental-ct-react` with `@playwright/experimental-ct-react17`.
+
+### Browser Versions
+
+* Chromium 112.0.5615.29
+* Mozilla Firefox 111.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 111
+* Microsoft Edge 111
+
+## Version 1.31
+
+<LiteYouTube
+  id="PI50YAPTAs4"
+  title="Playwright 1.31"
+/>
+
+### New APIs
+
+- New property [`property: TestProject.dependencies`] to configure dependencies between projects.
+
+  Using dependencies allows global setup to produce traces and other artifacts,
+  see the setup steps in the test report and more.
+
+  ```js title="playwright.config.ts"
+  import { defineConfig } from '@playwright/test';
+
+  export default defineConfig({
+    projects: [
+      {
+        name: 'setup',
+        testMatch: /global.setup\.ts/,
+      },
+      {
+        name: 'chromium',
+        use: devices['Desktop Chrome'],
+        dependencies: ['setup'],
+      },
+      {
+        name: 'firefox',
+        use: devices['Desktop Firefox'],
+        dependencies: ['setup'],
+      },
+      {
+        name: 'webkit',
+        use: devices['Desktop Safari'],
+        dependencies: ['setup'],
+      },
+    ],
+  });
+  ```
+
+- New assertion [`method: LocatorAssertions.toBeInViewport`] ensures that locator points to an element that intersects viewport, according to the [intersection observer API](https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API).
+
+  ```js
+  const button = page.getByRole('button');
+
+  // Make sure at least some part of element intersects viewport.
+  await expect(button).toBeInViewport();
+
+  // Make sure element is fully outside of viewport.
+  await expect(button).not.toBeInViewport();
+
+  // Make sure that at least half of the element intersects viewport.
+  await expect(button).toBeInViewport({ ratio: 0.5 });
+  ```
+
+
+### Miscellaneous
+
+- DOM snapshots in trace viewer can be now opened in a separate window.
+- New method `defineConfig` to be used in `playwright.config`.
+- New option [`option: Route.fetch.maxRedirects`] for method [`method: Route.fetch`].
+- Playwright now supports Debian 11 arm64.
+- Official [docker images](./docker.md) now include Node 18 instead of Node 16.
+
+
+### ⚠️ Breaking change in component tests
+
+Note: **component tests only**, does not affect end-to-end tests.
+
+`playwright-ct.config` configuration file for [component testing](./test-components.md) now requires calling `defineConfig`.
+
+```js
+// Before
+
+import { type PlaywrightTestConfig, devices } from '@playwright/experimental-ct-react';
+const config: PlaywrightTestConfig = {
+  // ... config goes here ...
+};
+export default config;
+```
+
+Replace `config` variable definition with `defineConfig` call:
+
+```js
+// After
+
+import { defineConfig, devices } from '@playwright/experimental-ct-react';
+export default defineConfig({
+  // ... config goes here ...
+});
+```
+
+### Browser Versions
+
+* Chromium 111.0.5563.19
+* Mozilla Firefox 109.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 110
+* Microsoft Edge 110
+
+
+## Version 1.30
+
+### Browser Versions
+
+* Chromium 110.0.5481.38
+* Mozilla Firefox 108.0.2
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 109
+* Microsoft Edge 109
+
+
+## Version 1.29
+
+<LiteYouTube
+  id="VbVlz61VtNo"
+  title="Playwright 1.29"
+/>
+
+### New APIs
+
+- New method [`method: Route.fetch`] and new option `json` for [`method: Route.fulfill`]:
+
+    ```js
+    await page.route('**/api/settings', async route => {
+      // Fetch original settings.
+      const response = await route.fetch();
+
+      // Force settings theme to a predefined value.
+      const json = await response.json();
+      json.theme = 'Solorized';
+
+      // Fulfill with modified data.
+      await route.fulfill({ json });
+    });
+    ```
+
+- New method [`method: Locator.all`] to iterate over all matching elements:
+
+    ```js
+    // Check all checkboxes!
+    const checkboxes = page.getByRole('checkbox');
+    for (const checkbox of await checkboxes.all())
+      await checkbox.check();
+    ```
+
+- [`method: Locator.selectOption`] matches now by value or label:
+
+  ```html
+  <select multiple>
+    <option value="red">Red</div>
+    <option value="green">Green</div>
+    <option value="blue">Blue</div>
+  </select>
+  ```
+
+  ```js
+  await element.selectOption('Red');
+  ```
+
+- Retry blocks of code until all assertions pass:
+
+    ```js
+    await expect(async () => {
+      const response = await page.request.get('https://api.example.com');
+      await expect(response).toBeOK();
+    }).toPass();
+    ```
+
+  Read more in [our documentation](./test-assertions.md#retrying).
+
+- Automatically capture **full page screenshot** on test failure:
+    ```js title="playwright.config.ts"
+    import { defineConfig } from '@playwright/test';
+    export default defineConfig({
+      use: {
+        screenshot: {
+          mode: 'only-on-failure',
+          fullPage: true,
+        }
+      }
+    });
+    ```
+
+### Miscellaneous
+
+- Playwright Test now respects [`jsconfig.json`](https://code.visualstudio.com/docs/languages/jsconfig).
+- New options `args` and `proxy` for [`method: AndroidDevice.launchBrowser`].
+- Option `postData` in method [`method: Route.continue`] now supports [Serializable] values.
+
+### Browser Versions
+
+* Chromium 109.0.5414.46
+* Mozilla Firefox 107.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 108
+* Microsoft Edge 108
+
+## Version 1.28
+
+<LiteYouTube
+  id="tVSq-0n-TY4"
+  title="Playwright 1.28"
+/>
+
+### Playwright Tools
+
+* **Record at Cursor in VSCode.** You can run the test, position the cursor at the end of the test and continue generating the test.
+
+![New VSCode Extension](https://user-images.githubusercontent.com/746130/202005839-aba2eeba-217b-424d-8496-8b4f5fa72f41.png)
+
+* **Live Locators in VSCode.** You can hover and edit locators in VSCode to get them  highlighted in the opened browser.
+* **Live Locators in CodeGen.** Generate a locator for any element on the page using "Explore" tool.
+
+![Locator Explorer](https://user-images.githubusercontent.com/746130/201796876-01567a0b-ca61-4a9d-b12b-04786c471671.png)
+
+* **Codegen and Trace Viewer Dark Theme.** Automatically picked up from operating system settings.
+
+![Dark Theme](https://user-images.githubusercontent.com/746130/201797969-603f74df-d7cf-4c56-befd-798dbd269796.png)
+
+
+### Test Runner
+
+* Configure retries and test timeout for a file or a test with [`method: Test.describe.configure`].
+
+    ```js
+    // Each test in the file will be retried twice and have a timeout of 20 seconds.
+    test.describe.configure({ retries: 2, timeout: 20_000 });
+    test('runs first', async ({ page }) => {});
+    test('runs second', async ({ page }) => {});
+    ```
+
+* Use [`property: TestProject.snapshotPathTemplate`] and [`property: TestConfig.snapshotPathTemplate`] to configure a template controlling location of snapshots generated by [`method: PageAssertions.toHaveScreenshot#1`] and [`method: SnapshotAssertions.toMatchSnapshot#1`].
+
+    ```js title="playwright.config.ts"
+    import { defineConfig } from '@playwright/test';
+    export default defineConfig({
+      testDir: './tests',
+      snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}{ext}',
+    });
+    ```
+
+### New APIs
+
+- [`method: Locator.blur`]
+- [`method: Locator.clear`]
+- [`method: Android.launchServer`] and  [`method: Android.connect`]
+- [`event: AndroidDevice.close`]
+
+### Browser Versions
+
+* Chromium 108.0.5359.29
+* Mozilla Firefox 106.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 107
+* Microsoft Edge 107
+
+
 ## Version 1.27
 
-<div className="embed-youtube">
-<iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/b84eqab3kwc" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="b84eqab3kwc"
+  title="Playwright 1.27"
+/>
+
 
 ### Locators
 
@@ -42,7 +589,11 @@ All the same methods are also available on [Locator], [FrameLocator] and [Frame]
 
 - New options `host` and `port` for the html reporter.
   ```js
-  reporters: [['html', { host: 'localhost', port: '9223' }]]
+  import { defineConfig } from '@playwright/test';
+
+  export default defineConfig({
+    reporter: [['html', { host: 'localhost', port: '9223' }]],
+  });
   ```
 
 - New field `FullConfig.configFile` is available to test reporters, specifying the path to the config file if any.
@@ -73,9 +624,10 @@ This version was also tested against the following stable channels:
 
 ## Version 1.26
 
-<div className="embed-youtube">
-<iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/b84eqab3kwc" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="b84eqab3kwc"
+  title="Playwright 1.26"
+/>
 
 ### Assertions
 
@@ -120,9 +672,10 @@ This version was also tested against the following stable channels:
 
 ## Version 1.25
 
-<div className="embed-youtube">
-<iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/NFLHA57a-so" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="NFLHA57a-so"
+  title="Playwright 1.25"
+/>
 
 ### VSCode Extension
 
@@ -152,7 +705,7 @@ This version was also tested against the following stable channels:
 
 ### Announcements
 
-* 🎁 We now ship Ubuntu 22.04 Jammy Jellyfish docker image: `mcr.microsoft.com/playwright:v1.28.0-jammy`.
+* 🎁 We now ship Ubuntu 22.04 Jammy Jellyfish docker image: `mcr.microsoft.com/playwright:v1.34.0-jammy`.
 * 🪦 This is the last release with macOS 10.15 support (deprecated as of 1.21).
 * 🪦 This is the last release with Node.js 12 support, we recommend upgrading to Node.js LTS (16).
 * ⚠️ Ubuntu 18 is now deprecated and will not be supported as of Dec 2022.
@@ -171,28 +724,28 @@ This version was also tested against the following stable channels:
 
 ## Version 1.24
 
-<div className="embed-youtube">
-<iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/9F05o1shxcY" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="9F05o1shxcY"
+  title="Playwright 1.24"
+/>
 
 ### 🌍 Multiple Web Servers in `playwright.config.ts`
 
 Launch multiple web servers, databases, or other processes by passing an array of configurations:
 
-```ts
-// playwright.config.ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-const config: PlaywrightTestConfig = {
+```ts title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
   webServer: [
     {
       command: 'npm run start',
-      port: 3000,
+      url: 'http://127.0.0.1:3000',
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,
     },
     {
       command: 'npm run backend',
-      port: 3333,
+      url: 'http://127.0.0.1:3333',
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,
     }
@@ -200,8 +753,7 @@ const config: PlaywrightTestConfig = {
   use: {
     baseURL: 'http://localhost:3000/',
   },
-};
-export default config;
+});
 ```
 
 ### 🐂 Debian 11 Bullseye Support
@@ -211,11 +763,11 @@ if you encounter any issues!
 
 Linux support looks like this:
 
-|          | Ubuntu 18.04 | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11
+|          | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11
 | :--- | :---: | :---: | :---: | :---: |
-| Chromium | ✅ | ✅ | ✅ | ✅ |
-| WebKit | ✅ | ✅ | ✅ | ✅ |
-| Firefox | ✅ | ✅ | ✅ | ✅ |
+| Chromium | ✅ | ✅ | ✅ |
+| WebKit | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ✅ |
 
 ### 🕵️ Anonymous Describe
 
@@ -242,8 +794,7 @@ Use these to configure your app for tests.
 
 For example, this could be used to setup App router in Vue.js:
 
-```js
-// src/component.spec.ts
+```js title="src/component.spec.ts"
 import { test } from '@playwright/experimental-ct-vue';
 import { Component } from './mycomponent';
 
@@ -256,8 +807,7 @@ test('should work', async ({ mount }) => {
 });
 ```
 
-```js
-// playwright/index.ts
+```js title="playwright/index.ts"
 import { router } from '../router';
 import { beforeMount } from '@playwright/experimental-ct-vue/hooks';
 
@@ -268,8 +818,7 @@ beforeMount(async ({ app, hooksConfig }) => {
 
 A similar configuration in Next.js would look like this:
 
-```js
-// src/component.spec.jsx
+```js title="src/component.spec.jsx"
 import { test } from '@playwright/experimental-ct-react';
 import { Component } from './mycomponent';
 
@@ -286,8 +835,7 @@ test('should work', async ({ mount }) => {
 });
 ```
 
-```js
-// playwright/index.js
+```js title="playwright/index.js"
 import router from 'next/router';
 import { beforeMount } from '@playwright/experimental-ct-react/hooks';
 
@@ -299,9 +847,10 @@ beforeMount(async ({ hooksConfig }) => {
 
 ## Version 1.23
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/NRGOV46P3kU" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="NRGOV46P3kU"
+  title="Playwright 1.23"
+/>
 
 ### Network Replay
 
@@ -376,8 +925,7 @@ Read more about [component testing with Playwright](./test-components).
 ### Miscellaneous
 
 * If there's a service worker that's in your way, you can now easily disable it with a new context option `serviceWorkers`:
-  ```ts
-  // playwright.config.ts
+  ```ts title="playwright.config.ts"
   export default {
     use: {
       serviceWorkers: 'block',
@@ -402,11 +950,11 @@ Read more about [component testing with Playwright](./test-components).
     }
   });
   ```
-* Playwright now runs on Ubuntu 22 amd64 and Ubuntu 22 arm64. We also publish new docker image `mcr.microsoft.com/playwright:v1.28.0-jammy`.
+* Playwright now runs on Ubuntu 22 amd64 and Ubuntu 22 arm64. We also publish new docker image `mcr.microsoft.com/playwright:v1.34.0-jammy`.
 
 ### ⚠️ Breaking Changes ⚠️
 
-WebServer is now considered "ready" if request to the specified port has any of the following HTTP status codes:
+WebServer is now considered "ready" if request to the specified url has any of the following HTTP status codes:
 
 * `200-299`
 * `300-399` (new)
@@ -415,9 +963,10 @@ WebServer is now considered "ready" if request to the specified port has any of 
 
 ## Version 1.22
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/keV2CIgtBlg" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="keV2CIgtBlg"
+  title="Playwright 1.22"
+/>
 
 ### Highlights
 
@@ -431,8 +980,7 @@ WebServer is now considered "ready" if request to the specified port has any of 
 
   Here is what a typical component test looks like:
 
-  ```ts
-  // App.spec.tsx
+  ```ts title="App.spec.tsx"
   import { test, expect } from '@playwright/experimental-ct-react';
   import App from './App';
 
@@ -457,10 +1005,10 @@ WebServer is now considered "ready" if request to the specified port has any of 
 
   ```js
   // Click a button with accessible name "log in"
-  await page.locator('role=button[name="log in"]').click()
+  await page.locator('role=button[name="log in"]').click();
   ```
 
-  Read more in [our documentation](./selectors#role-selector).
+  Read more in [our documentation](./locators.md#locate-by-role).
 
 - New [`method: Locator.filter`] API to filter an existing locator
 
@@ -484,14 +1032,15 @@ WebServer is now considered "ready" if request to the specified port has any of 
   ```
 
   The new [`method: PageAssertions.toHaveScreenshot#1`] saves screenshots at the same
-  location as [`method: ScreenshotAssertions.toMatchSnapshot#1`].
+  location as [`method: SnapshotAssertions.toMatchSnapshot#1`].
 
 
 ## Version 1.21
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/45HZdbmgEw8" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="45HZdbmgEw8"
+  title="Playwright 1.21"
+/>
 
 ### Highlights
 
@@ -499,10 +1048,10 @@ WebServer is now considered "ready" if request to the specified port has any of 
 
   ```js
   // Click a button with accessible name "log in"
-  await page.locator('role=button[name="log in"]').click()
+  await page.locator('role=button[name="log in"]').click();
   ```
 
-  Read more in [our documentation](./selectors#role-selector).
+  Read more in [our documentation](./locators.md#locate-by-role).
 - New `scale` option in [`method: Page.screenshot`] for smaller sized screenshots.
 - New `caret` option in [`method: Page.screenshot`] to control text caret. Defaults to `"hide"`.
 
@@ -541,9 +1090,10 @@ This version was also tested against the following stable channels:
 
 ## Version 1.20
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/6vV-XXKsrbA" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="6vV-XXKsrbA"
+  title="Playwright 1.20"
+/>
 
 ### Highlights
 
@@ -568,8 +1118,7 @@ This version was also tested against the following stable channels:
 
 - Playwright Test now adds [`property: TestConfig.fullyParallel`] mode. By default, Playwright Test parallelizes between files. In fully parallel mode, tests inside a single file are also run in parallel. You can also use `--fully-parallel` command line flag.
 
-  ```ts
-  // playwright.config.ts
+  ```ts title="playwright.config.ts"
   export default {
     fullyParallel: true,
   };
@@ -577,8 +1126,7 @@ This version was also tested against the following stable channels:
 
 - [`property: TestProject.grep`] and [`property: TestProject.grepInvert`] are now configurable per project. For example, you can now
   configure smoke tests project using `grep`:
-  ```ts
-  // playwright.config.ts
+  ```ts title="playwright.config.ts"
   export default {
     projects: [
       {
@@ -589,7 +1137,7 @@ This version was also tested against the following stable channels:
   };
   ```
 
-- [Trace Viewer](./trace-viewer) now shows [API testing requests](./test-api-testing).
+- [Trace Viewer](./trace-viewer) now shows [API testing requests](./api-testing).
 - [`method: Locator.highlight`] visually reveals element(s) for easier debugging.
 
 ### Announcements
@@ -611,9 +1159,10 @@ This version was also tested against the following stable channels:
 
 ## Version 1.19
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/z0EOFvlf14U" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="z0EOFvlf14U"
+  title="Playwright 1.19"
+/>
 
 ### Playwright Test Update
 
@@ -699,9 +1248,10 @@ This version was also tested against the following stable channels:
 
 ## Version 1.18
 
-<div className="embed-youtube">
- <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/ABLYpw2BN_g" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="ABLYpw2BN_g"
+  title="Playwright 1.18"
+/>
 
 ### Locator Improvements
 
@@ -804,9 +1354,10 @@ This version was also tested against the following stable channels:
 
 ## Version 1.17
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/7iyIdeoAP04" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="7iyIdeoAP04"
+  title="Playwright 1.17"
+/>
 
 ### Frame Locators
 
@@ -866,9 +1417,10 @@ Playwright Trace Viewer is now **available online** at https://trace.playwright.
 
 ## Version 1.16
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/OQKwFDmY64g" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="OQKwFDmY64g"
+  title="Playwright 1.16"
+/>
 
 ### 🎭 Playwright Test
 
@@ -905,11 +1457,11 @@ test('context fetch', async ({ request }) => {
 });
 ```
 
-Read more about it in our [API testing guide](./test-api-testing).
+Read more about it in our [API testing guide](./api-testing).
 
 #### Response Interception
 
-It is now possible to do response interception by combining [API Testing](./test-api-testing) with [request interception](./network#modify-requests).
+It is now possible to do response interception by combining [API Testing](./api-testing) with [request interception](./network#modify-requests).
 
 For example, we can blur all the images on the page:
 
@@ -1000,9 +1552,10 @@ This version of Playwright was also tested against the following stable channels
 
 ## Version 1.15
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/6RwzsDeEj7Y" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="6RwzsDeEj7Y"
+  title="Playwright 1.15"
+/>
 
 ### 🎭 Playwright Library
 
@@ -1061,9 +1614,10 @@ By using `npx playwright test --debug` it will enable the [Playwright Inspector]
 
 ## Version 1.14
 
-<div className="embed-youtube">
-  <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/LczBDR0gOhk" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-</div>
+<LiteYouTube
+  id="LczBDR0gOhk"
+  title="Playwright 1.14"
+/>
 
 ### 🎭 Playwright Library
 
@@ -1094,7 +1648,7 @@ await locator.click();
 
 Learn more in the [documentation](./api/class-locator).
 
-#### 🧩 Experimental [**React**](./selectors#react-selectors) and [**Vue**](./selectors#vue-selectors) selector engines
+#### 🧩 Experimental [**React**](./other-locators.md#react-locator) and [**Vue**](./other-locators.md#vue-locator) selector engines
 
 React and Vue selectors allow selecting elements by its component name and/or property values. The syntax is very similar to [attribute selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors) and supports all attribute selector operators.
 
@@ -1103,12 +1657,12 @@ await page.locator('_react=SubmitButton[enabled=true]').click();
 await page.locator('_vue=submit-button[enabled=true]').click();
 ```
 
-Learn more in the [react selectors documentation](./selectors#react-selectors) and the [vue selectors documentation](./selectors#vue-selectors).
+Learn more in the [react selectors documentation](./other-locators.md#react-locator) and the [vue selectors documentation](./other-locators.md#vue-locator).
 
-#### ✨ New [**`nth`**](./selectors#n-th-element-selector) and [**`visible`**](./selectors#selecting-visible-elements) selector engines
+#### ✨ New [**`nth`**](./other-locators.md#n-th-element-locator) and [**`visible`**](./other-locators.md#css-matching-only-visible-elements) selector engines
 
-- [`nth`](./selectors#n-th-element-selector) selector engine is equivalent to the `:nth-match` pseudo class, but could be combined with other selector engines.
-- [`visible`](./selectors#selecting-visible-elements) selector engine is equivalent to the `:visible` pseudo class, but could be combined with other selector engines.
+- [`nth`](./other-locators.md#n-th-element-locator) selector engine is equivalent to the `:nth-match` pseudo class, but could be combined with other selector engines.
+- [`visible`](./other-locators.md#css-matching-only-visible-elements) selector engine is equivalent to the `:visible` pseudo class, but could be combined with other selector engines.
 
 ```js
 // select the first button among all buttons
@@ -1192,23 +1746,21 @@ Step information is exposed in reporters API.
 
 #### 🌎 Launch web server before running tests
 
-To launch a server during the tests, use the [`webServer`](./test-advanced#launching-a-development-web-server-during-the-tests) option in the configuration file. The server will wait for a given port to be available before running the tests, and the port will be passed over to Playwright as a [`baseURL`](./api/class-fixtures#fixtures-base-url) when creating a context.
+To launch a server during the tests, use the [`webServer`](./test-webserver) option in the configuration file. The server will wait for a given url to be available before running the tests, and the url will be passed over to Playwright as a [`baseURL`](./api/class-fixtures#fixtures-base-url) when creating a context.
 
-```ts
-// playwright.config.ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-const config: PlaywrightTestConfig = {
+```ts title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
   webServer: {
     command: 'npm run start', // command to launch
-    port: 3000, // port to await for
+    url: 'http://127.0.0.1:3000', // url to await for
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,
   },
-};
-export default config;
+});
 ```
 
-Learn more in the [documentation](./test-advanced#launching-a-development-web-server-during-the-tests).
+Learn more in the [documentation](./test-webserver).
 
 ### Browser Versions
 
@@ -1415,7 +1967,7 @@ This version of Playwright was also tested against the following stable channels
 
 - **Pause script execution** with [`method: Page.pause`] in headed mode. Pausing the page launches [Playwright Inspector](./debug.md) for debugging.
 
-- **New has-text pseudo-class** for CSS selectors. `:has-text("example")` matches any element containing `"example"` somewhere inside, possibly in a child or a descendant element. See [more examples](./selectors.md#text-selector).
+- **New has-text pseudo-class** for CSS selectors. `:has-text("example")` matches any element containing `"example"` somewhere inside, possibly in a child or a descendant element. See [more examples](./other-locators.md#css-matching-by-text).
 
 - **Page dialogs are now auto-dismissed** during execution, unless a listener for `dialog` event is configured. [Learn more](./dialogs.md) about this.
 
@@ -1433,8 +1985,8 @@ This version of Playwright was also tested against the following stable channels
 
 ## Version 1.8
 
-- [Selecting elements based on layout](./selectors.md#selecting-elements-based-on-layout) with `:left-of()`, `:right-of()`, `:above()` and `:below()`.
-- Playwright now includes [command line interface](./cli.md), former playwright-cli.
+- [Selecting elements based on layout](./other-locators.md#css-matching-elements-based-on-layout) with `:left-of()`, `:right-of()`, `:above()` and `:below()`.
+- Playwright now includes [command line interface](./test-cli.md), former playwright-cli.
   ```bash js
   npx playwright --help
   ```
@@ -1467,7 +2019,7 @@ This version of Playwright was also tested against the following stable channels
 
 - **New Java SDK**: [Playwright for Java](https://github.com/microsoft/playwright-java) is now on par with [JavaScript](https://github.com/microsoft/playwright), [Python](https://github.com/microsoft/playwright-python) and [.NET bindings](https://github.com/microsoft/playwright-dotnet).
 - **Browser storage API**: New convenience APIs to save and load browser storage state (cookies, local storage) to simplify automation scenarios with authentication.
-- **New CSS selectors**: We heard your feedback for more flexible selectors and have revamped the selectors implementation. Playwright 1.7 introduces [new CSS extensions](./selectors.md) and there's more coming soon.
+- **New CSS selectors**: We heard your feedback for more flexible selectors and have revamped the selectors implementation. Playwright 1.7 introduces [new CSS extensions](./other-locators.md#css-locator) and there's more coming soon.
 - **New website**: The docs website at [playwright.dev](https://playwright.dev/) has been updated and is now built with [Docusaurus](https://v2.docusaurus.io/).
 - **Support for Apple Silicon**: Playwright browser binaries for WebKit and Chromium are now built for Apple Silicon.
 

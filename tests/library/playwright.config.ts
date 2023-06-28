@@ -17,7 +17,7 @@
 import { config as loadEnv } from 'dotenv';
 loadEnv({ path: path.join(__dirname, '..', '..', '.env') });
 
-import type { Config, PlaywrightTestOptions, PlaywrightWorkerOptions } from '@playwright/test';
+import type { Config, PlaywrightTestOptions, PlaywrightWorkerOptions, ReporterDescription } from '@playwright/test';
 import * as path from 'path';
 import type { TestModeWorkerOptions } from '../config/testModeFixtures';
 import type { TestModeName } from '../config/testMode';
@@ -34,13 +34,7 @@ const getExecutablePath = (browserName: BrowserName) => {
     return process.env.WKPATH;
 };
 
-let mode: TestModeName = 'default';
-if (process.env.PW_OUT_OF_PROCESS_DRIVER)
-  mode = 'driver';
-else if (process.env.PLAYWRIGHT_DOCKER)
-  mode = 'docker';
-else
-  mode = (process.env.PWTEST_MODE ?? 'default') as ('default' | 'driver' | 'service' | 'service2');
+const mode: TestModeName = (process.env.PWTEST_MODE ?? 'default') as ('default' | 'driver' | 'service');
 const headed = process.argv.includes('--headed');
 const channel = process.env.PWTEST_CHANNEL as any;
 const video = !!process.env.PWTEST_VIDEO;
@@ -48,11 +42,24 @@ const trace = !!process.env.PWTEST_TRACE;
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
 const testDir = path.join(__dirname, '..');
+const reporters = () => {
+  const result: ReporterDescription[] = process.env.CI ? [
+    ['dot'],
+    ['json', { outputFile: path.join(outputDir, 'report.json') }],
+  ] : [
+    ['html', { open: 'on-failure' }]
+  ];
+  if (process.env.PWTEST_BLOB_REPORT === '1')
+    result.push(['blob', { outputDir: path.join(outputDir, 'blob-report') }]);
+  return result;
+};
 const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & PlaywrightTestOptions & TestModeWorkerOptions> = {
   testDir,
   outputDir,
   expect: {
     timeout: 10000,
+    toHaveScreenshot: { _comparator: 'ssim-cie94' } as any,
+    toMatchSnapshot: { _comparator: 'ssim-cie94' } as any,
   },
   maxFailures: 100,
   timeout: video ? 60000 : 30000,
@@ -60,51 +67,20 @@ const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & Playwrigh
   workers: process.env.CI ? 2 : undefined,
   fullyParallel: !process.env.CI,
   forbidOnly: !!process.env.CI,
-  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 3 : 0,
-  reporter: process.env.CI ? [
-    ['dot'],
-    ['json', { outputFile: path.join(outputDir, 'report.json') }],
-  ] : [
-    ['html', { open: 'on-failure' }]
-  ],
+  reporter: reporters(),
   projects: [],
-  use: {},
-};
-
-if (mode === 'service') {
-  config.webServer = {
-    command: 'npx playwright experimental-grid-server --auth-token=mysecret --address=http://localhost:3333 --port=3333',
-    port: 3333,
-    reuseExistingServer: true,
-    env: {
-      PWTEST_UNSAFE_GRID_VERSION: '1',
-    },
-  };
-  config.use.connectOptions = {
-    wsEndpoint: 'ws://localhost:3333/mysecret/claimWorker?os=linux',
-  };
-  config.projects = [{
-    name: 'Chromium page tests',
-    testMatch: /page\/.*spec.ts$/,
-    testIgnore: '**/*screenshot*',
-    use: {
-      browserName: 'chromium',
-      mode
-    }
-  }];
-}
-
-if (mode === 'service2') {
-  config.webServer = {
+  use: {
+    connectOptions: mode === 'service' ? {
+      wsEndpoint: 'ws://localhost:3333/',
+    } : undefined,
+  },
+  webServer: mode === 'service' ? {
     command: 'npx playwright run-server --port=3333',
-    port: 3333,
-    reuseExistingServer: true,
-  };
-  config.use.connectOptions = {
-    wsEndpoint: 'ws://localhost:3333/',
-  };
-}
+    url: 'http://localhost:3333',
+    reuseExistingServer: !process.env.CI,
+  } : undefined,
+};
 
 const browserNames = ['chromium', 'webkit', 'firefox'] as BrowserName[];
 for (const browserName of browserNames) {
@@ -118,6 +94,7 @@ for (const browserName of browserNames) {
       name: browserName,
       testDir: path.join(testDir, folder),
       testIgnore,
+      snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}{-projectName}{ext}',
       use: {
         mode,
         browserName,
@@ -134,7 +111,6 @@ for (const browserName of browserNames) {
       metadata: {
         platform: process.platform,
         docker: !!process.env.INSIDE_DOCKER,
-        dockerIntegration: !!process.env.PLAYWRIGHT_DOCKER,
         headful: !!headed,
         browserName,
         channel,

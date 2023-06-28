@@ -25,6 +25,7 @@ import { SdkObject } from './instrumentation';
 import type { HeadersArray, NameValue } from '../common/types';
 import { APIRequestContext } from './fetch';
 import type { NormalizedContinueOverrides } from './types';
+import { BrowserContext } from './browserContext';
 
 export function filterCookies(cookies: channels.NetworkCookie[], urls: string[]): channels.NetworkCookie[] {
   const parsedURLs = urls.map(s => new URL(s));
@@ -257,6 +258,7 @@ export class Route extends SdkObject {
   async abort(errorCode: string = 'failed') {
     this._startHandling();
     await this._delegate.abort(errorCode);
+    this._request._context.emit(BrowserContext.Events.RequestAborted, this._request);
     this._endHandling();
   }
 
@@ -289,6 +291,7 @@ export class Route extends SdkObject {
       body,
       isBase64,
     });
+    this._request._context.emit(BrowserContext.Events.RequestFulfilled, this._request);
     this._endHandling();
   }
 
@@ -310,7 +313,7 @@ export class Route extends SdkObject {
     headers.push({ name: 'vary', value: 'Origin' });
   }
 
-  async continue(overrides: types.NormalizedContinueOverrides = {}) {
+  async continue(overrides: types.NormalizedContinueOverrides) {
     this._startHandling();
     if (overrides.url) {
       const newUrl = new URL(overrides.url);
@@ -320,6 +323,8 @@ export class Route extends SdkObject {
     }
     this._request._setOverrides(overrides);
     await this._delegate.continue(this._request, overrides);
+    if (!overrides.isFallback)
+      this._request._context.emit(BrowserContext.Events.RequestContinued, this._request);
     this._endHandling();
   }
 
@@ -333,7 +338,7 @@ export class Route extends SdkObject {
   }
 }
 
-export type RouteHandler = (route: Route, request: Request) => void;
+export type RouteHandler = (route: Route, request: Request) => boolean;
 
 type GetResponseBodyCallback = () => Promise<Buffer>;
 

@@ -1,4 +1,14 @@
 [*]
+../common/**
+../isomorphic/**
 ../util.ts
-../babelBundle.ts
 ../utilsBundle.ts
+
+[merge.ts]
+../runner/reporters.ts
+
+[internalReporter.ts]
+../transform/babelBundle.ts
+
+[raw.ts]
+../transform/babelBundle.ts

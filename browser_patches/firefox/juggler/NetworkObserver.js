@@ -4,7 +4,6 @@
 
 "use strict";
 
-const {EventEmitter} = ChromeUtils.import('resource://gre/modules/EventEmitter.jsm');
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
@@ -41,7 +40,7 @@ class PageNetwork {
   }
 
   constructor(target) {
-    EventEmitter.decorate(this);
+    helper.decorateAsEventEmitter(this);
     this._target = target;
     this._extraHTTPHeaders = null;
     this._responseStorage = new ResponseStorage(MAX_RESPONSE_STORAGE_SIZE, MAX_RESPONSE_STORAGE_SIZE / 10);
@@ -120,7 +119,7 @@ class NetworkRequest {
     this._frameId = helper.browsingContextToFrameId(browsingContext);
 
     this.requestId = httpChannel.channelId + '';
-    this.navigationId = httpChannel.isMainDocumentChannel ? this.requestId : undefined;
+    this.navigationId = httpChannel.isMainDocumentChannel ? helper.toProtocolNavigationId(browsingContext.jugglerCurrentLoadIdentifier) : undefined;
 
     this._redirectedIndex = 0;
     if (redirectedFrom) {
@@ -217,8 +216,9 @@ class NetworkRequest {
   _onInternalRedirect(newChannel) {
     // Intercepted requests produce "internal redirects" - this is both for our own
     // interception and service workers.
-    // An internal redirect has the same channelId, inherits notificationCallbacks and
-    // listener, and should be used instead of an old channel.
+    // An internal redirect does not necessarily have the same channelId,
+    // but inherits notificationCallbacks and the listener,
+    // and should be used instead of an old channel.
     this._networkObserver._channelToRequest.delete(this.httpChannel);
     this.httpChannel = newChannel;
     this._networkObserver._channelToRequest.set(this.httpChannel, this);
@@ -300,6 +300,9 @@ class NetworkRequest {
     }
     if (!credentials)
       return false;
+    const origin = aChannel.URI.scheme + '://' + aChannel.URI.hostPort;
+    if (credentials.origin && origin.toLowerCase() !== credentials.origin.toLowerCase())
+      return false;
     authInfo.username = credentials.username;
     authInfo.password = credentials.password;
     // This will produce a new request with respective auth header set.
@@ -363,7 +366,7 @@ class NetworkRequest {
     }
 
     const browserContext = pageNetwork._target.browserContext();
-    if (browserContext.settings.onlineOverride === 'offline') {
+    if (browserContext.crossProcessCookie.settings.onlineOverride === 'offline') {
       // Implement offline.
       this.abort(Cr.NS_ERROR_OFFLINE);
       return;
@@ -458,15 +461,17 @@ class NetworkRequest {
     const browserContext = pageNetwork._target.browserContext();
     if (browserContext.requestInterceptionEnabled)
       return true;
-    if (browserContext.settings.onlineOverride === 'offline')
+    if (browserContext.crossProcessCookie.settings.onlineOverride === 'offline')
       return true;
     return false;
   }
 
   _fallThroughInterceptController() {
-    if (!this._previousCallbacks || !(this._previousCallbacks instanceof Ci.nsINetworkInterceptController))
+    try {
+      return this._previousCallbacks?.getInterface(Ci.nsINetworkInterceptController);
+    } catch (e) {
       return undefined;
-    return this._previousCallbacks.getInterface(Ci.nsINetworkInterceptController);
+    }
   }
 
   _sendOnRequest(isIntercepted) {
@@ -581,7 +586,7 @@ class NetworkObserver {
   }
 
   constructor(targetRegistry) {
-    EventEmitter.decorate(this);
+    helper.decorateAsEventEmitter(this);
     NetworkObserver._instance = this;
 
     this._targetRegistry = targetRegistry;

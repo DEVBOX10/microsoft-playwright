@@ -16,20 +16,6 @@ Emitted when the device connection gets closed.
 
 Emitted when a new WebView instance is detected.
 
-## async method: AndroidDevice.clear
-* since: v1.28
-
-Clears the specific [`param: selector`] input box.
-
-### param: AndroidDevice.clear.selector
-* since: v1.28
-- `selector` <[AndroidSelector]>
-
-Selector to clear.
-
-### option: AndroidDevice.clear.timeout = %%-android-timeout-%%
-* since: v1.28
-
 ## async method: AndroidDevice.close
 * since: v1.9
 
@@ -157,6 +143,12 @@ Optional package name to launch instead of default Chrome for Android.
 ### option: AndroidDevice.launchBrowser.-inline- = %%-shared-context-params-list-v1.8-%%
 * since: v1.9
 
+### option: AndroidDevice.launchBrowser.proxy = %%-browser-option-proxy-%%
+* since: v1.29
+
+### option: AndroidDevice.launchBrowser.args = %%-browser-option-args-%%
+* since: v1.29
+
 ## async method: AndroidDevice.longTap
 * since: v1.9
 
@@ -186,7 +178,6 @@ Launches a process in the shell on the device and returns a socket to communicat
 ### param: AndroidDevice.open.command
 * since: v1.9
 - `command` <[string]> Shell command to execute.
-
 
 ## async method: AndroidDevice.pinchClose
 * since: v1.9
@@ -357,7 +348,6 @@ Executes a shell command on the device and returns its output.
 - `command` <[string]>
 
 Shell command to execute.
-
 
 ## async method: AndroidDevice.swipe
 * since: v1.9

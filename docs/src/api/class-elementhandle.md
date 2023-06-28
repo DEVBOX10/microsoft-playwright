@@ -127,6 +127,8 @@ Elements from child frames return the bounding box relative to the main frame, u
 Assuming the page is static, it is safe to use bounding box coordinates to perform input. For example, the following
 snippet should click the center of the element.
 
+**Usage**
+
 ```js
 const box = await elementHandle.boundingBox();
 await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -181,22 +183,11 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: ElementHandle.check.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.check.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: ElementHandle.check.trial = %%-input-trial-%%
 * since: v1.11
-
-## async method: ElementHandle.clear
-* since: v1.28
-
-This method waits for [actionability](../actionability.md) checks, focuses the element, clears it and triggers an `input` event after clearing.
-
-If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be cleared instead.
-
-### option: ElementHandle.clear.force = %%-input-force-%%
-* since: v1.28
-### option: ElementHandle.clear.noWaitAfter = %%-input-no-wait-after-%%
-* since: v1.28
-### option: ElementHandle.clear.timeout = %%-input-timeout-%%
-* since: v1.28
 
 ## async method: ElementHandle.click
 * since: v1.8
@@ -234,6 +225,9 @@ When all steps combined have not finished during the specified [`option: timeout
 * since: v1.8
 
 ### option: ElementHandle.click.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.click.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ### option: ElementHandle.click.trial = %%-input-trial-%%
@@ -287,6 +281,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: ElementHandle.dblclick.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.dblclick.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: ElementHandle.dblclick.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -296,6 +293,8 @@ When all steps combined have not finished during the specified [`option: timeout
 The snippet below dispatches the `click` event on the element. Regardless of the visibility state of the element, `click`
 is dispatched. This is equivalent to calling
 [element.click()](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/click).
+
+**Usage**
 
 ```js
 await elementHandle.dispatchEvent('click');
@@ -389,13 +388,12 @@ Optional event-specific initialization properties.
 Returns the return value of [`param: expression`].
 
 The method finds an element matching the specified selector in the `ElementHandle`s subtree and passes it as a first
-argument to [`param: expression`]. See [Working with selectors](../selectors.md) for more
-details. If no elements match the selector, the method throws an error.
+argument to [`param: expression`]. If no elements match the selector, the method throws an error.
 
 If [`param: expression`] returns a [Promise], then [`method: ElementHandle.evalOnSelector`] would wait for the promise to resolve and return its
 value.
 
-Examples:
+**Usage**
 
 ```js
 const tweetHandle = await page.$('.tweet');
@@ -412,13 +410,13 @@ assertEquals("10", tweetHandle.evalOnSelector(".retweets", "node => node.innerTe
 ```python async
 tweet_handle = await page.query_selector(".tweet")
 assert await tweet_handle.eval_on_selector(".like", "node => node.innerText") == "100"
-assert await tweet_handle.eval_on_selector(".retweets", "node => node.innerText") = "10"
+assert await tweet_handle.eval_on_selector(".retweets", "node => node.innerText") == "10"
 ```
 
 ```python sync
 tweet_handle = page.query_selector(".tweet")
 assert tweet_handle.eval_on_selector(".like", "node => node.innerText") == "100"
-assert tweet_handle.eval_on_selector(".retweets", "node => node.innerText") = "10"
+assert tweet_handle.eval_on_selector(".retweets", "node => node.innerText") == "10"
 ```
 
 ```csharp
@@ -431,6 +429,9 @@ Assert.AreEqual("10", await tweetHandle.EvalOnSelectorAsync(".retweets", "node =
 * since: v1.9
 
 ### param: ElementHandle.evalOnSelector.expression = %%-evaluate-expression-%%
+* since: v1.9
+
+### param: ElementHandle.evalOnSelector.expression = %%-js-evalonselector-pagefunction-%%
 * since: v1.9
 
 ### param: ElementHandle.evalOnSelector.arg
@@ -449,13 +450,12 @@ Optional argument to pass to [`param: expression`].
 Returns the return value of [`param: expression`].
 
 The method finds all elements matching the specified selector in the `ElementHandle`'s subtree and passes an array of
-matched elements as a first argument to [`param: expression`]. See
-[Working with selectors](../selectors.md) for more details.
+matched elements as a first argument to [`param: expression`].
 
 If [`param: expression`] returns a [Promise], then [`method: ElementHandle.evalOnSelectorAll`] would wait for the promise to resolve and return its
 value.
 
-Examples:
+**Usage**
 
 ```html
 <div class="feed">
@@ -495,6 +495,9 @@ Assert.AreEqual(new [] { "Hello!", "Hi!" }, await feedHandle.EvalOnSelectorAllAs
 ### param: ElementHandle.evalOnSelectorAll.expression = %%-evaluate-expression-%%
 * since: v1.9
 
+### param: ElementHandle.evalOnSelectorAll.expression = %%-js-evalonselectorall-pagefunction-%%
+* since: v1.9
+
 ### param: ElementHandle.evalOnSelectorAll.arg
 * since: v1.9
 - `arg` ?<[EvaluationArgument]>
@@ -518,9 +521,14 @@ Value to set for the `<input>`, `<textarea>` or `[contenteditable]` element.
 
 ### option: ElementHandle.fill.force = %%-input-force-%%
 * since: v1.13
+
 ### option: ElementHandle.fill.noWaitAfter = %%-input-no-wait-after-%%
 * since: v1.8
+
 ### option: ElementHandle.fill.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.fill.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: ElementHandle.focus
@@ -566,6 +574,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: ElementHandle.hover.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.hover.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: ElementHandle.hover.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -593,6 +604,9 @@ Returns `input.value` for the selected `<input>` or `<textarea>` or `<select>` e
 Throws for non-input elements. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), returns the value of the control.
 
 ### option: ElementHandle.inputValue.timeout = %%-input-timeout-%%
+* since: v1.13
+
+### option: ElementHandle.inputValue.timeout = %%-input-timeout-js-%%
 * since: v1.13
 
 ## async method: ElementHandle.isChecked
@@ -678,6 +692,9 @@ Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
 ### option: ElementHandle.press.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.press.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: ElementHandle.querySelector
 * since: v1.9
 * langs:
@@ -685,8 +702,7 @@ Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
   - alias-js: $
 - returns: <[null]|[ElementHandle]>
 
-The method finds an element matching the specified selector in the `ElementHandle`'s subtree. See
-[Working with selectors](../selectors.md) for more details. If no elements match the selector,
+The method finds an element matching the specified selector in the `ElementHandle`'s subtree. If no elements match the selector,
 returns `null`.
 
 ### param: ElementHandle.querySelector.selector = %%-query-selector-%%
@@ -699,8 +715,7 @@ returns `null`.
   - alias-js: $$
 - returns: <[Array]<[ElementHandle]>>
 
-The method finds all elements matching the specified selector in the `ElementHandle`s subtree. See
-[Working with selectors](../selectors.md) for more details. If no elements match the selector,
+The method finds all elements matching the specified selector in the `ElementHandle`s subtree. If no elements match the selector,
 returns empty array.
 
 ### param: ElementHandle.querySelectorAll.selector = %%-query-selector-%%
@@ -720,6 +735,15 @@ Returns the buffer with the captured screenshot.
 ### option: ElementHandle.screenshot.-inline- = %%-screenshot-options-common-list-v1.8-%%
 * since: v1.8
 
+### option: ElementHandle.screenshot.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.screenshot.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
+### option: ElementHandle.screenshot.maskColor = %%-screenshot-option-mask-color-%%
+* since: v1.34
+
 ## async method: ElementHandle.scrollIntoViewIfNeeded
 * since: v1.8
 
@@ -733,6 +757,9 @@ Throws when `elementHandle` does not point to an element
 ### option: ElementHandle.scrollIntoViewIfNeeded.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.scrollIntoViewIfNeeded.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: ElementHandle.selectOption
 * since: v1.8
 - returns: <[Array]<[string]>>
@@ -744,6 +771,8 @@ If the target element is not a `<select>` element, this method throws an error. 
 Returns the array of option values that have been successfully selected.
 
 Triggers a `change` and `input` event once all the provided options have been selected.
+
+**Usage**
 
 ```js
 // single selection matching the value
@@ -799,11 +828,29 @@ await handle.SelectOptionAsync(new[] {
 
 ### param: ElementHandle.selectOption.values = %%-select-options-values-%%
 * since: v1.8
+
 ### option: ElementHandle.selectOption.force = %%-input-force-%%
 * since: v1.13
+
 ### option: ElementHandle.selectOption.noWaitAfter = %%-input-no-wait-after-%%
 * since: v1.8
+
 ### option: ElementHandle.selectOption.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.selectOption.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
+### param: ElementHandle.selectOption.element = %%-python-select-options-element-%%
+* since: v1.8
+
+### param: ElementHandle.selectOption.index = %%-python-select-options-index-%%
+* since: v1.8
+
+### param: ElementHandle.selectOption.value = %%-python-select-options-value-%%
+* since: v1.8
+
+### param: ElementHandle.selectOption.label = %%-python-select-options-label-%%
 * since: v1.8
 
 ## async method: ElementHandle.selectText
@@ -816,7 +863,11 @@ If the element is inside the `<label>` element that has an associated [control](
 
 ### option: ElementHandle.selectText.force = %%-input-force-%%
 * since: v1.13
+
 ### option: ElementHandle.selectText.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.selectText.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: ElementHandle.setChecked
@@ -837,14 +888,22 @@ When all steps combined have not finished during the specified [`option: timeout
 
 ### param: ElementHandle.setChecked.checked = %%-input-checked-%%
 * since: v1.15
+
 ### option: ElementHandle.setChecked.force = %%-input-force-%%
 * since: v1.15
+
 ### option: ElementHandle.setChecked.noWaitAfter = %%-input-no-wait-after-%%
 * since: v1.15
+
 ### option: ElementHandle.setChecked.position = %%-input-position-%%
 * since: v1.15
+
 ### option: ElementHandle.setChecked.timeout = %%-input-timeout-%%
 * since: v1.15
+
+### option: ElementHandle.setChecked.timeout = %%-input-timeout-js-%%
+* since: v1.15
+
 ### option: ElementHandle.setChecked.trial = %%-input-trial-%%
 * since: v1.15
 
@@ -857,7 +916,6 @@ are resolved relative to the current working directory. For empty array, clears 
 This method expects [ElementHandle] to point to an
 [input element](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input). However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), targets the control instead.
 
-
 ### param: ElementHandle.setInputFiles.files = %%-input-files-%%
 * since: v1.8
 
@@ -865,6 +923,9 @@ This method expects [ElementHandle] to point to an
 * since: v1.8
 
 ### option: ElementHandle.setInputFiles.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.setInputFiles.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: ElementHandle.tap
@@ -900,6 +961,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: ElementHandle.tap.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.tap.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: ElementHandle.tap.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -916,9 +980,11 @@ Focuses the element, and then sends a `keydown`, `keypress`/`input`, and `keyup`
 
 To press a special key, like `Control` or `ArrowDown`, use [`method: ElementHandle.press`].
 
+**Usage**
+
 ```js
 await elementHandle.type('Hello'); // Types instantly
-await elementHandle.type('World', {delay: 100}); // Types slower, like a user
+await elementHandle.type('World', { delay: 100 }); // Types slower, like a user
 ```
 
 ```java
@@ -991,6 +1057,9 @@ Time to wait between key presses in milliseconds. Defaults to 0.
 ### option: ElementHandle.type.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.type.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: ElementHandle.uncheck
 * since: v1.8
 
@@ -1018,6 +1087,9 @@ When all steps combined have not finished during the specified [`option: timeout
 * since: v1.8
 
 ### option: ElementHandle.uncheck.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.uncheck.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ### option: ElementHandle.uncheck.trial = %%-input-trial-%%
@@ -1050,6 +1122,9 @@ A state to wait for, see below for more details.
 ### option: ElementHandle.waitForElementState.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: ElementHandle.waitForElementState.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: ElementHandle.waitForSelector
 * since: v1.8
 - returns: <[null]|[ElementHandle]>
@@ -1061,6 +1136,8 @@ Wait for the [`param: selector`] relative to the element handle to satisfy [`opt
 appear/disappear from dom, or become visible/hidden). If at the moment of calling the method [`param: selector`] already
 satisfies the condition, the method will return immediately. If the selector doesn't satisfy the condition for the
 [`option: timeout`] milliseconds, the function will throw.
+
+**Usage**
 
 ```js
 await page.setContent(`<div><span></span></div>`);
@@ -1109,6 +1186,9 @@ This method does not work across navigations, use [`method: Page.waitForSelector
 * since: v1.8
 
 ### option: ElementHandle.waitForSelector.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: ElementHandle.waitForSelector.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ### option: ElementHandle.waitForSelector.strict = %%-input-strict-%%

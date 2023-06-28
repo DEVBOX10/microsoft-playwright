@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 import path from 'path';
-import { test, expect, stripAnsi } from './playwright-test-fixtures';
+import { test, expect } from './playwright-test-fixtures';
 
 test('it should not allow multiple tests with the same name per suite', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'tests/example.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test.describe('suite', () => {
         test('i-am-a-duplicate', async () => {});
       });
@@ -29,51 +29,56 @@ test('it should not allow multiple tests with the same name per suite', async ({
     `
   });
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain('duplicate test titles are not allowed');
-  expect(result.output).toContain(`- title: suite › i-am-a-duplicate`);
-  expect(result.output).toContain(`  - tests${path.sep}example.spec.js:7`);
-  expect(result.output).toContain(`  - tests${path.sep}example.spec.js:10`);
+  expect(result.output).toContain(`Error: duplicate test title`);
+  expect(result.output).toContain(`i-am-a-duplicate`);
+  expect(result.output).toContain(`tests${path.sep}example.spec.js:4`);
+  expect(result.output).toContain(`tests${path.sep}example.spec.js:7`);
 });
 
 test('it should not allow multiple tests with the same name in multiple files', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'tests/example1.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('i-am-a-duplicate', async () => {});
       test('i-am-a-duplicate', async () => {});
     `,
     'tests/example2.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('i-am-a-duplicate', async () => {});
       test('i-am-a-duplicate', async () => {});
     `,
   });
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain('duplicate test titles are not allowed');
-  expect(result.output).toContain(`- title: i-am-a-duplicate`);
-  expect(result.output).toContain(`  - tests${path.sep}example1.spec.js:6`);
-  expect(result.output).toContain(`  - tests${path.sep}example1.spec.js:7`);
-  expect(result.output).toContain(`- title: i-am-a-duplicate`);
-  expect(result.output).toContain(`  - tests${path.sep}example2.spec.js:6`);
-  expect(result.output).toContain(`  - tests${path.sep}example2.spec.js:7`);
+  expect(result.output).toContain('Error: duplicate test title');
+  expect(result.output).toContain(`test('i-am-a-duplicate'`);
+  expect(result.output).toContain(`tests${path.sep}example1.spec.js:3`);
+  expect(result.output).toContain(`tests${path.sep}example1.spec.js:4`);
+  expect(result.output).toContain(`tests${path.sep}example2.spec.js:3`);
+  expect(result.output).toContain(`tests${path.sep}example2.spec.js:4`);
 });
 
 test('it should not allow a focused test when forbid-only is used', async ({ runInlineTest }) => {
   const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        forbidOnly: true,
+      };
+    `,
     'tests/focused-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test.only('i-am-focused', async () => {});
     `
-  }, { 'forbid-only': true });
+  });
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain('--forbid-only found a focused test.');
-  expect(result.output).toContain(`- tests${path.sep}focused-test.spec.js:6 > i-am-focused`);
+  expect(result.output).toContain(`Error: item focused with '.only' is not allowed due to the 'forbidOnly' option in 'playwright.config.ts': \"tests${path.sep}focused-test.spec.js i-am-focused\"`);
+  expect(result.output).toContain(`test.only('i-am-focused'`);
+  expect(result.output).toContain(`tests${path.sep}focused-test.spec.js:3`);
 });
 
 test('should continue with other tests after worker process suddenly exits', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('passed1', () => {});
       test('passed2', () => {});
       test('failed1', () => { process.exit(0); });
@@ -85,7 +90,7 @@ test('should continue with other tests after worker process suddenly exits', asy
   expect(result.passed).toBe(4);
   expect(result.failed).toBe(1);
   expect(result.skipped).toBe(0);
-  expect(result.output).toContain('Worker process exited unexpectedly');
+  expect(result.output).toContain('Internal error: worker process exited unexpectedly');
 });
 
 test('sigint should stop workers', async ({ runInlineTest }) => {
@@ -93,7 +98,7 @@ test('sigint should stop workers', async ({ runInlineTest }) => {
 
   const result = await runInlineTest({
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('interrupted1', async () => {
         console.log('\\n%%SEND-SIGINT%%1');
         await new Promise(f => setTimeout(f, 3000));
@@ -103,7 +108,7 @@ test('sigint should stop workers', async ({ runInlineTest }) => {
       });
     `,
     'b.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('interrupted2', async () => {
         console.log('\\n%%SEND-SIGINT%%2');
         await new Promise(f => setTimeout(f, 3000));
@@ -112,7 +117,7 @@ test('sigint should stop workers', async ({ runInlineTest }) => {
         console.log('\\n%%skipped2');
       });
     `,
-  }, { 'workers': 2 }, {}, { sendSIGINTAfter: 2 });
+  }, { 'workers': 2, 'reporter': 'line,json' }, {}, { sendSIGINTAfter: 2 });
   expect(result.exitCode).toBe(130);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(0);
@@ -122,6 +127,8 @@ test('sigint should stop workers', async ({ runInlineTest }) => {
   expect(result.output).toContain('%%SEND-SIGINT%%2');
   expect(result.output).not.toContain('%%skipped1');
   expect(result.output).not.toContain('%%skipped2');
+  expect(result.output).toContain('Test was interrupted.');
+  expect(result.output).not.toContain('Test timeout of');
 
   const interrupted2 = result.report.suites[1].specs[0];
   expect(interrupted2.title).toBe('interrupted2');
@@ -135,7 +142,8 @@ test('sigint should stop workers', async ({ runInlineTest }) => {
 test('should use the first occurring error when an unhandled exception was thrown', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'unhandled-exception.spec.js': `
-      const test = pwt.test.extend({
+      const { test: base, expect } = require('@playwright/test');
+      const test = base.extend({
         context: async ({}, test) => {
           await test(123)
           let errorWasThrownPromiseResolve = () => {}
@@ -165,8 +173,9 @@ test('worker interrupt should report errors', async ({ runInlineTest }) => {
   test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
 
   const result = await runInlineTest({
-    'a.spec.js': `
-      const test = pwt.test.extend({
+    'a.spec.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         throwOnTeardown: async ({}, use) => {
           let reject;
           await use(new Promise((f, r) => reject = r));
@@ -190,7 +199,7 @@ test('worker interrupt should report errors', async ({ runInlineTest }) => {
 test('should not stall when workers are available', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       const { writeFile, waitForFile } = require('./utils.js');
       test('fails-1', async ({}, testInfo) => {
         await waitForFile(testInfo, 'lockA');
@@ -205,7 +214,7 @@ test('should not stall when workers are available', async ({ runInlineTest }) =>
       });
     `,
     'b.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       const { writeFile, waitForFile } = require('./utils.js');
       test('passes-2', async ({}, testInfo) => {
         console.log('\\n%%passes-2-started');
@@ -244,19 +253,20 @@ test('should not stall when workers are available', async ({ runInlineTest }) =>
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(2);
   expect(result.failed).toBe(1);
-  expect(stripAnsi(result.output).split('\n').filter(line => line.startsWith('%%'))).toEqual([
-    '%%passes-2-started',
-    '%%fails-1-started',
-    '%%fails-1-done',
-    '%%passes-1',
-    '%%passes-2-done',
+  expect(result.outputLines).toEqual([
+    'passes-2-started',
+    'fails-1-started',
+    'fails-1-done',
+    'passes-1',
+    'passes-2-done',
   ]);
 });
 
 test('should teardown workers that are redundant', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.js': `
-      module.exports = pwt.test.extend({
+      const { test: base, expect } = require('@playwright/test');
+      module.exports = base.extend({
         w: [async ({}, use) => {
           console.log('\\n%%worker setup');
           await use('worker');
@@ -281,13 +291,13 @@ test('should teardown workers that are redundant', async ({ runInlineTest }) => 
   }, { workers: 2 });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(2);
-  expect(stripAnsi(result.output).split('\n').filter(line => line.startsWith('%%'))).toEqual([
-    '%%worker setup',
-    '%%worker setup',
-    '%%test-done',
-    '%%worker teardown',
-    '%%test-done',
-    '%%worker teardown',
+  expect(result.outputLines).toEqual([
+    'worker setup',
+    'worker setup',
+    'test-done',
+    'worker teardown',
+    'test-done',
+    'worker teardown',
   ]);
 });
 
@@ -307,7 +317,7 @@ test('should not hang if test suites in worker are inconsistent with runner', as
     };
     `,
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       const { getNames } = require('./names');
       const names = getNames();
       for (const index in names) {
@@ -321,7 +331,7 @@ test('should not hang if test suites in worker are inconsistent with runner', as
   expect(result.passed).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.skipped).toBe(1);
-  expect(result.report.suites[0].specs[1].tests[0].results[0].error!.message).toBe('Unknown test(s) in worker:\nproject-name > a.spec.js > Test 1 - bar\nproject-name > a.spec.js > Test 2 - baz');
+  expect(result.report.suites[0].specs[1].tests[0].results[0].error!.message).toBe('Test(s) not found in the worker process. Make sure test titles do not change:\nproject-name > a.spec.js > Test 1 - bar\nproject-name > a.spec.js > Test 2 - baz');
 });
 
 test('sigint should stop global setup', async ({ runInlineTest }) => {
@@ -347,13 +357,13 @@ test('sigint should stop global setup', async ({ runInlineTest }) => {
       };
     `,
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test', async () => { });
     `,
   }, { 'workers': 1 }, {}, { sendSIGINTAfter: 1 });
   expect(result.exitCode).toBe(130);
   expect(result.passed).toBe(0);
-  const output = stripAnsi(result.output);
+  const output = result.output;
   expect(output).toContain('Global setup');
   expect(output).not.toContain('Global teardown');
 });
@@ -363,10 +373,8 @@ test('sigint should stop plugins', async ({ runInlineTest }) => {
 
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
-      };
-
-      require('@playwright/test')._addRunnerPlugin(() => ({
+      const _plugins = [];
+      _plugins.push(() => ({
         setup: async () => {
           console.log('Plugin1 setup');
           console.log('%%SEND-SIGINT%%');
@@ -377,7 +385,7 @@ test('sigint should stop plugins', async ({ runInlineTest }) => {
         }
       }));
 
-      require('@playwright/test')._addRunnerPlugin(() => ({
+      _plugins.push(() => ({
         setup: async () => {
           console.log('Plugin2 setup');
         },
@@ -385,15 +393,18 @@ test('sigint should stop plugins', async ({ runInlineTest }) => {
           console.log('Plugin2 teardown');
         }
       }));
+      module.exports = {
+        _plugins
+      };
     `,
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test', async () => { });
     `,
   }, { 'workers': 1 }, {}, { sendSIGINTAfter: 1 });
   expect(result.exitCode).toBe(130);
   expect(result.passed).toBe(0);
-  const output = stripAnsi(result.output);
+  const output = result.output;
   expect(output).toContain('Plugin1 setup');
   expect(output).not.toContain('Plugin1 teardown');
   expect(output).not.toContain('Plugin2 setup');
@@ -405,10 +416,8 @@ test('sigint should stop plugins 2', async ({ runInlineTest }) => {
 
   const result = await runInlineTest({
     'playwright.config.ts': `
-      module.exports = {
-      };
-
-      require('@playwright/test')._addRunnerPlugin(() => ({
+      const _plugins = [];
+      _plugins.push(() => ({
         setup: async () => {
           console.log('Plugin1 setup');
         },
@@ -417,7 +426,7 @@ test('sigint should stop plugins 2', async ({ runInlineTest }) => {
         }
       }));
 
-      require('@playwright/test')._addRunnerPlugin(() => ({
+      _plugins.push(() => ({
         setup: async () => {
           console.log('Plugin2 setup');
           console.log('%%SEND-SIGINT%%');
@@ -427,15 +436,16 @@ test('sigint should stop plugins 2', async ({ runInlineTest }) => {
           console.log('Plugin2 teardown');
         }
       }));
+      module.exports = { _plugins };
     `,
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test', async () => { });
     `,
   }, { 'workers': 1 }, {}, { sendSIGINTAfter: 1 });
   expect(result.exitCode).toBe(130);
   expect(result.passed).toBe(0);
-  const output = stripAnsi(result.output);
+  const output = result.output;
   expect(output).toContain('Plugin1 setup');
   expect(output).toContain('Plugin2 setup');
   expect(output).toContain('Plugin1 teardown');
@@ -445,37 +455,95 @@ test('sigint should stop plugins 2', async ({ runInlineTest }) => {
 test('should not crash with duplicate titles and .only', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'example.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('non unique title', () => { console.log('do not run me'); });
       test.skip('non unique title', () => { console.log('do not run me'); });
       test.only('non unique title', () => { console.log('do run me'); });
     `
   });
   expect(result.exitCode).toBe(1);
-  expect(stripAnsi(result.output)).toContain([
-    ` duplicate test titles are not allowed.`,
-    ` - title: non unique title`,
-    `   - example.spec.ts:6`,
-    `   - example.spec.ts:7`,
-    `   - example.spec.ts:8`,
-  ].join('\n'));
+  expect(result.output).toContain(`Error: duplicate test title`);
+  expect(result.output).toContain(`test('non unique title'`);
+  expect(result.output).toContain(`test.skip('non unique title'`);
+  expect(result.output).toContain(`test.only('non unique title'`);
+  expect(result.output).toContain(`example.spec.ts:3`);
+  expect(result.output).toContain(`example.spec.ts:4`);
+  expect(result.output).toContain(`example.spec.ts:5`);
 });
 
 test('should not crash with duplicate titles and line filter', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'example.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('non unique title', () => { console.log('do not run me'); });
       test.skip('non unique title', () => { console.log('do not run me'); });
       test('non unique title', () => { console.log('do run me'); });
     `
-  }, {}, {}, { additionalArgs: ['example.spec.ts:8'] });
+  }, {}, {}, { additionalArgs: ['example.spec.ts:6'] });
   expect(result.exitCode).toBe(1);
-  expect(stripAnsi(result.output)).toContain([
-    ` duplicate test titles are not allowed.`,
-    ` - title: non unique title`,
-    `   - example.spec.ts:6`,
-    `   - example.spec.ts:7`,
-    `   - example.spec.ts:8`,
-  ].join('\n'));
+  expect(result.output).toContain(`Error: duplicate test title`);
+  expect(result.output).toContain(`test('non unique title'`);
+  expect(result.output).toContain(`example.spec.ts:3`);
+  expect(result.output).toContain(`example.spec.ts:4`);
+  expect(result.output).toContain(`example.spec.ts:5`);
+});
+
+test('should not load tests not matching filter', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      console.log('in a.spec.ts');
+      test('test1', () => {});
+    `,
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      console.log('in example.spec.ts');
+      test('test2', () => {});
+  `
+
+  }, {}, {}, { additionalArgs: ['a.spec.ts'] });
+  expect(result.exitCode).toBe(0);
+  expect(result.output).not.toContain('in example.spec.ts');
+  expect(result.output).toContain('in a.spec.ts');
+});
+
+test('should filter by sourcemapped file names', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'gherkin.spec.js': `
+
+import { test } from '@playwright/test';
+test('should run', () => {});
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImdoZXJraW4uZmVhdHVyZSJdLCJuYW1lcyI6WyJOb25lIl0sIm1hcHBpbmdzIjoiQUFBQUE7QUFBQUE7QUFBQUE7QUFBQUE7QUFBQUE7QUFBQUEiLCJmaWxlIjoiZ2hlcmtpbi5mZWF0dXJlIiwic291cmNlc0NvbnRlbnQiOlsiVGVzdCJdfQ==`,
+
+    'another.spec.js': `
+
+throw new Error('should not load another.spec.js');
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImFub3RoZXIuZmVhdHVyZSJdLCJuYW1lcyI6WyJOb25lIl0sIm1hcHBpbmdzIjoiQUFBQUE7QUFBQUE7QUFBQUE7QUFBQUE7QUFBQUE7QUFBQUEiLCJmaWxlIjoiZ2hlcmtpbi5mZWF0dXJlIiwic291cmNlc0NvbnRlbnQiOlsiVGVzdCJdfQ==`,
+
+    'nomap.spec.js': `
+
+throw new Error('should not load nomap.spec.js');`,
+  }, {}, {}, { additionalArgs: ['gherkin.feature'] });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).not.toContain('spec.js');
+  expect(result.output).not.toContain('another.feature.js');
+  expect(result.output).not.toContain('should not load');
+  expect(result.output).toContain('gherkin.feature:1');
+});
+
+test('should not hang on worker error in test file', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'example.spec.js': `
+      import { test, expect } from '@playwright/test';
+      if (process.env.TEST_WORKER_INDEX)
+        process.exit(1);
+      test('test 1', async () => {});
+      test('test 2', async () => {});
+    `,
+  }, { 'timeout': 3000 });
+  expect(result.exitCode).toBe(1);
+  expect(result.results[0].status).toBe('failed');
+  expect(result.results[0].error.message).toContain('Internal error: worker process exited unexpectedly');
+  expect(result.results[1].status).toBe('skipped');
 });

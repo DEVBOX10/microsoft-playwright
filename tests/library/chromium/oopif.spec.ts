@@ -140,7 +140,7 @@ it('should respect route', async ({ page, browser, server }) => {
   let intercepted = false;
   await page.route('**/digits/0.png', route => {
     intercepted = true;
-    route.continue();
+    void route.continue();
   });
   await page.goto(server.PREFIX + '/dynamic-oopif.html');
   expect(page.frames().length).toBe(2);
@@ -153,7 +153,7 @@ it('should take screenshot', async ({ page, browser, server }) => {
   await page.goto(server.PREFIX + '/dynamic-oopif.html');
   expect(page.frames().length).toBe(2);
   expect(await countOOPIFs(browser)).toBe(1);
-  expect(await page.screenshot()).toMatchSnapshot('screenshot-oopif.png', { threshold: 0.3 });
+  expect(await page.screenshot()).toMatchSnapshot('screenshot-oopif.png');
 });
 
 it('should load oopif iframes with subresources and route', async function({ page, browser, server }) {
@@ -238,7 +238,7 @@ it('should report google.com frame with headed', async ({ browserType, server })
   const page = await browser.newPage();
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/*', route => {
-    route.fulfill({ body: 'YO, GOOGLE.COM' });
+    void route.fulfill({ body: 'YO, GOOGLE.COM' });
   });
   await page.evaluate(() => {
     const frame = document.createElement('iframe');
@@ -334,6 +334,15 @@ it('should not throw on exposeFunction when oopif detaches', async ({ page, brow
     page.evaluate(() => document.querySelector('iframe').remove()),
   ]);
   expect(await page.evaluate(() => (window as any).myFunc())).toBe(2022);
+});
+
+it('should intercept response body from oopif', async function({ page, browser, server }) {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20809' });
+  const [response] = await Promise.all([
+    page.waitForResponse('**/grid.html'),
+    page.goto(server.PREFIX + '/dynamic-oopif.html')
+  ]);
+  expect(await response.text()).toBeTruthy();
 });
 
 async function countOOPIFs(browser) {

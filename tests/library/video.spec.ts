@@ -19,9 +19,10 @@ import fs from 'fs';
 import path from 'path';
 import type { Page } from 'playwright-core';
 import { spawnSync } from 'child_process';
-import { PNG } from 'playwright-core/lib/utilsBundle';
+import { PNG, jpegjs } from 'playwright-core/lib/utilsBundle';
 import { registry } from '../../packages/playwright-core/lib/server';
 import { rewriteErrorMessage } from '../../packages/playwright-core/lib/utils/stackTrace';
+import { parseTraceRaw } from '../config/utils';
 
 const ffmpeg = registry.findExecutable('ffmpeg')!.executablePath('javascript');
 
@@ -161,8 +162,7 @@ it.describe('screencast', () => {
     expect(error.message).toContain('"videoSize" option requires "videosPath" to be specified');
   });
 
-  it('should work with old options', async ({ browser, browserName, trace }, testInfo) => {
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
+  it('should work with old options', async ({ browser, browserName, trace, headless, isWindows }, testInfo) => {
     const videosPath = testInfo.outputPath('');
     // Firefox does not have a mobile variant and has a large minimum size (500 on windows and 450 elsewhere).
     const size = browserName === 'firefox' ? { width: 500, height: 400 } : { width: 320, height: 240 };
@@ -186,8 +186,7 @@ it.describe('screencast', () => {
     expect(error.message).toContain('recordVideo.dir: expected string, got undefined');
   });
 
-  it('should capture static page', async ({ browser, browserName, trace }, testInfo) => {
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
+  it('should capture static page', async ({ browser, browserName, trace, headless, isWindows }, testInfo) => {
     // Firefox does not have a mobile variant and has a large minimum size (500 on windows and 450 elsewhere).
     const size = browserName === 'firefox' ? { width: 500, height: 400 } : { width: 320, height: 240 };
     const context = await browser.newContext({
@@ -293,6 +292,24 @@ it.describe('screencast', () => {
     expect(fs.existsSync(path)).toBeTruthy();
   });
 
+  it('should work with weird screen resolution', async ({ browser }, testInfo) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22069' });
+    const videosPath = testInfo.outputPath('');
+    const size = { width: 1904, height: 609 };
+    const context = await browser.newContext({
+      recordVideo: {
+        dir: videosPath,
+        size
+      },
+      viewport: size,
+    });
+    const page = await context.newPage();
+    const path = await page.video()!.path();
+    expect(path).toContain(videosPath);
+    await context.close();
+    expect(fs.existsSync(path)).toBeTruthy();
+  });
+
   it('should expose video path blank popup', async ({ browser }, testInfo) => {
     const videosPath = testInfo.outputPath('');
     const size = { width: 320, height: 240 };
@@ -315,7 +332,6 @@ it.describe('screencast', () => {
   });
 
   it('should capture navigation', async ({ browser, browserName, server, trace }, testInfo) => {
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
     const context = await browser.newContext({
       recordVideo: {
         dir: testInfo.outputPath(''),
@@ -349,7 +365,6 @@ it.describe('screencast', () => {
   it('should capture css transformation', async ({ browser, server, headless, browserName, platform, trace }, testInfo) => {
     it.fixme(!headless, 'Fails on headed');
     it.fixme(browserName === 'webkit' && platform === 'win32');
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
 
     const size = { width: 600, height: 400 };
     // Set viewport equal to screencast frame size to avoid scaling.
@@ -378,7 +393,6 @@ it.describe('screencast', () => {
   });
 
   it('should work for popups', async ({ browser, server, browserName, trace }, testInfo) => {
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
     it.fixme(browserName === 'firefox', 'https://github.com/microsoft/playwright/issues/14557');
     const videosPath = testInfo.outputPath('');
     const size = { width: 600, height: 400 };
@@ -414,7 +428,6 @@ it.describe('screencast', () => {
 
   it('should scale frames down to the requested size ', async ({ browser, browserName, server, headless, trace }, testInfo) => {
     it.fixme(!headless, 'Fails on headed');
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
 
     const context = await browser.newContext({
       recordVideo: {
@@ -517,8 +530,8 @@ it.describe('screencast', () => {
     expect(videoPlayer.videoHeight).toBe(600);
   });
 
-  it('should capture static page in persistent context @smoke', async ({ launchPersistent, browserName, trace }, testInfo) => {
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
+  it('should capture static page in persistent context @smoke', async ({ launchPersistent, browserName, trace, isMac }, testInfo) => {
+    it.skip(browserName === 'webkit' && isMac && process.arch === 'arm64', 'Is only failing on self-hosted github actions runner on M1 mac; not reproducible locally');
     const size = { width: 600, height: 400 };
     const { context, page } = await launchPersistent({
       recordVideo: {
@@ -661,10 +674,10 @@ it.describe('screencast', () => {
     expect(files.length).toBe(1);
   });
 
-  it('should capture full viewport', async ({ browserType, browserName, headless, isWindows, trace }, testInfo) => {
-    it.fixme(browserName === 'chromium' && !headless, 'The square is not on the video');
+  it('should capture full viewport', async ({ browserType, browserName, headless, isWindows }, testInfo) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22411' });
+    it.fixme(browserName === 'chromium' && (!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW), 'The square is not on the video');
     it.fixme(browserName === 'firefox' && isWindows, 'https://github.com/microsoft/playwright/issues/14405');
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
     const size = { width: 600, height: 400 };
     const browser = await browserType.launch();
 
@@ -696,10 +709,11 @@ it.describe('screencast', () => {
     expectAll(pixels, almostRed);
   });
 
-  it('should capture full viewport on hidpi', async ({ browserType, browserName, headless, isWindows, trace }, testInfo) => {
-    it.fixme(browserName === 'chromium' && !headless, 'The square is not on the video');
+  it('should capture full viewport on hidpi', async ({ browserType, browserName, headless, isWindows, isLinux }, testInfo) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22411' });
+    it.fixme(browserName === 'chromium' && (!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW), 'The square is not on the video');
     it.fixme(browserName === 'firefox' && isWindows, 'https://github.com/microsoft/playwright/issues/14405');
-    it.fixme(browserName === 'firefox' && trace === 'on', 'https://github.com/microsoft/playwright/issues/10060');
+    it.fixme(browserName === 'webkit' && isLinux, 'https://github.com/microsoft/playwright/issues/22617');
     const size = { width: 600, height: 400 };
     const browser = await browserType.launch();
 
@@ -730,6 +744,41 @@ it.describe('screencast', () => {
     // However, headed browsers on mac have rounded corners, so offset by 10.
     const pixels = videoPlayer.seekLastFrame({ x: size.width - 20, y: size.height - 20 }).data;
     expectAll(pixels, almostRed);
+  });
+
+  it('should work with video+trace', async ({ browser, trace, headless }, testInfo) => {
+    it.skip(trace === 'on');
+    it.fixme(!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW, 'different trace screencast image size on all browsers');
+
+    const size = { width: 500, height: 400 };
+    const traceFile = testInfo.outputPath('trace.zip');
+
+    const context = await browser.newContext({
+      recordVideo: {
+        dir: testInfo.outputPath(''),
+        size
+      },
+      viewport: size,
+    });
+    await context.tracing.start({ screenshots: true });
+    const page = await context.newPage();
+
+    await page.evaluate(() => document.body.style.backgroundColor = 'red');
+    await waitForRafs(page, 100);
+    await context.tracing.stop({ path: traceFile });
+    await context.close();
+
+    const videoFile = await page.video().path();
+    expectRedFrames(videoFile, size);
+
+    const { events, resources } = await parseTraceRaw(traceFile);
+    const frame = events.filter(e => e.type === 'screencast-frame').pop();
+    const buffer = resources.get('resources/' + frame.sha1);
+    const image = jpegjs.decode(buffer);
+    expect(image.width).toBe(size.width);
+    expect(image.height).toBe(size.height);
+    const offset = size.width * size.height / 2 * 4 + size.width * 4 / 2; // Center should be red.
+    almostRed(image.data.readUInt8(offset), image.data.readUInt8(offset + 1), image.data.readUInt8(offset + 2), image.data.readUInt8(offset + 3));
   });
 });
 

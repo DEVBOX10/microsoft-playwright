@@ -14,7 +14,7 @@
   limitations under the License.
 */
 
-import type { Language } from '../../playwright-core/src/server/isomorphic/locatorGenerators';
+import type { Language } from '../../playwright-core/src/utils/isomorphic/locatorGenerators';
 
 export type Point = { x: number, y: number };
 
@@ -29,7 +29,8 @@ export type UIState = {
   mode: Mode;
   actionPoint?: Point;
   actionSelector?: string;
-  language: 'javascript' | 'python' | 'java' | 'csharp';
+  language: 'javascript' | 'python' | 'java' | 'csharp' | 'jsonl';
+  testIdAttributeName: string;
 };
 
 export type CallLogStatus = 'in-progress' | 'done' | 'error' | 'paused';

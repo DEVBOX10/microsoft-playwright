@@ -16,10 +16,10 @@
 
 //@ts-check
 const path = require('path');
-const os = require('os');
 const toKebabCase = require('lodash/kebabCase')
 const devices = require('../../packages/playwright-core/lib/server/deviceDescriptors');
-const Documentation = require('../doclint/documentation');
+const md = require('../markdown');
+const docs = require('../doclint/documentation');
 const PROJECT_DIR = path.join(__dirname, '..', '..');
 const fs = require('fs');
 const { parseOverrides } = require('./parseOverrides');
@@ -31,7 +31,7 @@ Error.stackTraceLimit = 50;
 class TypesGenerator {
   /**
    * @param {{
-   *   documentation: Documentation,
+   *   documentation: docs.Documentation,
    *   overridesToDocsClassMapping?: Map<string, string>,
    *   ignoreMissing?: Set<string>,
    *   doNotExportClassNames?: Set<string>,
@@ -40,7 +40,7 @@ class TypesGenerator {
    * }} options
    */
   constructor(options) {
-    /** @type {Array<{name: string, properties: Documentation.Member[]}>} */
+    /** @type {Array<{name: string, properties: docs.Member[]}>} */
     this.objectDefinitions = [];
     /** @type {Set<string>} */
     this.handledMethods = new Set();
@@ -77,7 +77,9 @@ class TypesGenerator {
       if (option)
         return `\`${option}\``;
       if (clazz)
-        return `[${clazz.name}]`;
+        return `{@link ${clazz.name}}`;
+      if (!member || !member.clazz)
+        throw new Error('Internal error');
       const className = member.clazz.varName === 'playwrightAssertions' ? '' : member.clazz.varName + '.';
       if (member.kind === 'method')
         return createMarkdownLink(member, `${className}${member.alias}(${this.renderJSSignature(member.argsArray)})`);
@@ -87,6 +89,7 @@ class TypesGenerator {
         return createMarkdownLink(member, `${className}${member.alias}`);
       throw new Error('Unknown member kind ' + member.kind);
     });
+    this.documentation.setCodeGroupsTransformer('js', tabs => tabs.filter(tab => tab.value === 'ts').map(tab => tab.spec));
     this.documentation.generateSourceCodeComments();
 
     const handledClasses = new Set();
@@ -203,7 +206,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Class} classDesc
+   * @param {docs.Class} classDesc
    */
   classToString(classDesc) {
     const parts = [];
@@ -213,8 +216,7 @@ class TypesGenerator {
     const shouldExport = !this.doNotExportClassNames.has(classDesc.name);
     parts.push(`${shouldExport ? 'export ' : ''}interface ${classDesc.name} ${classDesc.extends ? `extends ${classDesc.extends} ` : ''}{`);
     parts.push(this.classBody(classDesc));
-    parts.push('}\n');
-    return parts.join('\n');
+    return parts.join('\n') + '}\n';
   }
 
   /**
@@ -229,7 +231,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Class} classDesc
+   * @param {docs.Class} classDesc
    */
   hasUniqueEvents(classDesc) {
     if (!classDesc.events.size)
@@ -241,7 +243,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Class} classDesc
+   * @param {docs.Class} classDesc
    */
   createEventDescriptions(classDesc) {
     if (!this.hasUniqueEvents(classDesc))
@@ -249,7 +251,7 @@ class TypesGenerator {
     const descriptions = [];
     for (let [eventName, value] of classDesc.events) {
       eventName = eventName.toLowerCase();
-      const type = this.stringifyComplexType(value && value.type, '', classDesc.name, eventName, 'payload');
+      const type = this.stringifyComplexType(value && value.type, '  ', classDesc.name, eventName, 'payload');
       const argName = this.argNameForType(type);
       const params = argName ? `${argName}: ${type}` : '';
       descriptions.push({
@@ -263,7 +265,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Class} classDesc
+   * @param {docs.Class} classDesc
    * @param {boolean=} exportMembersAsGlobals
    */
   classBody(classDesc, exportMembersAsGlobals) {
@@ -315,12 +317,12 @@ class TypesGenerator {
       }
       return `${jsdoc}${member.alias}${member.required ? '' : '?'}${args}: ${type};`
     }).filter(x => x).join('\n\n'));
-    return parts.join('\n');
+    return parts.join('\n') + '\n';
   }
 
   /**
-   * @param {Documentation.Class} classDesc
-   * @param {Documentation.Member} member
+   * @param {docs.Class} classDesc
+   * @param {docs.Member} member
    */
   hasOwnMethod(classDesc, member) {
     if (this.handledMethods.has(`${classDesc.name}.${member.alias}#${member.overloadIndex}`))
@@ -333,7 +335,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Class} classDesc
+   * @param {docs.Class} classDesc
    */
   parentClass(classDesc) {
     if (!classDesc.extends)
@@ -378,7 +380,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Type} type
+   * @param {docs.Type} type
    */
   stringifyComplexType(type, indent, ...namespace) {
     if (!type)
@@ -387,7 +389,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Member[]} properties
+   * @param {docs.Member[]} properties
    * @param {string} name
    * @param {string=} indent
    * @returns {string}
@@ -406,7 +408,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Type=} type
+   * @param {docs.Type=} type
    * @returns{string}
    */
   stringifySimpleType(type, indent = '', ...namespace) {
@@ -455,7 +457,7 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Member} member
+   * @param {docs.Member} member
    */
   argsFromMember(member, indent, ...namespace) {
     if (member.kind === 'property')
@@ -464,23 +466,30 @@ class TypesGenerator {
   }
 
   /**
-   * @param {Documentation.Member} member
+   * @param {docs.Member} member
    * @param {string} indent
    */
   memberJSDOC(member, indent) {
     const lines = [];
+    if (member.discouraged) {
+      lines.push('**NOTE** ' + md.wrapText(member.discouraged, { flattenText: true, maxColumns: 120 - 5 }, ''));
+      lines.push('');
+    }
     if (member.comment)
       lines.push(...member.comment.split('\n'));
     if (member.deprecated)
-      lines.push('@deprecated');
-    lines.push(...member.argsArray.map(arg => `@param ${arg.alias.replace(/\./g, '')} ${arg.comment.replace('\n', ' ')}`));
+      lines.push('@deprecated ' + md.wrapText(member.deprecated, { flattenText: true, maxColumns: 120 - 5 }, ''));
+    lines.push(...member.argsArray.map(arg => {
+      const paramPrefix = `@param ${arg.alias.replace(/\./g, '')} `;
+      return paramPrefix + md.wrapText(arg.comment, { flattenText: true, maxColumns: 120 - 5 }, '');
+    }));
     if (!lines.length)
       return indent;
     return this.writeComment(lines.join('\n'), indent) + '\n' + indent;
   }
 
   /**
-   * @param {Documentation.Member[]} args
+   * @param {docs.Member[]} args
    */
   renderJSSignature(args) {
     const tokens = [];
@@ -511,7 +520,7 @@ class TypesGenerator {
   const coreDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'api'));
   const testDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'test-api'), path.join(PROJECT_DIR, 'docs', 'src', 'api', 'params.md'));
   const reporterDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'test-reporter-api'));
-  const assertionClasses = new Set(['LocatorAssertions', 'PageAssertions', 'APIResponseAssertions', 'ScreenshotAssertions', 'PlaywrightAssertions']);
+  const assertionClasses = new Set(['GenericAssertions', 'LocatorAssertions', 'PageAssertions', 'APIResponseAssertions', 'SnapshotAssertions', 'PlaywrightAssertions']);
 
   /**
    * @param {boolean} includeExperimental

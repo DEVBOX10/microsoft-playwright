@@ -61,18 +61,14 @@ it('should work with both domcontentloaded and load', async ({ page, server }) =
 });
 
 it('should work with commit', async ({ page, server }) => {
+  server.setRoute('/script.js', (req, res) => {});
   server.setRoute('/empty.html', (req, res) => {
-    res.writeHead(200, {
-      'content-type': 'text/html',
-      'content-length': '8192'
-    });
-    // Write enought bytes of the body to trigge response received event.
-    res.write('<title>' + 'A'.repeat(4100));
-    res.uncork();
+    res.setHeader('content-type', 'text/html');
+    res.end('<title>Hello</title><script src="script.js"></script>');
   });
-
   page.goto(server.EMPTY_PAGE).catch(e => {});
   await page.waitForNavigation({ waitUntil: 'commit' });
+  expect(await page.title()).toBe('Hello');
 });
 
 it('should work with clicking on anchor links', async ({ page, server }) => {
@@ -156,6 +152,8 @@ it('should work with DOM history.back()/history.forward()', async ({ page, serve
 });
 
 it('should work when subframe issues window.stop()', async ({ browserName, page, server }) => {
+  it.fixme(browserName === 'webkit', 'WebKit issues load event in some cases, but not always');
+
   server.setRoute('/frames/style.css', (req, res) => {});
   let done = false;
   page.goto(server.PREFIX + '/frames/one-frame.html').then(() => done = true).catch(() => {});
@@ -165,8 +163,7 @@ it('should work when subframe issues window.stop()', async ({ browserName, page,
       fulfill();
   }));
   await frame.evaluate(() => window.stop());
-  await page.waitForTimeout(2000);  // give it some time to erroneously resolve
-  expect(done).toBe(browserName !== 'webkit');  // Chromium and Firefox issue load event in this case.
+  expect(done).toBe(true);
 });
 
 it('should work with url match', async ({ page, server }) => {
@@ -253,11 +250,12 @@ it('should fail when frame detaches', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/frames/one-frame.html');
   const frame = page.frames()[1];
   server.setRoute('/empty.html', () => {});
+  server.setRoute('/one-style.css', () => {});
   const [error] = await Promise.all([
     frame.waitForNavigation().catch(e => e),
-    page.$eval('iframe', frame => { frame.contentWindow.location.href = '/empty.html'; }),
+    page.$eval('iframe', frame => { frame.contentWindow.location.href = '/one-style.html'; }),
     // Make sure policy checks pass and navigation actually begins before removing the frame to avoid other errors
-    server.waitForRequest('/empty.html').then(() => page.$eval('iframe', frame => setTimeout(() => frame.remove(), 0)))
+    server.waitForRequest('/one-style.css').then(() => page.$eval('iframe', frame => setTimeout(() => frame.remove(), 0)))
   ]);
   expect(error.message).toContain('waiting for navigation until "load"');
   expect(error.message).toContain('frame was detached');

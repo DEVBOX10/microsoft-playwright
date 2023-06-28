@@ -29,31 +29,36 @@ export const HeaderView: React.FC<React.PropsWithChildren<{
   setFilterText: (filterText: string) => void,
 }>> = ({ stats, filterText, setFilterText }) => {
   React.useEffect(() => {
-    (async () => {
-      window.addEventListener('popstate', () => {
-        const params = new URLSearchParams(window.location.hash.slice(1));
-        setFilterText(params.get('q') || '');
-      });
-    })();
-  });
+    const popstateFn = () => {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      setFilterText(params.get('q') || '');
+    };
+    window.addEventListener('popstate', popstateFn);
 
-  return <div className='pt-3'>
-    <div className='header-view-status-container ml-2 pl-2 d-flex'>
-      <StatsNavView stats={stats}></StatsNavView>
+    return () => {
+      window.removeEventListener('popstate', popstateFn);
+    };
+  }, [setFilterText]);
+
+  return (<>
+    <div className='pt-3'>
+      <div className='header-view-status-container ml-2 pl-2 d-flex'>
+        <StatsNavView stats={stats}></StatsNavView>
+      </div>
+      <form className='subnav-search' onSubmit={
+        event => {
+          event.preventDefault();
+          navigate(`#?q=${filterText ? encodeURIComponent(filterText) : ''}`);
+        }
+      }>
+        {icons.search()}
+        {/* Use navigationId to reset defaultValue */}
+        <input type='search' spellCheck={false} className='form-control subnav-search-input input-contrast width-full' value={filterText} onChange={e => {
+          setFilterText(e.target.value);
+        }}></input>
+      </form>
     </div>
-    <form className='subnav-search' onSubmit={
-      event => {
-        event.preventDefault();
-        navigate(`#?q=${filterText ? encodeURIComponent(filterText) : ''}`);
-      }
-    }>
-      {icons.search()}
-      {/* Use navigationId to reset defaultValue */}
-      <input type='search' spellCheck={false} className='form-control subnav-search-input input-contrast width-full' value={filterText} onChange={e => {
-        setFilterText(e.target.value);
-      }}></input>
-    </form>
-  </div>;
+  </>);
 };
 
 const StatsNavView: React.FC<{

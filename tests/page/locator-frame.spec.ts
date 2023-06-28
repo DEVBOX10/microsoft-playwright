@@ -97,8 +97,8 @@ it('should work for $ and $$', async ({ page, server }) => {
 
 it('should wait for frame', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
-  const error = await page.frameLocator('iframe').locator('span').click({ timeout: 1000 }).catch(e => e);
-  expect(error.message).toContain('waiting for frame "iframe"');
+  const error = await page.locator('body').frameLocator('iframe').locator('span').click({ timeout: 1000 }).catch(e => e);
+  expect(error.message).toContain(`waiting for locator('body').frameLocator('iframe')`);
 });
 
 it('should wait for frame 2', async ({ page, server }) => {
@@ -144,13 +144,13 @@ it('should click in lazy iframe', async ({ page, server }) => {
 
   // add blank iframe
   setTimeout(() => {
-    page.evaluate(() => {
+    void page.evaluate(() => {
       const iframe = document.createElement('iframe');
       document.body.appendChild(iframe);
     });
     // navigate iframe
     setTimeout(() => {
-      page.evaluate(() => document.querySelector('iframe').src = 'iframe.html');
+      void page.evaluate(() => document.querySelector('iframe').src = 'iframe.html');
     }, 500);
   }, 500);
 
@@ -197,7 +197,7 @@ it('click should survive iframe navigation', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const button = page.frameLocator('iframe').locator('button:has-text("Hello nested iframe")');
   const promise = button.click();
-  page.locator('iframe').evaluate(e => (e as HTMLIFrameElement).src = 'iframe-2.html');
+  void page.locator('iframe').evaluate(e => (e as HTMLIFrameElement).src = 'iframe-2.html');
   await promise;
 });
 
@@ -225,7 +225,7 @@ it('locator.frameLocator should throw on ambiguity', async ({ page, server }) =>
   await page.goto(server.EMPTY_PAGE);
   const button = page.locator('body').frameLocator('iframe').locator('button');
   const error = await button.waitFor().catch(e => e);
-  expect(error.message).toContain('Error: strict mode violation: "body >> iframe" resolved to 3 elements');
+  expect(error.message).toContain(`Error: strict mode violation: locator('body').locator('iframe') resolved to 3 elements`);
 });
 
 it('locator.frameLocator should not throw on first/last/nth', async ({ page, server }) => {
@@ -256,4 +256,15 @@ it('getBy coverage', async ({ page, server }) => {
   await expect(input3).toHaveValue('');
   const input4 = page.frameLocator('iframe').getByTitle('Title');
   await expect(input4).toHaveValue('');
+});
+
+it('wait for hidden should succeed when frame is not in dom', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21879' });
+  await page.goto('about:blank');
+  const button = page.frameLocator('iframe1').locator('button');
+  expect(await button.isHidden()).toBeTruthy();
+  await button.waitFor({ state: 'hidden', timeout: 1000 });
+  await button.waitFor({ state: 'detached', timeout: 1000 });
+  const error = await button.waitFor({ state: 'attached', timeout: 1000 }).catch(e => e);
+  expect(error.message).toContain('Timeout 1000ms exceeded');
 });

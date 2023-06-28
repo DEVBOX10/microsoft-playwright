@@ -23,7 +23,7 @@ import { serverSideCallMetadata } from '../instrumentation';
 import type { CallLog, EventData, Mode, Source } from '@recorder/recorderTypes';
 import { isUnderTest } from '../../utils';
 import { mime } from '../../utilsBundle';
-import { installAppIcon } from '../chromium/crApp';
+import { installAppIcon, syncLocalStorageWithSettings } from '../chromium/crApp';
 import { findChromiumChannel } from '../registry';
 import type { Recorder } from '../recorder';
 import type { BrowserContext } from '../browserContext';
@@ -37,6 +37,7 @@ declare global {
     playwrightSetSelector: (selector: string, focus?: boolean) => void;
     playwrightUpdateLogs: (callLogs: CallLog[]) => void;
     dispatch(data: EventData): Promise<void>;
+    saveSettings(data: any): Promise<void>;
   }
 }
 
@@ -79,13 +80,17 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
 
   private async _init() {
     await installAppIcon(this._page);
+    await syncLocalStorageWithSettings(this._page, 'recorder');
 
-    await this._page._setServerRequestInterceptor(async route => {
-      if (route.request().url().startsWith('https://playwright/')) {
-        const uri = route.request().url().substring('https://playwright/'.length);
-        const file = require.resolve('../../webpack/recorder/' + uri);
-        const buffer = await fs.promises.readFile(file);
-        await route.fulfill({
+    await this._page._setServerRequestInterceptor(route => {
+      if (!route.request().url().startsWith('https://playwright/'))
+        return false;
+
+      const uri = route.request().url().substring('https://playwright/'.length);
+      const file = require.resolve('../../webpack/recorder/' + uri);
+      fs.promises.readFile(file).then(buffer => {
+        route.fulfill({
+          requestUrl: route.request().url(),
           status: 200,
           headers: [
             { name: 'Content-Type', value: mime.getType(path.extname(file)) || 'application/octet-stream' }
@@ -93,9 +98,8 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
           body: buffer.toString('base64'),
           isBase64: true
         });
-        return;
-      }
-      await route.continue();
+      });
+      return true;
     });
 
     await this._page.exposeBinding('dispatch', false, (_, data: any) => this.emit('event', data));
@@ -110,9 +114,9 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
   }
 
   static async open(recorder: Recorder, inspectedContext: BrowserContext, handleSIGINT: boolean | undefined): Promise<IRecorderApp> {
-    const sdkLanguage = inspectedContext._browser.options.sdkLanguage;
+    const sdkLanguage = inspectedContext.attribution.playwright.options.sdkLanguage;
     const headed = !!inspectedContext._browser.options.headful;
-    const recorderPlaywright = (require('../playwright').createPlaywright as typeof import('../playwright').createPlaywright)('javascript', true);
+    const recorderPlaywright = (require('../playwright').createPlaywright as typeof import('../playwright').createPlaywright)({ sdkLanguage: 'javascript', isInternalPlaywright: true });
     const args = [
       '--app=data:text/html,',
       '--window-size=600,600',
@@ -125,8 +129,8 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
       channel: findChromiumChannel(sdkLanguage),
       args,
       noDefaultViewport: true,
-      colorScheme: 'no-override',
       ignoreDefaultArgs: ['--enable-automation'],
+      colorScheme: 'no-override',
       headless: !!process.env.PWTEST_CLI_HEADLESS || (isUnderTest() && !headed),
       useWebSocket: !!process.env.PWTEST_RECORDER_PORT,
       handleSIGINT,
@@ -145,34 +149,29 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
   async setMode(mode: 'none' | 'recording' | 'inspecting'): Promise<void> {
     await this._page.mainFrame().evaluateExpression(((mode: Mode) => {
       window.playwrightSetMode(mode);
-    }).toString(), true, mode, 'main').catch(() => {});
+    }).toString(), { isFunction: true }, mode).catch(() => {});
   }
 
   async setFileIfNeeded(file: string): Promise<void> {
     await this._page.mainFrame().evaluateExpression(((file: string) => {
       window.playwrightSetFileIfNeeded(file);
-    }).toString(), true, file, 'main').catch(() => {});
+    }).toString(), { isFunction: true }, file).catch(() => {});
   }
 
   async setPaused(paused: boolean): Promise<void> {
     await this._page.mainFrame().evaluateExpression(((paused: boolean) => {
       window.playwrightSetPaused(paused);
-    }).toString(), true, paused, 'main').catch(() => {});
+    }).toString(), { isFunction: true }, paused).catch(() => {});
   }
 
   async setSources(sources: Source[]): Promise<void> {
     await this._page.mainFrame().evaluateExpression(((sources: Source[]) => {
       window.playwrightSetSources(sources);
-    }).toString(), true, sources, 'main').catch(() => {});
+    }).toString(), { isFunction: true }, sources).catch(() => {});
 
     // Testing harness for runCLI mode.
-    {
-      if ((process.env.PWTEST_CLI_IS_UNDER_TEST || process.env.PWTEST_CLI_EXIT) && sources.length) {
-        process.stdout.write('\n-------------8<-------------\n');
-        process.stdout.write(sources[0].text);
-        process.stdout.write('\n-------------8<-------------\n');
-      }
-    }
+    if (process.env.PWTEST_CLI_IS_UNDER_TEST && sources.length)
+      (process as any)._didSetSourcesForTest(sources[0].text);
   }
 
   async setSelector(selector: string, focus?: boolean): Promise<void> {
@@ -182,12 +181,12 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
     }
     await this._page.mainFrame().evaluateExpression(((arg: any) => {
       window.playwrightSetSelector(arg.selector, arg.focus);
-    }).toString(), true, { selector, focus }, 'main').catch(() => {});
+    }).toString(), { isFunction: true }, { selector, focus }).catch(() => {});
   }
 
   async updateCallLogs(callLogs: CallLog[]): Promise<void> {
     await this._page.mainFrame().evaluateExpression(((callLogs: CallLog[]) => {
       window.playwrightUpdateLogs(callLogs);
-    }).toString(), true, callLogs, 'main').catch(() => {});
+    }).toString(), { isFunction: true }, callLogs).catch(() => {});
   }
 }

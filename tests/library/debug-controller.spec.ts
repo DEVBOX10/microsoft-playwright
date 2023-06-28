@@ -16,20 +16,22 @@
 
 import { expect, playwrightTest as baseTest } from '../config/browserTest';
 import { PlaywrightServer } from '../../packages/playwright-core/lib/remote/playwrightServer';
-import { createGuid } from '../../packages/playwright-core/lib/utils';
+import { createGuid } from '../../packages/playwright-core/lib/utils/crypto';
 import { Backend } from '../config/debugControllerBackend';
 import type { Browser, BrowserContext } from '@playwright/test';
 
+type BrowserWithReuse = Browser & { _newContextForReuse: () => Promise<BrowserContext> };
 type Fixtures = {
   wsEndpoint: string;
   backend: Backend;
-  connectedBrowser: Browser & { _newContextForReuse: () => Promise<BrowserContext> };
+  connectedBrowserFactory: () => Promise<BrowserWithReuse>;
+  connectedBrowser: BrowserWithReuse;
 };
 
 const test = baseTest.extend<Fixtures>({
   wsEndpoint: async ({ }, use) => {
     process.env.PW_DEBUG_CONTROLLER_HEADLESS = '1';
-    const server = new PlaywrightServer({ path: '/' + createGuid(), maxConnections: Number.MAX_VALUE, enableSocksProxy: false });
+    const server = new PlaywrightServer({ mode: 'extension', path: '/' + createGuid(), maxConnections: Number.MAX_VALUE, enableSocksProxy: false });
     const wsEndpoint = await server.listen();
     await use(wsEndpoint);
     await server.close();
@@ -37,23 +39,33 @@ const test = baseTest.extend<Fixtures>({
   backend: async ({ wsEndpoint }, use) => {
     const backend = new Backend();
     await backend.connect(wsEndpoint);
+    await backend.initialize();
     await use(backend);
     await backend.close();
   },
-  connectedBrowser: async ({ wsEndpoint, browserType }, use) => {
-    const oldValue = (browserType as any)._defaultConnectOptions;
-    (browserType as any)._defaultConnectOptions = {
-      wsEndpoint,
-      headers: { 'x-playwright-reuse-context': '1', },
-    };
-    const browser = await browserType.launch();
-    (browserType as any)._defaultConnectOptions = oldValue;
-    await use(browser as any);
-    await browser.close();
+  connectedBrowserFactory: async ({ wsEndpoint, browserType }, use) => {
+    const browsers: BrowserWithReuse [] = [];
+    await use(async () => {
+      const oldValue = (browserType as any)._defaultConnectOptions;
+      (browserType as any)._defaultConnectOptions = {
+        wsEndpoint,
+        headers: { 'x-playwright-reuse-context': '1', },
+      };
+      const browser = await browserType.launch() as BrowserWithReuse;
+      (browserType as any)._defaultConnectOptions = oldValue;
+      browsers.push(browser);
+      return browser;
+    });
+    for (const browser of browsers)
+      await browser.close();
+  },
+  connectedBrowser: async ({ connectedBrowserFactory }, use) => {
+    await use(await connectedBrowserFactory());
   },
 });
 
 test.slow(true, 'All controller tests are slow');
+test.skip(({ mode }) => mode === 'service');
 
 test('should pick element', async ({ backend, connectedBrowser }) => {
   const events = [];
@@ -70,10 +82,10 @@ test('should pick element', async ({ backend, connectedBrowser }) => {
 
   expect(events).toEqual([
     {
-      selector: 'internal:role=button[name=\"Submit\"s]',
+      selector: 'internal:role=button[name=\"Submit\"i]',
       locator: 'getByRole(\'button\', { name: \'Submit\' })',
     }, {
-      selector: 'internal:role=button[name=\"Submit\"s]',
+      selector: 'internal:role=button[name=\"Submit\"i]',
       locator: 'getByRole(\'button\', { name: \'Submit\' })',
     },
   ]);
@@ -181,4 +193,63 @@ test('test', async ({ page }) => {
   await backend.setMode({ mode: 'none' });
   await page.getByRole('button').click();
   expect(events).toHaveLength(length);
+});
+
+test('should record custom data-testid', async ({ backend, connectedBrowser }) => {
+  // This test emulates "record at cursor" functionality
+  // with custom test id attribute in the config.
+
+  const events = [];
+  backend.on('sourceChanged', event => events.push(event));
+
+  // 1. "Show browser" (or "run test").
+  const context = await connectedBrowser._newContextForReuse();
+  const page = await context.newPage();
+  await page.setContent(`<div data-custom-id='one'>One</div>`);
+
+  // 2. "Record at cursor".
+  await backend.setMode({ mode: 'recording', testIdAttributeName: 'data-custom-id' });
+
+  // 3. Record a click action.
+  await page.locator('div').click();
+
+  // 4. Expect "getByTestId" locator.
+  await expect.poll(() => events[events.length - 1]).toEqual({
+    header: `import { test, expect } from '@playwright/test';
+
+test('test', async ({ page }) => {`,
+    footer: `});`,
+    actions: [
+      `  await page.getByTestId('one').click();`,
+    ],
+    text: `import { test, expect } from '@playwright/test';
+
+test('test', async ({ page }) => {
+  await page.getByTestId('one').click();
+});`
+  });
+});
+
+test('should reset routes before reuse', async ({ server, connectedBrowserFactory }) => {
+  const browser1 = await connectedBrowserFactory();
+  const context1 = await browser1._newContextForReuse();
+  await context1.route(server.PREFIX + '/title.html', route => route.fulfill({ body: '<title>Hello</title>', contentType: 'text/html' }));
+  const page1 = await context1.newPage();
+  await page1.route(server.PREFIX + '/consolelog.html', route => route.fulfill({ body: '<title>World</title>', contentType: 'text/html' }));
+
+  await page1.goto(server.PREFIX + '/title.html');
+  await expect(page1).toHaveTitle('Hello');
+  await page1.goto(server.PREFIX + '/consolelog.html');
+  await expect(page1).toHaveTitle('World');
+  await browser1.close();
+
+  const browser2 = await connectedBrowserFactory();
+  const context2 = await browser2._newContextForReuse();
+  const page2 = await context2.newPage();
+
+  await page2.goto(server.PREFIX + '/title.html');
+  await expect(page2).toHaveTitle('Woof-Woof');
+  await page2.goto(server.PREFIX + '/consolelog.html');
+  await expect(page2).toHaveTitle('console.log test');
+  await browser2.close();
 });

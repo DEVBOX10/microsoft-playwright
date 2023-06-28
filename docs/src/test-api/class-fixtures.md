@@ -6,15 +6,7 @@ Playwright Test is based on the concept of the [test fixtures](../test-fixtures.
 
 Playwright Test looks at each test declaration, analyses the set of fixtures the test needs and prepares those fixtures specifically for the test. Values prepared by the fixtures are merged into a single object that is available to the `test`, hooks, annotations and other fixtures as a first parameter.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }) => {
@@ -34,20 +26,24 @@ Playwright Test comes with builtin fixtures listed below, and you can add your o
 
 Learn how to [configure browser](../test-configuration.md) and see [available options][TestOptions].
 
+**Usage**
+
+```js
+test.beforeAll(async ({ browser }) => {
+  const page = await browser.newPage();
+  // ...
+});
+```
+
 ## property: Fixtures.browserName
 * since: v1.10
 - type: <[BrowserName]<"chromium"|"firefox"|"webkit">>
 
 Name of the browser that runs tests. Defaults to `'chromium'`. Useful to [annotate tests](../test-annotations.md) based on the browser.
 
-```js tab=js-js
-test('skip this test in Firefox', async ({ page, browserName }) => {
-  test.skip(browserName === 'firefox', 'Still working on it');
-  // ...
-});
-```
+**Usage**
 
-```js tab=js-ts
+```js
 test('skip this test in Firefox', async ({ page, browserName }) => {
   test.skip(browserName === 'firefox', 'Still working on it');
   // ...
@@ -64,6 +60,15 @@ Learn how to [configure context](../test-configuration.md) and see [available op
 
 Default [`property: Fixtures.page`] belongs to this context.
 
+**Usage**
+
+```js
+test('example test', async ({ page, context }) => {
+  await context.route('*external.com/*', route => route.abort());
+  // ...
+});
+```
+
 ## property: Fixtures.page
 * since: v1.10
 - type: <[Page]>
@@ -72,19 +77,9 @@ Isolated [Page] instance, created for each test. Pages are isolated between test
 
 This is the most common fixture used in a test.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('basic test', async ({ page }) => {
-  await page.goto('/signin');
-  await page.getByLabel('User Name').fill('user');
-  await page.getByLabel('Password').fill('password');
-  await page.getByText('Sign in').click();
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }) => {
@@ -102,20 +97,9 @@ test('basic test', async ({ page }) => {
 
 Isolated [APIRequestContext] instance for each test.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+**Usage**
 
-test('basic test', async ({ request }) => {
-  await request.post('/signin', {
-    data: {
-      username: 'user',
-      password: 'password'
-    }
-  });
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ request }) => {
@@ -128,9 +112,3 @@ test('basic test', async ({ request }) => {
   // ...
 });
 ```
-
-## property: Fixtures.storage
-* since: v1.28
-- type: <[Storage]>
-
-[Storage] is shared between all tests in the same run.

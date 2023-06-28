@@ -25,6 +25,7 @@ import { Frame } from './frames';
 import { BrowserContext } from './browserContext';
 import { JavaLanguageGenerator } from './recorder/java';
 import { JavaScriptLanguageGenerator } from './recorder/javascript';
+import { JsonlLanguageGenerator } from './recorder/jsonl';
 import { CSharpLanguageGenerator } from './recorder/csharp';
 import { PythonLanguageGenerator } from './recorder/python';
 import * as recorderSource from '../generated/recorderSource';
@@ -41,7 +42,9 @@ import { Debugger } from './debugger';
 import { EventEmitter } from 'events';
 import { raceAgainstTimeout } from '../utils/timeoutRunner';
 import type { Language, LanguageGenerator } from './recorder/language';
-import { locatorOrSelectorAsSelector } from './isomorphic/locatorParser';
+import { locatorOrSelectorAsSelector } from '../utils/isomorphic/locatorParser';
+import { eventsHelper, type RegisteredListener } from './../utils/eventsHelper';
+import type { Dialog } from './dialog';
 
 type BindingSource = { frame: Frame, page: Page };
 
@@ -58,31 +61,35 @@ export class Recorder implements InstrumentationListener {
   private _debugger: Debugger;
   private _contextRecorder: ContextRecorder;
   private _handleSIGINT: boolean | undefined;
-  private _recorderAppFactory: (recorder: Recorder) => Promise<IRecorderApp>;
   private _omitCallTracking = false;
   private _currentLanguage: Language;
+
+  private static recorderAppFactory: ((recorder: Recorder) => Promise<IRecorderApp>) | undefined;
+
+  static setAppFactory(recorderAppFactory: ((recorder: Recorder) => Promise<IRecorderApp>) | undefined) {
+    Recorder.recorderAppFactory = recorderAppFactory;
+  }
 
   static showInspector(context: BrowserContext) {
     Recorder.show(context, {}).catch(() => {});
   }
 
-  static show(context: BrowserContext, params: channels.BrowserContextRecorderSupplementEnableParams = {}, recorderAppFactory = Recorder.defaultRecorderAppFactory): Promise<Recorder> {
+  static show(context: BrowserContext, params: channels.BrowserContextRecorderSupplementEnableParams = {}): Promise<Recorder> {
     let recorderPromise = (context as any)[recorderSymbol] as Promise<Recorder>;
     if (!recorderPromise) {
-      const recorder = new Recorder(context, params, recorderAppFactory);
+      const recorder = new Recorder(context, params);
       recorderPromise = recorder.install().then(() => recorder);
       (context as any)[recorderSymbol] = recorderPromise;
     }
     return recorderPromise;
   }
 
-  constructor(context: BrowserContext, params: channels.BrowserContextRecorderSupplementEnableParams, recorderAppFactory: (recorder: Recorder) => Promise<IRecorderApp>) {
+  constructor(context: BrowserContext, params: channels.BrowserContextRecorderSupplementEnableParams) {
     this._mode = params.mode || 'none';
-    this._recorderAppFactory = recorderAppFactory;
     this._contextRecorder = new ContextRecorder(context, params);
     this._context = context;
     this._omitCallTracking = !!params.omitCallTracking;
-    this._debugger = Debugger.lookup(context)!;
+    this._debugger = context.debugger();
     this._handleSIGINT = params.handleSIGINT;
     context.instrumentation.addListener(this, context);
     this._currentLanguage = this._contextRecorder.languageName();
@@ -95,7 +102,7 @@ export class Recorder implements InstrumentationListener {
   }
 
   async install() {
-    const recorderApp = await this._recorderAppFactory(this);
+    const recorderApp = await (Recorder.recorderAppFactory || Recorder.defaultRecorderAppFactory)(this);
     this._recorderApp = recorderApp;
     recorderApp.once('close', () => {
       this._debugger.resume(false);
@@ -151,19 +158,24 @@ export class Recorder implements InstrumentationListener {
     });
 
     await this._context.exposeBinding('__pw_recorderState', false, source => {
-      let actionSelector = this._highlightedSelector;
+      let actionSelector = '';
       let actionPoint: Point | undefined;
-      for (const [metadata, sdkObject] of this._currentCallsMetadata) {
-        if (source.page === sdkObject.attribution.page) {
-          actionPoint = metadata.point || actionPoint;
-          actionSelector = actionSelector || metadata.params.selector;
+      const hasActiveScreenshotCommand = [...this._currentCallsMetadata.keys()].some(isScreenshotCommand);
+      if (!hasActiveScreenshotCommand) {
+        actionSelector = this._highlightedSelector;
+        for (const [metadata, sdkObject] of this._currentCallsMetadata) {
+          if (source.page === sdkObject.attribution.page) {
+            actionPoint = metadata.point || actionPoint;
+            actionSelector = actionSelector || metadata.params.selector;
+          }
         }
       }
       const uiState: UIState = {
         mode: this._mode,
         actionPoint,
         actionSelector,
-        language: this._currentLanguage
+        language: this._currentLanguage,
+        testIdAttributeName: this._contextRecorder.testIdAttributeName(),
       };
       return uiState;
     });
@@ -210,8 +222,12 @@ export class Recorder implements InstrumentationListener {
     this._refreshOverlay();
   }
 
+  resume() {
+    this._debugger.resume(false);
+  }
+
   setHighlightedSelector(language: Language, selector: string) {
-    this._highlightedSelector = locatorOrSelectorAsSelector(language, selector);
+    this._highlightedSelector = locatorOrSelectorAsSelector(language, selector, this._context.selectors().testIdAttributeName());
     this._refreshOverlay();
   }
 
@@ -226,7 +242,7 @@ export class Recorder implements InstrumentationListener {
 
   private _refreshOverlay() {
     for (const page of this._context.pages())
-      page.mainFrame().evaluateExpression('window.__pw_refreshOverlay()', false, undefined, 'main').catch(() => {});
+      page.mainFrame().evaluateExpression('window.__pw_refreshOverlay()').catch(() => {});
   }
 
   async onBeforeCall(sdkObject: SdkObject, metadata: CallMetadata) {
@@ -235,7 +251,9 @@ export class Recorder implements InstrumentationListener {
     this._currentCallsMetadata.set(metadata, sdkObject);
     this._updateUserSources();
     this.updateCallLog([metadata]);
-    if (metadata.params && metadata.params.selector) {
+    if (isScreenshotCommand(metadata)) {
+      this.hideHighlightedSelecor();
+    } else if (metadata.params && metadata.params.selector) {
       this._highlightedSelector = metadata.params.selector;
       this._recorderApp?.setSelector(this._highlightedSelector).catch(() => {});
     }
@@ -260,9 +278,9 @@ export class Recorder implements InstrumentationListener {
     // Apply new decorations.
     let fileToSelect = undefined;
     for (const metadata of this._currentCallsMetadata.keys()) {
-      if (!metadata.stack || !metadata.stack[0])
+      if (!metadata.location)
         continue;
-      const { file, line } = metadata.stack[0];
+      const { file, line } = metadata.location;
       let source = this._userSources.get(file);
       if (!source) {
         source = { isRecorded: false, label: file, id: file, text: this._readSource(file), highlight: [], language: languageForFile(file) };
@@ -325,21 +343,22 @@ class ContextRecorder extends EventEmitter {
   private _generator: CodeGenerator;
   private _pageAliases = new Map<Page, string>();
   private _lastPopupOrdinal = 0;
-  private _lastDialogOrdinal = 0;
-  private _lastDownloadOrdinal = 0;
+  private _lastDialogOrdinal = -1;
+  private _lastDownloadOrdinal = -1;
   private _timers = new Set<NodeJS.Timeout>();
   private _context: BrowserContext;
   private _params: channels.BrowserContextRecorderSupplementEnableParams;
   private _recorderSources: Source[];
   private _throttledOutputFile: ThrottledFile | null = null;
   private _orderedLanguages: LanguageGenerator[] = [];
+  private _listeners: RegisteredListener[] = [];
 
   constructor(context: BrowserContext, params: channels.BrowserContextRecorderSupplementEnableParams) {
     super();
     this._context = context;
     this._params = params;
     this._recorderSources = [];
-    const language = params.language || context._browser.options.sdkLanguage;
+    const language = params.language || context.attribution.playwright.options.sdkLanguage;
     this.setOutput(language, params.outputFile);
     const generator = new CodeGenerator(context._browser.options.name, params.mode === 'recording', params.launchOptions || {}, params.contextOptions || {}, params.device, params.saveStorage);
     generator.on('change', () => {
@@ -371,9 +390,9 @@ class ContextRecorder extends EventEmitter {
     context.on(BrowserContext.Events.BeforeClose, () => {
       this._throttledOutputFile?.flush();
     });
-    process.on('exit', () => {
+    this._listeners.push(eventsHelper.addEventListener(process, 'exit', () => {
       this._throttledOutputFile?.flush();
-    });
+    }));
     this._generator = generator;
   }
 
@@ -388,6 +407,7 @@ class ContextRecorder extends EventEmitter {
       new CSharpLanguageGenerator('mstest'),
       new CSharpLanguageGenerator('nunit'),
       new CSharpLanguageGenerator('library'),
+      new JsonlLanguageGenerator(),
     ]);
     const primaryLanguage = [...languages].find(l => l.id === codegenId);
     if (!primaryLanguage)
@@ -407,9 +427,10 @@ class ContextRecorder extends EventEmitter {
   }
 
   async install() {
-    this._context.on(BrowserContext.Events.Page, page => this._onPage(page));
+    this._context.on(BrowserContext.Events.Page, (page: Page) => this._onPage(page));
     for (const page of this._context.pages())
       this._onPage(page);
+    this._context.on(BrowserContext.Events.Dialog, (dialog: Dialog) => this._onDialog(dialog.page()));
 
     // Input actions that potentially lead to navigation are intercepted on the page and are
     // performed by the Playwright.
@@ -431,6 +452,7 @@ class ContextRecorder extends EventEmitter {
     for (const timer of this._timers)
       clearTimeout(timer);
     this._timers.clear();
+    eventsHelper.removeEventListeners(this._listeners);
   }
 
   private async _onPage(page: Page) {
@@ -452,7 +474,6 @@ class ContextRecorder extends EventEmitter {
         this._onFrameNavigated(frame, page);
     });
     page.on(Page.Events.Download, () => this._onDownload(page));
-    page.on(Page.Events.Dialog, () => this._onDialog(page));
     const suffix = this._pageAliases.size ? String(++this._lastPopupOrdinal) : '';
     const pageAlias = 'page' + suffix;
     this._pageAliases.set(page, pageAlias);
@@ -523,6 +544,10 @@ class ContextRecorder extends EventEmitter {
     return fallback;
   }
 
+  testIdAttributeName(): string {
+    return this._params.testIdAttributeName || this._context.selectors().testIdAttributeName() || 'data-testid';
+  }
+
   private async _findFrameSelector(frame: Frame, parent: Frame): Promise<string | undefined> {
     try {
       const frameElement = await frame.frameElement();
@@ -530,7 +555,9 @@ class ContextRecorder extends EventEmitter {
         return;
       const utility = await parent._utilityContext();
       const injected = await utility.injectedScript();
-      const selector = await injected.evaluate((injected, element) => injected.generateSelector(element as Element), frameElement);
+      const selector = await injected.evaluate((injected, element) => {
+        return injected.generateSelector(element as Element, { testIdAttributeName: '', omitInternalEngines: true });
+      }, frameElement);
       return selector;
     } catch (e) {
     }
@@ -553,14 +580,13 @@ class ContextRecorder extends EventEmitter {
         objectId: frame.guid,
         pageId: frame._page.guid,
         frameId: frame.guid,
-        wallTime: Date.now(),
         startTime: monotonicTime(),
         endTime: 0,
+        wallTime: Date.now(),
         type: 'Frame',
         method: action,
         params,
         log: [],
-        snapshots: [],
       };
       this._generator.willPerformAction(actionInContext);
 
@@ -631,12 +657,14 @@ class ContextRecorder extends EventEmitter {
 
   private _onDownload(page: Page) {
     const pageAlias = this._pageAliases.get(page)!;
-    this._generator.signal(pageAlias, page.mainFrame(), { name: 'download', downloadAlias: String(++this._lastDownloadOrdinal) });
+    ++this._lastDownloadOrdinal;
+    this._generator.signal(pageAlias, page.mainFrame(), { name: 'download', downloadAlias: this._lastDownloadOrdinal ? String(this._lastDownloadOrdinal) : '' });
   }
 
   private _onDialog(page: Page) {
     const pageAlias = this._pageAliases.get(page)!;
-    this._generator.signal(pageAlias, page.mainFrame(), { name: 'dialog', dialogAlias: String(++this._lastDialogOrdinal) });
+    ++this._lastDialogOrdinal;
+    this._generator.signal(pageAlias, page.mainFrame(), { name: 'dialog', dialogAlias: this._lastDialogOrdinal ? String(this._lastDialogOrdinal) : '' });
   }
 }
 
@@ -674,4 +702,8 @@ class ThrottledFile {
       fs.writeFileSync(this._file, this._text);
     this._text = undefined;
   }
+}
+
+function isScreenshotCommand(metadata: CallMetadata) {
+  return metadata.method.toLowerCase().includes('screenshot');
 }

@@ -223,6 +223,14 @@ it('should not hang on promises after disabling javascript', async ({ browserNam
   expect(await page.evaluate(async () => 2)).toBe(2);
 });
 
+it('setContent should work after disabling javascript', async ({ contextFactory }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/18235' });
+  const context = await contextFactory({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.setContent('<h1>Hello</h1>');
+  await expect(page.locator('h1')).toHaveText('Hello');
+});
+
 it('should work with offline option', async ({ browser, server }) => {
   const context = await browser.newContext({ offline: true });
   const page = await context.newPage();
@@ -279,4 +287,10 @@ it('should emulate media in cross-process iframe', async ({ browser, server }) =
   const frame = page.frames()[1];
   expect(await frame.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(true);
   await page.close();
+});
+
+it('default user agent', async ({ launchPersistent, browser, page, mode }) => {
+  it.skip(mode !== 'default');
+  const { userAgent } = await (browser as any)._channel.defaultUserAgentForTest();
+  expect(await page.evaluate(() => navigator.userAgent)).toBe(userAgent);
 });

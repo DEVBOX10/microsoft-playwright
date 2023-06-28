@@ -15,8 +15,11 @@
  */
 
 import { MultiMap } from './multimap';
+import { splitProgress } from './progress';
+import { unwrapPopoutUrl } from './snapshotRenderer';
 import { SnapshotServer } from './snapshotServer';
 import { TraceModel } from './traceModel';
+import { FetchTraceModelBackend, ZipTraceModelBackend } from './traceModelBackends';
 
 // @ts-ignore
 declare const self: ServiceWorkerGlobalScope;
@@ -36,25 +39,23 @@ const loadedTraces = new Map<string, { traceModel: TraceModel, snapshotServer: S
 const clientIdToTraceUrls = new MultiMap<string, string>();
 
 async function loadTrace(traceUrl: string, traceFileName: string | null, clientId: string, progress: (done: number, total: number) => void): Promise<TraceModel> {
-  const entry = loadedTraces.get(traceUrl);
   clientIdToTraceUrls.set(clientId, traceUrl);
-  if (entry)
-    return entry.traceModel;
   const traceModel = new TraceModel();
   try {
-    await traceModel.load(traceUrl, progress);
+    // Allow 10% to hop from sw to page.
+    const [fetchProgress, unzipProgress] = splitProgress(progress, [0.5, 0.4, 0.1]);
+    const backend = traceUrl.endsWith('json') ? new FetchTraceModelBackend(traceUrl) : new ZipTraceModelBackend(traceUrl, fetchProgress);
+    await traceModel.load(backend, unzipProgress);
   } catch (error: any) {
     // eslint-disable-next-line no-console
     console.error(error);
-
     if (error?.message?.includes('Cannot find .trace file') && await traceModel.hasEntry('index.html'))
       throw new Error('Could not load trace. Did you upload a Playwright HTML report instead? Make sure to extract the archive first and then double-click the index.html file or put it on a web server.');
-    else if (traceFileName)
+    if (traceFileName)
       throw new Error(`Could not load trace from ${traceFileName}. Make sure to upload a valid Playwright trace.`);
-    else
-      throw new Error(`Could not load trace from ${traceUrl}. Make sure a valid Playwright Trace is accessible over this url.`);
+    throw new Error(`Could not load trace from ${traceUrl}. Make sure a valid Playwright Trace is accessible over this url.`);
   }
-  const snapshotServer = new SnapshotServer(traceModel.storage());
+  const snapshotServer = new SnapshotServer(traceModel.storage(), sha1 => traceModel.resourceForSha1(sha1));
   loadedTraces.set(traceUrl, { traceModel, snapshotServer });
   return traceModel;
 }
@@ -64,8 +65,15 @@ async function doFetch(event: FetchEvent): Promise<Response> {
   const request = event.request;
   const client = await self.clients.get(event.clientId);
 
+  // When trace viewer is deployed over https, we will force upgrade
+  // insecure http subresources to https. Otherwise, these will fail
+  // to load inside our https snapshots.
+  // In this case, we also match http resources from the archive by
+  // the https urls.
+  const isDeployedAsHttps = self.registration.scope.startsWith('https://');
+
   if (request.url.startsWith(self.registration.scope)) {
-    const url = new URL(request.url);
+    const url = new URL(unwrapPopoutUrl(request.url));
     const relativePath = url.pathname.substring(scopePath.length - 1);
     if (relativePath === '/ping') {
       await gc();
@@ -75,12 +83,12 @@ async function doFetch(event: FetchEvent): Promise<Response> {
     const traceUrl = url.searchParams.get('trace')!;
     const { snapshotServer } = loadedTraces.get(traceUrl) || {};
 
-    if (relativePath === '/context') {
+    if (relativePath === '/contexts') {
       try {
         const traceModel = await loadTrace(traceUrl, url.searchParams.get('traceFileName'), event.clientId, (done: number, total: number) => {
           client.postMessage({ method: 'progress', params: { done, total } });
         });
-        return new Response(JSON.stringify(traceModel!.contextEntry), {
+        return new Response(JSON.stringify(traceModel!.contextEntries), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -101,12 +109,19 @@ async function doFetch(event: FetchEvent): Promise<Response> {
     if (relativePath.startsWith('/snapshot/')) {
       if (!snapshotServer)
         return new Response(null, { status: 404 });
-      return snapshotServer.serveSnapshot(relativePath, url.searchParams, request.url);
+      const response = snapshotServer.serveSnapshot(relativePath, url.searchParams, url.href);
+      if (isDeployedAsHttps)
+        response.headers.set('Content-Security-Policy', 'upgrade-insecure-requests');
+      return response;
     }
 
     if (relativePath.startsWith('/sha1/')) {
-      // Sha1 is unique, load it from either of the models for simplicity.
-      for (const { traceModel } of loadedTraces.values()) {
+      // Sha1 for sources is based on the file path, can't load it of a random model.
+      const traceUrls = clientIdToTraceUrls.get(event.clientId);
+      for (const [trace, { traceModel }] of loadedTraces) {
+        // We will accept explicit ?trace= value as well as the clientId associated with the trace.
+        if (traceUrl !== trace && !traceUrls.includes(trace))
+          continue;
         const blob = await traceModel!.resourceForSha1(relativePath.slice('/sha1/'.length));
         if (blob)
           return new Response(blob, { status: 200 });
@@ -118,12 +133,16 @@ async function doFetch(event: FetchEvent): Promise<Response> {
     return fetch(event.request);
   }
 
-  const snapshotUrl = client!.url;
+  const snapshotUrl = unwrapPopoutUrl(client!.url);
   const traceUrl = new URL(snapshotUrl).searchParams.get('trace')!;
   const { snapshotServer } = loadedTraces.get(traceUrl) || {};
   if (!snapshotServer)
     return new Response(null, { status: 404 });
-  return snapshotServer.serveResource(request.url, snapshotUrl);
+
+  const lookupUrls = [request.url];
+  if (isDeployedAsHttps && request.url.startsWith('https://'))
+    lookupUrls.push(request.url.replace(/^https/, 'http'));
+  return snapshotServer.serveResource(lookupUrls, snapshotUrl);
 }
 
 async function gc() {

@@ -17,29 +17,21 @@
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
 import type * as channels from '@protocol/channels';
-import type { ParsedStackTrace } from '../utils/stackTrace';
 import * as util from 'util';
 import { isString, monotonicTime } from '../utils';
 import { ElementHandle } from './elementHandle';
 import type { Frame } from './frame';
 import type { FilePayload, FrameExpectOptions, Rect, SelectOption, SelectOptionOptions, TimeoutOptions } from './types';
 import { parseResult, serializeArgument } from './jsHandle';
-import { escapeForAttributeSelector, escapeForTextSelector } from '../utils/isomorphic/stringUtils';
+import { escapeForTextSelector } from '../utils/isomorphic/stringUtils';
+import type { ByRoleOptions } from '../utils/isomorphic/locatorUtils';
+import { getByAltTextSelector, getByLabelSelector, getByPlaceholderSelector, getByRoleSelector, getByTestIdSelector, getByTextSelector, getByTitleSelector } from '../utils/isomorphic/locatorUtils';
 
 export type LocatorOptions = {
   hasText?: string | RegExp;
+  hasNotText?: string | RegExp;
   has?: Locator;
-};
-
-export type ByRoleOptions = LocatorOptions & {
-  checked?: boolean;
-  disabled?: boolean;
-  expanded?: boolean;
-  includeHidden?: boolean;
-  level?: number;
-  name?: string | RegExp;
-  pressed?: boolean;
-  selected?: boolean;
+  hasNot?: Locator;
 };
 
 export class Locator implements api.Locator {
@@ -53,11 +45,21 @@ export class Locator implements api.Locator {
     if (options?.hasText)
       this._selector += ` >> internal:has-text=${escapeForTextSelector(options.hasText, false)}`;
 
+    if (options?.hasNotText)
+      this._selector += ` >> internal:has-not-text=${escapeForTextSelector(options.hasNotText, false)}`;
+
     if (options?.has) {
       const locator = options.has;
       if (locator._frame !== frame)
         throw new Error(`Inner "has" locator must belong to the same frame.`);
       this._selector += ` >> internal:has=` + JSON.stringify(locator._selector);
+    }
+
+    if (options?.hasNot) {
+      const locator = options.hasNot;
+      if (locator._frame !== frame)
+        throw new Error(`Inner "hasNot" locator must belong to the same frame.`);
+      this._selector += ` >> internal:has-not=` + JSON.stringify(locator._selector);
     }
   }
 
@@ -138,12 +140,16 @@ export class Locator implements api.Locator {
     return this._frame._highlight(this._selector);
   }
 
-  locator(selector: string, options?: LocatorOptions): Locator {
-    return new Locator(this._frame, this._selector + ' >> ' + selector, options);
+  locator(selectorOrLocator: string | Locator, options?: LocatorOptions): Locator {
+    if (isString(selectorOrLocator))
+      return new Locator(this._frame, this._selector + ' >> ' + selectorOrLocator, options);
+    if (selectorOrLocator._frame !== this._frame)
+      throw new Error(`Locators must belong to the same frame.`);
+    return new Locator(this._frame, this._selector + ' >> ' + selectorOrLocator._selector, options);
   }
 
-  getByTestId(testId: string): Locator {
-    return this.locator(getByTestIdSelector(testId));
+  getByTestId(testId: string | RegExp): Locator {
+    return this.locator(getByTestIdSelector(testIdAttributeName(), testId));
   }
 
   getByAltText(text: string | RegExp, options?: { exact?: boolean }): Locator {
@@ -196,6 +202,18 @@ export class Locator implements api.Locator {
 
   nth(index: number): Locator {
     return new Locator(this._frame, this._selector + ` >> nth=${index}`);
+  }
+
+  and(locator: Locator): Locator {
+    if (locator._frame !== this._frame)
+      throw new Error(`Locators must belong to the same frame.`);
+    return new Locator(this._frame, this._selector + ` >> internal:and=` + JSON.stringify(locator._selector));
+  }
+
+  or(locator: Locator): Locator {
+    if (locator._frame !== this._frame)
+      throw new Error(`Locators must belong to the same frame.`);
+    return new Locator(this._frame, this._selector + ` >> internal:or=` + JSON.stringify(locator._selector));
   }
 
   async focus(options?: TimeoutOptions): Promise<void> {
@@ -301,6 +319,10 @@ export class Locator implements api.Locator {
     return this._frame.uncheck(this._selector, { strict: true, ...options });
   }
 
+  async all(): Promise<Locator[]> {
+    return new Array(await this.count()).fill(0).map((e, i) => this.nth(i));
+  }
+
   async allInnerTexts(): Promise<string[]> {
     return this._frame.$$eval(this._selector, ee => ee.map(e => (e as HTMLElement).innerText));
   }
@@ -315,15 +337,13 @@ export class Locator implements api.Locator {
     await this._frame._channel.waitForSelector({ selector: this._selector, strict: true, omitReturnValue: true, ...options });
   }
 
-  async _expect(customStackTrace: ParsedStackTrace, expression: string, options: Omit<FrameExpectOptions, 'expectedValue'> & { expectedValue?: any }): Promise<{ matches: boolean, received?: any, log?: string[] }> {
-    return this._frame._wrapApiCall(async () => {
-      const params: channels.FrameExpectParams = { selector: this._selector, expression, ...options, isNot: !!options.isNot };
-      params.expectedValue = serializeArgument(options.expectedValue);
-      const result = (await this._frame._channel.expect(params));
-      if (result.received !== undefined)
-        result.received = parseResult(result.received);
-      return result;
-    }, false /* isInternal */, customStackTrace);
+  async _expect(expression: string, options: Omit<FrameExpectOptions, 'expectedValue'> & { expectedValue?: any }): Promise<{ matches: boolean, received?: any, log?: string[], timedOut?: boolean }> {
+    const params: channels.FrameExpectParams = { selector: this._selector, expression, ...options, isNot: !!options.isNot };
+    params.expectedValue = serializeArgument(options.expectedValue);
+    const result = (await this._frame._channel.expect(params));
+    if (result.received !== undefined)
+      result.received = parseResult(result.received);
+    return result;
   }
 
   [util.inspect.custom]() {
@@ -344,12 +364,16 @@ export class FrameLocator implements api.FrameLocator {
     this._frameSelector = selector;
   }
 
-  locator(selector: string, options?: { hasText?: string | RegExp }): Locator {
-    return new Locator(this._frame, this._frameSelector + ' >> internal:control=enter-frame >> ' + selector, options);
+  locator(selectorOrLocator: string | Locator, options?: LocatorOptions): Locator {
+    if (isString(selectorOrLocator))
+      return new Locator(this._frame, this._frameSelector + ' >> internal:control=enter-frame >> ' + selectorOrLocator, options);
+    if (selectorOrLocator._frame !== this._frame)
+      throw new Error(`Locators must belong to the same frame.`);
+    return new Locator(this._frame, this._frameSelector + ' >> internal:control=enter-frame >> ' + selectorOrLocator._selector, options);
   }
 
-  getByTestId(testId: string): Locator {
-    return this.locator(getByTestIdSelector(testId));
+  getByTestId(testId: string | RegExp): Locator {
+    return this.locator(getByTestIdSelector(testIdAttributeName(), testId));
   }
 
   getByAltText(text: string | RegExp, options?: { exact?: boolean }): Locator {
@@ -393,60 +417,12 @@ export class FrameLocator implements api.FrameLocator {
   }
 }
 
-let testIdAttributeName: string = 'data-testid';
+let _testIdAttributeName: string = 'data-testid';
+
+export function testIdAttributeName(): string {
+  return _testIdAttributeName;
+}
 
 export function setTestIdAttribute(attributeName: string) {
-  testIdAttributeName = attributeName;
-}
-
-function getByAttributeTextSelector(attrName: string, text: string | RegExp, options?: { exact?: boolean }): string {
-  if (!isString(text))
-    return `internal:attr=[${attrName}=${text}]`;
-  return `internal:attr=[${attrName}=${escapeForAttributeSelector(text, options?.exact || false)}]`;
-}
-
-export function getByTestIdSelector(testId: string): string {
-  return getByAttributeTextSelector(testIdAttributeName, testId, { exact: true });
-}
-
-
-export function getByLabelSelector(text: string | RegExp, options?: { exact?: boolean }): string {
-  return 'internal:label=' + escapeForTextSelector(text, !!options?.exact);
-}
-
-export function getByAltTextSelector(text: string | RegExp, options?: { exact?: boolean }): string {
-  return getByAttributeTextSelector('alt', text, options);
-}
-
-export function getByTitleSelector(text: string | RegExp, options?: { exact?: boolean }): string {
-  return getByAttributeTextSelector('title', text, options);
-}
-
-export function getByPlaceholderSelector(text: string | RegExp, options?: { exact?: boolean }): string {
-  return getByAttributeTextSelector('placeholder', text, options);
-}
-
-export function getByTextSelector(text: string | RegExp, options?: { exact?: boolean }): string {
-  return 'internal:text=' + escapeForTextSelector(text, !!options?.exact);
-}
-
-export function getByRoleSelector(role: string, options: ByRoleOptions = {}): string {
-  const props: string[][] = [];
-  if (options.checked !== undefined)
-    props.push(['checked', String(options.checked)]);
-  if (options.disabled !== undefined)
-    props.push(['disabled', String(options.disabled)]);
-  if (options.selected !== undefined)
-    props.push(['selected', String(options.selected)]);
-  if (options.expanded !== undefined)
-    props.push(['expanded', String(options.expanded)]);
-  if (options.includeHidden !== undefined)
-    props.push(['include-hidden', String(options.includeHidden)]);
-  if (options.level !== undefined)
-    props.push(['level', String(options.level)]);
-  if (options.name !== undefined)
-    props.push(['name', isString(options.name) ? escapeForAttributeSelector(options.name, false) : String(options.name)]);
-  if (options.pressed !== undefined)
-    props.push(['pressed', String(options.pressed)]);
-  return `internal:role=${role}${props.map(([n, v]) => `[${n}=${v}]`).join('')}`;
+  _testIdAttributeName = attributeName;
 }

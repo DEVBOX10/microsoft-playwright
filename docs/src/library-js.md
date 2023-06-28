@@ -7,11 +7,6 @@ Playwright Library provides unified APIs for launching and interacting with brow
 
 Under most circumstances, for end-to-end testing, you'll want to use `@playwright/test` (Playwright Test), and not `playwright` (Playwright Library) directly. To get started with Playwright Test, follow the [Getting Started Guide](./intro.md).
 
-## When Should Playwright Library Be Used Directly?
-
-- Creating an integration for a third party test runner. For example, third-party runner plugins listed [here](./test-runners.md) are built on top of the Playwright Library.
-- Automation and scraping.
-
 ## Differences when using library
 
 ### Library Example
@@ -38,7 +33,7 @@ import assert from 'node:assert';
   // Teardown
   await context.close();
   await browser.close();
-})()
+})();
 ```
 
 ```js tab=js-js
@@ -60,7 +55,7 @@ const { chromium, devices } = require('playwright');
   // Teardown
   await context.close();
   await browser.close();
-})()
+})();
 ```
 
 Run it with `node my-script.js`.
@@ -106,7 +101,7 @@ The key differences to note are as follows:
 | Installation | `npm install playwright` | `npm init playwright@latest` - note `install` vs. `init` |
 | Install browsers | Chromium, Firefox, WebKit are installed by default | `npx playwright install` or `npx playwright install chromium` for a single one |
 | `import`/`require` name | `playwright` | `@playwright/test` |
-| Initialization | Explicitly need to: <ol><li>Pick a browser to use, e.g. `chromium`</li><li>Launch browser with [`method: BrowserType.launch`]</li><li>Create a context with [`method: Browser.newContext`], <em>and</em> pass any context options explcitly, e.g. `devices['iPhone 11']`</li><li>Create a page with [`method: BrowserContext.newPage`]</li></ol> | An isolated `page` and `context` are provided to each test out-of the box, along with other [built-in fixtures](./test-fixtures.md#built-in-fixtures). No explicit creation. If referenced by the test in it's arguments, the Test Runner will create them for the test. (i.e. lazy-initialization) |
+| Initialization | Explicitly need to: <ol><li>Pick a browser to use, e.g. `chromium`</li><li>Launch browser with [`method: BrowserType.launch`]</li><li>Create a context with [`method: Browser.newContext`], <em>and</em> pass any context options explicitly, e.g. `devices['iPhone 11']`</li><li>Create a page with [`method: BrowserContext.newPage`]</li></ol> | An isolated `page` and `context` are provided to each test out-of the box, along with other [built-in fixtures](./test-fixtures.md#built-in-fixtures). No explicit creation. If referenced by the test in it's arguments, the Test Runner will create them for the test. (i.e. lazy-initialization) |
 | Assertions | No built-in Web-First Assertions | [Web-First assertions](./test-assertions.md) like: <ul><li>[`method: PageAssertions.toHaveTitle`]</li><li>[`method: PageAssertions.toHaveScreenshot#1`]</li></ul> which auto-wait and retry for the condition to be met.|
 | Cleanup | Explicitly need to: <ol><li>Close context with [`method: BrowserContext.close`]</li><li>Close browser with [`method: Browser.close`]</li></ol> | No explicit close of [built-in fixtures](./test-fixtures.md#built-in-fixtures); the Test Runner will take care of it.
 | Running | When using the Library, you run the code as a node script, possibly with some compilation first. | When using the Test Runner, you use the `npx playwright test` command. Along with your [config](./test-configuration.md), the Test Runner handles any compilation and choosing what to run and how to run it. |
@@ -123,7 +118,7 @@ In addition to the above, Playwright Test, as a full-featured Test Runner, inclu
 
 ## Usage
 
-Use npm or Yarn to install Playwright library in your Node.js project. See [system requirements](./troubleshooting.md#system-requirements).
+Use npm or Yarn to install Playwright library in your Node.js project. See [system requirements](./intro.md#system-requirements).
 
 ```bash
 npm i -D playwright
@@ -154,7 +149,7 @@ Playwright APIs are asynchronous and return Promise objects. Our code examples u
 
 ## First script
 
-In our first script, we will navigate to `whatsmyuseragent.org` and take a screenshot in WebKit.
+In our first script, we will navigate to `https://playwright.dev/` and take a screenshot in WebKit.
 
 ```js
 const { webkit } = require('playwright');
@@ -162,7 +157,7 @@ const { webkit } = require('playwright');
 (async () => {
   const browser = await webkit.launch();
   const page = await browser.newPage();
-  await page.goto('http://whatsmyuseragent.org/');
+  await page.goto('https://playwright.dev/');
   await page.screenshot({ path: `example.png` });
   await browser.close();
 })();
@@ -176,7 +171,7 @@ firefox.launch({ headless: false, slowMo: 50 });
 
 ## Record scripts
 
-[Command line tools](./cli.md) can be used to record user interactions and generate JavaScript code.
+[Command line tools](./test-cli.md) can be used to record user interactions and generate JavaScript code.
 
 ```bash
 npx playwright codegen wikipedia.org
@@ -190,7 +185,7 @@ Playwright includes built-in support for TypeScript. Type definitions will be im
 Add the following to the top of your JavaScript file to get type-checking in VS Code or WebStorm.
 
 ```js
-//@ts-check
+// @ts-check
 // ...
 ```
 

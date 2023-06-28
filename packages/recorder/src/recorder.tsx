@@ -16,7 +16,6 @@
 
 import type { CallLog, Mode, Source } from './recorderTypes';
 import { CodeMirrorWrapper } from '@web/components/codeMirrorWrapper';
-import { Source as SourceView } from '@web/components/source';
 import { SplitView } from '@web/components/splitView';
 import { Toolbar } from '@web/components/toolbar';
 import { ToolbarButton } from '@web/components/toolbarButton';
@@ -24,6 +23,8 @@ import * as React from 'react';
 import { CallLogView } from './callLog';
 import './recorder.css';
 import { asLocator } from '@isomorphic/locatorGenerators';
+import { toggleTheme } from '@web/theme';
+import { copy } from '@web/uiUtils';
 
 declare global {
   interface Window {
@@ -76,7 +77,7 @@ export const Recorder: React.FC<RecorderProps> = ({
       setFileId(value);
   };
 
-  const messagesEndRef = React.createRef<HTMLDivElement>();
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
   React.useLayoutEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' });
   }, [messagesEndRef]);
@@ -102,6 +103,12 @@ export const Recorder: React.FC<RecorderProps> = ({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [paused]);
+
+  const onEditorChange = React.useCallback((text: string) => {
+    setLocator(text);
+    const source = sources.find(s => s.id === fileId);
+    window.dispatch({ event: 'selectorUpdated', params: { selector: text, language: source?.language || 'javascript' } });
+  }, [sources, fileId]);
 
   return <div className='recorder'>
     <Toolbar>
@@ -129,18 +136,16 @@ export const Recorder: React.FC<RecorderProps> = ({
       <ToolbarButton icon='clear-all' title='Clear' disabled={!source || !source.text} onClick={() => {
         window.dispatch({ event: 'clear' });
       }}></ToolbarButton>
+      <ToolbarButton icon='color-mode' title='Toggle color mode' toggled={false} onClick={() => toggleTheme()}></ToolbarButton>
     </Toolbar>
     <SplitView sidebarSize={200} sidebarHidden={mode === 'recording'}>
-      <SourceView text={source.text} language={source.language} highlight={source.highlight} revealLine={source.revealLine}></SourceView>
+      <CodeMirrorWrapper text={source.text} language={source.language} highlight={source.highlight} revealLine={source.revealLine} readOnly={true} lineNumbers={true}/>
       <div className='vbox'>
         <Toolbar>
-          <ToolbarButton icon='microscope' title='Explore' toggled={mode === 'inspecting'} onClick={() => {
+          <ToolbarButton icon='microscope' title='Pick locator' toggled={mode === 'inspecting'} onClick={() => {
             window.dispatch({ event: 'setMode', params: { mode: mode === 'inspecting' ? 'none' : 'inspecting' } }).catch(() => { });
-          }}>Explore</ToolbarButton>
-          <CodeMirrorWrapper text={locator} language={source.language} readOnly={false} focusOnChange={true} wrapLines={true} onChange={text => {
-            setLocator(text);
-            window.dispatch({ event: 'selectorUpdated', params: { selector: text, language: source.language } });
-          }}></CodeMirrorWrapper>
+          }}>Pick locator</ToolbarButton>
+          <CodeMirrorWrapper text={locator} language={source.language} readOnly={false} focusOnChange={true} wrapLines={true} onChange={onEditorChange} />
           <ToolbarButton icon='files' title='Copy' onClick={() => {
             copy(locator);
           }}></ToolbarButton>
@@ -160,7 +165,7 @@ function renderSourceOptions(sources: Source[]): React.ReactNode {
   const hasGroup = sources.some(s => s.group);
   if (hasGroup) {
     const groups = new Set(sources.map(s => s.group));
-    return Array.from(groups).map(group => (
+    return [...groups].filter(Boolean).map(group => (
       <optgroup label={group} key={group}>
         {sources.filter(s => s.group === group).map(source => renderOption(source))}
       </optgroup>
@@ -168,15 +173,4 @@ function renderSourceOptions(sources: Source[]): React.ReactNode {
   }
 
   return sources.map(source => renderOption(source));
-}
-
-function copy(text: string) {
-  const textArea = document.createElement('textarea');
-  textArea.style.position = 'absolute';
-  textArea.style.zIndex = '-1000';
-  textArea.value = text;
-  document.body.appendChild(textArea);
-  textArea.select();
-  document.execCommand('copy');
-  textArea.remove();
 }

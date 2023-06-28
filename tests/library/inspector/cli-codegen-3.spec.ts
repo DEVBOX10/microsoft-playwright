@@ -33,7 +33,7 @@ test.describe('cli codegen', () => {
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
       recorder.waitForOutput('JavaScript', 'click'),
-      page.dispatchEvent('button', 'click', { detail: 1 })
+      recorder.trustedClick()
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`
@@ -49,7 +49,7 @@ test.describe('cli codegen', () => {
       page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Submit")).first().click();`);
 
     expect.soft(sources.get('C#').text).toContain(`
-        await page.GetByRole(AriaRole.Button, new() { NameString = "Submit" }).First.ClickAsync();`);
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit" }).First.ClickAsync();`);
 
     expect(message.text()).toBe('click1');
   });
@@ -68,7 +68,7 @@ test.describe('cli codegen', () => {
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
       recorder.waitForOutput('JavaScript', 'click'),
-      page.dispatchEvent('button', 'click', { detail: 1 })
+      recorder.trustedClick()
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`
@@ -84,7 +84,7 @@ test.describe('cli codegen', () => {
       page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Submit")).nth(1).click();`);
 
     expect.soft(sources.get('C#').text).toContain(`
-        await page.GetByRole(AriaRole.Button, new() { NameString = "Submit" }).Nth(1).ClickAsync();`);
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit" }).Nth(1).ClickAsync();`);
 
     expect(message.text()).toBe('click2');
   });
@@ -203,6 +203,134 @@ test.describe('cli codegen', () => {
         await page.FrameByUrl(\"about:blank\").GetByText(\"HelloNameAnonymous\").ClickAsync();`);
   });
 
+  test('should generate frame locators with title attribute', async ({ page, openRecorder, server }) => {
+    const recorder = await openRecorder();
+    await recorder.setContentAndWait(`
+      <iframe title="hello world" srcdoc="<button>Click me</button>"></iframe>
+    `, server.EMPTY_PAGE, 1);
+
+    const [sources] = await Promise.all([
+      recorder.waitForOutput('JavaScript', 'Click me'),
+      page.frameLocator('[title="hello world"]').getByRole('button', { name: 'Click me' }).click(),
+    ]);
+
+    expect(sources.get('JavaScript').text).toContain(
+        `await page.frameLocator('iframe[title="hello world"]').getByRole('button', { name: 'Click me' }).click();`
+    );
+
+    expect(sources.get('Java').text).toContain(
+        `page.frameLocator(\"iframe[title=\\\"hello world\\\"]\").getByRole(AriaRole.BUTTON, new FrameLocator.GetByRoleOptions().setName(\"Click me\")).click();`
+    );
+
+    expect(sources.get('Python').text).toContain(
+        `page.frame_locator(\"iframe[title=\\\"hello world\\\"]\").get_by_role(\"button\", name=\"Click me\").click()`
+    );
+
+    expect(sources.get('Python Async').text).toContain(
+        `await page.frame_locator("iframe[title=\\\"hello world\\\"]").get_by_role("button", name="Click me").click()`
+    );
+
+    expect(sources.get('C#').text).toContain(
+        `await page.FrameLocator("iframe[title=\\\"hello world\\\"]").GetByRole(AriaRole.Button, new() { Name = "Click me" }).ClickAsync();`
+    );
+  });
+
+  test('should generate frame locators with name attribute', async ({ page, openRecorder, server }) => {
+    const recorder = await openRecorder();
+    await recorder.setContentAndWait(`
+      <iframe name="hello world" srcdoc="<button>Click me</button>"></iframe>
+    `, server.EMPTY_PAGE, 1);
+
+    const [sources] = await Promise.all([
+      recorder.waitForOutput('JavaScript', 'Click me'),
+      page.frameLocator('[name="hello world"]').getByRole('button', { name: 'Click me' }).click(),
+    ]);
+
+    expect(sources.get('JavaScript').text).toContain(
+        `await page.frameLocator('iframe[name="hello world"]').getByRole('button', { name: 'Click me' }).click();`
+    );
+
+    expect(sources.get('Java').text).toContain(
+        `page.frameLocator(\"iframe[name=\\\"hello world\\\"]\").getByRole(AriaRole.BUTTON, new FrameLocator.GetByRoleOptions().setName(\"Click me\")).click();`
+    );
+
+    expect(sources.get('Python').text).toContain(
+        `page.frame_locator(\"iframe[name=\\\"hello world\\\"]\").get_by_role(\"button\", name=\"Click me\").click()`
+    );
+
+    expect(sources.get('Python Async').text).toContain(
+        `await page.frame_locator("iframe[name=\\\"hello world\\\"]").get_by_role("button", name="Click me").click()`
+    );
+
+    expect(sources.get('C#').text).toContain(
+        `await page.FrameLocator("iframe[name=\\\"hello world\\\"]").GetByRole(AriaRole.Button, new() { Name = "Click me" }).ClickAsync();`
+    );
+  });
+
+  test('should generate frame locators with id attribute', async ({ page, openRecorder, server }) => {
+    const recorder = await openRecorder();
+    await recorder.setContentAndWait(`
+      <iframe id="hello-world" srcdoc="<button>Click me</button>"></iframe>
+    `, server.EMPTY_PAGE, 1);
+
+    const [sources] = await Promise.all([
+      recorder.waitForOutput('JavaScript', 'Click me'),
+      page.frameLocator('[id="hello-world"]').getByRole('button', { name: 'Click me' }).click(),
+    ]);
+
+    expect(sources.get('JavaScript').text).toContain(
+        `await page.frameLocator('#hello-world').getByRole('button', { name: 'Click me' }).click();`
+    );
+
+    expect(sources.get('Java').text).toContain(
+        `page.frameLocator(\"#hello-world\").getByRole(AriaRole.BUTTON, new FrameLocator.GetByRoleOptions().setName(\"Click me\")).click();`
+    );
+
+    expect(sources.get('Python').text).toContain(
+        `page.frame_locator(\"#hello-world\").get_by_role(\"button\", name=\"Click me\").click()`
+    );
+
+    expect(sources.get('Python Async').text).toContain(
+        `await page.frame_locator("#hello-world").get_by_role("button", name="Click me").click()`
+    );
+
+    expect(sources.get('C#').text).toContain(
+        `await page.FrameLocator("#hello-world").GetByRole(AriaRole.Button, new() { Name = "Click me" }).ClickAsync();`
+    );
+  });
+
+  test('should generate frame locators with testId', async ({ page, openRecorder, server }) => {
+    const recorder = await openRecorder();
+    await recorder.setContentAndWait(`
+    <iframe data-testid="my-testid" srcdoc="<button>Click me</button>"></iframe>
+    `, server.EMPTY_PAGE, 1);
+
+    const [sources] = await Promise.all([
+      recorder.waitForOutput('JavaScript', 'my-testid'),
+      page.frameLocator('iframe[data-testid="my-testid"]').getByRole('button', { name: 'Click me' }).click(),
+    ]);
+
+    expect(sources.get('JavaScript').text).toContain(
+        `await page.frameLocator('[data-testid="my-testid"]').getByRole('button', { name: 'Click me' }).click();`
+    );
+
+    expect(sources.get('Java').text).toContain(
+        `page.frameLocator(\"[data-testid=\\\"my-testid\\\"]\").getByRole(AriaRole.BUTTON, new FrameLocator.GetByRoleOptions().setName(\"Click me\")).click();`
+    );
+
+    expect(sources.get('Python').text).toContain(
+        `page.frame_locator(\"[data-testid=\\\"my-testid\\\"]\").get_by_role(\"button\", name=\"Click me\").click()`
+    );
+
+    expect(sources.get('Python Async').text).toContain(
+        `await page.frame_locator("[data-testid=\\\"my-testid\\\"]").get_by_role("button", name="Click me").click()`
+    );
+
+    expect(sources.get('C#').text).toContain(
+        `await page.FrameLocator("[data-testid=\\\"my-testid\\\"]").GetByRole(AriaRole.Button, new() { Name = "Click me" }).ClickAsync();`
+    );
+  });
+
   test('should generate role locators undef frame locators', async ({ page, openRecorder, server }) => {
     const recorder = await openRecorder();
     await recorder.setContentAndWait(`<iframe id=frame1 srcdoc="<button>Submit</button>">`, server.EMPTY_PAGE, 2);
@@ -226,7 +354,7 @@ test.describe('cli codegen', () => {
     await page.frame_locator("#frame1").get_by_role("button", name="Submit").click()`);
 
     expect.soft(sources.get('C#').text).toContain(`
-        await page.FrameLocator("#frame1").GetByRole(AriaRole.Button, new() { NameString = "Submit" }).ClickAsync();`);
+        await page.FrameLocator("#frame1").GetByRole(AriaRole.Button, new() { Name = "Submit" }).ClickAsync();`);
   });
 
   test('should generate getByTestId', async ({ page, openRecorder }) => {
@@ -240,7 +368,7 @@ test.describe('cli codegen', () => {
     const [message, sources] = await Promise.all([
       page.waitForEvent('console', msg => msg.type() !== 'error'),
       recorder.waitForOutput('JavaScript', 'click'),
-      page.dispatchEvent('div', 'click', { detail: 1 })
+      recorder.trustedClick(),
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`
@@ -271,7 +399,7 @@ test.describe('cli codegen', () => {
 
     const [sources] = await Promise.all([
       recorder.waitForOutput('JavaScript', 'click'),
-      page.dispatchEvent('input', 'click', { detail: 1 })
+      recorder.trustedClick(),
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`
@@ -300,7 +428,7 @@ test.describe('cli codegen', () => {
 
     const [sources] = await Promise.all([
       recorder.waitForOutput('JavaScript', 'click'),
-      page.dispatchEvent('input', 'click', { detail: 1 })
+      recorder.trustedClick(),
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`
@@ -329,7 +457,7 @@ test.describe('cli codegen', () => {
 
     const [sources] = await Promise.all([
       recorder.waitForOutput('JavaScript', 'click'),
-      page.dispatchEvent('input', 'click', { detail: 1 })
+      recorder.trustedClick(),
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`
@@ -358,7 +486,7 @@ test.describe('cli codegen', () => {
 
     const [sources] = await Promise.all([
       recorder.waitForOutput('JavaScript', 'click'),
-      page.dispatchEvent('input', 'click', { detail: 1 })
+      recorder.trustedClick(),
     ]);
 
     expect.soft(sources.get('JavaScript').text).toContain(`

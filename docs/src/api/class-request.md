@@ -29,6 +29,8 @@ An object with all the request HTTP headers associated with this request. The he
 
 The method returns `null` unless this request has failed, as reported by `requestfailed` event.
 
+**Usage**
+
 Example of logging of all the failed requests:
 
 ```js
@@ -53,6 +55,12 @@ page.RequestFailed += (_, request) =>
     Console.WriteLine(request.Failure);
 };
 ```
+
+## method: Request.failure
+* since: v1.8
+* langs: js
+- returns: <[null]|[Object]>
+  - `errorText` <[string]> Human-readable error message, e.g. `'net::ERR_FAILED'`.
 
 ## method: Request.frame
 * since: v1.8
@@ -89,7 +97,6 @@ Returns the value of the header matching the name. The name is case insensitive.
 
 Name of the header.
 
-
 ## method: Request.isNavigationRequest
 * since: v1.8
 - returns: <[boolean]>
@@ -124,6 +131,16 @@ Returns parsed request's body for `form-urlencoded` and JSON as a fallback if an
 When the response is `application/x-www-form-urlencoded` then a key/value object of the values will be returned.
 Otherwise it will be parsed as JSON.
 
+## method: Request.postDataJSON
+* since: v1.12
+* langs: csharp
+- returns: <[null]|[JsonElement]>
+
+Returns parsed request's body for `form-urlencoded` and JSON as a fallback if any.
+
+When the response is `application/x-www-form-urlencoded` then a key/value object of the values will be returned.
+Otherwise it will be parsed as JSON.
+
 ## method: Request.redirectedFrom
 * since: v1.8
 - returns: <[null]|[Request]>
@@ -133,6 +150,8 @@ Request that was redirected by the server to this one, if any.
 When the server responds with a redirect, Playwright creates a new [Request] object. The two requests are connected by
 `redirectedFrom()` and `redirectedTo()` methods. When multiple server redirects has happened, it is possible to
 construct the whole redirect chain by repeatedly calling `redirectedFrom()`.
+
+**Usage**
 
 For example, if the website `http://example.com` redirects to `https://example.com`:
 
@@ -193,6 +212,8 @@ Console.WriteLine(response.Request.RedirectedFrom?.Url); // null
 - returns: <[null]|[Request]>
 
 New request issued by the browser if the server responded with redirect.
+
+**Usage**
 
 This method is the opposite of [`method: Request.redirectedFrom`]:
 
@@ -263,7 +284,7 @@ Returns resource size information for given request.
     to retrieve the resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
   - `requestStart` <[float]> Time immediately before the browser starts requesting the resource from the server,
     cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `responseStart` <[float]> Time immediately after the browser starts requesting the resource from the server,
+  - `responseStart` <[float]> Time immediately after the browser receives the first byte of the response from the server,
     cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
   - `responseEnd` <[float]> Time immediately after the browser receives the last byte of the resource or immediately
     before the transport connection is closed, whichever comes first. The value is given in milliseconds relative to
@@ -273,11 +294,12 @@ Returns resource timing information for given request. Most of the timing values
 `responseEnd` becomes available when request finishes. Find more information at
 [Resource Timing API](https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming).
 
+**Usage**
+
 ```js
-const [request] = await Promise.all([
-  page.waitForEvent('requestfinished'),
-  page.goto('http://example.com')
-]);
+const requestFinishedPromise = page.waitForEvent('requestfinished');
+await page.goto('http://example.com');
+const request = await requestFinishedPromise;
 console.log(request.timing());
 ```
 

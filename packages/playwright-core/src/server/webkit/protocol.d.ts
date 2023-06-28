@@ -714,6 +714,10 @@ export module Protocol {
        * Grouping list array (for rules involving @media/@supports). The array enumerates CSS groupings starting with the innermost one, going outwards.
        */
       groupings?: Grouping[];
+      /**
+       * <code>true</code> if this style is for a rule implicitly wrapping properties declared inside of CSSGrouping.
+       */
+      isImplicitlyNested?: boolean;
     }
     /**
      * Text range within a resource.
@@ -857,9 +861,13 @@ export module Protocol {
      */
     export interface Grouping {
       /**
-       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, "layer-rule" if specified by an @layer rule, "container-rule" if specified by an @container rule.
+       * Source of the media query: "media-rule" if specified by a @media rule, "media-import-rule" if specified by an @import rule, "media-link-node" if specified by a "media" attribute in a linked style sheet's LINK tag, "media-style-node" if specified by a "media" attribute in an inline style sheet's STYLE tag, "supports-rule" if specified by an @supports rule, "layer-rule" if specified by an @layer rule, "container-rule" if specified by an @container rule, "style-rule" if specified by a CSSStyleRule containing the rule inside this grouping.
        */
-      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule"|"layer-rule"|"layer-import-rule"|"container-rule";
+      type: "media-rule"|"media-import-rule"|"media-link-node"|"media-style-node"|"supports-rule"|"layer-rule"|"layer-import-rule"|"container-rule"|"style-rule";
+      /**
+       * The CSS rule identifier for the `@rule` (absent for non-editable grouping rules) or the nesting parent style rule's selector. In CSSOM terms, this is the parent rule of either the previous Grouping for a CSSRule, or of a CSSRule itself.
+       */
+      ruleId?: CSSRuleId;
       /**
        * Query text if specified by a @media, @supports, or @container rule. Layer name (or not present for anonymous layers) for @layer rules.
        */
@@ -868,6 +876,10 @@ export module Protocol {
        * URL of the document containing the CSS grouping.
        */
       sourceURL?: string;
+      /**
+       * @-rule's header text range in the enclosing stylesheet (if available). This is from the first non-whitespace character after the @ declarartion to the last non-whitespace character before an opening curly bracket or semicolon.
+       */
+      range?: SourceRange;
     }
     /**
      * A representation of WebCore::Font. Conceptually this is backed by either a font file on disk or from the network.
@@ -1119,6 +1131,19 @@ export module Protocol {
       rule: CSSRule;
     }
     /**
+     * Modifies an @rule grouping's header text.
+     */
+    export type setGroupingHeaderTextParameters = {
+      ruleId: CSSRuleId;
+      headerText: string;
+    }
+    export type setGroupingHeaderTextReturnValue = {
+      /**
+       * The resulting grouping after the header text modification.
+       */
+      grouping: Grouping;
+    }
+    /**
      * Creates a new special "inspector" stylesheet in the frame with given <code>frameId</code>.
      */
     export type createStyleSheetParameters = {
@@ -1212,7 +1237,7 @@ export module Protocol {
     /**
      * The type of rendering context backing the canvas element.
      */
-    export type ContextType = "canvas-2d"|"bitmaprenderer"|"webgl"|"webgl2";
+    export type ContextType = "canvas-2d"|"offscreen-canvas-2d"|"bitmaprenderer"|"webgl"|"webgl2";
     export type ProgramType = "compute"|"render";
     export type ShaderType = "compute"|"fragment"|"vertex";
     /**
@@ -1520,6 +1545,10 @@ export module Protocol {
      */
     export type ChannelLevel = "off"|"basic"|"verbose";
     /**
+     * The reason the console is being cleared.
+     */
+    export type ClearReason = "console-api"|"main-frame-navigation";
+    /**
      * Logging channel.
      */
     export interface Channel {
@@ -1637,11 +1666,20 @@ export module Protocol {
        * New repeat count value.
        */
       count: number;
+      /**
+       * Timestamp of the latest message.
+       */
+      timestamp?: number;
     }
     /**
      * Issued when console is cleared. This happens either upon <code>clearMessages</code> command or after page navigation.
      */
-    export type messagesClearedPayload = void;
+    export type messagesClearedPayload = {
+      /**
+       * The reason the console is being cleared.
+       */
+      reason: ClearReason;
+    }
     /**
      * Issued from console.takeHeapSnapshot.
      */
@@ -2100,6 +2138,48 @@ export module Protocol {
        * The margin highlight fill color (default: transparent).
        */
       marginColor?: RGBAColor;
+    }
+    /**
+     * Configuration data for grid overlays.
+     */
+    export interface GridOverlayConfig {
+      /**
+       * The primary color to use for the grid overlay.
+       */
+      gridColor: RGBAColor;
+      /**
+       * Show labels for grid line names. If not specified, the default value is false.
+       */
+      showLineNames?: boolean;
+      /**
+       * Show labels for grid line numbers. If not specified, the default value is false.
+       */
+      showLineNumbers?: boolean;
+      /**
+       * Show grid lines that extend beyond the bounds of the grid. If not specified, the default value is false.
+       */
+      showExtendedGridLines?: boolean;
+      /**
+       * Show grid track size information. If not specified, the default value is false.
+       */
+      showTrackSizes?: boolean;
+      /**
+       * Show labels for grid area names. If not specified, the default value is false.
+       */
+      showAreaNames?: boolean;
+    }
+    /**
+     * Configuration data for flex overlays.
+     */
+    export interface FlexOverlayConfig {
+      /**
+       * The primary color to use for the flex overlay.
+       */
+      flexColor: RGBAColor;
+      /**
+       * Show labels for flex order. If not specified, the default value is false.
+       */
+      showOrderNumbers?: boolean;
     }
     /**
      * An object referencing a node and a pseudo-element, primarily used to identify an animation effect target.
@@ -2746,6 +2826,14 @@ export module Protocol {
        */
       highlightConfig?: HighlightConfig;
       /**
+       * If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay.
+       */
+      gridOverlayConfig?: GridOverlayConfig;
+      /**
+       * If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay.
+       */
+      flexOverlayConfig?: FlexOverlayConfig;
+      /**
        * Whether the rulers should be shown during element selection. This overrides Page.setShowRulers.
        */
       showRulers?: boolean;
@@ -2815,10 +2903,6 @@ export module Protocol {
      */
     export type highlightSelectorParameters = {
       /**
-       * A descriptor for the highlight appearance.
-       */
-      highlightConfig: HighlightConfig;
-      /**
        * A CSS selector for finding matching nodes to highlight.
        */
       selectorString: string;
@@ -2826,6 +2910,22 @@ export module Protocol {
        * Identifier of the frame which will be searched using the selector.  If not provided, the main frame will be used.
        */
       frameId?: string;
+      /**
+       * A descriptor for the highlight appearance.
+       */
+      highlightConfig: HighlightConfig;
+      /**
+       * If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay.
+       */
+      gridOverlayConfig?: GridOverlayConfig;
+      /**
+       * If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay.
+       */
+      flexOverlayConfig?: FlexOverlayConfig;
+      /**
+       * Whether the rulers should be shown during element selection. This overrides Page.setShowRulers.
+       */
+      showRulers?: boolean;
     }
     export type highlightSelectorReturnValue = {
     }
@@ -2834,10 +2934,6 @@ export module Protocol {
      */
     export type highlightNodeParameters = {
       /**
-       * A descriptor for the highlight appearance.
-       */
-      highlightConfig: HighlightConfig;
-      /**
        * Identifier of the node to highlight.
        */
       nodeId?: NodeId;
@@ -2845,6 +2941,22 @@ export module Protocol {
        * JavaScript object id of the node to be highlighted.
        */
       objectId?: Runtime.RemoteObjectId;
+      /**
+       * A descriptor for the highlight appearance.
+       */
+      highlightConfig: HighlightConfig;
+      /**
+       * If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay.
+       */
+      gridOverlayConfig?: GridOverlayConfig;
+      /**
+       * If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay.
+       */
+      flexOverlayConfig?: FlexOverlayConfig;
+      /**
+       * Whether the rulers should be shown during element selection. This overrides Page.setShowRulers.
+       */
+      showRulers?: boolean;
     }
     export type highlightNodeReturnValue = {
     }
@@ -2854,6 +2966,18 @@ export module Protocol {
     export type highlightNodeListParameters = {
       nodeIds: NodeId[];
       highlightConfig: HighlightConfig;
+      /**
+       * If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay.
+       */
+      gridOverlayConfig?: GridOverlayConfig;
+      /**
+       * If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay.
+       */
+      flexOverlayConfig?: FlexOverlayConfig;
+      /**
+       * Whether the rulers should be shown during element selection. This overrides Page.setShowRulers.
+       */
+      showRulers?: boolean;
     }
     export type highlightNodeListReturnValue = {
     }
@@ -2892,29 +3016,9 @@ export module Protocol {
        */
       nodeId: NodeId;
       /**
-       * The primary color to use for the grid overlay.
+       * Configuration options for the grid overlay.
        */
-      gridColor: RGBAColor;
-      /**
-       * Show labels for grid line names. If not specified, the default value is false.
-       */
-      showLineNames?: boolean;
-      /**
-       * Show labels for grid line numbers. If not specified, the default value is false.
-       */
-      showLineNumbers?: boolean;
-      /**
-       * Show grid lines that extend beyond the bounds of the grid. If not specified, the default value is false.
-       */
-      showExtendedGridLines?: boolean;
-      /**
-       * Show grid track size information. If not specified, the default value is false.
-       */
-      showTrackSizes?: boolean;
-      /**
-       * Show labels for grid area names. If not specified, the default value is false.
-       */
-      showAreaNames?: boolean;
+      gridOverlayConfig: GridOverlayConfig;
     }
     export type showGridOverlayReturnValue = {
     }
@@ -2938,13 +3042,9 @@ export module Protocol {
        */
       nodeId: NodeId;
       /**
-       * The primary color to use for the flex overlay.
+       * Configuration options for the flex overlay.
        */
-      flexColor: RGBAColor;
-      /**
-       * Show labels for flex order. If not specified, the default value is false.
-       */
-      showOrderNumbers?: boolean;
+      flexOverlayConfig: FlexOverlayConfig;
     }
     export type showFlexOverlayReturnValue = {
     }
@@ -4290,6 +4390,7 @@ might return multiple quads for inline nodes.
     export type setAuthCredentialsParameters = {
       username?: string;
       password?: string;
+      origin?: string;
     }
     export type setAuthCredentialsReturnValue = {
     }
@@ -6186,7 +6287,28 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     /**
      * List of settings able to be overridden by WebInspector.
      */
-    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebRTCEncryptionEnabled"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled"|"PointerLockEnabled"|"NotificationsEnabled"|"FullScreenEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled";
+    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled"|"PointerLockEnabled"|"NotificationsEnabled"|"FullScreenEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled";
+    /**
+     * A user preference that can be overriden by Web Inspector, like an accessibility preference.
+     */
+    export interface UserPreference {
+      /**
+       * Preference name.
+       */
+      name: UserPreferenceName;
+      /**
+       * Preference value.
+       */
+      value: UserPreferenceValue;
+    }
+    /**
+     * User preference name.
+     */
+    export type UserPreferenceName = "PrefersReducedMotion"|"PrefersContrast"|"PrefersColorScheme";
+    /**
+     * User preference value.
+     */
+    export type UserPreferenceValue = "NoPreference"|"Reduce"|"More"|"Light"|"Dark";
     /**
      * Resource type as it was perceived by the rendering engine.
      */
@@ -6199,14 +6321,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
      * Same-Site policy of a cookie.
      */
     export type CookieSameSitePolicy = "None"|"Lax"|"Strict";
-    /**
-     * Page appearance name.
-     */
-    export type Appearance = "Light"|"Dark";
-    /**
-     * Page reduced-motion media query override.
-     */
-    export type ReducedMotion = "Reduce"|"NoPreference";
     /**
      * Page forced-colors media query override.
      */
@@ -6552,6 +6666,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Delay (in seconds) until the navigation is scheduled to begin. The navigation is not guaranteed to start.
        */
       delay: number;
+      /**
+       * Whether the naviation will happen in the same frame.
+       */
+      targetIsCurrentFrame: boolean;
     }
     /**
      * Fired when frame no longer has a scheduled navigation.
@@ -6576,13 +6694,13 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       url: string;
     }
     /**
-     * Fired when page's default appearance changes, even if there is a forced appearance.
+     * Fired when the default value of a user preference changes at the system level.
      */
-    export type defaultAppearanceDidChangePayload = {
+    export type defaultUserPreferencesDidChangePayload = {
       /**
-       * Name of the appearance that is active (not considering any forced appearance.)
+       * List of user preferences that can be overriden and their new system (default) values.
        */
-      appearance: Appearance;
+      preferences: UserPreference[];
     }
     /**
      * Fired when page is about to check policy for newly triggered navigation.
@@ -6707,6 +6825,18 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       value?: boolean;
     }
     export type overrideSettingReturnValue = {
+    }
+    /**
+     * Allows the frontend to override the user's preferences on the inspected page.
+     */
+    export type overrideUserPreferenceParameters = {
+      name: UserPreferenceName;
+      /**
+       * Value to override the user preference with. If this value is not provided, the override is removed. Overrides are removed when Web Inspector closes/disconnects.
+       */
+      value?: UserPreferenceValue;
+    }
+    export type overrideUserPreferenceReturnValue = {
     }
     /**
      * Returns all browser cookies. Depending on the backend support, will return detailed cookie information in the <code>cookies</code> field.
@@ -6878,22 +7008,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       media: string;
     }
     export type setEmulatedMediaReturnValue = {
-    }
-    /**
-     * Forces the given appearance for the page.
-     */
-    export type setForcedAppearanceParameters = {
-      appearance?: Appearance;
-    }
-    export type setForcedAppearanceReturnValue = {
-    }
-    /**
-     * Forces the reduced-motion media query for the page.
-     */
-    export type setForcedReducedMotionParameters = {
-      reducedMotion?: ReducedMotion;
-    }
-    export type setForcedReducedMotionReturnValue = {
     }
     /**
      * Forces the forced-colors media query for the page.
@@ -7518,6 +7632,17 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     }
     export type cancelDownloadReturnValue = {
     }
+    /**
+     * Clears browser memory cache.
+     */
+    export type clearMemoryCacheParameters = {
+      /**
+       * Browser context id.
+       */
+      browserContextId: ContextID;
+    }
+    export type clearMemoryCacheReturnValue = {
+    }
   }
   
   /**
@@ -7527,7 +7652,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     /**
      * The type of the recording.
      */
-    export type Type = "canvas-2d"|"canvas-bitmaprenderer"|"canvas-webgl"|"canvas-webgl2";
+    export type Type = "canvas-2d"|"offscreen-canvas-2d"|"canvas-bitmaprenderer"|"canvas-webgl"|"canvas-webgl2";
     export type Initiator = "frontend"|"console"|"auto-capture";
     /**
      * Information about the initial state of the recorded object.
@@ -7606,7 +7731,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Object subtype hint. Specified for <code>object</code> <code>function</code> (for class) type values only.
        */
-      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy";
+      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy"|"weakref";
       /**
        * Object class (constructor) name. Specified for <code>object</code> type values only.
        */
@@ -7647,7 +7772,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Object subtype hint. Specified for <code>object</code> type values only.
        */
-      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy";
+      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy"|"weakref";
       /**
        * String representation of the object.
        */
@@ -7685,7 +7810,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       /**
        * Object subtype hint. Specified for <code>object</code> type values only.
        */
-      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy";
+      subtype?: "array"|"null"|"node"|"regexp"|"date"|"error"|"map"|"set"|"weakmap"|"weakset"|"iterator"|"class"|"proxy"|"weakref";
       /**
        * User-friendly property value string.
        */
@@ -7694,6 +7819,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Nested value preview.
        */
       valuePreview?: ObjectPreview;
+      /**
+       * True if this is a private field.
+       */
+      isPrivate?: boolean;
       /**
        * True if this is an internal property.
        */
@@ -7763,6 +7892,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Property symbol object, if the property is a symbol.
        */
       symbol?: Runtime.RemoteObject;
+      /**
+       * True if the property is a private field.
+       */
+      isPrivate?: boolean;
       /**
        * True if the property value came from a native getter.
        */
@@ -9001,7 +9134,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.frameScheduledNavigation": Page.frameScheduledNavigationPayload;
     "Page.frameClearedScheduledNavigation": Page.frameClearedScheduledNavigationPayload;
     "Page.navigatedWithinDocument": Page.navigatedWithinDocumentPayload;
-    "Page.defaultAppearanceDidChange": Page.defaultAppearanceDidChangePayload;
+    "Page.defaultUserPreferencesDidChange": Page.defaultUserPreferencesDidChangePayload;
     "Page.willCheckNavigationPolicy": Page.willCheckNavigationPolicyPayload;
     "Page.didCheckNavigationPolicy": Page.didCheckNavigationPolicyPayload;
     "Page.fileChooserOpened": Page.fileChooserOpenedPayload;
@@ -9062,6 +9195,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.setStyleSheetText": CSS.setStyleSheetTextParameters;
     "CSS.setStyleText": CSS.setStyleTextParameters;
     "CSS.setRuleSelector": CSS.setRuleSelectorParameters;
+    "CSS.setGroupingHeaderText": CSS.setGroupingHeaderTextParameters;
     "CSS.createStyleSheet": CSS.createStyleSheetParameters;
     "CSS.addRule": CSS.addRuleParameters;
     "CSS.getSupportedCSSProperties": CSS.getSupportedCSSPropertiesParameters;
@@ -9247,6 +9381,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.overrideUserAgent": Page.overrideUserAgentParameters;
     "Page.overridePlatform": Page.overridePlatformParameters;
     "Page.overrideSetting": Page.overrideSettingParameters;
+    "Page.overrideUserPreference": Page.overrideUserPreferenceParameters;
     "Page.getCookies": Page.getCookiesParameters;
     "Page.setCookie": Page.setCookieParameters;
     "Page.deleteCookie": Page.deleteCookieParameters;
@@ -9258,8 +9393,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.setShowRulers": Page.setShowRulersParameters;
     "Page.setShowPaintRects": Page.setShowPaintRectsParameters;
     "Page.setEmulatedMedia": Page.setEmulatedMediaParameters;
-    "Page.setForcedAppearance": Page.setForcedAppearanceParameters;
-    "Page.setForcedReducedMotion": Page.setForcedReducedMotionParameters;
     "Page.setForcedColors": Page.setForcedColorsParameters;
     "Page.setTimeZone": Page.setTimeZoneParameters;
     "Page.setTouchEmulationEnabled": Page.setTouchEmulationEnabledParameters;
@@ -9294,6 +9427,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.setLanguages": Playwright.setLanguagesParameters;
     "Playwright.setDownloadBehavior": Playwright.setDownloadBehaviorParameters;
     "Playwright.cancelDownload": Playwright.cancelDownloadParameters;
+    "Playwright.clearMemoryCache": Playwright.clearMemoryCacheParameters;
     "Runtime.parse": Runtime.parseParameters;
     "Runtime.evaluate": Runtime.evaluateParameters;
     "Runtime.awaitPromise": Runtime.awaitPromiseParameters;
@@ -9370,6 +9504,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "CSS.setStyleSheetText": CSS.setStyleSheetTextReturnValue;
     "CSS.setStyleText": CSS.setStyleTextReturnValue;
     "CSS.setRuleSelector": CSS.setRuleSelectorReturnValue;
+    "CSS.setGroupingHeaderText": CSS.setGroupingHeaderTextReturnValue;
     "CSS.createStyleSheet": CSS.createStyleSheetReturnValue;
     "CSS.addRule": CSS.addRuleReturnValue;
     "CSS.getSupportedCSSProperties": CSS.getSupportedCSSPropertiesReturnValue;
@@ -9555,6 +9690,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.overrideUserAgent": Page.overrideUserAgentReturnValue;
     "Page.overridePlatform": Page.overridePlatformReturnValue;
     "Page.overrideSetting": Page.overrideSettingReturnValue;
+    "Page.overrideUserPreference": Page.overrideUserPreferenceReturnValue;
     "Page.getCookies": Page.getCookiesReturnValue;
     "Page.setCookie": Page.setCookieReturnValue;
     "Page.deleteCookie": Page.deleteCookieReturnValue;
@@ -9566,8 +9702,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.setShowRulers": Page.setShowRulersReturnValue;
     "Page.setShowPaintRects": Page.setShowPaintRectsReturnValue;
     "Page.setEmulatedMedia": Page.setEmulatedMediaReturnValue;
-    "Page.setForcedAppearance": Page.setForcedAppearanceReturnValue;
-    "Page.setForcedReducedMotion": Page.setForcedReducedMotionReturnValue;
     "Page.setForcedColors": Page.setForcedColorsReturnValue;
     "Page.setTimeZone": Page.setTimeZoneReturnValue;
     "Page.setTouchEmulationEnabled": Page.setTouchEmulationEnabledReturnValue;
@@ -9602,6 +9736,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Playwright.setLanguages": Playwright.setLanguagesReturnValue;
     "Playwright.setDownloadBehavior": Playwright.setDownloadBehaviorReturnValue;
     "Playwright.cancelDownload": Playwright.cancelDownloadReturnValue;
+    "Playwright.clearMemoryCache": Playwright.clearMemoryCacheReturnValue;
     "Runtime.parse": Runtime.parseReturnValue;
     "Runtime.evaluate": Runtime.evaluateReturnValue;
     "Runtime.awaitPromise": Runtime.awaitPromiseReturnValue;

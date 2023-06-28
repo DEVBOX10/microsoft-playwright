@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type { APIRequestContext, Browser, BrowserContext, BrowserContextOptions, Page, LaunchOptions, ViewportSize, Geolocation, HTTPCredentials, Locator, APIResponse } from 'playwright-core';
+import type { APIRequestContext, Browser, BrowserContext, BrowserContextOptions, Page, LaunchOptions, ViewportSize, Geolocation, HTTPCredentials, Locator, APIResponse, PageScreenshotOptions } from 'playwright-core';
 export * from 'playwright-core';
 
 export type ReporterDescription =
@@ -24,7 +24,7 @@ export type ReporterDescription =
   ['github'] |
   ['junit'] | ['junit', { outputFile?: string, stripANSIControlSequences?: boolean }] |
   ['json'] | ['json', { outputFile?: string }] |
-  ['html'] | ['html', { outputFolder?: string, open?: 'always' | 'never' | 'on-failure' }] |
+  ['html'] | ['html', { outputFolder?: string, open?: 'always' | 'never' | 'on-failure', attachmentsBaseURL?: string }] |
   ['null'] |
   [string] | [string, any];
 
@@ -36,23 +36,25 @@ export interface Project<TestArgs = {}, WorkerArgs = {}> extends TestProject {
 
 // [internal] !!! DO NOT ADD TO THIS !!!
 // [internal] It is part of the public API and is computed from the user's config.
-// [internal] If you need new fields internally, add them to FullConfigInternal instead.
+// [internal] If you need new fields internally, add them to FullProjectInternal instead.
 export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
   grep: RegExp | RegExp[];
   grepInvert: RegExp | RegExp[] | null;
   metadata: Metadata;
   name: string;
+  dependencies: string[];
   snapshotDir: string;
   outputDir: string;
   repeatEach: number;
   retries: number;
+  teardown?: string;
   testDir: string;
   testIgnore: string | RegExp | (string | RegExp)[];
   testMatch: string | RegExp | (string | RegExp)[];
   timeout: number;
   use: UseOptions<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
-  // [internal] !!! DO NOT ADD TO THIS !!! See prior note.
 }
+// [internal] !!! DO NOT ADD TO THIS !!! See prior note.
 
 type LiteralUnion<T extends U, U = string> = T | (U & { zz_IGNORE_ME?: never });
 
@@ -129,7 +131,7 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
     parallel: SuiteFunction & {
       only: SuiteFunction;
     };
-    configure: (options: { mode?: 'parallel' | 'serial', retries?: number, timeout?: number }) => void;
+    configure: (options: { mode?: 'default' | 'parallel' | 'serial', retries?: number, timeout?: number }) => void;
   };
   skip(title: string, testFunction: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<void> | void): void;
   skip(): void;
@@ -151,7 +153,7 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
   beforeAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   afterAll(inner: (args: TestArgs & WorkerArgs, testInfo: TestInfo) => Promise<any> | any): void;
   use(fixtures: Fixtures<{}, {}, TestArgs, WorkerArgs>): void;
-  step<T>(title: string, body: () => Promise<T>): Promise<T>;
+  step<T>(title: string, body: () => T | Promise<T>): Promise<T>;
   expect: Expect;
   extend<T extends KeyValue, W extends KeyValue = {}>(fixtures: Fixtures<T, W, TestArgs, WorkerArgs>): TestType<TestArgs & T, WorkerArgs & W>;
   info(): TestInfo;
@@ -196,59 +198,54 @@ type ConnectOptions = {
   timeout?: number;
 };
 
-interface Storage {
-  get<T>(name: string): Promise<T | undefined>;
-  set<T>(name: string, value: T | undefined): Promise<void>;
-}
-
 export interface PlaywrightWorkerOptions {
   browserName: BrowserName;
   defaultBrowserType: BrowserName;
-  headless: boolean | undefined;
+  headless: boolean;
   channel: BrowserChannel | undefined;
   launchOptions: LaunchOptions;
   connectOptions: ConnectOptions | undefined;
-  screenshot: 'off' | 'on' | 'only-on-failure';
-  trace: TraceMode | /** deprecated */ 'retry-with-trace' | { mode: TraceMode, snapshots?: boolean, screenshots?: boolean, sources?: boolean };
+  screenshot: ScreenshotMode | { mode: ScreenshotMode } & Pick<PageScreenshotOptions, 'fullPage' | 'omitBackground'>;
+  trace: TraceMode | /** deprecated */ 'retry-with-trace' | { mode: TraceMode, snapshots?: boolean, screenshots?: boolean, sources?: boolean, attachments?: boolean };
   video: VideoMode | /** deprecated */ 'retry-with-video' | { mode: VideoMode, size?: ViewportSize };
 }
 
-export type TraceMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry';
+export type ScreenshotMode = 'off' | 'on' | 'only-on-failure';
+export type TraceMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | 'on-all-retries';
 export type VideoMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry';
 
 export interface PlaywrightTestOptions {
-  acceptDownloads: boolean | undefined;
-  bypassCSP: boolean | undefined;
-  colorScheme: ColorScheme | undefined;
+  acceptDownloads: boolean;
+  bypassCSP: boolean;
+  colorScheme: ColorScheme;
   deviceScaleFactor: number | undefined;
   extraHTTPHeaders: ExtraHTTPHeaders | undefined;
   geolocation: Geolocation | undefined;
-  hasTouch: boolean | undefined;
+  hasTouch: boolean;
   httpCredentials: HTTPCredentials | undefined;
-  ignoreHTTPSErrors: boolean | undefined;
-  isMobile: boolean | undefined;
-  javaScriptEnabled: boolean | undefined;
+  ignoreHTTPSErrors: boolean;
+  isMobile: boolean;
+  javaScriptEnabled: boolean;
   locale: string | undefined;
-  offline: boolean | undefined;
+  offline: boolean;
   permissions: string[] | undefined;
   proxy: Proxy | undefined;
   storageState: StorageState | undefined;
   timezoneId: string | undefined;
   userAgent: string | undefined;
-  viewport: ViewportSize | null | undefined;
+  viewport: ViewportSize | null;
   baseURL: string | undefined;
   contextOptions: BrowserContextOptions;
-  actionTimeout: number | undefined;
-  navigationTimeout: number | undefined;
-  serviceWorkers: ServiceWorkerPolicy | undefined;
-  testIdAttribute: string | undefined;
+  actionTimeout: number;
+  navigationTimeout: number;
+  serviceWorkers: ServiceWorkerPolicy;
+  testIdAttribute: string;
 }
 
 
 export interface PlaywrightWorkerArgs {
   playwright: typeof import('playwright-core');
   browser: Browser;
-  storage: Storage;
 }
 
 export interface PlaywrightTestArgs {
@@ -257,11 +254,13 @@ export interface PlaywrightTestArgs {
   request: APIRequestContext;
 }
 
-export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
-export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
+type ExcludeProps<A, B> = {
+  [K in Exclude<keyof A, keyof B>]: A[K];
+};
+type CustomProperties<T> = ExcludeProps<T, PlaywrightTestOptions & PlaywrightWorkerOptions & PlaywrightTestArgs & PlaywrightWorkerArgs>;
 
-import type * as expectType from './expect-types';
-import type { Suite } from './testReporter';
+export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
+export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
 
 type AsymmetricMatcher = Record<string, any>;
 
@@ -275,17 +274,38 @@ type AsymmetricMatchers = {
   stringMatching(sample: string | RegExp): AsymmetricMatcher;
 }
 
-type Inverse<Matchers> = {
-  /**
-   * Inverse next matcher. If you know how to test something, `.not` lets you test its opposite.
-   */
-  not: Matchers;
-};
-
 type IfAny<T, Y, N> = 0 extends (1 & T) ? Y : N;
 type ExtraMatchers<T, Type, Matchers> = T extends Type ? Matchers : IfAny<T, Matchers, {}>;
 
-type BaseMatchers<R, T> = expectType.Matchers<R> & PlaywrightTest.Matchers<R, T>;
+interface GenericAssertions<R> {
+  not: GenericAssertions<R>;
+  toBe(expected: unknown): R;
+  toBeCloseTo(expected: number, numDigits?: number): R;
+  toBeDefined(): R;
+  toBeFalsy(): R;
+  toBeGreaterThan(expected: number | bigint): R;
+  toBeGreaterThanOrEqual(expected: number | bigint): R;
+  toBeInstanceOf(expected: Function): R;
+  toBeLessThan(expected: number | bigint): R;
+  toBeLessThanOrEqual(expected: number | bigint): R;
+  toBeNaN(): R;
+  toBeNull(): R;
+  toBeTruthy(): R;
+  toBeUndefined(): R;
+  toContain(expected: string): R;
+  toContain(expected: unknown): R;
+  toContainEqual(expected: unknown): R;
+  toEqual(expected: unknown): R;
+  toHaveLength(expected: number): R;
+  toHaveProperty(keyPath: string | Array<string>, value?: unknown): R;
+  toMatch(expected: RegExp | string): R;
+  toMatchObject(expected: Record<string, unknown> | Array<unknown>): R;
+  toStrictEqual(expected: unknown): R;
+  toThrow(error?: unknown): R;
+  toThrowError(error?: unknown): R;
+}
+
+type BaseMatchers<R, T> = GenericAssertions<R> & PlaywrightTest.Matchers<R, T>;
 
 type MakeMatchers<R, T> = BaseMatchers<R, T> & {
     /**
@@ -298,24 +318,20 @@ type MakeMatchers<R, T> = BaseMatchers<R, T> & {
      */
     resolves: MakeMatchers<Promise<R>, Awaited<T>>;
     /**
-    * Unwraps the reason of a rejected promise so any other matcher can be chained.
-    * If the promise is fulfilled the assertion fails.
-    */
+     * Unwraps the reason of a rejected promise so any other matcher can be chained.
+     * If the promise is fulfilled the assertion fails.
+     */
     rejects: MakeMatchers<Promise<R>, Awaited<T>>;
-  } & ScreenshotAssertions &
+  } & SnapshotAssertions &
   ExtraMatchers<T, Page, PageAssertions> &
   ExtraMatchers<T, Locator, LocatorAssertions> &
-  ExtraMatchers<T, APIResponse, APIResponseAssertions>;
-
-type BaseExpect = {
-  // Removed following methods because they rely on a test-runner integration from Jest which we don't support:
-  // assertions(numberOfAssertions: number): void;
-  // extractExpectedAssertionsErrors(): ExpectedAssertionsErrors;
-  // hasAssertions(): void;
-  extend(matchers: any): void;
-  getState(): expectType.MatcherState;
-  setState(state: Partial<expectType.MatcherState>): void;
-}
+  ExtraMatchers<T, APIResponse, APIResponseAssertions> &
+  ExtraMatchers<T, Function, {
+    /**
+     * Retries the callback until it passes.
+     */
+    toPass(options?: { timeout?: number, intervals?: number[] }): Promise<void>;
+  }>;
 
 export type Expect = {
   <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }): MakeMatchers<void, T>;
@@ -326,9 +342,20 @@ export type Expect = {
      */
      not: BaseMatchers<Promise<void>, T>;
   };
-} & BaseExpect &
-  AsymmetricMatchers &
-  Inverse<Omit<AsymmetricMatchers, 'any' | 'anything'>>;
+  extend(matchers: any): void;
+  configure: (configuration: {
+    message?: string,
+    timeout?: number,
+    soft?: boolean,
+  }) => Expect;
+  getState(): {
+    expand?: boolean;
+    isNot?: boolean;
+    promise?: string;
+    utils: any;
+  };
+  not: Omit<AsymmetricMatchers, 'any' | 'anything'>;
+} & AsymmetricMatchers;
 
 type Awaited<T> = T extends PromiseLike<infer U> ? U : T;
 
@@ -350,6 +377,13 @@ export default test;
 
 export const _baseTest: TestType<{}, {}>;
 export const expect: Expect;
+
+/**
+ * Defines Playwright config
+ */
+export function defineConfig(config: PlaywrightTestConfig): PlaywrightTestConfig;
+export function defineConfig<T>(config: PlaywrightTestConfig<T>): PlaywrightTestConfig<T>;
+export function defineConfig<T, W>(config: PlaywrightTestConfig<T, W>): PlaywrightTestConfig<T, W>;
 
 // This is required to not export everything by default. See https://github.com/Microsoft/TypeScript/issues/19545#issuecomment-340490459
 export {};

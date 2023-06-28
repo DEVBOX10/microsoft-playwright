@@ -27,7 +27,7 @@ export { HttpsProxyAgent } from 'https-proxy-agent';
 import jpegLibrary from 'jpeg-js';
 export const jpegjs = jpegLibrary;
 
-import lockfileLibrary from 'proper-lockfile';
+const lockfileLibrary = require('./third_party/lockfile');
 export const lockfile = lockfileLibrary;
 
 import mimeLibrary from 'mime';
@@ -36,8 +36,8 @@ export const mime = mimeLibrary;
 import minimatchLibrary from 'minimatch';
 export const minimatch = minimatchLibrary;
 
-import msLibrary from 'ms';
-export const ms = msLibrary;
+import openLibrary from 'open';
+export const open = openLibrary;
 
 export { PNG } from 'pngjs';
 

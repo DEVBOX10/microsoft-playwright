@@ -13,19 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import http from 'http';
-import https from 'https';
 import path from 'path';
 import net from 'net';
 
 import { debug } from 'playwright-core/lib/utilsBundle';
-import { raceAgainstTimeout } from 'playwright-core/lib/utils/timeoutRunner';
-import { launchProcess } from 'playwright-core/lib/utils/processLauncher';
+import { raceAgainstTimeout, launchProcess, httpRequest } from 'playwright-core/lib/utils';
 
-import type { FullConfig, Reporter, Suite } from '../../types/testReporter';
+import type { FullConfig } from '../../types/testReporter';
 import type { TestRunnerPlugin } from '.';
-import type { FullConfigInternal } from '../types';
-import { envWithoutExperimentalLoaderOptions } from '../cli';
+import type { FullConfigInternal } from '../common/config';
+import { envWithoutExperimentalLoaderOptions } from '../util';
+import type { InternalReporter } from '../reporters/internalReporter';
 
 
 export type WebServerPluginOptions = {
@@ -36,6 +34,8 @@ export type WebServerPluginOptions = {
   reuseExistingServer?: boolean;
   cwd?: string;
   env?: { [key: string]: string; };
+  stdout?: 'pipe' | 'ignore';
+  stderr?: 'pipe' | 'ignore';
 };
 
 const DEFAULT_ENVIRONMENT_VARIABLES = {
@@ -46,21 +46,19 @@ const debugWebServer = debug('pw:webserver');
 
 export class WebServerPlugin implements TestRunnerPlugin {
   private _isAvailable?: () => Promise<boolean>;
-  private _killProcess?: (presendSigtermBeforeSigkillTimeout?: number) => Promise<void>;
+  private _killProcess?: () => Promise<void>;
   private _processExitedPromise!: Promise<any>;
   private _options: WebServerPluginOptions;
   private _checkPortOnly: boolean;
-  private _reporter?: Reporter;
-  private _launchTerminateTimeout: number;
+  private _reporter?: InternalReporter;
   name = 'playwright:webserver';
 
   constructor(options: WebServerPluginOptions, checkPortOnly: boolean) {
     this._options = options;
-    this._launchTerminateTimeout = this._options.timeout || 60 * 1000;
     this._checkPortOnly = checkPortOnly;
   }
 
-  public async setup(config: FullConfig, configDir: string, rootSuite: Suite, reporter: Reporter) {
+  public async setup(config: FullConfig, configDir: string, reporter: InternalReporter) {
     this._reporter = reporter;
     this._isAvailable = getIsAvailableFunction(this._options.url, this._checkPortOnly, !!this._options.ignoreHTTPSErrors, this._reporter.onStdErr?.bind(this._reporter));
     this._options.cwd = this._options.cwd ? path.resolve(configDir, this._options.cwd) : configDir;
@@ -74,8 +72,7 @@ export class WebServerPlugin implements TestRunnerPlugin {
   }
 
   public async teardown() {
-    // Send SIGTERM and wait for it to gracefully close.
-    await this._killProcess?.(this._launchTerminateTimeout);
+    await this._killProcess?.();
   }
 
   private async _startProcess(): Promise<void> {
@@ -111,9 +108,12 @@ export class WebServerPlugin implements TestRunnerPlugin {
 
     debugWebServer(`Process started`);
 
-    launchedProcess.stderr!.on('data', line => this._reporter!.onStdErr?.('[WebServer] ' + line.toString()));
+    launchedProcess.stderr!.on('data', line => {
+      if (debugWebServer.enabled || (this._options.stderr === 'pipe' || !this._options.stderr))
+        this._reporter!.onStdErr?.('[WebServer] ' + line.toString());
+    });
     launchedProcess.stdout!.on('data', line => {
-      if (debugWebServer.enabled)
+      if (debugWebServer.enabled || this._options.stdout === 'pipe')
         this._reporter!.onStdOut?.('[WebServer] ' + line.toString());
     });
   }
@@ -125,14 +125,15 @@ export class WebServerPlugin implements TestRunnerPlugin {
   }
 
   private async _waitForAvailability() {
+    const launchTimeout = this._options.timeout || 60 * 1000;
     const cancellationToken = { canceled: false };
     const { timedOut } = (await Promise.race([
-      raceAgainstTimeout(() => waitFor(this._isAvailable!, cancellationToken), this._launchTerminateTimeout),
+      raceAgainstTimeout(() => waitFor(this._isAvailable!, cancellationToken), launchTimeout),
       this._processExitedPromise,
     ]));
     cancellationToken.canceled = true;
     if (timedOut)
-      throw new Error(`Timed out waiting ${this._launchTerminateTimeout}ms from config.webServer.`);
+      throw new Error(`Timed out waiting ${launchTimeout}ms from config.webServer.`);
   }
 }
 
@@ -151,7 +152,7 @@ async function isPortUsed(port: number): Promise<boolean> {
   return await innerIsPortUsed('127.0.0.1') || await innerIsPortUsed('::1');
 }
 
-async function isURLAvailable(url: URL, ignoreHTTPSErrors: boolean, onStdErr: Reporter['onStdErr']) {
+async function isURLAvailable(url: URL, ignoreHTTPSErrors: boolean, onStdErr: InternalReporter['onStdErr']) {
   let statusCode = await httpStatusCode(url, ignoreHTTPSErrors, onStdErr);
   if (statusCode === 404 && url.pathname === '/') {
     const indexUrl = new URL(url);
@@ -161,21 +162,19 @@ async function isURLAvailable(url: URL, ignoreHTTPSErrors: boolean, onStdErr: Re
   return statusCode >= 200 && statusCode < 404;
 }
 
-async function httpStatusCode(url: URL, ignoreHTTPSErrors: boolean, onStdErr: Reporter['onStdErr']): Promise<number> {
-  const commonRequestOptions = { headers: { Accept: '*/*' } };
-  const isHttps = url.protocol === 'https:';
-  const requestOptions = isHttps ? {
-    ...commonRequestOptions,
-    rejectUnauthorized: !ignoreHTTPSErrors,
-  } : commonRequestOptions;
+async function httpStatusCode(url: URL, ignoreHTTPSErrors: boolean, onStdErr: InternalReporter['onStdErr']): Promise<number> {
   return new Promise(resolve => {
     debugWebServer(`HTTP GET: ${url}`);
-    (isHttps ? https : http).get(url, requestOptions, res => {
+    httpRequest({
+      url: url.toString(),
+      headers: { Accept: '*/*' },
+      rejectUnauthorized: !ignoreHTTPSErrors
+    }, res => {
       res.resume();
       const statusCode = res.statusCode ?? 0;
       debugWebServer(`HTTP Status: ${statusCode}`);
       resolve(statusCode);
-    }).on('error', error => {
+    }, error => {
       if ((error as NodeJS.ErrnoException).code === 'DEPTH_ZERO_SELF_SIGNED_CERT')
         onStdErr?.(`[WebServer] Self-signed certificate detected. Try adding ignoreHTTPSErrors: true to config.webServer.`);
       debugWebServer(`Error while checking if ${url} is available: ${error.message}`);
@@ -196,7 +195,7 @@ async function waitFor(waitFn: () => Promise<boolean>, cancellationToken: { canc
   }
 }
 
-function getIsAvailableFunction(url: string, checkPortOnly: boolean, ignoreHTTPSErrors: boolean, onStdErr: Reporter['onStdErr']) {
+function getIsAvailableFunction(url: string, checkPortOnly: boolean, ignoreHTTPSErrors: boolean, onStdErr: InternalReporter['onStdErr']) {
   const urlObject = new URL(url);
   if (!checkPortOnly)
     return () => isURLAvailable(urlObject, ignoreHTTPSErrors, onStdErr);
@@ -210,10 +209,10 @@ export const webServer = (options: WebServerPluginOptions): TestRunnerPlugin => 
 };
 
 export const webServerPluginsForConfig = (config: FullConfigInternal): TestRunnerPlugin[] => {
-  const shouldSetBaseUrl = !!config.webServer;
+  const shouldSetBaseUrl = !!config.config.webServer;
   const webServerPlugins = [];
-  for (const webServerConfig of config._webServers) {
-    if (webServerConfig.port !== undefined && webServerConfig.url !== undefined)
+  for (const webServerConfig of config.webServers) {
+    if ((!webServerConfig.port && !webServerConfig.url) || (webServerConfig.port && webServerConfig.url))
       throw new Error(`Exactly one of 'port' or 'url' is required in config.webServer.`);
 
     const url = webServerConfig.url || `http://localhost:${webServerConfig.port}`;

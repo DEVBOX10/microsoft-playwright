@@ -18,6 +18,7 @@ import type { ResourceSnapshot } from '@trace/snapshot';
 import { Expandable } from '@web/components/expandable';
 import * as React from 'react';
 import './networkResourceDetails.css';
+import type { Entry } from '@trace/har';
 
 export const NetworkResourceDetails: React.FunctionComponent<{
   resource: ResourceSnapshot,
@@ -64,68 +65,32 @@ export const NetworkResourceDetails: React.FunctionComponent<{
     readResources();
   }, [expanded, resource]);
 
-  function formatBody(body: string | null, contentType: string): string {
-    if (body === null)
-      return 'Loading...';
+  const { routeStatus, requestContentType, resourceName, contentType } = React.useMemo(() => {
+    const routeStatus = formatRouteStatus(resource);
+    const requestContentTypeHeader = resource.request.headers.find(q => q.name === 'Content-Type');
+    const requestContentType = requestContentTypeHeader ? requestContentTypeHeader.value : '';
+    const resourceName = resource.request.url.substring(resource.request.url.lastIndexOf('/'));
+    let contentType = resource.response.content.mimeType;
+    const charset = contentType.match(/^(.*);\s*charset=.*$/);
+    if (charset)
+      contentType = charset[1];
+    return { routeStatus, requestContentType, resourceName, contentType };
+  }, [resource]);
 
-    const bodyStr = body;
-
-    if (bodyStr === '')
-      return '<Empty>';
-
-    if (contentType.includes('application/json')) {
-      try {
-        return JSON.stringify(JSON.parse(bodyStr), null, 2);
-      } catch (err) {
-        return bodyStr;
-      }
-    }
-
-    if (contentType.includes('application/x-www-form-urlencoded'))
-      return decodeURIComponent(bodyStr);
-
-    return bodyStr;
-  }
-
-  function formatStatus(status: number): string {
-    if (status >= 200 && status < 400)
-      return 'status-success';
-
-    if (status >= 400)
-      return 'status-failure';
-
-    return 'status-neutral';
-  }
-
-  const requestContentTypeHeader = resource.request.headers.find(q => q.name === 'Content-Type');
-  const requestContentType = requestContentTypeHeader ? requestContentTypeHeader.value : '';
-  const resourceName = resource.request.url.substring(resource.request.url.lastIndexOf('/') + 1);
-
-  let contentType = resource.response.content.mimeType;
-  const charset = contentType.match(/^(.*);\s*charset=.*$/);
-  if (charset)
-    contentType = charset[1];
-
-  const renderTitle = () => {
-    if (resource.response._failureText) {
-      return <div className='network-request-title'>
-        <div className={'network-request-title-status status-failure'}>{resource.response._failureText}</div>
-        <div className='network-request-title-method'>{resource.request.method}</div>
-        <div className='network-request-title-url'>{resource.request.url}</div>
-      </div>;
-    } else {
-      return <div className='network-request-title'>
-        <div className={'network-request-title-status ' + formatStatus(resource.response.status)}>{resource.response.status}</div>
-        <div className='network-request-title-method'>{resource.request.method}</div>
-        <div className='network-request-title-url'>{resourceName}</div>
-        <div className='network-request-title-content-type'>{contentType}</div>
-      </div>;
-    }
-  };
+  const renderTitle = React.useCallback(() => {
+    return <div className='network-request-title'>
+      {routeStatus && <div className={`network-request-title-status status-route ${routeStatus}`}>{routeStatus}</div> }
+      {resource.response._failureText && <div className={'network-request-title-status status-failure'}>{resource.response._failureText}</div>}
+      {!resource.response._failureText && <div className={'network-request-title-status ' + formatStatus(resource.response.status)}>{resource.response.status}</div>}
+      <div className='network-request-title-status'>{resource.request.method}</div>
+      <div className='network-request-title-url'>{resourceName}</div>
+      <div className='network-request-title-content-type'>{contentType}</div>
+    </div>;
+  }, [contentType, resource, resourceName, routeStatus]);
 
   return <div
     className={'network-request ' + (selected ? 'selected' : '')} onClick={() => setSelected(index)}>
-    <Expandable expanded={expanded} setExpanded={setExpanded} style={{ width: '100%' }} title={ renderTitle() }>
+    <Expandable expanded={expanded} setExpanded={setExpanded} title={ renderTitle() }>
       <div className='network-request-details'>
         <div className='network-request-details-time'>{resource.time}ms</div>
         <div className='network-request-details-header'>URL</div>
@@ -138,9 +103,51 @@ export const NetworkResourceDetails: React.FunctionComponent<{
         {resource.request.postData ? <div className='network-request-body'>{formatBody(requestBody, requestContentType)}</div> : ''}
         <div className='network-request-details-header'>Response Body</div>
         {!resource.response.content._sha1 ? <div className='network-request-response-body'>Response body is not available for this request.</div> : ''}
-        {responseBody !== null && responseBody.dataUrl ? <img src={responseBody.dataUrl} /> : ''}
+        {responseBody !== null && responseBody.dataUrl ? <img draggable='false' src={responseBody.dataUrl} /> : ''}
         {responseBody !== null && responseBody.text ? <div className='network-request-response-body'>{formatBody(responseBody.text, resource.response.content.mimeType)}</div> : ''}
       </div>
     </Expandable>
   </div>;
 };
+
+function formatStatus(status: number): string {
+  if (status >= 200 && status < 400)
+    return 'status-success';
+  if (status >= 400)
+    return 'status-failure';
+  return '';
+}
+
+function formatBody(body: string | null, contentType: string): string {
+  if (body === null)
+    return 'Loading...';
+
+  const bodyStr = body;
+  if (bodyStr === '')
+    return '<Empty>';
+
+  if (contentType.includes('application/json')) {
+    try {
+      return JSON.stringify(JSON.parse(bodyStr), null, 2);
+    } catch (err) {
+      return bodyStr;
+    }
+  }
+
+  if (contentType.includes('application/x-www-form-urlencoded'))
+    return decodeURIComponent(bodyStr);
+
+  return bodyStr;
+}
+
+function formatRouteStatus(request: Entry): string {
+  if (request._wasAborted)
+    return 'aborted';
+  if (request._wasContinued)
+    return 'continued';
+  if (request._wasFulfilled)
+    return 'fulfilled';
+  if (request._apiRequest)
+    return 'api';
+  return '';
+}

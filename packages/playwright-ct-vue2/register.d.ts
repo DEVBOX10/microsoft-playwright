@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-export default function register(
-  components: { [key: string]: any },
+export default function pwRegister(
+  components: Record<string, any>,
   options?: {
     createApp: any,
     setDevtoolsHook: any,

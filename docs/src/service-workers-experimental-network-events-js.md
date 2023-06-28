@@ -27,18 +27,10 @@ If you're using (or are interested in using this this feature), please comment o
 
 You can use [`method: BrowserContext.serviceWorkers`] to list the Service [Worker]s, or specifically watch for the Service [Worker] if you anticipate a page will trigger its [registration](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerContainer/register):
 
-```js tab=js-ts
-const [ serviceworker ] = await Promise.all([
-  context.waitForEvent('serviceworker'),
-  page.goto('/example-with-a-service-worker.html'),
-]);
-```
-
-```js tab=js-js
-const [ serviceworker ] = await Promise.all([
-  context.waitForEvent('serviceworker'),
-  page.goto('/example-with-a-service-worker.html'),
-]);
+```js
+const serviceWorkerPromise = context.waitForEvent('serviceworker');
+await page.goto('/example-with-a-service-worker.html');
+const serviceworker = await serviceWorkerPromise;
 ```
 
 ```python async
@@ -67,18 +59,9 @@ Worker serviceWorker = page.waitForRequest(() -> {
 
 [`event: BrowserContext.serviceWorker`] is fired ***before*** the Service Worker's main script has been evaluated, so ***before*** calling service[`method: Worker.evaluate`] you should wait on its activation.
 
-There are more iodiomatic methods of waiting for a Service Worker to be activated, but the following is an implementation agnostic method:
+There are more idiomatic methods of waiting for a Service Worker to be activated, but the following is an implementation agnostic method:
 
-```js tab=js-ts
-await page.evaluate(async () => {
-  const registration = await window.navigator.serviceWorker.getRegistration();
-  if (registration.active?.state === 'activated')
-    return;
-  await new Promise(res => window.navigator.serviceWorker.addEventListener('controllerchange', res));
-});
-```
-
-```js tab=js-js
+```js
 await page.evaluate(async () => {
   const registration = await window.navigator.serviceWorker.getRegistration();
   if (registration.active?.state === 'activated')
@@ -144,16 +127,15 @@ Additionally, any network request made by the **Page** (including its sub-[Frame
 
 Many Service Worker implementations simply execute the request from the page (possibly with some custom caching/offline logic omitted for simplicity):
 
-```js
-// filename: transparent-service-worker.js
-self.addEventListener("fetch", (event) => {
+```js title="transparent-service-worker.js"
+self.addEventListener('fetch', event => {
   // actually make the request
-  const responsePromise = fetch(event.request); 
+  const responsePromise = fetch(event.request);
   // send it back to the page
   event.respondWith(responsePromise);
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener('activate', event => {
   event.waitUntil(clients.claim());
 });
 ```
@@ -197,42 +179,42 @@ When a Service Worker handles a page's request, the Service Worker can make 0 to
 Consider the code snippets below to understand Playwright's view into the Request/Responses and how it impacts routing in some of these cases.
 
 
-```js
-// filename: complex-service-worker.js
-self.addEventListener("install", function (event) {
+```js title="complex-service-worker.js"
+self.addEventListener('install', function(event) {
   event.waitUntil(
-    caches.open("v1").then(function (cache) {
+      caches.open('v1').then(function(cache) {
       // 1. Pre-fetches and caches /addressbook.json
-      return cache.add("/addressbook.json");
-    })
+        return cache.add('/addressbook.json');
+      })
   );
 });
 
 // Opt to handle FetchEvent's from the page
-self.addEventListener("fetch", (event) => {
+self.addEventListener('fetch', event => {
   event.respondWith(
-    (async () => {
-      // 1. Try to first serve directly from caches
-      let response = await caches.match(event.request);
-      if (response) return response;
+      (async () => {
+        // 1. Try to first serve directly from caches
+        const response = await caches.match(event.request);
+        if (response) return response;
 
-      // 2. Re-write request for /foo to /bar
-      if (event.request.url.endsWith("foo")) return fetch("./bar");
+        // 2. Re-write request for /foo to /bar
+        if (event.request.url.endsWith('foo')) return fetch('./bar');
 
-      // 3. Prevent tracker.js from being retrieved, and returns a placeholder response
-      if (event.request.url.endsWith("tracker.js"))
-        return new Response('conosole.log("no trackers!")', {
-          status: 200,
-          headers: { "Content-Type": "text/javascript" },
-        });
+        // 3. Prevent tracker.js from being retrieved, and returns a placeholder response
+        if (event.request.url.endsWith('tracker.js')) {
+          return new Response('console.log("no trackers!")', {
+            status: 200,
+            headers: { 'Content-Type': 'text/javascript' },
+          });
+        }
 
-      // 4. Otherwise, fallthrough, perform the fetch and respond
-      return fetch(event.request);
-    })()
+        // 4. Otherwise, fallthrough, perform the fetch and respond
+        return fetch(event.request);
+      })()
   );
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener('activate', event => {
   event.waitUntil(clients.claim());
 });
 ```
@@ -259,14 +241,7 @@ It's important to note that [`cache.add`](https://developer.mozilla.org/en-US/do
 
 Once the Service Worker is activated and handling FetchEvents, if the page makes the following requests:
 
-```js tab=js-ts
-await page.evaluate(() => fetch('/addressbook.json'));
-await page.evaluate(() => fetch('/foo'));
-await page.evaluate(() => fetch('/tracker.js'));
-await page.evaluate(() => fetch('/fallthrough.txt'));
-```
-
-```js tab=js-js
+```js
 await page.evaluate(() => fetch('/addressbook.json'));
 await page.evaluate(() => fetch('/foo'));
 await page.evaluate(() => fetch('/tracker.js'));
@@ -323,22 +298,7 @@ It's important to note:
 
 ## Routing Service Worker Requests Only
 
-```js tab=js-ts
-await context.route('**', async route => {
-  if (route.request().serviceWorker()) {
-    // NB: calling route.request().frame() here would THROW
-    return route.fulfill({
-      contentType: 'text/plain',
-      status: 200,
-      body: 'from sw',
-    });
-  } else {
-    return route.continue();
-  }
-});
-```
-
-```js tab=js-js
+```js
 await context.route('**', async route => {
   if (route.request().serviceWorker()) {
     // NB: calling route.request().frame() here would THROW
@@ -377,11 +337,12 @@ context.route('**', handle)
 await context.RouteAsync("**", async route => {
   if (route.request().serviceWorker() != null) {
     // NB: calling route.request.frame here would THROW
-    await route.FulfillAsync(
-      contentType: "text/plain",
-      status: 200,
-      body: "from sw"
-    );
+    await route.FulfillAsync(new ()
+    {
+      ContentType = "text/plain",
+      Status = 200,
+      Body = "from sw"
+    });
   } else {
     await route.Continue()Async();
   }

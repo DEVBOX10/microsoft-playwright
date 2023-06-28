@@ -25,7 +25,6 @@ const fs = require('fs');
 const { parseApi } = require('./api_parser');
 const { Type } = require('./documentation');
 const { EOL } = require('os');
-const { execSync } = require('child_process');
 
 const maxDocumentationColumnWidth = 80;
 Error.stackTraceLimit = 100;
@@ -91,10 +90,10 @@ classNameMap.set('Readable', 'Stream');
  *
  * @param {string} kind
  * @param {string} name
- * @param {Documentation.MarkdownNode[]} spec
+ * @param {Documentation.MarkdownNode[]|null} spec
  * @param {string[]} body
  * @param {string} folder
- * @param {string} extendsName
+ * @param {string|null} extendsName
  */
 function writeFile(kind, name, spec, body, folder, extendsName = null) {
   const out = [];
@@ -144,10 +143,19 @@ function renderClass(clazz) {
     renderMember(member, clazz, {}, body);
   }
 
+  /** @type {Documentation.MarkdownNode[]} */
+  const spec = [];
+  if (clazz.deprecated)
+    spec.push({ type: 'text', text: '**DEPRECATED** ' + clazz.deprecated });
+  if (clazz.discouraged)
+    spec.push({ type: 'text', text: clazz.discouraged });
+  if (clazz.spec)
+    spec.push(...clazz.spec);
+
   writeFile(
       'public partial interface',
       name,
-      clazz.spec,
+      spec,
       body,
       apiDir,
       clazz.extends ? `I${toTitleCase(clazz.extends)}` : null);
@@ -278,7 +286,22 @@ function renderConstructors(name, type, out) {
 }
 
 /**
- *
+ * @param {Documentation.Member} member
+ * @param {string[]} out
+ */
+function renderMemberDoc(member, out) {
+  /** @type {Documentation.MarkdownNode[]} */
+  const nodes = [];
+  if (member.deprecated)
+    nodes.push({ type: 'text', text: '**DEPRECATED** ' + member.deprecated });
+  if (member.discouraged)
+    nodes.push({ type: 'text', text: member.discouraged });
+  if (member.spec)
+    nodes.push(...member.spec);
+  out.push(...XmlDoc.renderXmlDoc(nodes, maxDocumentationColumnWidth));
+}
+
+/**
  * @param {Documentation.Member} member
  * @param {Documentation.Class|Documentation.Type} parent
  * @param {{nojson?: boolean, trimRunAndPrefix?: boolean}} options
@@ -287,7 +310,7 @@ function renderConstructors(name, type, out) {
 function renderMember(member, parent, options, out) {
   const name = toMemberName(member);
   if (member.kind === 'method') {
-    renderMethod(member, parent, name, { mode: 'options', trimRunAndPrefix: options.trimRunAndPrefix }, out);
+    renderMethod(member, parent, name, { trimRunAndPrefix: options.trimRunAndPrefix }, out);
     return;
   }
 
@@ -296,8 +319,7 @@ function renderMember(member, parent, options, out) {
     if (!member.type)
       throw new Error(`No Event Type for ${name} in ${parent.name}`);
     out.push('');
-    if (member.spec)
-      out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
+    renderMemberDoc(member, out);
     if (member.deprecated)
       out.push(`[System.Obsolete]`);
     out.push(`event EventHandler<${type}> ${name};`);
@@ -314,8 +336,7 @@ function renderMember(member, parent, options, out) {
       const { name, jsonName } = overload;
       let { type } = overload;
       out.push('');
-      if (member.spec)
-        out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
+      renderMemberDoc(member, out);
       if (!member.clazz)
         out.push(`${member.required ? '[Required]\n' : ''}[JsonPropertyName("${jsonName}")]`);
       if (member.deprecated)
@@ -348,12 +369,6 @@ function getPropertyOverloads(type, member, name, parent) {
     if (member.type.expression === '[string]|[float]')
       jsonName = `${member.name}String`;
     overloads.push({ type, name, jsonName });
-  } else {
-    for (const overload of member.type.union) {
-      const t = translateType(overload, parent, t => generateNameDefault(member, name, t, parent));
-      const suffix = toOverloadSuffix(t);
-      overloads.push({ type: t, name: name + suffix, jsonName: member.name + suffix });
-    }
   }
   return overloads;
 }
@@ -463,7 +478,6 @@ function generateEnumNameIfApplicable(type) {
  * @param {Documentation.Class | Documentation.Type} parent
  * @param {string} name
  * @param {{
- *   mode: 'options'|'named'|'base',
  *   nodocs?: boolean,
  *   abstract?: boolean,
  *   public?: boolean,
@@ -556,16 +570,12 @@ function renderMethod(member, parent, name, options, out) {
       return;
 
     if (arg.name === 'options') {
-      if (options.mode === 'options' || options.mode === 'base') {
-        const optionsType = rewriteSuggestedOptionsName(member.clazz.name + name.replace('<T>', '') + 'Options');
-        if (!optionTypes.has(optionsType) || arg.type.properties.length > optionTypes.get(optionsType).properties.length)
-          optionTypes.set(optionsType, arg.type);
-        args.push(`${optionsType}? options = default`);
-        argTypeMap.set(`${optionsType}? options = default`, 'options');
-        addParamsDoc('options', ['Call options']);
-      } else {
-        arg.type.properties.forEach(processArg);
-      }
+      const optionsType = rewriteSuggestedOptionsName(member.clazz.name + name.replace('<T>', '') + 'Options');
+      if (!optionTypes.has(optionsType) || arg.type.properties.length > optionTypes.get(optionsType).properties.length)
+        optionTypes.set(optionsType, arg.type);
+      args.push(`${optionsType}? options = default`);
+      argTypeMap.set(`${optionsType}? options = default`, 'options');
+      addParamsDoc('options', ['Call options']);
       return;
     }
 
@@ -632,50 +642,19 @@ function renderMethod(member, parent, name, options, out) {
       .sort((a, b) => b.alias === 'options' ? -1 : 0) // move options to the back to the arguments list
       .forEach(processArg);
 
-  let body = ';';
-  if (options.mode === 'base') {
-    // Generate options -> named transition.
-    const tokens = [];
-    for (const arg of member.argsArray) {
-      if (arg.name === 'action' && options.trimRunAndPrefix)
-        continue;
-      if (arg.name !== 'options') {
-        tokens.push(toArgumentName(arg.name));
-        continue;
-      }
-      for (const opt of arg.type.properties) {
-        // TODO: use translate type here?
-        if (opt.type.union && !opt.type.union[0].name.startsWith('"') && opt.type.union[0].name !== 'null' && opt.type.expression !== '[string]|[Buffer]') {
-          // Explode overloads.
-          for (const t of opt.type.union) {
-            const suffix = toOverloadSuffix(translateType(t, parent));
-            tokens.push(`${opt.name}${suffix}: options.${toMemberName(opt)}${suffix}`);
-          }
-        } else {
-          tokens.push(`${opt.alias || opt.name}: options.${toMemberName(opt)}`);
-        }
-      }
-    }
-    body = `
-{
-    options ??= new ${member.clazz.name}${name}Options();
-    return ${toAsync(name, member.async)}(${tokens.join(', ')});
-}`;
-  }
-
   if (!explodedArgs.length) {
     if (!options.nodocs) {
-      out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
+      renderMemberDoc(member, out);
       paramDocs.forEach((value, i) => printArgDoc(i, value, out));
     }
     if (member.deprecated)
       out.push(`[System.Obsolete]`);
-    out.push(`${modifiers}${type} ${toAsync(name, member.async)}(${args.join(', ')})${body}`);
+    out.push(`${modifiers}${type} ${toAsync(name, member.async)}(${args.join(', ')});`);
   } else {
     let containsOptionalExplodedArgs = false;
     explodedArgs.forEach((explodedArg, argIndex) => {
       if (!options.nodocs)
-        out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
+        renderMemberDoc(member, out);
       const overloadedArgs = [];
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
@@ -692,7 +671,7 @@ function renderMethod(member, parent, name, options, out) {
           overloadedArgs.push(arg);
         }
       }
-      out.push(`${modifiers}${type} ${toAsync(name, member.async)}(${overloadedArgs.join(', ')})${body}`);
+      out.push(`${modifiers}${type} ${toAsync(name, member.async)}(${overloadedArgs.join(', ')});`);
       if (argIndex < explodedArgs.length - 1)
         out.push(''); // output a special blank line
     });
@@ -704,7 +683,7 @@ function renderMethod(member, parent, name, options, out) {
     if (containsOptionalExplodedArgs) {
       const filteredArgs = args.filter(x => x !== 'OPTIONAL_EXPLODED_ARG');
       if (!options.nodocs)
-        out.push(...XmlDoc.renderXmlDoc(member.spec, maxDocumentationColumnWidth));
+        renderMemberDoc(member, out);
       filteredArgs.forEach(arg => {
         if (arg === 'EXPLODED_ARG')
           throw new Error(`Unsupported required union arg combined an optional union inside ${member.name}`);
@@ -712,7 +691,7 @@ function renderMethod(member, parent, name, options, out) {
         if (!options.nodocs)
           printArgDoc(argType, paramDocs.get(argType), out);
       });
-      out.push(`${type} ${name}(${filteredArgs.join(', ')})${body}`);
+      out.push(`${type} ${name}(${filteredArgs.join(', ')});`);
     }
   }
 }
@@ -875,14 +854,6 @@ function printArgDoc(name, value, out) {
 }
 
 /**
- * @param {string} typeName
- * @return {string}
- */
-function toOverloadSuffix(typeName) {
-  return toTitleCase(typeName.replace(/[<].*[>]/, '').replace(/[^a-zA-Z]/g, ''));
-}
-
-/**
  * @param {string} name
  * @param {boolean} convert
  */
@@ -895,7 +866,7 @@ function toAsync(name, convert) {
 }
 
 /**
- * @param {string} suggestedName 
+ * @param {string} suggestedName
  * @returns {string}
  */
 function rewriteSuggestedOptionsName(suggestedName) {

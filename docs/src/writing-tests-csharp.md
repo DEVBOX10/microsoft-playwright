@@ -1,6 +1,6 @@
 ---
 id: writing-tests
-title: "Writing Tests"
+title: "Writing tests"
 ---
 
 Playwright assertions are created specifically for the dynamic web. Checks are automatically retried until the necessary conditions are met. Playwright comes with [auto-wait](./actionability.md) built in meaning it waits for elements to be actionable prior to performing actions. Playwright provides the [Expect](./test-assertions) function to write assertions.
@@ -19,7 +19,10 @@ Take a look at the example test below to see how to write a test using using [lo
 
 ```csharp
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Microsoft.Playwright;
 using Microsoft.Playwright.NUnit;
+using NUnit.Framework;
 
 namespace PlaywrightTests;
 
@@ -36,7 +39,7 @@ public class Tests : PageTest
         await Expect(Page).ToHaveTitleAsync(new Regex("Playwright"));
 
         // create a locator
-        var getStarted = Page.GetByRole(AriaRole.Link, new() { NameString = "Get started" });
+        var getStarted = Page.GetByRole(AriaRole.Link, new() { Name = "Get started" });
 
         // Expect an attribute "to be strictly equal" to the value.
         await Expect(getStarted).ToHaveAttributeAsync("href", "/docs/intro");
@@ -55,7 +58,10 @@ public class Tests : PageTest
 
 ```csharp
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Microsoft.Playwright;
 using Microsoft.Playwright.MSTest;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace PlaywrightTests;
 
@@ -71,7 +77,7 @@ public class UnitTest1 : PageTest
         await Expect(Page).ToHaveTitleAsync(new Regex("Playwright"));
 
         // create a locator
-        var getStarted = Page.GetByRole(AriaRole.Link, new() { NameString = "Get started" });
+        var getStarted = Page.GetByRole(AriaRole.Link, new() { Name = "Get started" });
 
         // Expect an attribute "to be strictly equal" to the value.
         await Expect(getStarted).ToHaveAttributeAsync("href", "/docs/intro");
@@ -102,7 +108,7 @@ await Expect(Page).ToHaveTitleAsync(new Regex("Playwright"));
 [Locators](./locators.md) are the central piece of Playwright's auto-waiting and retry-ability. Locators represent a way to find element(s) on the page at any moment and are used to perform actions on elements such as `.ClickAsync` `.FillAsync` etc.
 
 ```csharp
-var getStarted = Page.GetByRole(AriaRole.Link, new() { NameString = "Get started" });
+var getStarted = Page.GetByRole(AriaRole.Link, new() { Name = "Get started" });
 
 await Expect(getStarted).ToHaveAttributeAsync("href", "/docs/installation");
 await getStarted.ClickAsync();
@@ -145,7 +151,9 @@ public class Tests : PageTest
 <TabItem value="mstest">
 
 ```csharp
+using System.Threading.Tasks;
 using Microsoft.Playwright.MSTest;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace PlaywrightTests;
 
@@ -207,7 +215,9 @@ public class Tests : PageTest
 <TabItem value="mstest">
 
 ```csharp
+using System.Threading.Tasks;
 using Microsoft.Playwright.MSTest;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace PlaywrightTests;
 

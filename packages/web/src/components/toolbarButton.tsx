@@ -20,22 +20,40 @@ import * as React from 'react';
 
 export interface ToolbarButtonProps {
   title: string,
-  icon: string,
+  icon?: string,
   disabled?: boolean,
   toggled?: boolean,
   onClick: () => void,
+  style?: React.CSSProperties
 }
 
 export const ToolbarButton: React.FC<React.PropsWithChildren<ToolbarButtonProps>> = ({
   children,
   title = '',
-  icon = '',
+  icon,
   disabled = false,
   toggled = false,
   onClick = () => {},
+  style,
 }) => {
   let className = `toolbar-button ${icon}`;
   if (toggled)
     className += ' toggled';
-  return <button className={className} onClick={onClick} title={title} disabled={!!disabled}><span className={`codicon codicon-${icon}`}></span>{ children }</button>;
+  return <button
+    className={className}
+    onMouseDown={preventDefault}
+    onClick={onClick}
+    onDoubleClick={preventDefault}
+    title={title}
+    disabled={!!disabled}
+    style={style}
+  >
+    {icon && <span className={`codicon codicon-${icon}`} style={children ? { marginRight: 5 } : {}}></span>}
+    {children}
+  </button>;
+};
+
+const preventDefault = (e: any) => {
+  e.stopPropagation();
+  e.preventDefault();
 };

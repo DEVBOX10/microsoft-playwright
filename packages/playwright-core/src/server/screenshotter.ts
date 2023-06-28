@@ -20,7 +20,7 @@ import type { Rect } from '../common/types';
 import { helper } from './helper';
 import type { Page } from './page';
 import type { Frame } from './frames';
-import type { ParsedSelector } from './isomorphic/selectorParser';
+import type { ParsedSelector } from '../utils/isomorphic/selectorParser';
 import type * as types from './types';
 import type { Progress } from './progress';
 import { assert } from '../utils';
@@ -38,6 +38,7 @@ export type ScreenshotOptions = {
   omitBackground?: boolean,
   animations?: 'disabled' | 'allow',
   mask?: { frame: Frame, selector: string}[],
+  maskColor?: string,
   fullPage?: boolean,
   clip?: Rect,
   scale?: 'css' | 'device',
@@ -261,14 +262,14 @@ export class Screenshotter {
       return cleanup;
 
     await Promise.all((options.mask || []).map(async ({ frame, selector }) => {
-      const pair = await frame.resolveFrameForSelectorNoWait(selector);
+      const pair = await frame.selectors.resolveFrameForSelector(selector);
       if (pair)
         framesToParsedSelectors.set(pair.frame, pair.info.parsed);
     }));
     progress.throwIfAborted(); // Avoid extra work.
 
     await Promise.all([...framesToParsedSelectors.keys()].map(async frame => {
-      await frame.maskSelectors(framesToParsedSelectors.get(frame));
+      await frame.maskSelectors(framesToParsedSelectors.get(frame), options.maskColor);
     }));
     progress.cleanupWhenAborted(cleanup);
     return cleanup;
@@ -288,7 +289,8 @@ export class Screenshotter {
     const cleanupHighlight = await this._maskElements(progress, options);
     progress.throwIfAborted(); // Avoid extra work.
 
-    const buffer = await this._page._delegate.takeScreenshot(progress, format, documentRect, viewportRect, options.quality, fitsViewport, options.scale || 'device');
+    const quality = format === 'jpeg' ? options.quality ?? 80 : undefined;
+    const buffer = await this._page._delegate.takeScreenshot(progress, format, documentRect, viewportRect, quality, fitsViewport, options.scale || 'device');
     progress.throwIfAborted(); // Avoid restoring after failure - should be done by cleanup.
 
     await cleanupHighlight();

@@ -28,7 +28,7 @@ test('should work and remove non-failures', async ({ runInlineTest }, testInfo) 
       };
     `,
     'dir/my-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test 1', async ({}, testInfo) => {
         if (testInfo.retry) {
           expect(testInfo.outputDir).toContain('my-test-test-1-chromium-retry' + testInfo.retry);
@@ -70,7 +70,7 @@ test('should work and remove non-failures', async ({ runInlineTest }, testInfo) 
 test('should include repeat token', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test', ({}, testInfo) => {
         if (testInfo.repeatEachIndex)
           expect(testInfo.outputPath('')).toContain('repeat' + testInfo.repeatEachIndex);
@@ -87,19 +87,18 @@ test('should default to package.json directory', async ({ runInlineTest }, testI
   const result = await runInlineTest({
     'foo/package.json': `{ "name": "foo" }`,
     'foo/bar/playwright.config.js': `
-      module.exports = { projects: [ {} ] };
+      module.exports = { reporters: [], projects: [ {} ] };
     `,
     'foo/bar/baz/tests/a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       const fs = require('fs');
       test('pass', ({}, testInfo) => {
         expect(process.cwd()).toBe(__dirname);
         fs.writeFileSync(testInfo.outputPath('foo.ts'), 'foobar');
       });
     `
-  }, { 'reporter': '' }, {}, {
+  }, {}, { PW_TEST_REPORTER: '' }, {
     cwd: 'foo/bar/baz/tests',
-    usesCustomOutputDir: true
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
@@ -112,7 +111,7 @@ test('should default to package.json directory', async ({ runInlineTest }, testI
 test('should be unique for beforeAll hook from different workers', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'a.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test.beforeAll(({}, testInfo) => {
         console.log('\\n%%' + testInfo.outputDir);
       });
@@ -126,23 +125,24 @@ test('should be unique for beforeAll hook from different workers', async ({ runI
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(1);
   expect(result.failed).toBe(1);
-  expect(result.output.split('\n').filter(x => x.startsWith('%%'))).toEqual([
-    `%%${testInfo.outputPath('test-results', 'a-fails')}`,
-    `%%${testInfo.outputPath('test-results', 'a-fails-retry1')}`,
-    `%%${testInfo.outputPath('test-results', 'a-passes')}`,
+  expect(result.outputLines).toEqual([
+    `${testInfo.outputPath('test-results', 'a-fails')}`,
+    `${testInfo.outputPath('test-results', 'a-fails-retry1')}`,
+    `${testInfo.outputPath('test-results', 'a-passes')}`,
   ]);
 });
 
 test('should include the project name', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.ts': `
-      export const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      export const test = base.extend({
         auto: [ async ({}, run, testInfo) => {
           testInfo.snapshotSuffix = '';
           await run();
         }, { auto: true } ]
       });
-      export const test2 = pwt.test.extend({
+      export const test2 = base.extend({
         auto: [ async ({}, run, testInfo) => {
           testInfo.snapshotSuffix = 'suffix';
           await run();
@@ -194,10 +194,10 @@ test('should include the project name', async ({ runInlineTest }) => {
   expect(result.output).toContain('my-test.spec.js-snapshots/bar-foo.txt');
 
   // test1, run with bar
-  expect(result.output).toContain('test-results/my-test-test-1-Bar-space-/bar.txt');
-  expect(result.output).toContain('my-test.spec.js-snapshots/bar-Bar-space-.txt');
-  expect(result.output).toContain('test-results/my-test-test-1-Bar-space--retry1/bar.txt');
-  expect(result.output).toContain('my-test.spec.js-snapshots/bar-Bar-space-.txt');
+  expect(result.output).toContain('test-results/my-test-test-1-Bar-space-dc1461/bar.txt');
+  expect(result.output).toContain('my-test.spec.js-snapshots/bar-Bar-space-dc1461.txt');
+  expect(result.output).toContain('test-results/my-test-test-1-Bar-space-dc1461-retry1/bar.txt');
+  expect(result.output).toContain('my-test.spec.js-snapshots/bar-Bar-space-dc1461.txt');
 
   // test2, run with empty
   expect(result.output).toContain('test-results/my-test-test-2/bar.txt');
@@ -212,14 +212,15 @@ test('should include the project name', async ({ runInlineTest }) => {
   expect(result.output).toContain('my-test.spec.js-snapshots/bar-foo-suffix.txt');
 
   // test2, run with bar
-  expect(result.output).toContain('test-results/my-test-test-2-Bar-space-/bar.txt');
-  expect(result.output).toContain('my-test.spec.js-snapshots/bar-Bar-space--suffix.txt');
+  expect(result.output).toContain('test-results/my-test-test-2-Bar-space-dc1461/bar.txt');
+  expect(result.output).toContain('my-test.spec.js-snapshots/bar-Bar-space-dc1461-suffix.txt');
 });
 
 test('should include path option in snapshot', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.ts': `
-      export const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      export const test = base.extend({
         auto: [ async ({}, run, testInfo) => {
           testInfo.snapshotSuffix = 'suffix';
           await run();
@@ -227,9 +228,9 @@ test('should include path option in snapshot', async ({ runInlineTest }) => {
       });
     `,
     'playwright.config.ts': `
-    module.exports = { projects: [
-      { name: 'foo' },
-    ] };
+      module.exports = { projects: [
+        { name: 'foo' },
+      ] };
     `,
     'my-test.spec.js': `
       const { test } = require('./helper');
@@ -244,40 +245,11 @@ test('should include path option in snapshot', async ({ runInlineTest }) => {
   expect(result.output).toContain('my-test.spec.js-snapshots/test/path/bar-foo-suffix.txt');
 });
 
-test('should error if snapshotPath is resolved to outside of parent', async ({ runInlineTest }) => {
-  const result = await runInlineTest({
-    'helper.ts': `
-      export const test = pwt.test.extend({
-        auto: [ async ({}, run, testInfo) => {
-          testInfo.snapshotSuffix = 'suffix';
-          await run();
-        }, { auto: true } ]
-      });
-    `,
-    'playwright.config.ts': `
-      module.exports = { projects: [
-        { name: 'foo' },
-      ] };
-    `,
-    'my-test.spec.js': `
-      const { test } = require('./helper');
-      test('test with parent path', async ({}, testInfo) => {
-        console.log(testInfo.snapshotPath('..', 'test', 'path', 'bar.txt').replace(/\\\\/g, '/'));
-      });
-    `,
-  });
-
-  expect(result.exitCode).toBe(1);
-  expect(result.results[0].status).toBe('failed');
-  expect(result.output).toContain('The snapshotPath is not allowed outside of the parent directory. Please fix the defined path.');
-  const badPath = path.join('..', 'test', 'path', 'bar-foo-suffix.txt');
-  expect(result.output).toContain(`snapshotPath: ${badPath}`);
-});
-
 test('should error if outputPath is resolved to outside of parent', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.ts': `
-      export const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      export const test = base.extend({
         auto: [ async ({}, run, testInfo) => {
           testInfo.snapshotSuffix = 'suffix';
           await run();
@@ -325,7 +297,7 @@ test('should remove output dirs for projects run', async ({ runInlineTest }, tes
       ] };
     `,
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('my test', ({}, testInfo) => {});
     `
   }, { output: '' });
@@ -343,7 +315,7 @@ test('should remove folders with preserveOutput=never', async ({ runInlineTest }
       export default { preserveOutput: 'never' };
     `,
     'dir/my-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test 1', async ({}, testInfo) => {
         require('fs').writeFileSync(testInfo.outputPath('file.txt'), 'content', 'utf-8');
         if (testInfo.retry < 2)
@@ -362,7 +334,7 @@ test('should remove folders with preserveOutput=never', async ({ runInlineTest }
 test('should preserve failed results', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'dir/my-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test 1', async ({}, testInfo) => {
         require('fs').writeFileSync(testInfo.outputPath('file.txt'), 'content', 'utf-8');
         if (testInfo.retry < 2)
@@ -381,7 +353,7 @@ test('should preserve failed results', async ({ runInlineTest }, testInfo) => {
 test('should accept a relative path for outputDir', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'my-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test', async ({}, testInfo) => {
         expect(testInfo.outputDir).toBe(${JSON.stringify(path.join(testInfo.outputDir, './my-output-dir', 'my-test-test'))});
       });
@@ -391,7 +363,7 @@ test('should accept a relative path for outputDir', async ({ runInlineTest }, te
       { outputDir: './my-output-dir' },
     ] };
     `,
-  }, {}, {}, { usesCustomOutputDir: true });
+  });
   expect(result.exitCode).toBe(0);
 });
 
@@ -404,13 +376,13 @@ test('should have output dir based on rootDir (cwd)', async ({ runInlineTest }, 
         outputDir: 'test-results/',
       };`,
     'e2e/example.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       const fs = require('fs');
       test('hello world', async ({ }, testInfo) => {
         fs.writeFileSync(testInfo.outputPath('foo.txt'), 'hello');
       });
     `,
-  }, {}, {}, { usesCustomOutputDir: true });
+  });
   expect(result.exitCode).toBe(0);
   expect(fs.existsSync(testInfo.outputPath('test-results', 'example-hello-world', 'foo.txt'))).toBe(true);
 });
@@ -419,20 +391,72 @@ test('should have output dir based on rootDir (cwd)', async ({ runInlineTest }, 
 test('should allow nonAscii characters in the output dir', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'my-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('こんにちは世界', async ({}, testInfo) => {
         console.log('\\n%%' + testInfo.outputDir);
       });
     `,
   });
-  const outputDir = result.output.split('\n').filter(x => x.startsWith('%%'))[0].slice('%%'.length);
+  const outputDir = result.outputLines[0];
   expect(outputDir).toBe(path.join(testInfo.outputDir, 'test-results', 'my-test-こんにちは世界'));
+});
+
+test('should not collide with other tests when nonAscii characters are replaced', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23386' });
+  const result = await runInlineTest({
+    'my-test.spec.js': `
+      import { test, expect } from '@playwright/test';
+      const specialChars = ['>', '=', '<', '+', '#', '-', '.', '!', '$', '%', '&', '\\'', '*', '/', '?', '^', '_', '\`', '{', '|', '}', '~', '(', ')', '[', ']', '@'];
+      for (const char of specialChars) {
+        test('test' + char, async ({}, testInfo) => {
+          console.log('\\n%%' + testInfo.outputDir);
+        });
+      }
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  const outputDirs = result.outputLines;
+  expect(outputDirs.length).toBe(27);
+  expect(new Set(outputDirs).size).toBe(outputDirs.length);
+  const forbiddenCharacters = ['\\', '/', ':', '*', '?', '"', '<', '>', '|', '%'];
+  for (const outputDir of outputDirs) {
+    const relativePath = path.relative(path.join(test.info().outputDir, 'test-results'), outputDir);
+    for (const forbiddenCharacter of forbiddenCharacters)
+      expect(relativePath).not.toContain(forbiddenCharacter);
+  }
+});
+
+test('should generate expected output dir names', async ({ runInlineTest }, testInfo) => {
+  const runTests = async (fileName: string, testNames: string[]) => {
+    const result = await runInlineTest({
+      [fileName]: `
+        import { test, expect } from '@playwright/test';
+        ${testNames.map(name => `test('${name}', async ({}, testInfo) => console.log('\\n%%' + testInfo.outputDir));`).join('\n')}
+      `,
+    });
+    expect(result.exitCode).toBe(0);
+    const outputDirs = result.outputLines.map(line => path.relative(path.join(testInfo.outputDir, 'test-results'), line));
+    return outputDirs;
+  };
+  expect(await runTests('filename.spec.js', [
+    'testing > foo',
+    'testing multiple spaces',
+    'testing    multiple   spaces',
+    '!!!hello!!!',
+    'dashes-are-used',
+  ])).toEqual([
+    'filename-testing-foo-574286',
+    'filename-testing-multiple-spaces',
+    'filename-testing-multiple-spaces-f5d359',
+    'filename-hello-8eb257',
+    'filename-dashes-are-used-c67e31',
+  ]);
 });
 
 test('should allow shorten long output dirs characters in the output dir', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'very/deep/and/long/file/name/that/i/want/to/be/trimmed/my-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test.describe('this is a really long description that would be too long for a file path', () => {
         test('and this is an even longer test name that just keeps going and going and we should shorten it', async ({}, testInfo) => {
           console.log('\\n%%' + testInfo.outputDir);
@@ -440,27 +464,27 @@ test('should allow shorten long output dirs characters in the output dir', async
       });
     `,
   });
-  const outputDir = result.output.split('\n').filter(x => x.startsWith('%%'))[0].slice('%%'.length);
+  const outputDir = result.outputLines[0];
   expect(outputDir).toBe(path.join(testInfo.outputDir, 'test-results', 'very-deep-and-long-file-name-that-i-want-to-be-99202--keeps-going-and-going-and-we-should-shorten-it'));
 });
 
 test('should not mangle double dashes', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'my--file.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('my--test', async ({}, testInfo) => {
         console.log('\\n%%' + testInfo.outputDir);
       });
     `,
   });
-  const outputDir = result.output.split('\n').filter(x => x.startsWith('%%'))[0].slice('%%'.length);
-  expect(outputDir).toBe(path.join(testInfo.outputDir, 'test-results', 'my--file-my--test'));
+  const outputDir = result.outputLines[0];
+  expect(outputDir).toBe(path.join(testInfo.outputDir, 'test-results', 'my--file-my-test-68b7dd'));
 });
 
 test('should allow include the describe name the output dir', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'my-test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test.describe('hello', () => {
         test('world', async ({}, testInfo) => {
           console.log('\\n%%' + testInfo.outputDir);
@@ -468,6 +492,6 @@ test('should allow include the describe name the output dir', async ({ runInline
       });
     `,
   });
-  const outputDir = result.output.split('\n').filter(x => x.startsWith('%%'))[0].slice('%%'.length);
+  const outputDir = result.outputLines[0];
   expect(outputDir).toBe(path.join(testInfo.outputDir, 'test-results', 'my-test-hello-world'));
 });

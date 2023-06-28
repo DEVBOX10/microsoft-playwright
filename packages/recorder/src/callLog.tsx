@@ -30,7 +30,7 @@ export const CallLogView: React.FC<CallLogProps> = ({
   language,
   log,
 }) => {
-  const messagesEndRef = React.createRef<HTMLDivElement>();
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const [expandOverrides, setExpandOverrides] = React.useState<Map<string, boolean>>(new Map());
   React.useLayoutEffect(() => {
     if (log.find(callLog => callLog.reveal))
@@ -44,7 +44,7 @@ export const CallLogView: React.FC<CallLogProps> = ({
       const locatorCall = `page.${locator}`;
       let titlePrefix = callLog.title;
       let titleSuffix = '';
-      if (callLog.title.startsWith('expect.to')) {
+      if (callLog.title.startsWith('expect.to') || callLog.title.startsWith('expect.not.to')) {
         titlePrefix = 'expect(';
         titleSuffix = `).${callLog.title.substring('expect.'.length)}()`;
       } else if (callLog.title.startsWith('locator.')) {

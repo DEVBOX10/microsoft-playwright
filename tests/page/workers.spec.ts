@@ -18,6 +18,7 @@
 import { test as it, expect } from './pageTest';
 import { attachFrame } from '../config/utils';
 import type { ConsoleMessage } from 'playwright-core';
+import fs from 'fs';
 
 it('Page.workers @smoke', async function({ page, server }) {
   await Promise.all([
@@ -125,8 +126,9 @@ it('should clear upon cross-process navigation', async function({ server, page }
   expect(page.workers().length).toBe(0);
 });
 
-it('should attribute network activity for worker inside iframe to the iframe', async function({ page, server, browserName }) {
-  it.fixme(browserName === 'firefox' || browserName === 'chromium');
+it('should attribute network activity for worker inside iframe to the iframe', async function({ page, server, browserName, browserMajorVersion }) {
+  it.fixme(browserName === 'chromium');
+  it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
 
   await page.goto(server.PREFIX + '/empty.html');
   const [worker, frame] = await Promise.all([
@@ -142,7 +144,8 @@ it('should attribute network activity for worker inside iframe to the iframe', a
   expect(request.frame()).toBe(frame);
 });
 
-it('should report network activity', async function({ page, server }) {
+it('should report network activity', async function({ page, server, browserName, browserMajorVersion, asset }) {
+  it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
   const [worker] = await Promise.all([
     page.waitForEvent('worker'),
     page.goto(server.PREFIX + '/worker/worker.html'),
@@ -156,9 +159,11 @@ it('should report network activity', async function({ page, server }) {
   expect(request.url()).toBe(url);
   expect(response.request()).toBe(request);
   expect(response.ok()).toBe(true);
+  expect(await response.text()).toBe(fs.readFileSync(asset('one-style.css'), 'utf8'));
 });
 
-it('should report network activity on worker creation', async function({ page, server }) {
+it('should report network activity on worker creation', async function({ page, server, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
   // Chromium needs waitForDebugger enabled for this one.
   await page.goto(server.EMPTY_PAGE);
   const url = server.PREFIX + '/one-style.css';

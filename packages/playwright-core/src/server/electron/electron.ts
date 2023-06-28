@@ -35,7 +35,8 @@ import type { Progress } from '../progress';
 import { ProgressController } from '../progress';
 import { helper } from '../helper';
 import { eventsHelper } from '../../utils/eventsHelper';
-import type { BrowserOptions, BrowserProcess, PlaywrightOptions } from '../browser';
+import type { BrowserOptions, BrowserProcess } from '../browser';
+import type { Playwright } from '../playwright';
 import type * as childProcess from 'child_process';
 import * as readline from 'readline';
 import { RecentLogsCollector } from '../../common/debugLogger';
@@ -70,16 +71,22 @@ export class ElectronApplication extends SdkObject {
     this._nodeElectronHandlePromise = new Promise(f => {
       this._nodeSession.on('Runtime.executionContextCreated', async (event: any) => {
         if (event.context.auxData && event.context.auxData.isDefault) {
-          this._nodeExecutionContext = new js.ExecutionContext(this, new CRExecutionContext(this._nodeSession, event.context));
-          f(await js.evaluate(this._nodeExecutionContext, false /* returnByValue */, `process.mainModule.require('electron')`));
+          this._nodeExecutionContext = new js.ExecutionContext(this, new CRExecutionContext(this._nodeSession, event.context), 'electron');
+          const source = `process.mainModule.require('electron')`;
+          f(await this._nodeExecutionContext.rawEvaluateHandle(source).then(objectId => new js.JSHandle(this._nodeExecutionContext!, 'object', 'ElectronModule', objectId)));
         }
       });
     });
     this._browserContext.setCustomCloseHandler(async () => {
       const electronHandle = await this._nodeElectronHandlePromise;
-      await electronHandle.evaluate(({ app }) => app.quit());
+      await electronHandle.evaluate(({ app }) => app.quit()).catch(() => {});
     });
-    this._nodeSession.send('Runtime.enable', {}).catch(e => {});
+  }
+
+  async initialize() {
+    await this._nodeSession.send('Runtime.enable', {});
+    // Delay loading the app until browser is started and the browser targets are configured to auto-attach.
+    await this._nodeSession.send('Runtime.evaluate', { expression: '__playwright_run()' });
   }
 
   process(): childProcess.ChildProcess {
@@ -110,11 +117,8 @@ export class ElectronApplication extends SdkObject {
 }
 
 export class Electron extends SdkObject {
-  private _playwrightOptions: PlaywrightOptions;
-
-  constructor(playwrightOptions: PlaywrightOptions) {
-    super(playwrightOptions.rootSdkObject, 'electron');
-    this._playwrightOptions = playwrightOptions;
+  constructor(playwright: Playwright) {
+    super(playwright, 'electron');
   }
 
   async launch(options: channels.ElectronLaunchParams): Promise<ElectronApplication> {
@@ -125,7 +129,7 @@ export class Electron extends SdkObject {
     controller.setLogName('browser');
     return controller.run(async progress => {
       let app: ElectronApplication | undefined = undefined;
-      const electronArguments = [...args, '--inspect=0', '--remote-debugging-port=0'];
+      const electronArguments = ['--inspect=0', '--remote-debugging-port=0', ...args];
 
       if (os.platform() === 'linux') {
         const runningAsRoot = process.geteuid && process.geteuid() === 0;
@@ -155,6 +159,9 @@ export class Electron extends SdkObject {
           }
           throw error;
         }
+        // Only use our own loader for non-packaged apps.
+        // Packaged apps might have their own command line handling.
+        electronArguments.unshift('-r', require.resolve('./loader'));
       }
 
       // When debugging Playwright test that runs Electron, NODE_OPTIONS
@@ -215,7 +222,6 @@ export class Electron extends SdkObject {
         noDefaultViewport: true,
       };
       const browserOptions: BrowserOptions = {
-        ...this._playwrightOptions,
         name: 'electron',
         isChromium: true,
         headful: true,
@@ -229,8 +235,9 @@ export class Electron extends SdkObject {
         originalLaunchOptions: {},
       };
       validateBrowserContextOptions(contextOptions, browserOptions);
-      const browser = await CRBrowser.connect(chromeTransport, browserOptions);
+      const browser = await CRBrowser.connect(this.attribution.playwright, chromeTransport, browserOptions);
       app = new ElectronApplication(this, browser, nodeConnection, launchedProcess);
+      await app.initialize();
       return app;
     }, TimeoutSettings.timeout(options));
   }

@@ -6,12 +6,15 @@ Test runner notifies the reporter about various events during test execution. Al
 
 You can create a custom reporter by implementing a class with some of the reporter methods. Make sure to export this class as default.
 
-```js tab=js-js
-// my-awesome-reporter.js
+```js tab=js-js title="my-awesome-reporter.js"
 // @ts-check
 
 /** @implements {import('@playwright/test/reporter').Reporter} */
 class MyReporter {
+  constructor(options) {
+    console.log(`my-awesome-reporter setup with customOption set to ${options.customOption}`);
+  }
+
   onBegin(config, suite) {
     console.log(`Starting the run with ${suite.allTests().length} tests`);
   }
@@ -32,24 +35,27 @@ class MyReporter {
 module.exports = MyReporter;
 ```
 
-```js tab=js-ts
-// my-awesome-reporter.ts
-import { Reporter } from '@playwright/test/reporter';
+```js tab=js-ts title="my-awesome-reporter.ts"
+import type { Reporter, FullConfig, Suite, TestCase, TestResult, FullResult } from '@playwright/test/reporter';
 
 class MyReporter implements Reporter {
-  onBegin(config, suite) {
+  constructor(options: { customOption?: string } = {}) {
+    console.log(`my-awesome-reporter setup with customOption set to ${options.customOption}`);
+  }
+
+  onBegin(config: FullConfig, suite: Suite) {
     console.log(`Starting the run with ${suite.allTests().length} tests`);
   }
 
-  onTestBegin(test) {
+  onTestBegin(test: TestCase) {
     console.log(`Starting test ${test.title}`);
   }
 
-  onTestEnd(test, result) {
+  onTestEnd(test: TestCase, result: TestResult) {
     console.log(`Finished test ${test.title}: ${result.status}`);
   }
 
-  onEnd(result) {
+  onEnd(result: FullResult) {
     console.log(`Finished the run: ${result.status}`);
   }
 }
@@ -58,26 +64,12 @@ export default MyReporter;
 
 Now use this reporter with [`property: TestConfig.reporter`]. Learn more about [using reporters](../test-reporters.md).
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
 
-/** @type {import('@playwright/test').PlaywrightTestConfig} */
-const config = {
-  reporter: './my-awesome-reporter.js',
-};
-
-module.exports = config;
-```
-
-```js tab=js-ts
-// playwright.config.ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-
-const config: PlaywrightTestConfig = {
-  reporter: './my-awesome-reporter.ts',
-};
-export default config;
+export default defineConfig({
+  reporter: ['./my-awesome-reporter.ts', { customOption: 'some value' }],
+});
 ```
 
 Here is a typical order of reporter calls:
@@ -86,9 +78,12 @@ Here is a typical order of reporter calls:
 * [`method: Reporter.onStepBegin`] and [`method: Reporter.onStepEnd`] are called for each executed step inside the test. When steps are executed, test run has not finished yet.
 * [`method: Reporter.onTestEnd`] is called when test run has finished. By this time, [TestResult] is complete and you can use [`property: TestResult.status`], [`property: TestResult.error`] and more.
 * [`method: Reporter.onEnd`] is called once after all tests that should run had finished.
+* [`method: Reporter.onExit`] is called immediately before the test runner exits.
 
 Additionally, [`method: Reporter.onStdOut`] and [`method: Reporter.onStdErr`] are called when standard output is produced in the worker process, possibly during a test execution,
 and [`method: Reporter.onError`] is called when something went wrong outside of the test execution.
+
+If your custom reporter does not print anything to the terminal, implement [`method: Reporter.printsToStdio`] and return `false`. This way, Playwright will use one of the standard terminal reporters in addition to your custom reporter to enhance user experience.
 
 ## optional method: Reporter.onBegin
 * since: v1.10
@@ -107,8 +102,6 @@ Resolved configuration.
 
 The root suite that contains all projects, files and test cases.
 
-
-
 ## optional async method: Reporter.onEnd
 * since: v1.10
 
@@ -125,9 +118,6 @@ Result of the full test run.
 * `'timedout'` - The [`property: TestConfig.globalTimeout`] has been reached.
 * `'interrupted'` - Interrupted by the user.
 
-
-
-
 ## optional method: Reporter.onError
 * since: v1.10
 
@@ -139,6 +129,12 @@ Called on some global error, for example unhandled exception in the worker proce
 
 The error.
 
+## optional async method: Reporter.onExit
+* since: v1.33
+
+Called immediately before test runner exists. At this point all the reporters
+have received the [`method: Reporter.onEnd`] signal, so all the reports should
+be build. You can run the code that uploads the reports in this hook.
 
 ## optional method: Reporter.onStdErr
 * since: v1.10
@@ -273,4 +269,4 @@ Result of the test run.
 * since: v1.10
 - returns: <[boolean]>
 
-Whether this reporter uses stdio for reporting. When it does not, Playwright Test could add some output to enhance user experience.
+Whether this reporter uses stdio for reporting. When it does not, Playwright Test could add some output to enhance user experience. If your reporter does not print to the terminal, it is strongly recommended to return `false`.

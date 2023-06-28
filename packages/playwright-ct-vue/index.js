@@ -14,18 +14,16 @@
  * limitations under the License.
  */
 
-const { test: baseTest, expect, devices, _addRunnerPlugin } = require('@playwright/test');
-const { fixtures } = require('@playwright/test/lib/mount');
+const { test, expect, devices, defineConfig: originalDefineConfig } = require('@playwright/experimental-ct-core');
 const path = require('path');
 
-_addRunnerPlugin(() => {
+const plugin = () => {
   // Only fetch upon request to avoid resolution in workers.
-  const { createPlugin } = require('@playwright/test/lib/plugins/vitePlugin');
+  const { createPlugin } = require('@playwright/experimental-ct-core/lib/vitePlugin');
   return createPlugin(
     path.join(__dirname, 'registerSource.mjs'),
-    () => require('@vitejs/plugin-vue')());
-});
+    () => import('@vitejs/plugin-vue').then(plugin => plugin.default()));
+}
+const defineConfig = config => originalDefineConfig({ ...config, _plugins: [plugin] });
 
-const test = baseTest.extend(fixtures);
-
-module.exports = { test, expect, devices };
+module.exports = { test, expect, devices, defineConfig };

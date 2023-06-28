@@ -176,7 +176,7 @@ export class CRPage implements PageDelegate {
 
   async exposeBinding(binding: PageBinding) {
     await this._forAllFrameSessions(frame => frame._initBinding(binding));
-    await Promise.all(this._page.frames().map(frame => frame.evaluateExpression(binding.source, false, {}).catch(e => {})));
+    await Promise.all(this._page.frames().map(frame => frame.evaluateExpression(binding.source).catch(e => {})));
   }
 
   async removeExposedBindings() {
@@ -333,7 +333,7 @@ export class CRPage implements PageDelegate {
       injected.setInputFiles(node, files), files);
   }
 
-  async setInputFilePaths(handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void> {
+  async setInputFilePaths(progress: Progress, handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void> {
     const frame = await handle.ownerFrame();
     if (!frame)
       throw new Error('Cannot set input files to detached input element');
@@ -354,6 +354,9 @@ export class CRPage implements PageDelegate {
 
   async inputActionEpilogue(): Promise<void> {
     await this._mainFrameSession._client.send('Page.enable').catch(e => {});
+  }
+
+  async resetForReuse(): Promise<void> {
   }
 
   async pdf(options: channels.PagePdfParams): Promise<Buffer> {
@@ -504,9 +507,9 @@ class FrameSession {
             worldName: UTILITY_WORLD_NAME,
           });
           for (const binding of this._crPage._browserContext._pageBindings.values())
-            frame.evaluateExpression(binding.source, false, undefined).catch(e => {});
+            frame.evaluateExpression(binding.source).catch(e => {});
           for (const source of this._crPage._browserContext.initScripts)
-            frame.evaluateExpression(source, false, undefined, 'main').catch(e => {});
+            frame.evaluateExpression(source).catch(e => {});
         }
         const isInitialEmptyPage = this._isMainFrame() && this._page.mainFrame().url() === ':';
         if (isInitialEmptyPage) {
@@ -755,7 +758,7 @@ class FrameSession {
     });
     session.on('Runtime.exceptionThrown', exception => this._page.emit(Page.Events.PageError, exceptionToError(exception.exceptionDetails)));
     // TODO: attribute workers to the right frame.
-    this._networkManager.instrumentNetworkEvents(session, this._page._frameManager.frame(this._targetId)!);
+    this._networkManager.instrumentNetworkEvents({ session, workerFrame: this._page._frameManager.frame(this._targetId) ?? undefined });
   }
 
   _onDetachedFromTarget(event: Protocol.Target.detachedFromTargetPayload) {
@@ -845,7 +848,7 @@ class FrameSession {
   _onDialog(event: Protocol.Page.javascriptDialogOpeningPayload) {
     if (!this._page._frameManager.frame(this._targetId))
       return; // Our frame/subtree may be gone already.
-    this._page.emit(Page.Events.Dialog, new dialog.Dialog(
+    this._page.emitOnContext(BrowserContext.Events.Dialog, new dialog.Dialog(
         this._page,
         event.type,
         event.message,
@@ -919,7 +922,7 @@ class FrameSession {
 
   async _createVideoRecorder(screencastId: string, options: types.PageScreencastOptions): Promise<void> {
     assert(!this._screencastId);
-    const ffmpegPath = registry.findExecutable('ffmpeg')!.executablePathOrDie(this._page._browserContext._browser.options.sdkLanguage);
+    const ffmpegPath = registry.findExecutable('ffmpeg')!.executablePathOrDie(this._page.attribution.playwright.options.sdkLanguage);
     this._videoRecorder = await VideoRecorder.launch(this._crPage._page, ffmpegPath, options);
     this._screencastId = screencastId;
   }
@@ -1005,7 +1008,7 @@ class FrameSession {
       return;
     const viewportSize = emulatedSize.viewport;
     const screenSize = emulatedSize.screen;
-    const isLandscape = viewportSize.width > viewportSize.height;
+    const isLandscape = screenSize.width > screenSize.height;
     const metricsOverride: Protocol.Emulation.setDeviceMetricsOverrideParameters = {
       mobile: !!options.isMobile,
       width: viewportSize.width,
@@ -1013,7 +1016,9 @@ class FrameSession {
       screenWidth: screenSize.width,
       screenHeight: screenSize.height,
       deviceScaleFactor: options.deviceScaleFactor || 1,
-      screenOrientation: isLandscape ? { angle: 90, type: 'landscapePrimary' } : { angle: 0, type: 'portraitPrimary' },
+      screenOrientation: !!options.isMobile ? (
+        isLandscape ? { angle: 90, type: 'landscapePrimary' } : { angle: 0, type: 'portraitPrimary' }
+      ) : { angle: 0, type: 'landscapePrimary' },
       dontSetVisibleSize: preserveWindowBoundaries
     };
     if (JSON.stringify(this._metricsOverride) === JSON.stringify(metricsOverride))

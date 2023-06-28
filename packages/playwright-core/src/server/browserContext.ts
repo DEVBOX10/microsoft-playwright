@@ -26,7 +26,7 @@ import { helper } from './helper';
 import * as network from './network';
 import type { PageDelegate } from './page';
 import { Page, PageBinding } from './page';
-import type { Progress } from './progress';
+import type { Progress, ProgressController } from './progress';
 import type { Selectors } from './selectors';
 import type * as types from './types';
 import type * as channels from '@protocol/channels';
@@ -44,18 +44,24 @@ import type { Artifact } from './artifact';
 
 export abstract class BrowserContext extends SdkObject {
   static Events = {
+    Console: 'console',
     Close: 'close',
+    Dialog: 'dialog',
     Page: 'page',
     Request: 'request',
     Response: 'response',
     RequestFailed: 'requestfailed',
     RequestFinished: 'requestfinished',
+    RequestAborted: 'requestaborted',
+    RequestFulfilled: 'requestfulfilled',
+    RequestContinued: 'requestcontinued',
     BeforeClose: 'beforeclose',
     VideoStarted: 'videostarted',
   };
 
   readonly _timeoutSettings = new TimeoutSettings();
   readonly _pageBindings = new Map<string, PageBinding>();
+  readonly _activeProgressControllers = new Set<ProgressController>();
   readonly _options: channels.BrowserNewContextParams;
   _requestInterceptor?: network.RouteHandler;
   private _isPersistentContext: boolean;
@@ -76,6 +82,7 @@ export abstract class BrowserContext extends SdkObject {
   private _settingStorageState = false;
   readonly initScripts: string[] = [];
   private _routesInFlight = new Set<network.Route>();
+  private _debugger!: Debugger;
 
   constructor(browser: Browser, options: channels.BrowserNewContextParams, browserContextId: string | undefined) {
     super(browser, 'browser-context');
@@ -100,38 +107,40 @@ export abstract class BrowserContext extends SdkObject {
 
   setSelectors(selectors: Selectors) {
     this._selectors = selectors;
-    for (const page of this.pages())
-      page.selectors = selectors;
   }
 
   selectors(): Selectors {
-    return this._selectors || this._browser.options.selectors;
+    return this._selectors || this.attribution.playwright.selectors;
   }
 
   async _initialize() {
-    if (this.attribution.isInternalPlaywright)
+    if (this.attribution.playwright.options.isInternalPlaywright)
       return;
     // Debugger will pause execution upon page.pause in headed mode.
-    const contextDebugger = new Debugger(this);
+    this._debugger = new Debugger(this);
 
     // When PWDEBUG=1, show inspector for each context.
     if (debugMode() === 'inspector')
       await Recorder.show(this, { pauseOnNextStatement: true });
 
     // When paused, show inspector.
-    if (contextDebugger.isPaused())
+    if (this._debugger.isPaused())
       Recorder.showInspector(this);
-    contextDebugger.on(Debugger.Events.PausedStateChanged, () => {
+    this._debugger.on(Debugger.Events.PausedStateChanged, () => {
       Recorder.showInspector(this);
     });
 
     if (debugMode() === 'console')
       await this.extendInjectedScript(consoleApiSource.source);
     if (this._options.serviceWorkers === 'block')
-      await this.addInitScript(`\nnavigator.serviceWorker.register = () => { console.warn('Service Worker registration blocked by Playwright'); };\n`);
+      await this.addInitScript(`\nnavigator.serviceWorker.register = async () => { console.warn('Service Worker registration blocked by Playwright'); };\n`);
 
     if (this._options.permissions)
       await this.grantPermissions(this._options.permissions);
+  }
+
+  debugger(): Debugger {
+    return this._debugger;
   }
 
   async _ensureVideosPath() {
@@ -143,6 +152,11 @@ export abstract class BrowserContext extends SdkObject {
     if (this._closedStatus !== 'open')
       return false;
     return true;
+  }
+
+  async stopPendingOperations() {
+    for (const controller of this._activeProgressControllers)
+      controller.abort(new Error(`Context was reset for reuse.`));
   }
 
   static reusableContextHash(params: channels.BrowserNewContextForReuseParams): string {
@@ -162,6 +176,7 @@ export abstract class BrowserContext extends SdkObject {
   async resetForReuse(metadata: CallMetadata, params: channels.BrowserNewContextForReuseParams | null) {
     this.setDefaultNavigationTimeout(undefined);
     this.setDefaultTimeout(undefined);
+    this.tracing.resetForReuse();
 
     if (params) {
       for (const key of paramsThatAllowContextReuse)
@@ -199,6 +214,7 @@ export abstract class BrowserContext extends SdkObject {
     await this.setGeolocation(this._options.geolocation);
     await this.setOffline(!!this._options.offline);
     await this.setUserAgent(this._options.userAgent);
+    await this.clearCache();
     await this._resetCookies();
 
     await page?.resetForReuse(metadata);
@@ -216,9 +232,12 @@ export abstract class BrowserContext extends SdkObject {
       // at the same time.
       return;
     }
+    const gotClosedGracefully = this._closedStatus === 'closing';
     this._closedStatus = 'closed';
-    this._deleteAllDownloads();
-    this._downloads.clear();
+    if (!gotClosedGracefully) {
+      this._deleteAllDownloads();
+      this._downloads.clear();
+    }
     this.tracing.dispose().catch(() => {});
     if (this._isPersistentContext)
       this.onClosePersistent();
@@ -236,6 +255,7 @@ export abstract class BrowserContext extends SdkObject {
   abstract setUserAgent(userAgent: string | undefined): Promise<void>;
   abstract setOffline(offline: boolean): Promise<void>;
   abstract cancelDownload(uuid: string): Promise<void>;
+  abstract clearCache(): Promise<void>;
   protected abstract doGetCookies(urls: string[]): Promise<channels.NetworkCookie[]>;
   protected abstract doGrantPermissions(origin: string, permissions: string[]): Promise<void>;
   protected abstract doClearPermissions(): Promise<void>;
@@ -448,7 +468,8 @@ export abstract class BrowserContext extends SdkObject {
       const internalMetadata = serverSideCallMetadata();
       const page = await this.newPage(internalMetadata);
       await page._setServerRequestInterceptor(handler => {
-        handler.fulfill({ body: '<html></html>' }).catch(() => {});
+        handler.fulfill({ body: '<html></html>', requestUrl: handler.request().url() }).catch(() => {});
+        return true;
       });
       for (const origin of this._origins) {
         const originStorage: channels.OriginStorage = { origin, localStorage: [] };
@@ -456,7 +477,7 @@ export abstract class BrowserContext extends SdkObject {
         await frame.goto(internalMetadata, origin);
         const storage = await frame.evaluateExpression(`({
           localStorage: Object.keys(localStorage).map(name => ({ name, value: localStorage.getItem(name) })),
-        })`, false, undefined, 'utility');
+        })`, { world: 'utility' });
         originStorage.localStorage = storage.localStorage;
         if (storage.localStorage.length)
           result.origins.push(originStorage);
@@ -476,7 +497,8 @@ export abstract class BrowserContext extends SdkObject {
     const internalMetadata = serverSideCallMetadata();
     page = page || await this.newPage(internalMetadata);
     await page._setServerRequestInterceptor(handler => {
-      handler.fulfill({ body: '<html></html>' }).catch(() => {});
+      handler.fulfill({ body: '<html></html>', requestUrl: handler.request().url() }).catch(() => {});
+      return true;
     });
 
     for (const origin of new Set([...oldOrigins, ...newOrigins.keys()])) {
@@ -510,7 +532,8 @@ export abstract class BrowserContext extends SdkObject {
         const internalMetadata = serverSideCallMetadata();
         const page = await this.newPage(internalMetadata);
         await page._setServerRequestInterceptor(handler => {
-          handler.fulfill({ body: '<html></html>' }).catch(() => {});
+          handler.fulfill({ body: '<html></html>', requestUrl: handler.request().url() }).catch(() => {});
+          return true;
         });
         for (const originState of state.origins) {
           const frame = page.mainFrame();
@@ -519,7 +542,7 @@ export abstract class BrowserContext extends SdkObject {
             originState => {
               for (const { name, value } of (originState.localStorage || []))
                 localStorage.setItem(name, value);
-            }`, true, originState, 'utility');
+            }`, { isFunction: true, world: 'utility' }, originState);
         }
         await page.close(internalMetadata);
       }
@@ -573,7 +596,7 @@ export function assertBrowserContextIsNotOwned(context: BrowserContext) {
 export function validateBrowserContextOptions(options: channels.BrowserNewContextParams, browserOptions: BrowserOptions) {
   if (options.noDefaultViewport && options.deviceScaleFactor !== undefined)
     throw new Error(`"deviceScaleFactor" option is not supported with null "viewport"`);
-  if (options.noDefaultViewport && options.isMobile !== undefined)
+  if (options.noDefaultViewport && !!options.isMobile)
     throw new Error(`"isMobile" option is not supported with null "viewport"`);
   if (options.acceptDownloads === undefined)
     options.acceptDownloads = true;
@@ -601,8 +624,6 @@ export function validateBrowserContextOptions(options: channels.BrowserNewContex
       throw new Error(`Browser needs to be launched with the global proxy. If all contexts override the proxy, global proxy will be never used and can be any string, for example "launch({ proxy: { server: 'http://per-context' } })"`);
     options.proxy = normalizeProxySettings(options.proxy);
   }
-  if (debugMode() === 'inspector')
-    options.bypassCSP = true;
   verifyGeolocation(options.geolocation);
 }
 

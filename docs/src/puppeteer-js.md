@@ -60,7 +60,7 @@ const puppeteer = require('puppeteer');
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
-  await page.goto('http://whatsmyuseragent.org/', {
+  await page.goto('https://playwright.dev/', {
     waitUntil: 'networkidle2',
   });
   await page.screenshot({ path: 'example.png' });
@@ -77,7 +77,7 @@ const { chromium } = require('playwright'); // 1
   const browser = await chromium.launch();
   const page = await browser.newPage(); // 2
   await page.setViewportSize({ width: 1280, height: 800 }); // 3
-  await page.goto('http://whatsmyuseragent.org/', {
+  await page.goto('https://playwright.dev/', {
     waitUntil: 'networkidle', // 4
   });
   await page.screenshot({ path: 'example.png' });
@@ -111,7 +111,7 @@ describe('Playwright homepage', () => {
   it('contains hero title', async () => {
     await page.goto('https://playwright.dev/');
     await page.waitForSelector('.hero__title');
-    const text = await page.$eval('.hero__title', (e) => e.textContent);
+    const text = await page.$eval('.hero__title', e => e.textContent);
     expect(text).toContain('Playwright enables reliable end-to-end testing'); // 5
   });
 
@@ -128,7 +128,7 @@ test.describe('Playwright homepage', () => {
     await page.goto('https://playwright.dev/');
     const titleLocator = page.locator('.hero__title'); // 4
     await expect(titleLocator).toContainText( // 5
-      'Playwright enables reliable end-to-end testing'
+        'Playwright enables reliable end-to-end testing'
     );
   });
 });
@@ -142,8 +142,6 @@ Playwright Test creates an isolated [Page] object for each test. However, if you
 1. Use [assertions](./test-assertions) to verify the state instead of `page.$eval()`.
 
 ## Testing
-
-With a few lines of code, you can hook up Playwright to your existing JavaScript [test runner](./test-runners).
 
 To improve testing, it is advised to use [Locators](./api/class-locator) and web-first [Assertions](./test-assertions). See [Writing Tests](./writing-tests)
 
@@ -172,7 +170,6 @@ Learn more about Playwright Test runner:
 
 - [Getting Started](./intro)
 - [Fixtures](./test-fixtures)
-- [Locators](./api/class-locator)
-- [Selectors](./selectors)
+- [Locators](./locators.md)
 - [Assertions](./test-assertions)
 - [Auto-waiting](./actionability)

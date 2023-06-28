@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-import type { Expect } from '../types';
 import { expectTypes } from '../util';
-import { callLogText, currentExpectTimeout } from '../util';
-import type { ParsedStackTrace } from 'playwright-core/lib/utils/stackTrace';
-import { captureStackTrace } from 'playwright-core/lib/utils/stackTrace';
+import { callLogText } from '../util';
+import { matcherHint } from './matcherHint';
+import { currentExpectTimeout } from '../common/globals';
+import type { ExpectMatcherContext } from './expect';
 
 // Omit colon and one or more spaces, so can call getLabelPrinter.
 const EXPECTED_LABEL = 'Expected';
@@ -28,11 +28,11 @@ const RECEIVED_LABEL = 'Received';
 const isExpand = (expand?: boolean): boolean => expand !== false;
 
 export async function toEqual<T>(
-  this: ReturnType<Expect['getState']>,
+  this: ExpectMatcherContext,
   matcherName: string,
   receiver: any,
   receiverType: string,
-  query: (isNot: boolean, timeout: number, customStackTrace: ParsedStackTrace) => Promise<{ matches: boolean, received?: any, log?: string[] }>,
+  query: (isNot: boolean, timeout: number) => Promise<{ matches: boolean, received?: any, log?: string[], timedOut?: boolean }>,
   expected: T,
   options: { timeout?: number, contains?: boolean } = {},
 ) {
@@ -46,20 +46,18 @@ export async function toEqual<T>(
 
   const timeout = currentExpectTimeout(options);
 
-  const customStackTrace = captureStackTrace();
-  customStackTrace.apiName = 'expect.' + matcherName;
-  const { matches: pass, received, log } = await query(this.isNot, timeout, customStackTrace);
+  const { matches: pass, received, log, timedOut } = await query(!!this.isNot, timeout);
 
   const message = pass
     ? () =>
-      this.utils.matcherHint(matcherName, undefined, undefined, matcherOptions) +
+      matcherHint(this, matcherName, undefined, undefined, matcherOptions, timedOut ? timeout : undefined) +
       '\n\n' +
       `Expected: not ${this.utils.printExpected(expected)}\n` +
       (this.utils.stringify(expected) !== this.utils.stringify(received)
         ? `Received:     ${this.utils.printReceived(received)}`
         : '') + callLogText(log)
     : () =>
-      this.utils.matcherHint(matcherName, undefined, undefined, matcherOptions) +
+      matcherHint(this, matcherName, undefined, undefined, matcherOptions, timedOut ? timeout : undefined) +
       '\n\n' +
       this.utils.printDiffOrStringify(
           expected,

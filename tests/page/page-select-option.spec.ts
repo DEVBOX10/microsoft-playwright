@@ -36,6 +36,13 @@ it('should select single option by value', async ({ page, server }) => {
   expect(await page.evaluate(() => window['result'].onChange)).toEqual(['blue']);
 });
 
+it('should fall back to selecting by label', async ({ page, server }) => {
+  await page.goto(server.PREFIX + '/input/select.html');
+  await page.selectOption('select', 'Blue');
+  expect(await page.evaluate(() => window['result'].onInput)).toEqual(['blue']);
+  expect(await page.evaluate(() => window['result'].onChange)).toEqual(['blue']);
+});
+
 it('should select single option by label', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/select.html');
   await page.selectOption('select', { label: 'Indigo' });
@@ -232,7 +239,7 @@ it('should wait for option to be present', async ({ page, server }) => {
   await page.goto(server.PREFIX + '/input/select.html');
   const selectPromise  = page.selectOption('select', 'scarlet');
   let didSelect = false;
-  selectPromise.then(() => didSelect = true);
+  void selectPromise.then(() => didSelect = true);
   await giveItAChanceToResolve(page);
   expect(didSelect).toBe(false);
   await page.$eval('select', select => {
@@ -250,7 +257,7 @@ it('should wait for option index to be present', async ({ page, server }) => {
   const len = await page.$eval('select', select => select.options.length);
   const selectPromise  = page.selectOption('select', { index: len });
   let didSelect = false;
-  selectPromise.then(() => didSelect = true);
+  void selectPromise.then(() => didSelect = true);
   await giveItAChanceToResolve(page);
   expect(didSelect).toBe(false);
   await page.$eval('select', select => {
@@ -268,7 +275,7 @@ it('should wait for multiple options to be present', async ({ page, server }) =>
   await page.evaluate(() => window['makeMultiple']());
   const selectPromise  = page.selectOption('select', ['green', 'scarlet']);
   let didSelect = false;
-  selectPromise.then(() => didSelect = true);
+  void selectPromise.then(() => didSelect = true);
   await giveItAChanceToResolve(page);
   expect(didSelect).toBe(false);
   await page.$eval('select', select => {

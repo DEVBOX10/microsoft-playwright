@@ -15,12 +15,10 @@
  */
 
 import { colors, ms as milliseconds, parseStackTraceLine } from 'playwright-core/lib/utilsBundle';
-import fs from 'fs';
 import path from 'path';
-import type { FullConfig, TestCase, Suite, TestResult, TestError, FullResult, TestStep, Location } from '../../types/testReporter';
-import type { FullConfigInternal, ReporterInternal } from '../types';
-import { codeFrameColumns } from '../babelBundle';
-
+import type { FullConfig, TestCase, Suite, TestResult, TestError, FullResult, TestStep, Location, Reporter } from '../../types/testReporter';
+import type { SuitePrivate } from '../../types/reporterPrivate';
+import { monotonicTime } from 'playwright-core/lib/utils';
 export type TestResultOutput = { chunk: string | Buffer, type: 'stdout' | 'stderr' };
 export const kOutputSymbol = Symbol('output');
 
@@ -45,9 +43,9 @@ type TestSummary = {
   fatalErrors: TestError[];
 };
 
-export class BaseReporter implements ReporterInternal  {
+export class BaseReporter implements Reporter {
   duration = 0;
-  config!: FullConfigInternal;
+  config!: FullConfig;
   suite!: Suite;
   totalTestCount = 0;
   result!: FullResult;
@@ -64,7 +62,7 @@ export class BaseReporter implements ReporterInternal  {
 
   onBegin(config: FullConfig, suite: Suite) {
     this.monotonicStartTime = monotonicTime();
-    this.config = config as FullConfigInternal;
+    this.config = config;
     this.suite = suite;
     this.totalTestCount = suite.allTests().length;
   }
@@ -87,7 +85,7 @@ export class BaseReporter implements ReporterInternal  {
   onTestEnd(test: TestCase, result: TestResult) {
     // Ignore any tests that are run in parallel.
     for (let suite: Suite | undefined = test.parent; suite; suite = suite.parent) {
-      if ((suite as any)._parallelMode === 'parallel')
+      if ((suite as SuitePrivate)._parallelMode === 'parallel')
         return;
     }
     const projectName = test.titlePath()[1];
@@ -98,8 +96,7 @@ export class BaseReporter implements ReporterInternal  {
   }
 
   onError(error: TestError) {
-    if (!(error as any).__isNotAFatalError)
-      this._fatalErrors.push(error);
+    this._fatalErrors.push(error);
   }
 
   async onEnd(result: FullResult) {
@@ -121,9 +118,11 @@ export class BaseReporter implements ReporterInternal  {
   }
 
   protected generateStartingMessage() {
-    const jobs = Math.min(this.config.workers, this.config._maxConcurrentTestGroups);
+    const jobs = this.config.workers;
     const shardDetails = this.config.shard ? `, shard ${this.config.shard.current} of ${this.config.shard.total}` : '';
-    return `\nRunning ${this.totalTestCount} test${this.totalTestCount !== 1 ? 's' : ''} using ${jobs} worker${jobs !== 1 ? 's' : ''}${shardDetails}`;
+    if (!this.totalTestCount)
+      return '';
+    return '\n' + colors.dim('Running ') + this.totalTestCount + colors.dim(` test${this.totalTestCount !== 1 ? 's' : ''} using `) + jobs + colors.dim(` worker${jobs !== 1 ? 's' : ''}${shardDetails}`);
   }
 
   protected getSlowTests(): [string, number][] {
@@ -141,17 +140,17 @@ export class BaseReporter implements ReporterInternal  {
     if (unexpected.length) {
       tokens.push(colors.red(`  ${unexpected.length} failed`));
       for (const test of unexpected)
-        tokens.push(colors.red(formatTestHeader(this.config, test, '    ')));
+        tokens.push(colors.red(formatTestHeader(this.config, test, { indent: '    ' })));
     }
     if (interrupted.length) {
       tokens.push(colors.yellow(`  ${interrupted.length} interrupted`));
       for (const test of interrupted)
-        tokens.push(colors.yellow(formatTestHeader(this.config, test, '    ')));
+        tokens.push(colors.yellow(formatTestHeader(this.config, test, { indent: '    ' })));
     }
     if (flaky.length) {
       tokens.push(colors.yellow(`  ${flaky.length} flaky`));
       for (const test of flaky)
-        tokens.push(colors.yellow(formatTestHeader(this.config, test, '    ')));
+        tokens.push(colors.yellow(formatTestHeader(this.config, test, { indent: '    ' })));
     }
     if (skipped)
       tokens.push(colors.yellow(`  ${skipped} skipped`));
@@ -159,7 +158,7 @@ export class BaseReporter implements ReporterInternal  {
       tokens.push(colors.green(`  ${expected} passed`) + colors.dim(` (${milliseconds(this.duration)})`));
     if (this.result.status === 'timedout')
       tokens.push(colors.red(`  Timed out waiting ${this.config.globalTimeout / 1000}s for the entire test run`));
-    if (fatalErrors.length)
+    if (fatalErrors.length && expected + unexpected.length + interrupted.length + flaky.length > 0)
       tokens.push(colors.red(`  ${fatalErrors.length === 1 ? '1 error was not a part of any test' : fatalErrors.length + ' errors were not a part of any test'}, see above for details`));
 
     return tokens.join('\n');
@@ -231,10 +230,8 @@ export class BaseReporter implements ReporterInternal  {
   }
 
   private _printSummary(summary: string) {
-    if (summary.trim()) {
-      console.log('');
+    if (summary.trim())
       console.log(summary);
-    }
   }
 
   willRetry(test: TestCase): boolean {
@@ -250,7 +247,7 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
   const lines: string[] = [];
   const title = formatTestTitle(config, test);
   const annotations: Annotation[] = [];
-  const header = formatTestHeader(config, test, '  ', index);
+  const header = formatTestHeader(config, test, { indent: '  ', index, mode: 'error' });
   lines.push(colors.red(header));
   for (const result of test.results) {
     const resultLines: string[] = [];
@@ -260,7 +257,7 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
     const retryLines = [];
     if (result.retry) {
       retryLines.push('');
-      retryLines.push(colors.gray(pad(`    Retry #${result.retry}`, '-')));
+      retryLines.push(colors.gray(separator(`    Retry #${result.retry}`)));
     }
     resultLines.push(...retryLines);
     resultLines.push(...errors.map(error => '\n' + error.message));
@@ -271,7 +268,7 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
         if (!attachment.path && !hasPrintableContent)
           continue;
         resultLines.push('');
-        resultLines.push(colors.cyan(pad(`    attachment #${i + 1}: ${attachment.name} (${attachment.contentType})`, '-')));
+        resultLines.push(colors.cyan(separator(`    attachment #${i + 1}: ${attachment.name} (${attachment.contentType})`)));
         if (attachment.path) {
           const relativePath = path.relative(process.cwd(), attachment.path);
           resultLines.push(colors.cyan(`    ${relativePath}`));
@@ -287,10 +284,11 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
             let text = attachment.body.toString();
             if (text.length > 300)
               text = text.slice(0, 300) + '...';
-            resultLines.push(colors.cyan(`    ${text}`));
+            for (const line of text.split('\n'))
+              resultLines.push(colors.cyan(`    ${line}`));
           }
         }
-        resultLines.push(colors.cyan(pad('   ', '-')));
+        resultLines.push(colors.cyan(separator('   ')));
       }
     }
     const output = ((result as any)[kOutputSymbol] || []) as TestResultOutput[];
@@ -302,7 +300,7 @@ export function formatFailure(config: FullConfig, test: TestCase, options: {inde
         return text;
       }).join('');
       resultLines.push('');
-      resultLines.push(colors.gray(pad('--- Test output', '-')) + '\n\n' + outputText + '\n' + pad('', '-'));
+      resultLines.push(colors.gray(separator('--- Test output')) + '\n\n' + outputText + '\n' + separator());
     }
     for (const error of errors) {
       annotations.push({
@@ -335,7 +333,7 @@ export function formatResultFailure(config: FullConfig, test: TestCase, result: 
   }
 
   for (const error of result.errors) {
-    const formattedError = formatError(config, error, highlightCode, test.location.file);
+    const formattedError = formatError(config, error, highlightCode);
     errorDetails.push({
       message: indent(formattedError.message, initialIndent),
       location: formattedError.location,
@@ -344,7 +342,7 @@ export function formatResultFailure(config: FullConfig, test: TestCase, result: 
   return errorDetails;
 }
 
-function relativeFilePath(config: FullConfig, file: string): string {
+export function relativeFilePath(config: FullConfig, file: string): string {
   return path.relative(config.rootDir, file) || path.basename(file);
 }
 
@@ -369,54 +367,74 @@ export function formatTestTitle(config: FullConfig, test: TestCase, step?: TestS
   return `${projectTitle}${location} › ${titles.join(' › ')}${stepSuffix(step)}`;
 }
 
-function formatTestHeader(config: FullConfig, test: TestCase, indent: string, index?: number): string {
+function formatTestHeader(config: FullConfig, test: TestCase, options: { indent?: string, index?: number, mode?: 'default' | 'error' } = {}): string {
   const title = formatTestTitle(config, test);
-  const header = `${indent}${index ? index + ') ' : ''}${title}`;
-  return pad(header, '=');
+  const header = `${options.indent || ''}${options.index ? options.index + ') ' : ''}${title}`;
+  let fullHeader = header;
+
+  // Render the path to the deepest failing test.step.
+  if (options.mode === 'error') {
+    const stepPaths = new Set<string>();
+    for (const result of test.results.filter(r => !!r.errors.length)) {
+      const stepPath: string[] = [];
+      const visit = (steps: TestStep[]) => {
+        const errors = steps.filter(s => s.error);
+        if (errors.length > 1)
+          return;
+        if (errors.length === 1 && errors[0].category === 'test.step') {
+          stepPath.push(errors[0].title);
+          visit(errors[0].steps);
+        }
+      };
+      visit(result.steps);
+      stepPaths.add(['', ...stepPath].join(' › '));
+    }
+    fullHeader = header + (stepPaths.size === 1 ? stepPaths.values().next().value : '');
+  }
+  return separator(fullHeader);
 }
 
-export function formatError(config: FullConfig, error: TestError, highlightCode: boolean, file?: string): ErrorDetails {
+export function formatError(config: FullConfig, error: TestError, highlightCode: boolean): ErrorDetails {
+  const message = error.message || error.value || '';
   const stack = error.stack;
+  if (!stack && !error.location)
+    return { message };
+
   const tokens = [];
-  let location: Location | undefined;
-  if (stack) {
-    // Now that we filter out internals from our stack traces, we can safely render
-    // the helper / original exception locations.
-    const parsed = prepareErrorStack(stack);
-    tokens.push(parsed.message);
-    location = parsed.location;
-    if (location) {
-      try {
-        const source = fs.readFileSync(location.file, 'utf8');
-        const codeFrame = codeFrameColumns(source, { start: location }, { highlightCode });
-        // Convert /var/folders to /private/var/folders on Mac.
-        if (!file || fs.realpathSync(file) !== location.file) {
-          tokens.push('');
-          tokens.push(colors.gray(`   at `) + `${relativeFilePath(config, location.file)}:${location.line}`);
-        }
-        tokens.push('');
-        tokens.push(codeFrame);
-      } catch (e) {
-        // Failed to read the source file - that's ok.
-      }
-    }
+
+  // Now that we filter out internals from our stack traces, we can safely render
+  // the helper / original exception locations.
+  const parsedStack = stack ? prepareErrorStack(stack) : undefined;
+  tokens.push(parsedStack?.message || message);
+
+  if (error.snippet) {
+    let snippet = error.snippet;
+    if (!highlightCode)
+      snippet = stripAnsiEscapes(snippet);
     tokens.push('');
-    tokens.push(colors.dim(parsed.stackLines.join('\n')));
-  } else if (error.message) {
-    tokens.push(error.message);
-  } else if (error.value) {
-    tokens.push(error.value);
+    tokens.push(snippet);
   }
+
+  if (parsedStack) {
+    tokens.push('');
+    tokens.push(colors.dim(parsedStack.stackLines.join('\n')));
+  }
+
+  let location = error.location;
+  if (parsedStack && !location)
+    location = parsedStack.location;
+
   return {
     location,
     message: tokens.join('\n'),
   };
 }
 
-function pad(line: string, char: string): string {
-  if (line)
-    line += ' ';
-  return line + colors.gray(char.repeat(Math.max(0, 100 - line.length)));
+export function separator(text: string = ''): string {
+  if (text)
+    text += ' ';
+  const columns = Math.min(100, process.stdout?.columns || 100);
+  return text + colors.dim('─'.repeat(Math.max(0, columns - text.length)));
 }
 
 function indent(lines: string, tab: string) {
@@ -436,20 +454,15 @@ export function prepareErrorStack(stack: string): {
   const stackLines = lines.slice(firstStackLine);
   let location: Location | undefined;
   for (const line of stackLines) {
-    const { frame: parsed, fileName: resolvedFile } = parseStackTraceLine(line);
-    if (!parsed || !resolvedFile)
+    const frame = parseStackTraceLine(line);
+    if (!frame || !frame.file)
       continue;
-    if (belongsToNodeModules(resolvedFile))
+    if (belongsToNodeModules(frame.file))
       continue;
-    location = { file: resolvedFile, column: parsed.column || 0, line: parsed.line || 0 };
+    location = { file: frame.file, column: frame.column || 0, line: frame.line || 0 };
     break;
   }
   return { message, stackLines, location };
-}
-
-function monotonicTime(): number {
-  const [seconds, nanoseconds] = process.hrtime();
-  return seconds * 1000 + (nanoseconds / 1000000 | 0);
 }
 
 const ansiRegex = new RegExp('([\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~])))', 'g');

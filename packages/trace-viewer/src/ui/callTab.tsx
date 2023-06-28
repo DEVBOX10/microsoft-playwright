@@ -14,45 +14,48 @@
  * limitations under the License.
  */
 
-import type { CallMetadata } from '@protocol/callMetadata';
 import type { SerializedValue } from '@protocol/channels';
 import type { ActionTraceEvent } from '@trace/trace';
 import { msToString } from '@web/uiUtils';
 import * as React from 'react';
 import './callTab.css';
+import { CopyToClipboard } from './copyToClipboard';
+import { asLocator } from '@isomorphic/locatorGenerators';
+import type { Language } from '@isomorphic/locatorGenerators';
+import { ErrorMessage } from '@web/components/errorMessage';
 
 export const CallTab: React.FunctionComponent<{
   action: ActionTraceEvent | undefined,
-}> = ({ action }) => {
+  sdkLanguage: Language | undefined,
+}> = ({ action, sdkLanguage }) => {
   if (!action)
     return null;
-  const logs = action.metadata.log;
-  const error = action.metadata.error?.error?.message;
-  const params = { ...action.metadata.params };
+  const logs = action.log;
+  const error = action.error?.message;
+  const params = { ...action.params };
   // Strip down the waitForEventInfo data, we never need it.
   delete params.info;
   const paramKeys = Object.keys(params);
-  const wallTime = new Date(action.metadata.wallTime).toLocaleString();
-  const duration = action.metadata.endTime ? msToString(action.metadata.endTime - action.metadata.startTime) : 'Timed Out';
+  const wallTime = action.wallTime ? new Date(action.wallTime).toLocaleString() : null;
+  const duration = action.endTime ? msToString(action.endTime - action.startTime) : 'Timed Out';
+
   return <div className='call-tab'>
-    <div className='call-error' key='error' hidden={!error}>
-      <div className='codicon codicon-issues'/>
-      {error}
-    </div>
-    <div className='call-line'>{action.metadata.apiName}</div>
+    {!!error && <ErrorMessage error={error} />}
+    {!!error && <div className='call-section'>Call</div>}
+    <div className='call-line'>{action.apiName}</div>
     {<>
       <div className='call-section'>Time</div>
-      {action.metadata.wallTime && <div className='call-line'>wall time: <span className='datetime' title={wallTime}>{wallTime}</span></div>}
-      <div className='call-line'>duration: <span className='datetime' title={duration}>{duration}</span></div>
+      {wallTime && <div className='call-line'>wall time:<span className='call-value datetime' title={wallTime}>{wallTime}</span></div>}
+      <div className='call-line'>duration:<span className='call-value datetime' title={duration}>{duration}</span></div>
     </>}
     { !!paramKeys.length && <div className='call-section'>Parameters</div> }
     {
-      !!paramKeys.length && paramKeys.map((name, index) => renderLine(action.metadata, name, params[name], 'param-' + index))
+      !!paramKeys.length && paramKeys.map((name, index) => renderProperty(propertyToString(action, name, params[name], sdkLanguage), 'param-' + index))
     }
-    { !!action.metadata.result && <div className='call-section'>Return value</div> }
+    { !!action.result && <div className='call-section'>Return value</div> }
     {
-      !!action.metadata.result && Object.keys(action.metadata.result).map((name, index) =>
-        renderLine(action.metadata, name, action.metadata.result[name], 'result-' + index)
+      !!action.result && Object.keys(action.result).map((name, index) =>
+        renderProperty(propertyToString(action, name, action.result[name], sdkLanguage), 'result-' + index)
       )
     }
     <div className='call-section'>Log</div>
@@ -66,27 +69,42 @@ export const CallTab: React.FunctionComponent<{
   </div>;
 };
 
-function renderLine(metadata: CallMetadata, name: string, value: any, key: string) {
-  const { title, type } = toString(metadata, name, value);
-  let text = title.replace(/\n/g, '↵');
-  if (type === 'string')
+type Property = {
+  name: string;
+  type: 'string' | 'number' | 'object' | 'locator' | 'handle' | 'bigint' | 'boolean' | 'symbol' | 'undefined' | 'function';
+  text: string;
+};
+
+function renderProperty(property: Property, key: string) {
+  let text = property.text.replace(/\n/g, '↵');
+  if (property.type === 'string')
     text = `"${text}"`;
-  return <div key={key} className='call-line'>{name}: <span className={type} title={title}>{text}</span></div>;
+  return (
+    <div key={key} className='call-line'>
+      {property.name}:<span className={`call-value ${property.type}`} title={property.text}>{text}</span>
+      { ['string', 'number', 'object', 'locator'].includes(property.type) &&
+        <CopyToClipboard value={property.text} />
+      }
+    </div>
+  );
 }
 
-function toString(metadata: CallMetadata, name: string, value: any): { title: string, type: string } {
-  if (metadata.method.includes('eval')) {
-    if (name === 'arg')
-      value = parseSerializedValue(value.value, new Array(10).fill({ handle: '<handle>' }));
-    if (name === 'value')
-      value = parseSerializedValue(value, new Array(10).fill({ handle: '<handle>' }));
-  }
+function propertyToString(event: ActionTraceEvent, name: string, value: any, sdkLanguage: Language | undefined): Property {
+  const isEval = event.method.includes('eval') || event.method === 'waitForFunction';
+  if (name === 'files')
+    return { text: '<files>', type: 'string', name };
+  if (name === 'eventInit' || name === 'expectedValue' || (name === 'arg' && isEval))
+    value = parseSerializedValue(value.value, new Array(10).fill({ handle: '<handle>' }));
+  if ((name === 'value' && isEval) || (name === 'received' && event.method === 'expect'))
+    value = parseSerializedValue(value, new Array(10).fill({ handle: '<handle>' }));
+  if (name === 'selector')
+    return { text: asLocator(sdkLanguage || 'javascript', event.params.selector, false /* isFrameLocator */, true /* playSafe */), type: 'locator', name: 'locator' };
   const type = typeof value;
   if (type !== 'object' || value === null)
-    return { title: String(value), type };
+    return { text: String(value), type, name };
   if (value.guid)
-    return { title: '<handle>', type: 'handle' };
-  return { title: JSON.stringify(value), type: 'object' };
+    return { text: '<handle>', type: 'handle', name };
+  return { text: JSON.stringify(value).slice(0, 1000), type: 'object', name };
 }
 
 function parseSerializedValue(value: SerializedValue, handles: any[] | undefined): any {

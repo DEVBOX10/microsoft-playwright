@@ -16,14 +16,14 @@
  */
 
 import { test as it, expect } from './pageTest';
-import { globToRegex } from '../../packages/playwright-core/lib/common/netUtils';
+import { globToRegex } from '../../packages/playwright-core/lib/utils/glob';
 import vm from 'vm';
 
 it('should work with navigation @smoke', async ({ page, server }) => {
   const requests = new Map();
   await page.route('**/*', route => {
     requests.set(route.request().url().split('/').pop(), route.request());
-    route.continue();
+    void route.continue();
   });
   server.setRedirect('/rrredirect', '/frames/one-frame.html');
   await page.goto(server.PREFIX + '/rrredirect');
@@ -47,7 +47,7 @@ it('should intercept after a service worker', async ({ page, server, browserName
   await page.route('**/foo', route => {
     const slash = route.request().url().lastIndexOf('/');
     const name = route.request().url().substring(slash + 1);
-    route.fulfill({
+    void route.fulfill({
       status: 200,
       contentType: 'text/css',
       body: 'responseFromInterception:' + name
@@ -92,7 +92,8 @@ it('should work with glob', async () => {
   expect(globToRegex('http://localhost:3000/signin-oidc*').test('http://localhost:3000/signin-oidcnice')).toBeTruthy();
 });
 
-it('should intercept network activity from worker', async function({ page, server, isAndroid }) {
+it('should intercept network activity from worker', async function({ page, server, isAndroid, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
   it.skip(isAndroid);
 
   await page.goto(server.EMPTY_PAGE);
@@ -146,7 +147,7 @@ it('should work with regular expression passed from a different context', async 
     expect(request.resourceType()).toBe('document');
     expect(request.frame() === page.mainFrame()).toBe(true);
     expect(request.frame().url()).toBe('about:blank');
-    route.continue();
+    void route.continue();
     intercepted = true;
   });
 
@@ -156,8 +157,6 @@ it('should work with regular expression passed from a different context', async 
 });
 
 it('should not break remote worker importScripts', async ({ page, server, browserName, browserMajorVersion }) => {
-  it.fixme(browserName && browserMajorVersion < 91);
-
   await page.route('**', async route => {
     await route.continue();
   });

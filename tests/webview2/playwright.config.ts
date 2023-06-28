@@ -32,7 +32,6 @@ const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & Playwrigh
   globalTimeout: 5400000,
   workers: process.env.CI ? 1 : undefined,
   forbidOnly: !!process.env.CI,
-  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 3 : 0,
   reporter: process.env.CI ? [
     ['dot'],
@@ -52,7 +51,9 @@ const metadata = {
 };
 
 config.projects.push({
-  name: 'chromium',  // We use 'chromium' here to share screenshots with chromium.
+  name: 'webview2',
+  // Share screenshots with chromium.
+  snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-chromium{ext}',
   use: {
     browserName: 'chromium',
     coverageName: 'webview2',

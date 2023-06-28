@@ -27,12 +27,17 @@ export function escapeWithQuotes(text: string, char: string = '\'') {
   throw new Error('Invalid escape char');
 }
 
+export function isString(obj: any): obj is string {
+  return typeof obj === 'string' || obj instanceof String;
+}
+
 export function toTitleCase(name: string) {
   return name.charAt(0).toUpperCase() + name.substring(1);
 }
 
 export function toSnakeCase(name: string): string {
-  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+  // E.g. ignoreHTTPSErrors => ignore_https_errors.
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z])([A-Z][a-z])/g, '$1_$2').toLowerCase();
 }
 
 export function cssEscape(s: string): string {
@@ -58,16 +63,22 @@ function cssEscapeOne(s: string, i: number): string {
   return '\\' + s.charAt(i);
 }
 
+export function normalizeWhiteSpace(text: string): string {
+  return text.replace(/\u200b/g, '').trim().replace(/\s+/g, ' ');
+}
+
 export function escapeForTextSelector(text: string | RegExp, exact: boolean): string {
   if (typeof text !== 'string')
-    return String(text);
+    return String(text).replace(/>>/g, '\\>\\>');
   return `${JSON.stringify(text)}${exact ? 's' : 'i'}`;
 }
 
-export function escapeForAttributeSelector(value: string, exact: boolean): string {
+export function escapeForAttributeSelector(value: string | RegExp, exact: boolean): string {
+  if (typeof value !== 'string')
+    return String(value).replace(/>>/g, '\\>\\>');
   // TODO: this should actually be
   //   cssEscape(value).replace(/\\ /g, ' ')
   // However, our attribute selectors do not conform to CSS parsing spec,
   // so we escape them differently.
-  return `"${value.replace(/["]/g, '\\"')}"${exact ? 's' : 'i'}`;
+  return `"${value.replace(/\\/g, '\\\\').replace(/["]/g, '\\"')}"${exact ? 's' : 'i'}`;
 }

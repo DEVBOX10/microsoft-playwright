@@ -115,9 +115,7 @@ export class Backend extends EventEmitter {
   }
 
   async connect(wsEndpoint: string) {
-    this._transport = await WebSocketTransport.connect(wsEndpoint, {
-      'x-playwright-debug-controller': 'true'
-    });
+    this._transport = await WebSocketTransport.connect(wsEndpoint + '?debug-controller');
     this._transport.onmessage = (message: any) => {
       if (!message.id) {
         this.emit(message.method, message.params);
@@ -137,6 +135,10 @@ export class Backend extends EventEmitter {
     };
   }
 
+  async initialize() {
+    await this._send('initialize', { codegenId: 'playwright-test', sdkLanguage: 'javascript' });
+  }
+
   async close() {
     await this._transport.closeAndWait();
   }
@@ -149,7 +151,7 @@ export class Backend extends EventEmitter {
     await this._send('navigate', params);
   }
 
-  async setMode(params: { mode: 'none' | 'inspecting' | 'recording', language?: string, file?: string }) {
+  async setMode(params: { mode: 'none' | 'inspecting' | 'recording', language?: string, file?: string, testIdAttributeName?: string }) {
     await this._send('setRecorderMode', params);
   }
 
@@ -165,8 +167,12 @@ export class Backend extends EventEmitter {
     await this._send('hideHighlight');
   }
 
+  async resume() {
+    await this._send('resume');
+  }
+
   async kill() {
-    this._send('kill');
+    await this._send('kill');
   }
 
   private _send(method: string, params: any = {}): Promise<any> {

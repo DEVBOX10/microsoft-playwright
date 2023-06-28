@@ -43,7 +43,6 @@ export class ProgressController {
   private _state: 'before' | 'running' | 'aborted' | 'finished' = 'before';
   private _deadline: number = 0;
   private _timeout: number = 0;
-  private _lastIntermediateResult: any;
   readonly metadata: CallMetadata;
   readonly instrumentation: Instrumentation;
   readonly sdkObject: SdkObject;
@@ -59,8 +58,8 @@ export class ProgressController {
     this._logName = logName;
   }
 
-  lastIntermediateResult() {
-    return this._lastIntermediateResult;
+  abort(error: Error) {
+    this._forceAbortPromise.reject(error);
   }
 
   async run<T>(task: (progress: Progress) => Promise<T>, timeout?: number): Promise<T> {
@@ -71,6 +70,7 @@ export class ProgressController {
 
     assert(this._state === 'before');
     this._state = 'running';
+    this.sdkObject.attribution.context?._activeProgressControllers.add(this);
 
     const progress: Progress = {
       log: message => {
@@ -84,8 +84,6 @@ export class ProgressController {
           // Note: we might be sending logs after progress has finished, for example browser logs.
           this.instrumentation.onCallLog(this.sdkObject, this.metadata, this._logName, message);
         }
-        if ('intermediateResult' in entry)
-          this._lastIntermediateResult = entry.intermediateResult;
       },
       timeUntilDeadline: () => this._deadline ? this._deadline - monotonicTime() : 2147483647, // 2^31-1 safe setTimeout in Node.
       isRunning: () => this._state === 'running',
@@ -117,6 +115,7 @@ export class ProgressController {
       await Promise.all(this._cleanups.splice(0).map(runCleanup));
       throw e;
     } finally {
+      this.sdkObject.attribution.context?._activeProgressControllers.delete(this);
       clearTimeout(timer);
     }
   }

@@ -85,7 +85,7 @@ it('innerText should produce log', async ({ page, server }) => {
   await page.setContent(`<div>Hello</div>`);
   const locator = page.locator('span');
   const error = await locator.innerText({ timeout: 1000 }).catch(e => e);
-  expect(error.message).toContain('waiting for "locator(\'span\')"');
+  expect(error.message).toContain('waiting for locator(\'span\')');
 });
 
 it('textContent should work', async ({ page, server }) => {
@@ -142,6 +142,21 @@ it('isChecked should work', async ({ page }) => {
   expect(await page.isChecked('input')).toBe(false);
   const error = await page.isChecked('div').catch(e => e);
   expect(error.message).toContain('Not a checkbox or radio button');
+});
+
+it('isChecked should work for indeterminate input', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20190' });
+
+  await page.setContent(`<input type="checkbox" checked>`);
+  await page.locator('input').evaluate((e: HTMLInputElement) => e.indeterminate = true);
+
+  expect(await page.locator('input').isChecked()).toBe(true);
+  await expect(page.locator('input')).toBeChecked();
+
+  await page.locator('input').uncheck();
+
+  expect(await page.locator('input').isChecked()).toBe(false);
+  await expect(page.locator('input')).not.toBeChecked();
 });
 
 it('allTextContents should work', async ({ page }) => {

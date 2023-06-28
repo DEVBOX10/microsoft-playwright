@@ -9,6 +9,12 @@
 const SIMPLE_CHANNEL_MESSAGE_NAME = 'juggler:simplechannel';
 
 class SimpleChannel {
+  static createForActor(actor) {
+    const channel = new SimpleChannel('');
+    channel.bindToActor(actor);
+    return channel;
+  }
+
   static createForMessageManager(name, mm) {
     const channel = new SimpleChannel(name);
 
@@ -32,13 +38,33 @@ class SimpleChannel {
     this._pendingMessages = new Map();
     this._handlers = new Map();
     this._bufferedIncomingMessages = [];
-    this._bufferedOutgoingMessages = [];
     this.transport = {
       sendMessage: null,
-      dispose: null,
+      dispose: () => {},
     };
     this._ready = false;
+    this._paused = false;
     this._disposed = false;
+  }
+
+  bindToActor(actor) {
+    this.resetTransport();
+    this._name = actor.actorName;
+    const oldReceiveMessage = actor.receiveMessage;
+    actor.receiveMessage = message => this._onMessage(message.data);
+    this.setTransport({
+      sendMessage: obj => actor.sendAsyncMessage(SIMPLE_CHANNEL_MESSAGE_NAME, obj),
+      dispose: () => actor.receiveMessage = oldReceiveMessage,
+    });
+  }
+
+  resetTransport() {
+    this.transport.dispose();
+    this.transport = {
+      sendMessage: null,
+      dispose: () => {},
+    };
+    this._ready = false;
   }
 
   setTransport(transport) {
@@ -55,13 +81,29 @@ class SimpleChannel {
     this.transport.sendMessage('READY');
   }
 
+  pause() {
+    this._paused = true;
+  }
+
+  resumeSoon() {
+    if (!this._paused)
+      return;
+    this._paused = false;
+    this._setTimeout(() => this._deliverBufferedIncomingMessages(), 0);
+  }
+
+  _setTimeout(cb, timeout) {
+    // Lazy load on first call.
+    this._setTimeout = ChromeUtils.import('resource://gre/modules/Timer.jsm').setTimeout;
+    this._setTimeout(cb, timeout);
+  }
+
   _markAsReady() {
     if (this._ready)
       return;
     this._ready = true;
-    for (const msg of this._bufferedOutgoingMessages)
-      this.transport.sendMessage(msg);
-    this._bufferedOutgoingMessages = [];
+    for (const { message } of this._pendingMessages.values())
+      this.transport.sendMessage(message);
   }
 
   dispose() {
@@ -97,13 +139,16 @@ class SimpleChannel {
     if (this._handlers.has(namespace))
       throw new Error('ERROR: double-register for namespace ' + namespace);
     this._handlers.set(namespace, handler);
-    // Try to re-deliver all pending messages.
+    this._deliverBufferedIncomingMessages();
+    return () => this.unregister(namespace);
+  }
+
+  _deliverBufferedIncomingMessages() {
     const bufferedRequests = this._bufferedIncomingMessages;
     this._bufferedIncomingMessages = [];
     for (const data of bufferedRequests) {
       this._onMessage(data);
     }
-    return () => this.unregister(namespace);
   }
 
   unregister(namespace) {
@@ -121,18 +166,16 @@ class SimpleChannel {
     if (this._disposed)
       throw new Error(`ERROR: channel ${this._name} is already disposed! Cannot send "${methodName}" to "${namespace}"`);
     const id = ++this._messageId;
-    const promise = new Promise((resolve, reject) => {
-      this._pendingMessages.set(id, {connectorId, resolve, reject, methodName, namespace});
-    });
     const message = {requestId: id, methodName, params, namespace};
+    const promise = new Promise((resolve, reject) => {
+      this._pendingMessages.set(id, {connectorId, resolve, reject, methodName, namespace, message});
+    });
     if (this._ready)
       this.transport.sendMessage(message);
-    else
-      this._bufferedOutgoingMessages.push(message);
     return promise;
   }
 
-  async _onMessage(data) {
+  _onMessage(data) {
     if (data === 'READY') {
       this.transport.sendMessage('READY_ACK');
       this._markAsReady();
@@ -142,13 +185,27 @@ class SimpleChannel {
       this._markAsReady();
       return;
     }
+    if (this._paused)
+      this._bufferedIncomingMessages.push(data);
+    else
+      this._onMessageInternal(data);
+  }
+
+  async _onMessageInternal(data) {
     if (data.responseId) {
-      const {resolve, reject} = this._pendingMessages.get(data.responseId);
+      const message = this._pendingMessages.get(data.responseId);
+      if (!message) {
+        // During corss-process navigation, we might receive a response for
+        // the message sent by another process.
+        // TODO: consider events that are marked as "no-response" to avoid
+        // unneeded responses altogether.
+        return;
+      }
       this._pendingMessages.delete(data.responseId);
       if (data.error)
-        reject(new Error(data.error));
+        message.reject(new Error(data.error));
       else
-        resolve(data.result);
+        message.resolve(data.result);
     } else if (data.requestId) {
       const namespace = data.namespace;
       const handler = this._handlers.get(namespace);
@@ -169,9 +226,7 @@ class SimpleChannel {
         return;
       }
     } else {
-      dump(`
-        ERROR: unknown message in channel "${this._name}": ${JSON.stringify(data)}
-      `);
+      dump(`WARNING: unknown message in channel "${this._name}": ${JSON.stringify(data)}\n`);
     }
   }
 }

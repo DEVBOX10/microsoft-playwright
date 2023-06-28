@@ -482,6 +482,17 @@ it('should support simple copy-pasting', async ({ page, isMac, browserName }) =>
   expect(await page.evaluate(() => document.querySelector('div').textContent)).toBe('123123');
 });
 
+it('should support simple cut-pasting', async ({ page, isMac }) => {
+  const modifier = isMac ? 'Meta' : 'Control';
+  await page.setContent(`<div contenteditable>123</div>`);
+  await page.focus('div');
+  await page.keyboard.press(`${modifier}+KeyA`);
+  await page.keyboard.press(`${modifier}+KeyX`);
+  await page.keyboard.press(`${modifier}+KeyV`);
+  await page.keyboard.press(`${modifier}+KeyV`);
+  expect(await page.evaluate(() => document.querySelector('div').textContent)).toBe('123123');
+});
+
 it('should support undo-redo', async ({ page, isMac, browserName, isLinux }) => {
   it.fixme(browserName === 'webkit' && isLinux, 'https://github.com/microsoft/playwright/issues/12000');
   const modifier = isMac ? 'Meta' : 'Control';
@@ -646,10 +657,48 @@ async function captureLastKeydown(page) {
       lastEvent.key = e.key;
       lastEvent.code = e.code;
       lastEvent.metaKey = e.metaKey;
-      // keyIdentifier only exists in WebKit, and isn't in TypeScript's lib.
-      lastEvent.keyIdentifier = 'keyIdentifier' in e && e['keyIdentifier'];
+      lastEvent.keyIdentifier = 'keyIdentifier' in e && typeof e['keyIdentifier'] === 'string' && e['keyIdentifier'];
     }, true);
     return lastEvent;
   });
   return lastEvent;
 }
+
+it('should dispatch insertText after context menu was opened', async ({ server, page, browserName, isWindows }) => {
+  it.skip(browserName === 'chromium' && isWindows, 'context menu support is best-effort for Linux and MacOS');
+  await page.goto(server.PREFIX + '/input/textarea.html');
+  await page.evaluate(() => {
+    window['contextMenuPromise'] = new Promise(x => {
+      window.addEventListener('contextmenu', x, false);
+    });
+  });
+
+  const box = await page.locator('textarea').boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.click(cx, cy, { button: 'right' });
+  await page.evaluate(() => window['contextMenuPromise']);
+
+  await page.keyboard.insertText('嗨');
+  await expect.poll(() => page.locator('textarea').inputValue()).toBe('嗨');
+});
+
+it('should type after context menu was opened', async ({ server, page, browserName, isWindows }) => {
+  it.skip(browserName === 'chromium' && isWindows, 'context menu support is best-effort for Linux and MacOS');
+  await page.evaluate(() => {
+    window['keys'] = [];
+    window.addEventListener('keydown', event => window['keys'].push(event.key));
+    window['contextMenuPromise'] = new Promise(x => {
+      window.addEventListener('contextmenu', x, false);
+    });
+  });
+
+
+  await page.mouse.move(100, 100);
+  await page.mouse.down({ button: 'right' });
+  await page.evaluate(() => window['contextMenuPromise']);
+
+  await page.keyboard.down('ArrowDown');
+
+  await expect.poll(() => page.evaluate('window.keys')).toEqual(['ArrowDown']);
+});

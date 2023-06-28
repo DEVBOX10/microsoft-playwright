@@ -1,4 +1,5 @@
 # class: PlaywrightAssertions
+* langs: js, java, csharp
 * since: v1.17
 
 Playwright gives you Web-First Assertions with convenience methods for creating assertions that will wait and retry until the expected condition is met.
@@ -10,7 +11,7 @@ import { test, expect } from '@playwright/test';
 
 test('status becomes submitted', async ({ page }) => {
   // ...
-  await page.locator('#submit-button').click()
+  await page.locator('#submit-button').click();
   await expect(page.locator('.status')).toHaveText('Submitted');
 });
 ```
@@ -84,6 +85,8 @@ By default, the timeout for assertions is set to 5 seconds.
 
 Creates a [APIResponseAssertions] object for the given [APIResponse].
 
+**Usage**
+
 ```java
 PlaywrightAssertions.assertThat(response).isOK();
 ```
@@ -93,6 +96,21 @@ PlaywrightAssertions.assertThat(response).isOK();
 - `response` <[APIResponse]>
 
 [APIResponse] object to use for assertions.
+
+## method: PlaywrightAssertions.expectGeneric
+* since: v1.9
+* langs: js
+  - alias-js: expect
+- returns: <[GenericAssertions]>
+
+Creates a [GenericAssertions] object for the given value.
+
+### param: PlaywrightAssertions.expectGeneric.value
+* since: v1.9
+* langs: js
+- `value` <[any]>
+
+Value that will be asserted.
 
 ## method: PlaywrightAssertions.expectLocator
 * since: v1.18
@@ -104,6 +122,8 @@ PlaywrightAssertions.assertThat(response).isOK();
 - returns: <[LocatorAssertions]>
 
 Creates a [LocatorAssertions] object for the given [Locator].
+
+**Usage**
 
 ```java
 PlaywrightAssertions.assertThat(locator).isVisible();
@@ -130,6 +150,8 @@ await Expect(locator).ToBeVisibleAsync();
 
 Creates a [PageAssertions] object for the given [Page].
 
+**Usage**
+
 ```java
 PlaywrightAssertions.assertThat(page).hasTitle("News");
 ```
@@ -149,6 +171,8 @@ await Expect(page).ToHaveTitleAsync("News");
 * langs: java
 
 Changes default timeout for Playwright assertions from 5 seconds to the specified value.
+
+**Usage**
 
 ```java
 PlaywrightAssertions.setDefaultAssertionTimeout(30_000);

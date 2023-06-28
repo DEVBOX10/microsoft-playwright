@@ -14,6 +14,46 @@
   limitations under the License.
 */
 
+import React from 'react';
+
+// Recalculates the value when dependencies change.
+export function useAsyncMemo<T>(fn: () => Promise<T>, deps: React.DependencyList, initialValue: T, resetValue?: T) {
+  const [value, setValue] = React.useState<T>(initialValue);
+  React.useEffect(() => {
+    let canceled = false;
+    if (resetValue !== undefined)
+      setValue(resetValue);
+    fn().then(value => {
+      if (!canceled)
+        setValue(value);
+    });
+    return () => {
+      canceled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return value;
+}
+
+// Tracks the element size and returns it's contentRect (always has x=0, y=0).
+export function useMeasure<T extends Element>() {
+  const ref = React.useRef<T | null>(null);
+  const [measure, setMeasure] = React.useState(new DOMRect(0, 0, 10, 10));
+  React.useLayoutEffect(() => {
+    const target = ref.current;
+    if (!target)
+      return;
+    const resizeObserver = new ResizeObserver((entries: any) => {
+      const entry = entries[entries.length - 1];
+      if (entry && entry.contentRect)
+        setMeasure(entry.contentRect);
+    });
+    resizeObserver.observe(target);
+    return () => resizeObserver.disconnect();
+  }, [ref]);
+  return [measure, ref] as const;
+}
+
 export function msToString(ms: number): string {
   if (!isFinite(ms))
     return '-';
@@ -65,3 +105,54 @@ export function upperBound<S, T>(array: S[], object: T, comparator: (object: T, 
   }
   return r;
 }
+
+export function copy(text: string) {
+  const textArea = document.createElement('textarea');
+  textArea.style.position = 'absolute';
+  textArea.style.zIndex = '-1000';
+  textArea.value = text;
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand('copy');
+  textArea.remove();
+}
+
+export function useSetting<S>(name: string, defaultValue: S): [S, React.Dispatch<React.SetStateAction<S>>] {
+  const value = settings.getObject(name, defaultValue);
+  const [state, setState] = React.useState<S>(value);
+  const setStateWrapper = (value: React.SetStateAction<S>) => {
+    settings.setObject(name, value);
+    setState(value);
+  };
+  return [state, setStateWrapper];
+}
+
+export class Settings {
+  getString(name: string, defaultValue: string): string {
+    return localStorage[name] || defaultValue;
+  }
+
+  setString(name: string, value: string) {
+    localStorage[name] = value;
+    if ((window as any).saveSettings)
+      (window as any).saveSettings();
+  }
+
+  getObject<T>(name: string, defaultValue: T): T {
+    if (!localStorage[name])
+      return defaultValue;
+    try {
+      return JSON.parse(localStorage[name]);
+    } catch {
+      return defaultValue;
+    }
+  }
+
+  setObject<T>(name: string, value: T) {
+    localStorage[name] = JSON.stringify(value);
+    if ((window as any).saveSettings)
+      (window as any).saveSettings();
+  }
+}
+
+export const settings = new Settings();

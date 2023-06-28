@@ -1,6 +1,6 @@
 ---
 id: writing-tests
-title: "Writing Tests"
+title: "Writing tests"
 ---
 
 Playwright assertions are created specifically for the dynamic web. Checks are automatically retried until the necessary conditions are met. Playwright comes with [auto-wait](./actionability.md) built in meaning it waits for elements to be actionable prior to performing actions. Playwright provides an [expect](./test-assertions.md) function to write assertions.
@@ -19,7 +19,7 @@ def test_homepage_has_Playwright_in_title_and_get_started_link_linking_to_the_in
     expect(page).to_have_title(re.compile("Playwright"))
 
     # create a locator
-    get_started = page.get_by_role("link", name="Get started");
+    get_started = page.get_by_role("link", name="Get started")
 
     # Expect an attribute "to be strictly equal" to the value.
     expect(get_started).to_have_attribute("href", "/docs/intro")
@@ -51,7 +51,7 @@ expect(page).to_have_title(re.compile("Playwright"))
 ```python
 from playwright.sync_api import expect
 
-get_started = page.get_by_role("link", name="Get started");
+get_started = page.get_by_role("link", name="Get started")
 
 expect(get_started).to_have_attribute("href", "/docs/installation")
 get_started.click()
@@ -65,6 +65,7 @@ The Playwright Pytest plugin is based on the concept of test fixtures such as th
 from playwright.sync_api import Page
 
 def test_basic_test(page: Page):
+  pass
   # ...
 ```
 

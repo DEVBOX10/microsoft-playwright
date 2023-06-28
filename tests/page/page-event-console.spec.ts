@@ -183,7 +183,7 @@ it('should use object previews for arrays and objects', async ({ page, browserNa
   await page.evaluate(() => console.log([1, 2, 3], { a: 1 }, window));
 
   if (browserName !== 'firefox')
-    expect(text).toEqual('[1,2,3] {a: 1} Window');
+    expect(text).toEqual('[1, 2, 3] {a: 1} Window');
   else
     expect(text).toEqual('Array JSHandle@object JSHandle@object');
 });
@@ -200,4 +200,22 @@ it('should use object previews for errors', async ({ page, browserName }) => {
     expect(text).toEqual('Error: Exception');
   if (browserName === 'firefox')
     expect(text).toEqual('Error');
+});
+
+it('do not update console count on unhandled rejections', async ({ page }) => {
+  const messages: string[] = [];
+  const consoleEventListener = m => messages.push(m.text());
+  page.addListener('console', consoleEventListener);
+
+  await page.evaluate(() => {
+    const fail = async () => Promise.reject(new Error('error'));
+    console.log('begin');
+    void fail();
+    void fail();
+    fail().catch(() => {
+      console.log('end');
+    });
+  });
+
+  await expect.poll(() => messages).toEqual(['begin', 'end']);
 });

@@ -31,7 +31,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
+        node-version: 16
     - run: npm i -g npm@8
     - run: npm ci
       env:
@@ -47,8 +47,3 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: always() && matrix.os == 'ubuntu-latest'
-      with:
-        name: electron-linux-test-results
-        path: test-results

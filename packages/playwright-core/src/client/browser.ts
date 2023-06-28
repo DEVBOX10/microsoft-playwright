@@ -19,7 +19,7 @@ import { BrowserContext, prepareBrowserContextParams } from './browserContext';
 import type { Page } from './page';
 import { ChannelOwner } from './channelOwner';
 import { Events } from './events';
-import type { BrowserContextOptions } from './types';
+import type { LaunchOptions, BrowserContextOptions, HeadersArray } from './types';
 import { isSafeCloseError, kBrowserClosedError } from '../common/errors';
 import type * as api from '../../types/types';
 import { CDPSession } from './cdpSession';
@@ -30,15 +30,15 @@ export class Browser extends ChannelOwner<channels.BrowserChannel> implements ap
   private _isConnected = true;
   private _closedPromise: Promise<void>;
   _shouldCloseConnectionOnClose = false;
-  private _browserType!: BrowserType;
+  _browserType!: BrowserType;
+  _options: LaunchOptions = {};
   readonly _name: string;
+
+  // Used from @playwright/test fixtures.
+  _connectHeaders?: HeadersArray;
 
   static from(browser: channels.BrowserChannel): Browser {
     return (browser as any)._object;
-  }
-
-  static fromNullable(browser: channels.BrowserChannel | null): Browser | null {
-    return browser ? Browser.from(browser) : null;
   }
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.BrowserInitializer) {
@@ -46,12 +46,6 @@ export class Browser extends ChannelOwner<channels.BrowserChannel> implements ap
     this._name = initializer.name;
     this._channel.on('close', () => this._didClose());
     this._closedPromise = new Promise(f => this.once(Events.Browser.Disconnected, f));
-  }
-
-  _setBrowserType(browserType: BrowserType) {
-    this._browserType = browserType;
-    for (const context of this._contexts)
-      context._setBrowserType(browserType);
   }
 
   browserType(): BrowserType {
@@ -63,12 +57,15 @@ export class Browser extends ChannelOwner<channels.BrowserChannel> implements ap
   }
 
   async _newContextForReuse(options: BrowserContextOptions = {}): Promise<BrowserContext> {
-    for (const context of this._contexts) {
-      await this._browserType._onWillCloseContext?.(context);
-      context._onClose();
-    }
-    this._contexts.clear();
-    return await this._innerNewContext(options, true);
+    return await this._wrapApiCall(async () => {
+      for (const context of this._contexts) {
+        await this._browserType._willCloseContext(context);
+        for (const page of context.pages())
+          page._onClose();
+        context._onClose();
+      }
+      return await this._innerNewContext(options, true);
+    }, true);
   }
 
   async _innerNewContext(options: BrowserContextOptions = {}, forReuse: boolean): Promise<BrowserContext> {
@@ -76,11 +73,7 @@ export class Browser extends ChannelOwner<channels.BrowserChannel> implements ap
     const contextOptions = await prepareBrowserContextParams(options);
     const response = forReuse ? await this._channel.newContextForReuse(contextOptions) : await this._channel.newContext(contextOptions);
     const context = BrowserContext.from(response.context);
-    context._options = contextOptions;
-    this._contexts.add(context);
-    context._logger = options.logger || this._logger;
-    context._setBrowserType(this._browserType);
-    await this._browserType._onDidCreateContext?.(context);
+    await this._browserType._didCreateContext(context, contextOptions, this._options, options.logger || this._logger);
     return context;
   }
 
@@ -93,11 +86,13 @@ export class Browser extends ChannelOwner<channels.BrowserChannel> implements ap
   }
 
   async newPage(options: BrowserContextOptions = {}): Promise<Page> {
-    const context = await this.newContext(options);
-    const page = await context.newPage();
-    page._ownedContext = context;
-    context._ownerPage = page;
-    return page;
+    return await this._wrapApiCall(async () => {
+      const context = await this.newContext(options);
+      const page = await context.newPage();
+      page._ownedContext = context;
+      context._ownerPage = page;
+      return page;
+    });
   }
 
   isConnected(): boolean {

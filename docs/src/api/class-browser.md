@@ -67,7 +67,7 @@ using Microsoft.Playwright;
 
 using var playwright = await Playwright.CreateAsync();
 var firefox = playwright.Firefox;
-var browser = await firefox.LaunchAsync(new BrowserTypeLaunchOptions { Headless = false });
+var browser = await firefox.LaunchAsync(new() { Headless = false });
 var page = await browser.NewPageAsync();
 await page.GotoAsync("https://www.bing.com");
 await browser.CloseAsync();
@@ -107,6 +107,8 @@ The [Browser] object itself is considered to be disposed and cannot be used anym
 - returns: <[Array]<[BrowserContext]>>
 
 Returns an array of all open browser contexts. In a newly created browser, this will return zero browser contexts.
+
+**Usage**
 
 ```js
 const browser = await pw.webkit.launch();
@@ -153,7 +155,7 @@ Indicates that the browser is connected.
 
 ## async method: Browser.newBrowserCDPSession
 * since: v1.11
-* langs: js, python
+* langs: js, python, csharp
 - returns: <[CDPSession]>
 
 :::note
@@ -172,6 +174,8 @@ Creates a new browser context. It won't share cookies/cache with other browser c
 If directly using this method to create [BrowserContext]s, it is best practice to explicitly close the returned context via [`method: BrowserContext.close`] when your code is done with the [BrowserContext],
 and before calling [`method: Browser.close`]. This will ensure the `context` is closed gracefully and any artifacts—like HARs and videos—are fully flushed and saved.
 :::
+
+**Usage**
 
 ```js
 (async () => {
@@ -292,8 +296,10 @@ This API controls [Chromium Tracing](https://www.chromium.org/developers/how-tos
 You can use [`method: Browser.startTracing`] and [`method: Browser.stopTracing`] to create a trace file that can
 be opened in Chrome DevTools performance panel.
 
+**Usage**
+
 ```js
-await browser.startTracing(page, {path: 'trace.json'});
+await browser.startTracing(page, { path: 'trace.json' });
 await page.goto('https://www.google.com');
 await browser.stopTracing();
 ```

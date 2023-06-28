@@ -1,15 +1,25 @@
 ---
 id: trace-viewer
-title: "Trace Viewer"
+title: "Trace viewer"
 ---
 
+import LiteYouTube from '@site/src/components/LiteYouTube';
 
 Playwright Trace Viewer is a GUI tool that helps you explore recorded Playwright traces after the script has ran. You can open traces [locally](#viewing-the-trace) or in your browser on [`trace.playwright.dev`](https://trace.playwright.dev).
 
+######
+* langs: js
+
+<LiteYouTube
+    id="lfxjs--9ZQs"
+    title="Viewing Playwright Traces"
+/>
+
+######
+* langs: python, java, csharp
 
 <video width="100%" height="100%" controls muted>
-  <source src="https://user-images.githubusercontent.com/13063165/194582806-a26efd72-746e-40cc-8955-fa65aa3274c3.mp4
-" type="video/mp4" />
+  <source src="https://user-images.githubusercontent.com/13063165/219132713-17b9d75b-71e3-42c4-a43f-3f9e2e15f834.mp4" type="video/mp4" />
   Your browser does not support the video tag.
 </video>
 
@@ -23,7 +33,7 @@ npx playwright show-trace trace.zip
 ```
 
 ```bash java
-mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="show-trace trace.zip"
+mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="show-trace trace.zip"
 ```
 
 ```bash python
@@ -87,7 +97,7 @@ Here is what the typical Action snapshot looks like:
 
 Notice how it highlights both, the DOM Node as well as the exact click position.
 
-## Call 
+## Call
 
 See what action was called, the time and duration as well as parameters, return value and log.
 
@@ -116,7 +126,7 @@ See the source code for your entire test.
 ## Recording a trace locally
 * langs: js
 
-To record a trace during development mode set the `--trace` flag to `on` when running your tests. 
+To record a trace during development mode set the `--trace` flag to `on` when running your tests.
 
 ```bash
 npx playwright test --trace on
@@ -127,33 +137,19 @@ You can then open the HTML report and click on the trace icon to open the trace.
 npx playwright show-report
 ```
 ## Recording a trace on CI
+* langs: js
 
 Traces should be run on continuous integration on the first retry of a failed test
 by setting the `trace: 'on-first-retry'` option in the test configuration file. This will produce a `trace.zip` file for each test that was retried.
 
-```js tab=js-js
-// @ts-check
-
-/** @type {import('@playwright/test').PlaywrightTestConfig} */
-const config = {
+```js tab=js-test title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
   retries: 1,
   use: {
     trace: 'on-first-retry',
   },
-};
-
-module.exports = config;
-```
-
-```js tab=js-ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-const config: PlaywrightTestConfig = {
-  retries: 1,
-  use: {
-    trace: 'on-first-retry',
-  },
-};
-export default config;
+});
 ```
 
 ```js tab=js-library
@@ -172,6 +168,7 @@ await context.tracing.stop({ path: 'trace.zip' });
 
 Available options to record a trace:
 - `'on-first-retry'` - Record a trace only when retrying a test for the first time.
+- `'on-all-retries'` - Record traces for all test retries.
 - `'off'` - Do not record a trace.
 - `'on'` - Record a trace for each test. (not recommended as it's performance heavy)
 - `'retain-on-failure'` - Record a trace for each test, but remove it from successful test runs.
@@ -263,7 +260,7 @@ npx playwright show-trace trace.zip
 ```
 
 ```bash java
-mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="show-trace trace.zip"
+mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="show-trace trace.zip"
 ```
 
 ```bash python
@@ -290,7 +287,7 @@ npx playwright show-trace https://example.com/trace.zip
 ```
 
 ```bash java
-mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="show-trace https://example.com/trace.zip"
+mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="show-trace https://example.com/trace.zip"
 ```
 
 ```bash python

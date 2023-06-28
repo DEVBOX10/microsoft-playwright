@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+import type { IncomingHttpHeaders } from 'http';
+import type { Cookie } from '@playwright/test';
 import { contextTest as it, playwrightTest, expect } from '../config/browserTest';
 
 it('should work @smoke', async ({ context, page, server }) => {
@@ -77,7 +79,9 @@ it('should roundtrip cookie', async ({ context, page, server }) => {
   await context.clearCookies();
   expect(await context.cookies()).toEqual([]);
   await context.addCookies(cookies);
-  expect(await context.cookies()).toEqual(cookies);
+  // Slightly different rounding on chromium win.
+  const normalizedExpires = (cookies: Cookie[]) => cookies.map(c => ({ ...c, expires: Math.floor(c.expires) }));
+  expect(normalizedExpires(await context.cookies())).toEqual(normalizedExpires(cookies));
 });
 
 it('should send cookie header', async ({ server, context }) => {
@@ -448,4 +452,17 @@ it('should allow unnamed cookies', async ({ page, context, server, browserName, 
     expect.soft(await page.evaluate('document.cookie')).toBe('');
   else
     expect.soft(await page.evaluate('document.cookie')).toBe('unnamed-via-js');
+});
+
+it('should set secure cookies on secure WebSocket', async ({ contextFactory, httpsServer }) => {
+  let resolveResceivedWebSocketHeaders = (headers: IncomingHttpHeaders) => { };
+  const receivedWebSocketHeaders = new Promise<IncomingHttpHeaders>(resolve => resolveResceivedWebSocketHeaders = resolve);
+  httpsServer.onceWebSocketConnection((ws, req) => resolveResceivedWebSocketHeaders(req.headers));
+  const context = await contextFactory({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  await page.goto(httpsServer.EMPTY_PAGE);
+  await context.addCookies([{ domain: 'localhost', path: '/', name: 'foo', value: 'bar', secure: true }]);
+  await page.evaluate(port => new WebSocket(`wss://localhost:${port}/ws`), httpsServer.PORT);
+  const headers = await receivedWebSocketHeaders;
+  expect(headers.cookie).toBe('foo=bar');
 });

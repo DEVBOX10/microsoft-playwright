@@ -27,8 +27,8 @@ import type { RegisteredListener } from '../../utils/eventsHelper';
 import { eventsHelper } from '../../utils/eventsHelper';
 import { mime } from '../../utilsBundle';
 import { ManualPromise } from '../../utils/manualPromise';
-import { getPlaywrightVersion } from '../../common/userAgent';
-import { urlMatches } from '../../common/netUtils';
+import { getPlaywrightVersion } from '../../utils/userAgent';
+import { urlMatches } from '../../utils/network';
 import { Frame } from '../frames';
 import type { HeadersArray, LifecycleEvent } from '../types';
 import { isTextualMimeType } from '../../utils/mimeType';
@@ -101,7 +101,11 @@ export class HarTracer {
           eventsHelper.addEventListener(this._context, BrowserContext.Events.Request, (request: network.Request) => this._onRequest(request)),
           eventsHelper.addEventListener(this._context, BrowserContext.Events.RequestFinished, ({ request, response }) => this._onRequestFinished(request, response).catch(() => {})),
           eventsHelper.addEventListener(this._context, BrowserContext.Events.RequestFailed, request => this._onRequestFailed(request)),
-          eventsHelper.addEventListener(this._context, BrowserContext.Events.Response, (response: network.Response) => this._onResponse(response)));
+          eventsHelper.addEventListener(this._context, BrowserContext.Events.Response, (response: network.Response) => this._onResponse(response)),
+          eventsHelper.addEventListener(this._context, BrowserContext.Events.RequestAborted, request => this._onRequestAborted(request)),
+          eventsHelper.addEventListener(this._context, BrowserContext.Events.RequestFulfilled, request => this._onRequestFulfilled(request)),
+          eventsHelper.addEventListener(this._context, BrowserContext.Events.RequestContinued, request => this._onRequestContinued(request)),
+      );
     }
   }
 
@@ -150,7 +154,7 @@ export class HarTracer {
         title: document.title,
         domContentLoaded: performance.timing.domContentLoadedEventStart,
       };
-    }), true, undefined, 'utility').then(result => {
+    }), { isFunction: true, world: 'utility' }).then(result => {
       pageEntry.title = result.title;
       if (!this._options.omitTiming)
         pageEntry.pageTimings.onContentLoad = result.domContentLoaded;
@@ -164,7 +168,7 @@ export class HarTracer {
         title: document.title,
         loaded: performance.timing.loadEventStart,
       };
-    }), true, undefined, 'utility').then(result => {
+    }), { isFunction: true, world: 'utility' }).then(result => {
       pageEntry.title = result.title;
       if (!this._options.omitTiming)
         pageEntry.pageTimings.onLoad = result.loaded;
@@ -192,6 +196,7 @@ export class HarTracer {
     if (!this._shouldIncludeEntryWithUrl(event.url.toString()))
       return;
     const harEntry = createHarEntry(event.method, event.url, undefined, this._options);
+    harEntry._apiRequest = true;
     if (!this._options.omitCookies)
       harEntry.request.cookies = event.cookies;
     harEntry.request.headers = Object.entries(event.headers).map(([name, value]) => ({ name, value }));
@@ -289,6 +294,23 @@ export class HarTracer {
       return;
     const page = request.frame()?._page;
 
+    // In WebKit security details and server ip are reported in Network.loadingFinished, so we populate
+    // it here to not hang in case of long chunked responses, see https://github.com/microsoft/playwright/issues/21182.
+    if (!this._options.omitServerIP) {
+      this._addBarrier(page || request.serviceWorker(), response.serverAddr().then(server => {
+        if (server?.ipAddress)
+          harEntry.serverIPAddress = server.ipAddress;
+        if (server?.port)
+          harEntry._serverPort = server.port;
+      }));
+    }
+    if (!this._options.omitSecurityDetails) {
+      this._addBarrier(page || request.serviceWorker(), response.securityDetails().then(details => {
+        if (details)
+          harEntry._securityDetails = details;
+      }));
+    }
+
     const httpVersion = response.httpVersion();
     harEntry.request.httpVersion = httpVersion;
     harEntry.response.httpVersion = httpVersion;
@@ -332,6 +354,11 @@ export class HarTracer {
     });
     this._addBarrier(page || request.serviceWorker(), promise);
 
+    // Respose end timing is only available after the response event was received.
+    const timing = response.timing();
+    harEntry.timings.receive = response.request()._responseEndTiming !== -1 ? helper.millisToRoundishMillis(response.request()._responseEndTiming - timing.responseStart) : -1;
+    this._computeHarEntryTotalTime(harEntry);
+
     if (!this._options.omitSizes) {
       this._addBarrier(page || request.serviceWorker(), response.sizes().then(sizes => {
         harEntry.response.bodySize = sizes.responseBodySize;
@@ -353,6 +380,24 @@ export class HarTracer {
     this._recordRequestOverrides(harEntry, request);
     if (this._started)
       this._delegate.onEntryFinished(harEntry);
+  }
+
+  private _onRequestAborted(request: network.Request) {
+    const harEntry = this._entryForRequest(request);
+    if (harEntry)
+      harEntry._wasAborted = true;
+  }
+
+  private _onRequestFulfilled(request: network.Request) {
+    const harEntry = this._entryForRequest(request);
+    if (harEntry)
+      harEntry._wasFulfilled = true;
+  }
+
+  private _onRequestContinued(request: network.Request) {
+    const harEntry = this._entryForRequest(request);
+    if (harEntry)
+      harEntry._wasContinued = true;
   }
 
   private _storeResponseContent(buffer: Buffer | undefined, content: har.Content, resourceType: string) {
@@ -417,7 +462,7 @@ export class HarTracer {
       const connect = timing.connectEnd !== -1 ? helper.millisToRoundishMillis(timing.connectEnd - timing.connectStart) : -1;
       const ssl = timing.connectEnd !== -1 ? helper.millisToRoundishMillis(timing.connectEnd - timing.secureConnectionStart) : -1;
       const wait = timing.responseStart !== -1 ? helper.millisToRoundishMillis(timing.responseStart - timing.requestStart) : -1;
-      const receive = response.request()._responseEndTiming !== -1 ? helper.millisToRoundishMillis(response.request()._responseEndTiming - timing.responseStart) : -1;
+      const receive = -1;
 
       harEntry.timings = {
         dns,
@@ -427,37 +472,41 @@ export class HarTracer {
         wait,
         receive,
       };
-      harEntry.time = [dns, connect, ssl, wait, receive].reduce((pre, cur) => cur > 0 ? cur + pre : pre, 0);
+      this._computeHarEntryTotalTime(harEntry);
     }
 
-    if (!this._options.omitServerIP) {
-      this._addBarrier(page || request.serviceWorker(), response.serverAddr().then(server => {
-        if (server?.ipAddress)
-          harEntry.serverIPAddress = server.ipAddress;
-        if (server?.port)
-          harEntry._serverPort = server.port;
-      }));
-    }
-    if (!this._options.omitSecurityDetails) {
-      this._addBarrier(page || request.serviceWorker(), response.securityDetails().then(details => {
-        if (details)
-          harEntry._securityDetails = details;
-      }));
-    }
     this._recordRequestOverrides(harEntry, request);
     this._addBarrier(page || request.serviceWorker(), request.rawRequestHeaders().then(headers => {
       this._recordRequestHeadersAndCookies(harEntry, headers);
     }));
+    // Record available headers including redirect location in case the tracing is stopped before
+    // reponse extra info is received (in Chromium).
+    this._recordResponseHeaders(harEntry, response.headers());
     this._addBarrier(page || request.serviceWorker(), response.rawResponseHeaders().then(headers => {
-      if (!this._options.omitCookies) {
-        for (const header of headers.filter(header => header.name.toLowerCase() === 'set-cookie'))
-          harEntry.response.cookies.push(parseCookie(header.value));
-      }
-      harEntry.response.headers = headers;
-      const contentType = headers.find(header => header.name.toLowerCase() === 'content-type');
-      if (contentType)
-        harEntry.response.content.mimeType = contentType.value;
+      this._recordResponseHeaders(harEntry, headers);
     }));
+  }
+
+  private _recordResponseHeaders(harEntry: har.Entry, headers: HeadersArray) {
+    if (!this._options.omitCookies) {
+      harEntry.response.cookies = headers
+          .filter(header => header.name.toLowerCase() === 'set-cookie')
+          .map(header => parseCookie(header.value));
+    }
+    harEntry.response.headers = headers;
+    const contentType = headers.find(header => header.name.toLowerCase() === 'content-type');
+    if (contentType)
+      harEntry.response.content.mimeType = contentType.value;
+  }
+
+  private _computeHarEntryTotalTime(harEntry: har.Entry) {
+    harEntry.time = [
+      harEntry.timings.dns,
+      harEntry.timings.connect,
+      harEntry.timings.ssl,
+      harEntry.timings.wait,
+      harEntry.timings.receive
+    ].reduce((pre, cur) => (cur || -1) > 0 ? cur! + pre! : pre, 0)!;
   }
 
   async flush() {

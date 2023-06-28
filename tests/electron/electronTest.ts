@@ -16,16 +16,17 @@
 
 import { baseTest } from '../config/baseTest';
 import * as path from 'path';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Page, Electron } from '@playwright/test';
 import type { PageTestFixtures, PageWorkerFixtures } from '../page/pageTestApi';
 import type { TraceViewerFixtures } from '../config/traceViewerFixtures';
 import { traceViewerFixtures } from '../config/traceViewerFixtures';
 export { expect } from '@playwright/test';
 import e2c from 'electron-to-chromium';
-import { assert } from 'playwright-core/lib/utils';
+import { assert } from '../../packages/playwright-core/lib/utils/debug';
 
 type ElectronTestFixtures = PageTestFixtures & {
   electronApp: ElectronApplication;
+  launchElectronApp: (appFile: string, args?: string[], options?: Parameters<Electron['launch']>[0]) => Promise<ElectronApplication>;
   newWindow: () => Promise<Page>;
 };
 
@@ -40,14 +41,21 @@ export const electronTest = baseTest.extend<TraceViewerFixtures>(traceViewerFixt
   isElectron: [true, { scope: 'worker' }],
   isWebView2: [false, { scope: 'worker' }],
 
-  electronApp: async ({ playwright }, run) => {
+  launchElectronApp: async ({ playwright }, use) => {
     // This env prevents 'Electron Security Policy' console message.
     process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
-    const electronApp = await playwright._electron.launch({
-      args: [path.join(__dirname, 'electron-app.js')],
+    const apps: ElectronApplication[] = [];
+    await use(async (appFile: string, args: string[] = [], options?: Parameters<Electron['launch']>[0]) => {
+      const app = await playwright._electron.launch({ ...options, args: [path.join(__dirname, appFile), ...args] });
+      apps.push(app);
+      return app;
     });
-    await run(electronApp);
-    await electronApp.close();
+    for (const app of apps)
+      await app.close();
+  },
+
+  electronApp: async ({ launchElectronApp }, use) => {
+    await use(await launchElectronApp('electron-app.js'));
   },
 
   newWindow: async ({ electronApp }, run) => {
@@ -65,7 +73,7 @@ export const electronTest = baseTest.extend<TraceViewerFixtures>(traceViewerFixt
             // and can script them. We use that heavily in our tests.
             webPreferences: { sandbox: true }
           });
-          window.loadURL('about:blank');
+          await window.loadURL('about:blank');
         })
       ]);
       windows.push(window);

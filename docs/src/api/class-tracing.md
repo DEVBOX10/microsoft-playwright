@@ -49,14 +49,14 @@ await using var browser = playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 await context.Tracing.StartAsync(new()
 {
-  Screenshots: true,
-  Snapshots: true
+  Screenshots = true,
+  Snapshots = true
 });
 var page = context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
 await context.Tracing.StopAsync(new()
 {
-  Path: "trace.zip"
+  Path = "trace.zip"
 });
 ```
 
@@ -64,6 +64,8 @@ await context.Tracing.StopAsync(new()
 * since: v1.12
 
 Start tracing.
+
+**Usage**
 
 ```js
 await context.tracing.start({ screenshots: true, snapshots: true });
@@ -101,14 +103,14 @@ await using var browser = playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 await context.Tracing.StartAsync(new()
 {
-  Screenshots: true,
-  Snapshots: true
+  Screenshots = true,
+  Snapshots = true
 });
 var page = context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
 await context.Tracing.StopAsync(new()
 {
-  Path: "trace.zip"
+  Path = "trace.zip"
 });
 ```
 
@@ -160,6 +162,8 @@ Trace name to be shown in the Trace Viewer.
 * since: v1.15
 
 Start a new trace chunk. If you'd like to record multiple traces on the same [BrowserContext], use [`method: Tracing.start`] once, and then create multiple trace chunks with [`method: Tracing.startChunk`] and [`method: Tracing.stopChunk`].
+
+**Usage**
 
 ```js
 await context.tracing.start({ screenshots: true, snapshots: true });
@@ -234,8 +238,8 @@ await using var browser = playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 await context.Tracing.StartAsync(new()
 {
-  Screenshots: true,
-  Snapshots: true
+  Screenshots = true,
+  Snapshots = true
 });
 var page = context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
@@ -245,7 +249,7 @@ await page.GetByText("Get Started").ClickAsync();
 // Everything between StartChunkAsync and StopChunkAsync will be recorded in the trace.
 await context.Tracing.StopChunkAsync(new()
 {
-  Path: "trace1.zip"
+  Path = "trace1.zip"
 });
 
 await context.Tracing.StartChunkAsync();
@@ -253,7 +257,7 @@ await page.GotoAsync("http://example.com");
 // Save a second trace file with different actions.
 await context.Tracing.StopChunkAsync(new()
 {
-  Path: "trace2.zip"
+  Path = "trace2.zip"
 });
 ```
 
@@ -263,6 +267,12 @@ await context.Tracing.StopChunkAsync(new()
 
 Trace name to be shown in the Trace Viewer.
 
+### option: Tracing.startChunk.name
+* since: v1.32
+- `name` <[string]>
+
+If specified, the trace is going to be saved into the file with the
+given name inside the [`option: tracesDir`] folder specified in [`method: BrowserType.launch`].
 
 ## async method: Tracing.stop
 * since: v1.12
@@ -274,8 +284,6 @@ Stop tracing.
 - `path` <[path]>
 
 Export trace into the file with the given path.
-
-
 
 ## async method: Tracing.stopChunk
 * since: v1.15

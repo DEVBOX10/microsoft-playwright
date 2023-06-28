@@ -258,8 +258,8 @@ it('should include secure set-cookies', async ({ contextFactory, httpsServer }, 
 
 it('should record request overrides', async ({ contextFactory, server }, testInfo) => {
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
-  page.route('**/foo', route => {
-    route.fallback({
+  await page.route('**/foo', route => {
+    void route.fallback({
       url: server.EMPTY_PAGE,
       method: 'POST',
       headers: {
@@ -421,6 +421,13 @@ it('should calculate time', async ({ contextFactory, server }, testInfo) => {
   expect(log.entries[0].time).toBeGreaterThan(0);
 });
 
+it('should return receive time', async ({ contextFactory, server }, testInfo) => {
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  await page.goto(server.PREFIX + '/har.html');
+  const log = await getLog();
+  expect(log.entries[0].timings.receive).toBeGreaterThan(0);
+});
+
 it('should report the correct _transferSize with PNG files', async ({ contextFactory, server, asset }, testInfo) => {
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
   await page.goto(server.EMPTY_PAGE);
@@ -465,7 +472,7 @@ it('should record failed request overrides', async ({ contextFactory, server }, 
     res.socket.destroy();
   });
   await page.route('**/foo', route => {
-    route.fallback({
+    void route.fallback({
       url: server.EMPTY_PAGE,
       method: 'POST',
       headers: {
@@ -495,7 +502,7 @@ it('should report the correct request body size', async ({ contextFactory, serve
   await Promise.all([
     page.waitForResponse(server.PREFIX + '/api1'),
     page.evaluate(() => {
-      fetch('/api1', {
+      void fetch('/api1', {
         method: 'POST',
         body: 'abc123'
       });
@@ -512,7 +519,7 @@ it('should report the correct request body size when the bodySize is 0', async (
   await Promise.all([
     page.waitForResponse(server.PREFIX + '/api2'),
     page.evaluate(() => {
-      fetch('/api2', {
+      void fetch('/api2', {
         method: 'POST',
         body: ''
       });
@@ -552,7 +559,8 @@ it('should have popup requests', async ({ contextFactory, server }, testInfo) =>
 });
 
 it('should not contain internal pages', async ({ browserName, contextFactory, server }, testInfo) => {
-  it.fixme(true, 'https://github.com/microsoft/playwright/issues/6743');
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/6743' });
+
   server.setRoute('/empty.html', (req, res) => {
     res.setHeader('Set-Cookie', 'name=value');
     res.end();
@@ -646,14 +654,13 @@ it('should return server address directly from response', async ({ page, server,
 
 it('should return security details directly from response', async ({ contextFactory, httpsServer, browserName, platform }) => {
   it.fail(browserName === 'webkit' && platform === 'linux', 'https://github.com/microsoft/playwright/issues/6759');
-  it.fail(browserName === 'webkit' && platform === 'win32');
 
   const context = await contextFactory({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
   const response = await page.goto(httpsServer.EMPTY_PAGE);
   const securityDetails = await response.securityDetails();
   if (browserName === 'webkit' && platform === 'win32')
-    expect(securityDetails).toEqual({ subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: -1 });
+    expect({ ...securityDetails, protocol: undefined }).toEqual({ subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: -1 });
   else if (browserName === 'webkit')
     expect(securityDetails).toEqual({ protocol: 'TLS 1.3', subjectName: 'puppeteer-tests', validFrom: 1550084863, validTo: 33086084863 });
   else
@@ -665,8 +672,8 @@ it('should contain http2 for http2 requests', async ({ contextFactory, browserNa
   it.fixme(browserName === 'webkit' && platform === 'win32');
 
   const server = http2.createSecureServer({
-    key: await fs.promises.readFile(path.join(__dirname, '..', '..', 'utils', 'testserver', 'key.pem')),
-    cert: await fs.promises.readFile(path.join(__dirname, '..', '..', 'utils', 'testserver', 'cert.pem')),
+    key: await fs.promises.readFile(path.join(__dirname, '..', 'config', 'testserver', 'key.pem')),
+    cert: await fs.promises.readFile(path.join(__dirname, '..', 'config', 'testserver', 'cert.pem')),
   });
   server.on('stream', stream => {
     stream.respond({
@@ -819,4 +826,37 @@ it('should not hang on resources served from cache', async ({ contextFactory, se
     expect(entries.length).toBe(1);
   else
     expect(entries.length).toBe(2);
+});
+
+it('should not hang on slow chunked response', async ({ browserName, browser, contextFactory, server }, testInfo) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21182' });
+  server.setRoute('/empty.html', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/html',
+    });
+    res.end(`<script>
+    let receivedFirstData = new Promise(f => {
+      setTimeout(() =>  {
+        var x = new XMLHttpRequest();
+        x.open("GET", "slow.txt");
+        x.onprogress = () => f();
+        x.send();
+      }, 0);
+    });
+    </script>`);
+  });
+  server.setRoute('/slow.txt', async (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/plain',
+      'Transfer-Encoding': 'chunked',
+      'Content-length': '2023'
+    });
+    res.write('begin');
+  });
+  const { page, getLog } = await pageWithHar(contextFactory, testInfo);
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(() => (window as any).receivedFirstData);
+  const log = await getLog();
+  expect(log.browser.name.toLowerCase()).toBe(browserName);
+  expect(log.browser.version).toBe(browser.version());
 });

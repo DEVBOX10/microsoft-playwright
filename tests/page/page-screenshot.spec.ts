@@ -20,6 +20,7 @@ import { verifyViewport, attachFrame } from '../config/utils';
 import type { Route } from 'playwright-core';
 import path from 'path';
 import fs from 'fs';
+import { comparePNGs } from '../config/comparator';
 
 it.describe('page screenshot', () => {
   it.skip(({ browserName, headless }) => browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
@@ -60,7 +61,8 @@ it.describe('page screenshot', () => {
   });
 
   it('should capture blinking caret if explicitly asked for', async ({ page, server, browserName }) => {
-    it.fixme(browserName === 'firefox', 'browser-level screenshot API in firefox does not capture caret');
+    it.skip(browserName === 'firefox', 'browser-level screenshot API in firefox does not capture caret');
+
     await page.setContent(`
       <!-- Refer to stylesheet from other origin. Accessing this
            stylesheet rules will throw.
@@ -226,15 +228,14 @@ it.describe('page screenshot', () => {
     await verifyViewport(page, 500, 500);
   });
 
-  it('should allow transparency', async ({ page, browserName, platform }) => {
+  it('should allow transparency', async ({ page, browserName, platform, headless }) => {
     it.fail(browserName === 'firefox');
-    it.fixme(browserName === 'webkit' && platform === 'win32', 'https://github.com/microsoft/playwright/issues/18452');
 
-    await page.setViewportSize({ width: 50, height: 150 });
+    await page.setViewportSize({ width: 300, height: 300 });
     await page.setContent(`
       <style>
         body { margin: 0 }
-        div { width: 50px; height: 50px; }
+        div { width: 300px; height: 100px; }
       </style>
       <div style="background:black"></div>
       <div style="background:white"></div>
@@ -267,11 +268,12 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-clip-odd-size.png');
   });
 
-  it('should work for canvas', async ({ page, server }) => {
+  it('should work for canvas', async ({ page, server, isElectron, isMac }) => {
+    it.fixme(isElectron && isMac, 'Fails on the bots');
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/screenshots/canvas.html');
     const screenshot = await page.screenshot();
-    expect(screenshot).toMatchSnapshot('screenshot-canvas.png', { threshold: 0.4 });
+    expect(screenshot).toMatchSnapshot('screenshot-canvas.png');
   });
 
   it('should capture canvas changes', async ({ page, isElectron, browserName, isMac, isWebView2 }) => {
@@ -306,8 +308,8 @@ it.describe('page screenshot', () => {
     }
   });
 
-  it('should work for webgl', async ({ page, server, browserName }) => {
-    it.fixme(browserName === 'firefox' || browserName === 'webkit');
+  it('should work for webgl', async ({ page, server, browserName, channel, browserMajorVersion }) => {
+    it.fixme(browserName === 'firefox');
 
     await page.setViewportSize({ width: 640, height: 480 });
     await page.goto(server.PREFIX + '/screenshots/webgl.html');
@@ -532,6 +534,15 @@ it.describe('page screenshot', () => {
       });
       await page.screenshot({ mask: [page.locator('non-existent')] });
     });
+
+    it('should work when mask color is not pink #F0F', async ({ page, server }) => {
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto(server.PREFIX + '/grid.html');
+      expect(await page.screenshot({
+        mask: [page.locator('div').nth(5)],
+        maskColor: '#00FF00',
+      })).toMatchSnapshot('mask-color-should-work.png');
+    });
   });
 });
 
@@ -613,7 +624,7 @@ it.describe('page screenshot animations', () => {
     const buffer2 = await page.screenshot({
       animations: 'disabled',
     });
-    expect(buffer1.equals(buffer2)).toBe(true);
+    expect(comparePNGs(buffer1, buffer2)).toBe(null);
   });
 
   it('should resume infinite animations', async ({ page, server }) => {
@@ -624,7 +635,7 @@ it.describe('page screenshot animations', () => {
     const buffer1 = await page.screenshot();
     await rafraf(page);
     const buffer2 = await page.screenshot();
-    expect(buffer1.equals(buffer2)).toBe(false);
+    expect(comparePNGs(buffer1, buffer2, { maxDiffPixels: 50 })).not.toBe(null);
   });
 
   it('should not capture infinite web animations', async ({ page, server }) => {
@@ -644,7 +655,7 @@ it.describe('page screenshot animations', () => {
     const buffer1 = await page.screenshot();
     await rafraf(page);
     const buffer2 = await page.screenshot();
-    expect(buffer1.equals(buffer2)).toBe(false);
+    expect(comparePNGs(buffer1, buffer2, { maxDiffPixels: 50 })).not.toBe(null);
   });
 
   it('should fire transitionend for finite transitions', async ({ page, server }) => {

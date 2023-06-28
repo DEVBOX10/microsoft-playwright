@@ -52,7 +52,7 @@ context.close()
 
 ```csharp
 using var playwright = await Playwright.CreateAsync();
-var browser = await playwright.Firefox.LaunchAsync(new BrowserTypeLaunchOptions { Headless = false });
+var browser = await playwright.Firefox.LaunchAsync(new() { Headless = false });
 // Create a new incognito browser context
 var context = await browser.NewContextAsync();
 // Create a new page inside context.
@@ -72,7 +72,6 @@ Only works with Chromium browser's persistent context.
 :::
 
 Emitted when new background page is created in the context.
-
 
 ```js
 const backgroundPage = await context.waitForEvent('backgroundpage');
@@ -95,6 +94,99 @@ Emitted when Browser context gets closed. This might happen because of one of th
 * Browser application is closed or crashed.
 * The [`method: Browser.close`] method was called.
 
+## event: BrowserContext.console
+* since: v1.34
+* langs:
+  - alias-java: consoleMessage
+- argument: <[ConsoleMessage]>
+
+Emitted when JavaScript within the page calls one of console API methods, e.g. `console.log` or `console.dir`. Also emitted if the page throws an error or a warning.
+
+The arguments passed into `console.log` and the page are available on the [ConsoleMessage] event handler argument.
+
+**Usage**
+
+```js
+context.on('console', async msg => {
+  const values = [];
+  for (const arg of msg.args())
+    values.push(await arg.jsonValue());
+  console.log(...values);
+});
+await page.evaluate(() => console.log('hello', 5, { foo: 'bar' }));
+```
+
+```java
+context.onConsoleMessage(msg -> {
+  for (int i = 0; i < msg.args().size(); ++i)
+    System.out.println(i + ": " + msg.args().get(i).jsonValue());
+});
+page.evaluate("() => console.log('hello', 5, { foo: 'bar' })");
+```
+
+```python async
+async def print_args(msg):
+    values = []
+    for arg in msg.args:
+        values.append(await arg.json_value())
+    print(values)
+
+context.on("console", print_args)
+await page.evaluate("console.log('hello', 5, { foo: 'bar' })")
+```
+
+```python sync
+def print_args(msg):
+    for arg in msg.args:
+        print(arg.json_value())
+
+context.on("console", print_args)
+page.evaluate("console.log('hello', 5, { foo: 'bar' })")
+```
+
+```csharp
+context.Console += async (_, msg) =>
+{
+    foreach (var arg in msg.Args)
+        Console.WriteLine(await arg.JsonValueAsync<object>());
+};
+
+await page.EvaluateAsync("console.log('hello', 5, { foo: 'bar' })");
+```
+
+
+## event: BrowserContext.dialog
+* since: v1.34
+- argument: <[Dialog]>
+
+Emitted when a JavaScript dialog appears, such as `alert`, `prompt`, `confirm` or `beforeunload`. Listener **must** either [`method: Dialog.accept`] or [`method: Dialog.dismiss`] the dialog - otherwise the page will [freeze](https://developer.mozilla.org/en-US/docs/Web/JavaScript/EventLoop#never_blocking) waiting for the dialog, and actions like click will never finish.
+
+**Usage**
+
+```js
+context.on('dialog', dialog => {
+  dialog.accept();
+});
+```
+
+```java
+context.onDialog(dialog -> {
+  dialog.accept();
+});
+```
+
+```python
+context.on("dialog", lambda dialog: dialog.accept())
+```
+
+```csharp
+context.Dialog += (_, dialog) => dialog.AcceptAsync();
+```
+
+:::note
+When no [`event: Page.dialog`] or [`event: BrowserContext.dialog`] listeners are present, all dialogs are automatically dismissed.
+:::
+
 ## event: BrowserContext.page
 * since: v1.8
 - argument: <[Page]>
@@ -107,30 +199,29 @@ popup with `window.open('http://example.com')`, this event will fire when the ne
 done and its response has started loading in the popup.
 
 ```js
-const [newPage] = await Promise.all([
-  context.waitForEvent('page'),
-  page.locator('a[target=_blank]').click(),
-]);
+const newPagePromise = context.waitForEvent('page');
+await page.getByText('open new page').click();
+const newPage = await newPagePromise;
 console.log(await newPage.evaluate('location.href'));
 ```
 
 ```java
 Page newPage = context.waitForPage(() -> {
-  page.locator("a[target=_blank]").click();
+  page.getByText("open new page").click();
 });
 System.out.println(newPage.evaluate("location.href"));
 ```
 
 ```python async
 async with context.expect_page() as page_info:
-    await page.locator("a[target=_blank]").click(),
+    await page.get_by_text("open new page").click(),
 page = await page_info.value
 print(await page.evaluate("location.href"))
 ```
 
 ```python sync
 with context.expect_page() as page_info:
-    page.locator("a[target=_blank]").click(),
+    page.get_by_text("open new page").click(),
 page = page_info.value
 print(page.evaluate("location.href"))
 ```
@@ -138,7 +229,7 @@ print(page.evaluate("location.href"))
 ```csharp
 var popup = await context.RunAndWaitForPageAsync(async =>
 {
-    await page.Locator("a").ClickAsync();
+    await page.GetByText("open new page").ClickAsync();
 });
 Console.WriteLine(await popup.EvaluateAsync<string>("location.href"));
 ```
@@ -204,6 +295,8 @@ Emitted when new service worker is created in the context.
 Adds cookies into this browser context. All pages within this context will have these cookies installed. Cookies can be
 obtained via [`method: BrowserContext.cookies`].
 
+**Usage**
+
 ```js
 await browserContext.addCookies([cookieObject1, cookieObject2]);
 ```
@@ -237,6 +330,10 @@ await context.AddCookiesAsync(new[] { cookie1, cookie2 });
   - `secure` ?<[boolean]> Optional.
   - `sameSite` ?<[SameSiteAttribute]<"Strict"|"Lax"|"None">> Optional.
 
+Adds cookies to the browser context.
+
+For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com".
+
 ## async method: BrowserContext.addInitScript
 * since: v1.8
 
@@ -247,6 +344,8 @@ Adds a script which would be evaluated in one of the following scenarios:
 
 The script is evaluated after the document was created but before any of its scripts were run. This is useful to amend
 the JavaScript environment, e.g. to seed `Math.random`.
+
+**Usage**
 
 An example of overriding `Math.random` before the page loads:
 
@@ -278,7 +377,7 @@ browser_context.add_init_script(path="preload.js")
 ```
 
 ```csharp
-await context.AddInitScriptAsync(new BrowserContextAddInitScriptOptions { ScriptPath = "preload.js" });
+await context.AddInitScriptAsync(scriptPath: "preload.js");
 ```
 
 :::note
@@ -310,6 +409,20 @@ Script to be evaluated in all pages in the browser context.
 
 Optional argument to pass to [`param: script`] (only supported when passing a function).
 
+### param: BrowserContext.addInitScript.path
+* since: v1.8
+* langs: python
+- `path` ?<[path]>
+
+Path to the JavaScript file. If `path` is a relative path, then it is resolved relative to the current working directory. Optional.
+
+### param: BrowserContext.addInitScript.script
+* since: v1.8
+* langs: python
+- `script` ?<[string]>
+
+Script to be evaluated in all pages in the browser context. Optional.
+
 ## method: BrowserContext.backgroundPages
 * since: v1.11
 * langs: js, python
@@ -336,6 +449,8 @@ Clears context cookies.
 * since: v1.8
 
 Clears all permission overrides for the browser context.
+
+**Usage**
 
 ```js
 const context = await browser.newContext();
@@ -416,6 +531,8 @@ BrowserContext, page: Page, frame: Frame }`.
 
 See [`method: Page.exposeBinding`] for page-only version.
 
+**Usage**
+
 An example of exposing page URL to all frames in all pages in the context:
 
 ```js
@@ -457,7 +574,7 @@ public class Example {
         "</script>\n" +
         "<button onclick=\"onClick()\">Click me</button>\n" +
         "<div></div>");
-      page.getByRole("button").click();
+      page.getByRole(AriaRole.BUTTON).click();
     }
   }
 }
@@ -518,7 +635,7 @@ with sync_playwright() as playwright:
 using Microsoft.Playwright;
 
 using var playwright = await Playwright.CreateAsync();
-var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions { Headless = false });
+var browser = await playwright.Webkit.LaunchAsync(new() { Headless = false });
 var context = await browser.NewContextAsync();
 
 await context.ExposeBindingAsync("pageURL", source => source.Page.Url);
@@ -530,7 +647,7 @@ await page.SetContentAsync("<script>\n" +
 "</script>\n" +
 "<button onclick=\"onClick()\">Click me</button>\n" +
 "<div></div>");
-await page.GetByRole("button").ClickAsync();
+await page.GetByRole(AriaRole.Button).ClickAsync();
 ```
 
 An example of passing an element handle:
@@ -640,6 +757,8 @@ If the [`param: callback`] returns a [Promise], it will be awaited.
 
 See [`method: Page.exposeFunction`] for page-only version.
 
+**Usage**
+
 An example of adding a `sha256` function to all pages in the context:
 
 ```js
@@ -696,7 +815,7 @@ public class Example {
         "</script>\n" +
         "<button onclick=\"onClick()\">Click me</button>\n" +
         "<div></div>\n");
-      page.getByRole("button").click();
+      page.getByRole(AriaRole.BUTTON).click();
     }
   }
 }
@@ -778,7 +897,7 @@ class BrowserContextExamples
     public static async Task Main()
     {
         using var playwright = await Playwright.CreateAsync();
-        var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions { Headless = false });
+        var browser = await playwright.Webkit.LaunchAsync(new() { Headless = false });
         var context = await browser.NewContextAsync();
 
         await context.ExposeFunctionAsync("sha256", (string input) =>
@@ -796,7 +915,7 @@ class BrowserContextExamples
         "<button onclick=\"onClick()\">Click me</button>\n" +
         "<div></div>");
 
-        await page.GetByRole("button").ClickAsync();
+        await page.GetByRole(AriaRole.Button).ClickAsync();
         Console.WriteLine(await page.TextContentAsync("div"));
     }
 }
@@ -849,7 +968,7 @@ The [origin] to grant permissions to, e.g. "https://example.com".
 
 ## async method: BrowserContext.newCDPSession
 * since: v1.11
-* langs: js, python
+* langs: js, python, csharp
 - returns: <[CDPSession]>
 
 :::note
@@ -894,6 +1013,8 @@ is enabled, every request matching the url pattern will stall unless it's contin
 :::note
 [`method: BrowserContext.route`] will not intercept requests intercepted by Service Worker. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using request interception by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
 :::
+
+**Usage**
 
 An example of a naive handler that aborts all image requests:
 
@@ -1004,18 +1125,18 @@ context.route("/api/**", route -> {
 
 ```python async
 def handle_route(route):
-  if ("my-string" in route.request.post_data)
+  if ("my-string" in route.request.post_data):
     route.fulfill(body="mocked-data")
-  else
+  else:
     route.continue_()
 await context.route("/api/**", handle_route)
 ```
 
 ```python sync
 def handle_route(route):
-  if ("my-string" in route.request.post_data)
+  if ("my-string" in route.request.post_data):
     route.fulfill(body="mocked-data")
-  else
+  else:
     route.continue_()
 context.route("/api/**", handle_route)
 ```
@@ -1050,7 +1171,7 @@ it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/We
 ### param: BrowserContext.route.handler
 * since: v1.8
 * langs: js, python
-- `handler` <[function]\([Route], [Request]\)>
+- `handler` <[function]\([Route], [Request]\): [Promise<any>|any]>
 
 handler function to route the request.
 
@@ -1083,7 +1204,6 @@ Path to a [HAR](http://www.softwareishard.com/blog/har-12-spec) file with prerec
 ### option: BrowserContext.routeFromHAR.notFound
 * since: v1.23
 - `notFound` ?<[HarNotFound]<"abort"|"fallback">>
-
 * If set to 'abort' any request not found in the HAR file will be aborted.
 * If set to 'fallback' falls through to the next route handler in the handler chain.
 
@@ -1100,6 +1220,18 @@ If specified, updates the given HAR with the actual network information instead 
 - `url` <[string]|[RegExp]>
 
 A glob pattern, regular expression or predicate to match the request URL. Only requests with URL matching the pattern will be served from the HAR file. If not specified, all requests are served from the HAR file.
+
+### option: BrowserContext.routeFromHAR.updateMode
+* since: v1.32
+- `updateMode` <[HarMode]<"full"|"minimal">>
+
+When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies, security and other types of HAR information that are not used when replaying from HAR. Defaults to `minimal`.
+
+### option: BrowserContext.routeFromHAR.updateContent
+* since: v1.32
+- `updateContent` <[RouteFromHarUpdateContentPolicy]<"embed"|"attach">>
+
+Optional setting to control resource content management. If `attach` is specified, resources are persisted as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file.
 
 ## method: BrowserContext.serviceWorkers
 * since: v1.11
@@ -1172,8 +1304,10 @@ An object containing additional HTTP headers to be sent with every request. All 
 
 Sets the context's geolocation. Passing `null` or `undefined` emulates position unavailable.
 
+**Usage**
+
 ```js
-await browserContext.setGeolocation({latitude: 59.95, longitude: 30.31667});
+await browserContext.setGeolocation({ latitude: 59.95, longitude: 30.31667 });
 ```
 
 ```java
@@ -1211,8 +1345,7 @@ its geolocation.
 ## async method: BrowserContext.setHTTPCredentials
 * since: v1.8
 * langs: js
-
-**DEPRECATED** Browsers may cache credentials after successful authentication. Create a new browser context instead.
+* deprecated: Browsers may cache credentials after successful authentication. Create a new browser context instead.
 
 ### param: BrowserContext.setHTTPCredentials.httpCredentials
 * since: v1.8
@@ -1277,7 +1410,7 @@ A glob pattern, regex pattern or predicate receiving [URL] used to register a ro
 ### param: BrowserContext.unroute.handler
 * since: v1.8
 * langs: js, python
-- `handler` ?<[function]\([Route], [Request]\)>
+- `handler` ?<[function]\([Route], [Request]\): [Promise<any>|any]>
 
 Optional handler function used to register a routing with [`method: BrowserContext.route`].
 
@@ -1288,6 +1421,69 @@ Optional handler function used to register a routing with [`method: BrowserConte
 
 Optional handler function used to register a routing with [`method: BrowserContext.route`].
 
+## async method: BrowserContext.waitForCondition
+* since: v1.32
+* langs: java
+
+The method will block until the condition returns true. All Playwright events will
+be dispatched while the method is waiting for the condition.
+
+**Usage**
+
+Use the method to wait for a condition that depends on page events:
+
+```java
+List<String> failedUrls = new ArrayList<>();
+context.onResponse(response -> {
+  if (!response.ok()) {
+    failedUrls.add(response.url());
+  }
+});
+page1.getByText("Create user").click();
+page2.getByText("Submit button").click();
+context.waitForCondition(() -> failedUrls.size() > 3);
+```
+
+### param: BrowserContext.waitForCondition.condition
+* since: v1.32
+- `condition` <[BooleanSupplier]>
+
+Condition to wait for.
+
+### option: BrowserContext.waitForCondition.timeout = %%-wait-for-function-timeout-%%
+* since: v1.32
+
+## async method: BrowserContext.waitForConsoleMessage
+* since: v1.34
+* langs: java, python, csharp
+  - alias-python: expect_console_message
+  - alias-csharp: RunAndWaitForConsoleMessage
+- returns: <[ConsoleMessage]>
+
+Performs action and waits for a [ConsoleMessage] to be logged by in the pages in the context. If predicate is provided, it passes
+[ConsoleMessage] value into the `predicate` function and waits for `predicate(message)` to return a truthy value.
+Will throw an error if the page is closed before the [`event: BrowserContext.console`] event is fired.
+
+## async method: BrowserContext.waitForConsoleMessage
+* since: v1.34
+* langs: python
+- returns: <[EventContextManager]<[ConsoleMessage]>>
+
+### param: BrowserContext.waitForConsoleMessage.action = %%-csharp-wait-for-event-action-%%
+* since: v1.34
+
+### option: BrowserContext.waitForConsoleMessage.predicate
+* since: v1.34
+- `predicate` <[function]\([ConsoleMessage]\):[boolean]>
+
+Receives the [ConsoleMessage] object and resolves to truthy value when the waiting should resolve.
+
+### option: BrowserContext.waitForConsoleMessage.timeout = %%-wait-for-event-timeout-%%
+* since: v1.34
+
+### param: BrowserContext.waitForConsoleMessage.callback = %%-java-wait-for-event-callback-%%
+* since: v1.34
+
 ## async method: BrowserContext.waitForEvent
 * since: v1.8
 * langs: js, python
@@ -1297,15 +1493,16 @@ Optional handler function used to register a routing with [`method: BrowserConte
 Waits for event to fire and passes its value into the predicate function. Returns when the predicate returns truthy
 value. Will throw an error if the context closes before the event is fired. Returns the event data value.
 
+**Usage**
+
 ```js
-const [page, _] = await Promise.all([
-  context.waitForEvent('page'),
-  page.getByRole('button').click()
-]);
+const pagePromise = context.waitForEvent('page');
+await page.getByRole('button').click();
+const page = await pagePromise;
 ```
 
 ```java
-Page newPage = context.waitForPage(() -> page.getByRole("button").click());
+Page newPage = context.waitForPage(() -> page.getByRole(AriaRole.BUTTON).click());
 ```
 
 ```python async
@@ -1323,9 +1520,14 @@ page = event_info.value
 ```csharp
 var page = await context.RunAndWaitForPageAsync(async () =>
 {
-    await page.GetByRole("button").ClickAsync();
+    await page.GetByRole(AriaRole.Button).ClickAsync();
 });
 ```
+
+## async method: BrowserContext.waitForEvent
+* since: v1.8
+* langs: python
+- returns: <[EventContextManager]>
 
 ### param: BrowserContext.waitForEvent.event
 * since: v1.8
@@ -1337,11 +1539,16 @@ Event name, same one would pass into `browserContext.on(event)`.
 * since: v1.8
 * langs: js
 - `optionsOrPredicate` ?<[function]|[Object]>
-  - `predicate` <[function]> receives the event data and resolves to truthy value when the waiting should resolve.
-  - `timeout` ?<[float]> maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to
-    disable timeout. The default value can be changed by using the [`method: BrowserContext.setDefaultTimeout`].
+  - `predicate` <[function]> Receives the event data and resolves to truthy value when the waiting should resolve.
+  - `timeout` ?<[float]> Maximum time to wait for in milliseconds. Defaults to `0` - no timeout. The default value can be changed via `actionTimeout` option in the config, or by using the [`method: BrowserContext.setDefaultTimeout`] method.
 
 Either a predicate that receives an event or an options object. Optional.
+
+### option: BrowserContext.waitForEvent.predicate = %%-wait-for-event-predicate-%%
+* since: v1.8
+
+### option: BrowserContext.waitForEvent.timeout = %%-wait-for-event-timeout-%%
+* since: v1.8
 
 ## async method: BrowserContext.waitForPage
 * since: v1.9
@@ -1354,7 +1561,15 @@ Performs action and waits for a new [Page] to be created in the context. If pred
 [Page] value into the `predicate` function and waits for `predicate(event)` to return a truthy value.
 Will throw an error if the context closes before new [Page] is created.
 
-### option: BrowserContext.waitForPage.predicate =
+## async method: BrowserContext.waitForPage
+* since: v1.9
+* langs: python
+- returns: <[EventContextManager]<[Page]>>
+
+### param: BrowserContext.waitForPage.action = %%-csharp-wait-for-event-action-%%
+* since: v1.12
+
+### option: BrowserContext.waitForPage.predicate
 * since: v1.9
 * langs: csharp, java, python
 - `predicate` <[function]\([Page]\):[boolean]>
@@ -1362,6 +1577,9 @@ Will throw an error if the context closes before new [Page] is created.
 Receives the [Page] object and resolves to truthy value when the waiting should resolve.
 
 ### option: BrowserContext.waitForPage.timeout = %%-wait-for-event-timeout-%%
+* since: v1.9
+
+### param: BrowserContext.waitForPage.callback = %%-java-wait-for-event-callback-%%
 * since: v1.9
 
 ## async method: BrowserContext.waitForEvent2
@@ -1380,7 +1598,9 @@ Will throw an error if the browser context is closed before the `event` is fired
 
 ### param: BrowserContext.waitForEvent2.event = %%-wait-for-event-event-%%
 * since: v1.8
+
 ### option: BrowserContext.waitForEvent2.predicate = %%-wait-for-event-predicate-%%
 * since: v1.8
+
 ### option: BrowserContext.waitForEvent2.timeout = %%-wait-for-event-timeout-%%
 * since: v1.8

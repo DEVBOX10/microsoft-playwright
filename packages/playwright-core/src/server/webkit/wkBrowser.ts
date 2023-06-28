@@ -31,9 +31,10 @@ import type { PageProxyMessageReceivedPayload } from './wkConnection';
 import { kPageProxyMessageReceived, WKConnection, WKSession } from './wkConnection';
 import { WKPage } from './wkPage';
 import { kBrowserClosedError } from '../../common/errors';
+import type { SdkObject } from '../instrumentation';
 
-const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15';
-const BROWSER_VERSION = '16.0';
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15';
+const BROWSER_VERSION = '16.4';
 
 export class WKBrowser extends Browser {
   private readonly _connection: WKConnection;
@@ -42,14 +43,15 @@ export class WKBrowser extends Browser {
   readonly _wkPages = new Map<string, WKPage>();
   private readonly _eventListeners: RegisteredListener[];
 
-  static async connect(transport: ConnectionTransport, options: BrowserOptions): Promise<WKBrowser> {
-    const browser = new WKBrowser(transport, options);
+  static async connect(parent: SdkObject, transport: ConnectionTransport, options: BrowserOptions): Promise<WKBrowser> {
+    const browser = new WKBrowser(parent, transport, options);
     if ((options as any).__testHookOnConnectToBrowser)
       await (options as any).__testHookOnConnectToBrowser();
     const promises: Promise<any>[] = [
       browser._browserSession.send('Playwright.enable'),
     ];
     if (options.persistent) {
+      options.persistent.userAgent ||= DEFAULT_USER_AGENT;
       browser._defaultContext = new WKBrowserContext(browser, undefined, options.persistent);
       promises.push((browser._defaultContext as WKBrowserContext)._initialize());
     }
@@ -57,8 +59,8 @@ export class WKBrowser extends Browser {
     return browser;
   }
 
-  constructor(transport: ConnectionTransport, options: BrowserOptions) {
-    super(options);
+  constructor(parent: SdkObject, transport: ConnectionTransport, options: BrowserOptions) {
+    super(parent, options);
     this._connection = new WKConnection(transport, this._onDisconnect.bind(this), options.protocolLogger, options.browserLogsCollector);
     this._browserSession = this._connection.browserSession;
     this._eventListeners = [
@@ -85,7 +87,9 @@ export class WKBrowser extends Browser {
 
   async doCreateNewContext(options: channels.BrowserNewContextParams): Promise<BrowserContext> {
     const createOptions = options.proxy ? {
-      proxyServer: options.proxy.server,
+      // Enable socks5 hostname resolution on Windows. Workaround can be removed once fixed upstream.
+      // See https://github.com/microsoft/playwright/issues/20451
+      proxyServer: process.platform === 'win32' ? options.proxy.server.replace(/^socks5:\/\//, 'socks5h://') : options.proxy.server,
       proxyBypassList: options.proxy.bypass
     } : undefined;
     const { browserContextId } = await this._browserSession.send('Playwright.createContext', createOptions);
@@ -209,6 +213,7 @@ export class WKBrowserContext extends BrowserContext {
 
   constructor(browser: WKBrowser, browserContextId: string | undefined, options: channels.BrowserNewContextParams) {
     super(browser, options, browserContextId);
+    this._validateEmulatedViewport(options.viewport);
     this._authenticateProxyViaHeader();
   }
 
@@ -337,6 +342,13 @@ export class WKBrowserContext extends BrowserContext {
 
   onClosePersistent() {}
 
+  override async clearCache(): Promise<void> {
+    // We use ephemeral contexts so there is no disk cache.
+    await this._browser._browserSession.send('Playwright.clearMemoryCache', {
+      browserContextId: this._browserContextId!
+    });
+  }
+
   async doClose() {
     if (!this._browserContextId) {
       await Promise.all(this._wkPages().map(wkPage => wkPage._stopVideo()));
@@ -350,5 +362,12 @@ export class WKBrowserContext extends BrowserContext {
 
   async cancelDownload(uuid: string) {
     await this._browser._browserSession.send('Playwright.cancelDownload', { uuid });
+  }
+
+  _validateEmulatedViewport(viewportSize?: types.Size | null) {
+    if (!viewportSize)
+      return;
+    if (process.platform === 'win32' && this._browser.options.headful && (viewportSize.width < 250 || viewportSize.height < 240))
+      throw new Error(`WebKit on Windows has a minimal viewport of 250x240.`);
   }
 }

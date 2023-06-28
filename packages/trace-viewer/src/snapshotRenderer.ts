@@ -20,14 +20,16 @@ export class SnapshotRenderer {
   private _snapshots: FrameSnapshot[];
   private _index: number;
   readonly snapshotName: string | undefined;
-  _resources: ResourceSnapshot[];
+  private _resources: ResourceSnapshot[];
   private _snapshot: FrameSnapshot;
+  private _callId: string;
 
   constructor(resources: ResourceSnapshot[], snapshots: FrameSnapshot[], index: number) {
     this._resources = resources;
     this._snapshots = snapshots;
     this._index = index;
     this._snapshot = snapshots[index];
+    this._callId = snapshots[index].callId;
     this.snapshotName = snapshots[index].snapshotName;
   }
 
@@ -67,9 +69,16 @@ export class SnapshotRenderer {
           builder.push('<', n[0]);
           // Never set relative URLs as <iframe src> - they start fetching frames immediately.
           const isFrame = n[0] === 'IFRAME' || n[0] === 'FRAME';
+          const isAnchor = n[0] === 'A';
           for (const [attr, value] of Object.entries(n[1] || {})) {
             const attrName = isFrame && attr.toLowerCase() === 'src' ? '__playwright_src__' : attr;
-            const attrValue = attr.toLowerCase() === 'href' || attr.toLowerCase() === 'src' ? rewriteURLForCustomProtocol(value) : value;
+            let attrValue = value;
+            if (attr.toLowerCase() === 'href' || attr.toLowerCase() === 'src') {
+              if (isAnchor)
+                attrValue = 'link://' + value;
+              else
+                attrValue = rewriteURLForCustomProtocol(value);
+            }
             builder.push(' ', attrName, '="', escapeAttribute(attrValue as string), '"');
           }
           builder.push('>');
@@ -95,7 +104,8 @@ export class SnapshotRenderer {
     const prefix = snapshot.doctype ? `<!DOCTYPE ${snapshot.doctype}>` : '';
     html = prefix + [
       '<style>*,*::before,*::after { visibility: hidden }</style>',
-      `<style>*[__playwright_target__="${this.snapshotName}"] { background-color: #6fa8dc7f; }</style>`,
+      `<style>*[__playwright_target__="${this.snapshotName}"] { outline: 2px solid #006ab1 !important; background-color: #6fa8dc7f !important; }</style>`,
+      `<style>*[__playwright_target__="${this._callId}"] { outline: 2px solid #006ab1 !important; background-color: #6fa8dc7f !important; }</style>`,
       `<script>${snapshotScript()}</script>`
     ].join('') + html;
 
@@ -113,8 +123,9 @@ export class SnapshotRenderer {
       if (resource._frameref !== snapshot.frameId)
         continue;
       if (resource.request.url === url) {
+        // Pick the last resource with matching url - most likely it was used
+        // at the time of snapshot, not the earlier aborted resource with the same url.
         result = resource;
-        break;
       }
     }
 
@@ -123,8 +134,11 @@ export class SnapshotRenderer {
       for (const resource of this._resources) {
         if (typeof resource._monotonicTime === 'number' && resource._monotonicTime >= snapshot.timestamp)
           break;
-        if (resource.request.url === url)
-          return resource;
+        if (resource.request.url === url) {
+          // Pick the last resource with matching url - most likely it was used
+          // at the time of snapshot, not the earlier aborted resource with the same url.
+          result = resource;
+        }
       }
     }
 
@@ -180,7 +194,7 @@ function snapshotNodes(snapshot: FrameSnapshot): NodeSnapshot[] {
 }
 
 function snapshotScript() {
-  function applyPlaywrightAttributes() {
+  function applyPlaywrightAttributes(unwrapPopoutUrl: (url: string) => string) {
     const scrollTops: Element[] = [];
     const scrollLefts: Element[] = [];
 
@@ -210,7 +224,7 @@ function snapshotScript() {
           iframe.setAttribute('src', 'data:text/html,<body style="background: #ddd"></body>');
         } else {
           // Append query parameters to inherit ?name= or ?time= values from parent.
-          const url = new URL(window.location.href);
+          const url = new URL(unwrapPopoutUrl(window.location.href));
           url.searchParams.delete('pointX');
           url.searchParams.delete('pointY');
           // We can be loading iframe from within iframe, reset base to be absolute.
@@ -219,6 +233,15 @@ function snapshotScript() {
             url.pathname = url.pathname.substring(0, index + 1);
           url.pathname += src.substring(1);
           iframe.setAttribute('src', url.toString());
+        }
+      }
+
+      {
+        const body = root.querySelector(`body[__playwright_custom_elements__]`);
+        if (body && window.customElements) {
+          const customElements = (body.getAttribute('__playwright_custom_elements__') || '').split(',');
+          for (const elementName of customElements)
+            window.customElements.define(elementName, class extends HTMLElement {});
         }
       }
 
@@ -259,7 +282,7 @@ function snapshotScript() {
       if (pointX) {
         const pointElement = document.createElement('x-pw-pointer');
         pointElement.style.position = 'fixed';
-        pointElement.style.backgroundColor = 'red';
+        pointElement.style.backgroundColor = '#f44336';
         pointElement.style.width = '20px';
         pointElement.style.height = '20px';
         pointElement.style.borderRadius = '10px';
@@ -278,7 +301,7 @@ function snapshotScript() {
     window.addEventListener('DOMContentLoaded', onDOMContentLoaded);
   }
 
-  return `\n(${applyPlaywrightAttributes.toString()})()`;
+  return `\n(${applyPlaywrightAttributes.toString()})(${unwrapPopoutUrl.toString()})`;
 }
 
 
@@ -328,4 +351,12 @@ function rewriteURLsInStyleSheetForCustomProtocol(text: string): string {
       return match;
     return match.replace(protocol + '//', `https://pw-${protocol.slice(0, -1)}--`);
   });
+}
+
+// <base>/snapshot.html?r=<snapshotUrl> is used for "pop out snapshot" feature.
+export function unwrapPopoutUrl(url: string) {
+  const u = new URL(url);
+  if (u.pathname.endsWith('/snapshot.html'))
+    return u.searchParams.get('r')!;
+  return url;
 }

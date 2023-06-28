@@ -14,50 +14,49 @@
  * limitations under the License.
  */
 
-import { colors } from 'playwright-core/lib/utilsBundle';
+import { colors, open } from 'playwright-core/lib/utilsBundle';
 import fs from 'fs';
-import { open } from '../utilsBundle';
 import path from 'path';
 import type { TransformCallback } from 'stream';
 import { Transform } from 'stream';
-import type { FullConfig, Suite } from '../../types/testReporter';
-import { HttpServer } from 'playwright-core/lib/utils/httpServer';
-import { assert, calculateSha1 } from 'playwright-core/lib/utils';
-import { removeFolders } from 'playwright-core/lib/utils/fileUtils';
+import type { FullConfig, Reporter, Suite } from '../../types/testReporter';
+import { HttpServer, assert, calculateSha1, copyFileAndMakeWritable, removeFolders } from 'playwright-core/lib/utils';
 import type { JsonAttachment, JsonReport, JsonSuite, JsonTestCase, JsonTestResult, JsonTestStep } from './raw';
 import RawReporter from './raw';
 import { stripAnsiEscapes } from './base';
 import { getPackageJsonPath, sanitizeForFilePath } from '../util';
-import type { FullConfigInternal, Metadata, ReporterInternal } from '../types';
+import type { Metadata } from '../../types/test';
 import type { ZipFile } from 'playwright-core/lib/zipBundle';
 import { yazl } from 'playwright-core/lib/zipBundle';
 import { mime } from 'playwright-core/lib/utilsBundle';
 import type { HTMLReport, Stats, TestAttachment, TestCase, TestCaseSummary, TestFile, TestFileSummary, TestResult, TestStep } from '@html-reporter/types';
+import { FullConfigInternal } from '../common/config';
 
 type TestEntry = {
   testCase: TestCase;
   testCaseSummary: TestCaseSummary
 };
 
-const kMissingContentType = 'x-playwright/missing';
-
 type HtmlReportOpenOption = 'always' | 'never' | 'on-failure';
 type HtmlReporterOptions = {
+  configDir: string,
   outputFolder?: string,
   open?: HtmlReportOpenOption,
   host?: string,
   port?: number,
+  attachmentsBaseURL?: string,
 };
 
-class HtmlReporter implements ReporterInternal {
-  private config!: FullConfigInternal;
+class HtmlReporter implements Reporter {
+  private config!: FullConfig;
   private suite!: Suite;
   private _options: HtmlReporterOptions;
   private _outputFolder!: string;
+  private _attachmentsBaseURL!: string;
   private _open: string | undefined;
   private _buildResult: { ok: boolean, singleTestId: string | undefined } | undefined;
 
-  constructor(options: HtmlReporterOptions = {}) {
+  constructor(options: HtmlReporterOptions) {
     this._options = options;
   }
 
@@ -66,10 +65,11 @@ class HtmlReporter implements ReporterInternal {
   }
 
   onBegin(config: FullConfig, suite: Suite) {
-    this.config = config as FullConfigInternal;
-    const { outputFolder, open } = this._resolveOptions();
+    this.config = config;
+    const { outputFolder, open, attachmentsBaseURL } = this._resolveOptions();
     this._outputFolder = outputFolder;
     this._open = open;
+    this._attachmentsBaseURL = attachmentsBaseURL;
     const reportedWarnings = new Set<string>();
     for (const project of config.projects) {
       if (outputFolder.startsWith(project.outputDir) || project.outputDir.startsWith(outputFolder)) {
@@ -89,13 +89,14 @@ class HtmlReporter implements ReporterInternal {
     this.suite = suite;
   }
 
-  _resolveOptions(): { outputFolder: string, open: HtmlReportOpenOption } {
+  _resolveOptions(): { outputFolder: string, open: HtmlReportOpenOption, attachmentsBaseURL: string } {
     let { outputFolder } = this._options;
     if (outputFolder)
-      outputFolder = path.resolve(this.config._configDir, outputFolder);
+      outputFolder = path.resolve(this._options.configDir, outputFolder);
     return {
-      outputFolder: reportFolderFromEnv() ?? outputFolder ?? defaultReportFolder(this.config._configDir),
+      outputFolder: reportFolderFromEnv() ?? outputFolder ?? defaultReportFolder(this._options.configDir),
       open: process.env.PW_TEST_HTML_REPORT_OPEN as any || this._options.open || 'on-failure',
+      attachmentsBaseURL: this._options.attachmentsBaseURL || 'data/'
     };
   }
 
@@ -107,19 +108,19 @@ class HtmlReporter implements ReporterInternal {
       return report;
     });
     await removeFolders([this._outputFolder]);
-    const builder = new HtmlBuilder(this._outputFolder);
+    const builder = new HtmlBuilder(this._outputFolder, this._attachmentsBaseURL);
     this._buildResult = await builder.build(this.config.metadata, reports);
   }
 
-  async _onExit() {
-    if (process.env.CI)
+  async onExit() {
+    if (process.env.CI || !this._buildResult)
       return;
 
-    const { ok, singleTestId } = this._buildResult!;
+    const { ok, singleTestId } = this._buildResult;
     const shouldOpen = this._open === 'always' || (!ok && this._open === 'on-failure');
     if (shouldOpen) {
       await showHTMLReport(this._outputFolder, this._options.host, this._options.port, singleTestId);
-    } else {
+    } else if (!FullConfigInternal.from(this.config)?.cliListOnly) {
       const relativeReportPath = this._outputFolder === standaloneDefaultFolder() ? '' : ' ' + path.relative(process.cwd(), this._outputFolder);
       console.log('');
       console.log('To open last HTML report run:');
@@ -164,7 +165,7 @@ export async function showHTMLReport(reportFolder: string | undefined, host: str
   console.log(colors.cyan(`  Serving HTML report at ${url}. Press Ctrl+C to quit.`));
   if (testId)
     url += `#?testId=${testId}`;
-  await open(url, { wait: true }).catch(() => console.log(`Failed to open browser on ${url}`));
+  await open(url, { wait: true }).catch(() => {});
   await new Promise(() => {});
 }
 
@@ -180,6 +181,8 @@ export function startHtmlReportServer(folder: string): HttpServer {
         return false;
       }
     }
+    if (relativePath.endsWith('/stall.js'))
+      return true;
     if (relativePath === '/')
       relativePath = '/index.html';
     const absolutePath = path.join(folder, ...relativePath.split('/'));
@@ -194,11 +197,13 @@ class HtmlBuilder {
   private _testPath = new Map<string, string[]>();
   private _dataZipFile: ZipFile;
   private _hasTraces = false;
+  private _attachmentsBaseURL: string;
 
-  constructor(outputDir: string) {
+  constructor(outputDir: string, attachmentsBaseURL: string) {
     this._reportFolder = outputDir;
     fs.mkdirSync(this._reportFolder, { recursive: true });
     this._dataZipFile = new yazl.ZipFile();
+    this._attachmentsBaseURL = attachmentsBaseURL;
   }
 
   async build(metadata: Metadata, rawReports: JsonReport[]): Promise<{ ok: boolean, singleTestId: string | undefined }> {
@@ -207,7 +212,7 @@ class HtmlBuilder {
     for (const projectJson of rawReports) {
       for (const file of projectJson.suites) {
         const fileName = file.location!.file;
-        const fileId = file.fileId;
+        const fileId = file.fileId!;
         let fileEntry = data.get(fileId);
         if (!fileEntry) {
           fileEntry = {
@@ -248,9 +253,7 @@ class HtmlBuilder {
       const testCaseSummaryComparator = (t1: TestCaseSummary, t2: TestCaseSummary) => {
         const w1 = (t1.outcome === 'unexpected' ? 1000 : 0) +  (t1.outcome === 'flaky' ? 1 : 0);
         const w2 = (t2.outcome === 'unexpected' ? 1000 : 0) +  (t2.outcome === 'flaky' ? 1 : 0);
-        if (w2 - w1)
-          return w2 - w1;
-        return t1.location.line - t2.location.line;
+        return w2 - w1;
       };
       testFileSummary.tests.sort(testCaseSummaryComparator);
 
@@ -260,7 +263,7 @@ class HtmlBuilder {
       metadata,
       files: [...data.values()].map(e => e.testFileSummary),
       projectNames: rawReports.map(r => r.project.name),
-      stats: [...data.values()].reduce((a, e) => addStats(a, e.testFileSummary.stats), emptyStats())
+      stats: { ...[...data.values()].reduce((a, e) => addStats(a, e.testFileSummary.stats), emptyStats()), duration: metadata.totalTime }
     };
     htmlReport.files.sort((f1, f2) => {
       const w1 = f1.stats.unexpected * 1000 + f1.stats.flaky;
@@ -272,17 +275,23 @@ class HtmlBuilder {
 
     // Copy app.
     const appFolder = path.join(require.resolve('playwright-core'), '..', 'lib', 'webpack', 'htmlReport');
-    fs.copyFileSync(path.join(appFolder, 'index.html'), path.join(this._reportFolder, 'index.html'));
+    await copyFileAndMakeWritable(path.join(appFolder, 'index.html'), path.join(this._reportFolder, 'index.html'));
 
     // Copy trace viewer.
     if (this._hasTraces) {
       const traceViewerFolder = path.join(require.resolve('playwright-core'), '..', 'lib', 'webpack', 'traceViewer');
       const traceViewerTargetFolder = path.join(this._reportFolder, 'trace');
-      fs.mkdirSync(traceViewerTargetFolder, { recursive: true });
+      const traceViewerAssetsTargetFolder = path.join(traceViewerTargetFolder, 'assets');
+      fs.mkdirSync(traceViewerAssetsTargetFolder, { recursive: true });
       for (const file of fs.readdirSync(traceViewerFolder)) {
-        if (file.endsWith('.map'))
+        if (file.endsWith('.map') || file.includes('watch') || file.includes('assets'))
           continue;
-        fs.copyFileSync(path.join(traceViewerFolder, file), path.join(traceViewerTargetFolder, file));
+        await copyFileAndMakeWritable(path.join(traceViewerFolder, file), path.join(traceViewerTargetFolder, file));
+      }
+      for (const file of fs.readdirSync(path.join(traceViewerFolder, 'assets'))) {
+        if (file.endsWith('.map') || file.includes('xtermModule'))
+          continue;
+        await copyFileAndMakeWritable(path.join(traceViewerFolder, 'assets', file), path.join(traceViewerAssetsTargetFolder, file));
       }
     }
 
@@ -379,15 +388,10 @@ class HtmlBuilder {
         try {
           const buffer = fs.readFileSync(a.path);
           const sha1 = calculateSha1(buffer) + path.extname(a.path);
-          fileName = 'data/' + sha1;
+          fileName = this._attachmentsBaseURL + sha1;
           fs.mkdirSync(path.join(this._reportFolder, 'data'), { recursive: true });
           fs.writeFileSync(path.join(this._reportFolder, 'data', sha1), buffer);
         } catch (e) {
-          return {
-            name: `Missing attachment "${a.name}"`,
-            contentType: kMissingContentType,
-            body: `Attachment file ${fileName} is missing`,
-          };
         }
         return {
           name: a.name,
@@ -420,7 +424,7 @@ class HtmlBuilder {
         return {
           name: a.name,
           contentType: a.contentType,
-          path: 'data/' + sha1,
+          path: this._attachmentsBaseURL + sha1,
         };
       }
 

@@ -20,7 +20,7 @@ import type { CallMetadata } from '../instrumentation';
 import type { Request, Response, Route } from '../network';
 import { WebSocket } from '../network';
 import type { RootDispatcher } from './dispatcher';
-import { Dispatcher, existingDispatcher, lookupNullableDispatcher } from './dispatcher';
+import { Dispatcher, existingDispatcher } from './dispatcher';
 import { TracingDispatcher } from './tracingDispatcher';
 import type { BrowserContextDispatcher } from './browserContextDispatcher';
 import type { PageDispatcher } from './pageDispatcher';
@@ -60,7 +60,7 @@ export class RequestDispatcher extends Dispatcher<Request, channels.RequestChann
   }
 
   async response(): Promise<channels.RequestResponseResult> {
-    return { response: lookupNullableDispatcher<ResponseDispatcher>(await this._object.response()) };
+    return { response: ResponseDispatcher.fromNullable(this.parentScope(), await this._object.response()) };
   }
 }
 
@@ -127,24 +127,22 @@ export class RouteDispatcher extends Dispatcher<Route, channels.RouteChannel, Re
 
   async continue(params: channels.RouteContinueParams, metadata: CallMetadata): Promise<channels.RouteContinueResult> {
     // Used to discriminate between continue in tracing.
-    metadata.params.requestUrl = this._object.request().url();
     await this._object.continue({
       url: params.url,
       method: params.method,
       headers: params.headers,
       postData: params.postData,
+      isFallback: params.isFallback,
     });
   }
 
   async fulfill(params: channels.RouteFulfillParams, metadata: CallMetadata): Promise<void> {
     // Used to discriminate between fulfills in tracing.
-    metadata.params.requestUrl = this._object.request().url();
     await this._object.fulfill(params);
   }
 
   async abort(params: channels.RouteAbortParams, metadata: CallMetadata): Promise<void> {
     // Used to discriminate between abort in tracing.
-    metadata.params.requestUrl = this._object.request().url();
     await this._object.abort(params.errorCode || 'failed');
   }
 
@@ -212,16 +210,16 @@ export class APIRequestContextDispatcher extends Dispatcher<APIRequestContext, c
     };
   }
 
-  async fetchResponseBody(params: channels.APIRequestContextFetchResponseBodyParams, metadata?: channels.Metadata): Promise<channels.APIRequestContextFetchResponseBodyResult> {
+  async fetchResponseBody(params: channels.APIRequestContextFetchResponseBodyParams): Promise<channels.APIRequestContextFetchResponseBodyResult> {
     return { binary: this._object.fetchResponses.get(params.fetchUid) };
   }
 
-  async fetchLog(params: channels.APIRequestContextFetchLogParams, metadata?: channels.Metadata): Promise<channels.APIRequestContextFetchLogResult> {
+  async fetchLog(params: channels.APIRequestContextFetchLogParams): Promise<channels.APIRequestContextFetchLogResult> {
     const log = this._object.fetchLog.get(params.fetchUid) || [];
     return { log };
   }
 
-  async disposeAPIResponse(params: channels.APIRequestContextDisposeAPIResponseParams, metadata?: channels.Metadata): Promise<void> {
+  async disposeAPIResponse(params: channels.APIRequestContextDisposeAPIResponseParams): Promise<void> {
     this._object.disposeResponse(params.fetchUid);
   }
 }

@@ -102,6 +102,14 @@ export class CRExecutionContext implements js.ExecutionContextDelegate {
   async releaseHandle(objectId: js.ObjectId): Promise<void> {
     await releaseObject(this._client, objectId);
   }
+
+  async objectCount(objectId: js.ObjectId): Promise<number> {
+    const result = await this._client.send('Runtime.queryObjects', {
+      prototypeObjectId: objectId
+    });
+    const match = result.objects.description!.match(/Array\((\d+)\)/)!;
+    return +match[1];
+  }
 }
 
 function rewriteError(error: Error): Protocol.Runtime.evaluateReturnValue {
@@ -137,11 +145,7 @@ function renderPreview(object: Protocol.Runtime.RemoteObject): string | undefine
       tokens.push(`${name}: ${value}`);
     return `{${tokens.join(', ')}}`;
   }
-  if (object.subtype === 'array' && object.preview) {
-    const result = [];
-    for (const { name, value } of object.preview.properties)
-      result[+name] = value;
-    return '[' + String(result) + ']';
-  }
+  if (object.subtype === 'array' && object.preview)
+    return js.sparseArrayToString(object.preview.properties);
   return object.description;
 }

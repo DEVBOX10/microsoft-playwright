@@ -4,6 +4,266 @@ title: "Release notes"
 toc_max_heading_level: 2
 ---
 
+## Version 1.35
+
+### Highlights
+
+* New option `MaskColor` for methods [`method: Page.screenshot`] and [`method: Locator.screenshot`] to change default masking color.
+
+* New `uninstall` CLI command to uninstall browser binaries:
+  ```bash
+  $ pwsh bin/Debug/netX/playwright.ps1 uninstall # remove browsers installed by this installation
+  $ pwsh bin/Debug/netX/playwright.ps1 uninstall --all # remove all ever-install Playwright browsers
+  ```
+
+### Browser Versions
+
+* Chromium 115.0.5790.13
+* Mozilla Firefox 113.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 114
+* Microsoft Edge 114
+
+## Version 1.34
+
+### Highlights
+
+* New [`method: Locator.and`] to create a locator that matches both locators.
+
+    ```csharp
+    var button = page.GetByRole(AriaRole.BUTTON).And(page.GetByTitle("Subscribe"));
+    ```
+
+* New events [`event: BrowserContext.console`] and [`event: BrowserContext.dialog`] to subscribe to any dialogs
+  and console messages from any page from the given browser context. Use the new methods [`method: ConsoleMessage.page`]
+  and [`method: Dialog.page`] to pin-point event source.
+
+### Browser Versions
+
+* Chromium 114.0.5735.26
+* Mozilla Firefox 113.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 113
+* Microsoft Edge 113
+
+## Version 1.33
+
+### Locators Update
+
+* Use [`method: Locator.or`] to create a locator that matches either of the two locators.
+  Consider a scenario where   you'd like to click on a "New email" button, but sometimes a security settings dialog shows up instead.
+  In this case, you can wait for either a "New email" button, or a dialog and act accordingly:
+
+    ```csharp
+    var newEmail = Page.GetByRole(AriaRole.Button, new() { Name = "New email" });
+    var dialog = Page.GetByText("Confirm security settings");
+    await Expect(newEmail.Or(dialog)).ToBeVisibleAsync();
+    if (await dialog.IsVisibleAsync())
+      await Page.GetByRole(AriaRole.Button, new() { Name = "Dismiss" }).ClickAsync();
+    await newEmail.ClickAsync();
+    ```
+* Use new options [`option: hasNot`] and [`option: hasNotText`] in [`method: Locator.filter`]
+  to find elements that **do not match** certain conditions.
+
+    ```csharp
+    var rowLocator = Page.Locator("tr");
+    await rowLocator
+        .Filter(new() { HasNotText = "text in column 1" })
+        .Filter(new() { HasNot = Page.GetByRole(AriaRole.Button, new() { Name = "column 2 button" })})
+        .ScreenshotAsync();
+    ```
+* Use new web-first assertion [`method: LocatorAssertions.toBeAttached`] to ensure that the element
+  is present in the page's DOM. Do not confuse with the [`method: LocatorAssertions.toBeVisible`] that ensures that
+  element is both attached & visible.
+
+### New APIs
+
+- [`method: Locator.or`]
+- New option [`option: hasNot`] in [`method: Locator.filter`]
+- New option [`option: hasNotText`] in [`method: Locator.filter`]
+- [`method: LocatorAssertions.toBeAttached`]
+- New option [`option: timeout`] in [`method: Route.fetch`]
+
+### ⚠️ Breaking change
+
+* The `mcr.microsoft.com/playwright/dotnet:v1.33.0` now serves a Playwright image based on Ubuntu Jammy.
+  To use the focal-based image, please use `mcr.microsoft.com/playwright/dotnet:v1.33.0-focal` instead.
+
+### Browser Versions
+
+* Chromium 113.0.5672.53
+* Mozilla Firefox 112.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 112
+* Microsoft Edge 112
+
+
+## Version 1.32
+
+### New APIs
+
+- New options [`option: updateMode`] and [`option: updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
+- Chaining existing locator objects, see [locator docs](./locators.md#chaining-locators) for details.
+- New option [`option: name`] in method [`method: Tracing.startChunk`].
+
+### Browser Versions
+
+* Chromium 112.0.5615.29
+* Mozilla Firefox 111.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 111
+* Microsoft Edge 111
+
+
+## Version 1.31
+
+### New APIs
+
+- New assertion [`method: LocatorAssertions.toBeInViewport`] ensures that locator points to an element that intersects viewport, according to the [intersection observer API](https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API).
+
+
+  ```csharp
+  var locator = Page.GetByRole(AriaRole.Button);
+
+  // Make sure at least some part of element intersects viewport.
+  await Expect(locator).ToBeInViewportAsync();
+
+  // Make sure element is fully outside of viewport.
+  await Expect(locator).Not.ToBeInViewportAsync();
+
+  // Make sure that at least half of the element intersects viewport.
+  await Expect(locator).ToBeInViewportAsync(new() { Ratio = 0.5 });
+  ```
+
+- New methods [`method: BrowserContext.newCDPSession`] and [`method: Browser.newBrowserCDPSession`] create a [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) session for the page and browser respectively.
+
+
+### Miscellaneous
+
+- DOM snapshots in trace viewer can be now opened in a separate window.
+- New option [`option: Route.fetch.maxRedirects`] for method [`method: Route.fetch`].
+- Playwright now supports Debian 11 arm64.
+- Official [docker images](./docker.md) now include Node 18 instead of Node 16.
+
+### Browser Versions
+
+* Chromium 111.0.5563.19
+* Mozilla Firefox 109.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 110
+* Microsoft Edge 110
+
+
+## Version 1.30
+
+### Browser Versions
+
+* Chromium 110.0.5481.38
+* Mozilla Firefox 108.0.2
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 109
+* Microsoft Edge 109
+
+
+## Version 1.29
+
+### New APIs
+
+- New method [`method: Route.fetch`] and new option `Json` for [`method: Route.fulfill`]:
+
+    ```csharp
+    await Page.RouteAsync("**/api/settings", async route => {
+      // Fetch original settings.
+      var response = await route.FetchAsync();
+
+      // Force settings theme to a predefined value.
+      var json = await response.JsonAsync<MyDataType>();
+      json.Theme = "Solarized";
+
+      // Fulfill with modified data.
+      await route.FulfillAsync(new() {
+        Json = json
+      });
+    });
+    ```
+
+- New method [`method: Locator.all`] to iterate over all matching elements:
+
+  ```csharp
+  // Check all checkboxes!
+  var checkboxes = Page.GetByRole(AriaRole.Checkbox);
+  foreach (var checkbox in await checkboxes.AllAsync())
+    await checkbox.CheckAsync();
+  ```
+
+- [`method: Locator.selectOption`] matches now by value or label:
+
+  ```html
+  <select multiple>
+    <option value="red">Red</div>
+    <option value="green">Green</div>
+    <option value="blue">Blue</div>
+  </select>
+  ```
+
+  ```csharp
+  await element.SelectOptionAsync("Red");
+  ```
+
+### Browser Versions
+
+* Chromium 109.0.5414.46
+* Mozilla Firefox 107.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 108
+* Microsoft Edge 108
+
+
+## Version 1.28
+
+### Playwright Tools
+
+* **Live Locators in CodeGen.** Generate a locator for any element on the page using "Explore" tool.
+
+![Locator Explorer](https://user-images.githubusercontent.com/9798949/202293757-2e3ec0ac-1feb-4d6f-9935-73e08658b76d.png)
+
+### New APIs
+
+- [`method: Locator.blur`]
+- [`method: Locator.clear`]
+
+### Browser Versions
+
+* Chromium 108.0.5359.29
+* Mozilla Firefox 106.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 107
+* Microsoft Edge 107
+
 ## Version 1.27
 
 ### Locators
@@ -22,7 +282,7 @@ await page.GetByLabel("User Name").FillAsync("John");
 
 await page.GetByLabel("Password").FillAsync("secret-password");
 
-await page.GetByRole("button", new() { NameString = "Sign in" }).ClickAsync();
+await page.GetByRole(AriaRole.Button, new() { NameString = "Sign in" }).ClickAsync();
 
 await Expect(page.GetByText("Welcome, John!")).ToBeVisibleAsync();
 ```
@@ -37,8 +297,8 @@ All the same methods are also available on [Locator], [FrameLocator] and [Frame]
 
 - [`method: LocatorAssertions.toHaveAttribute`] with an empty value does not match missing attribute anymore. For example, the following snippet will succeed when `button` **does not** have a `disabled` attribute.
 
-   ```js
-   await Expect(page.GetByRole("button")).ToHaveAttribute("disabled", "");
+   ```csharp
+   await Expect(page.GetByRole(AriaRole.Button)).ToHaveAttribute("disabled", "");
    ```
 
 ### Browser Versions
@@ -154,11 +414,11 @@ if you encounter any issues!
 
 Linux support looks like this:
 
-|          | Ubuntu 18.04 | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11
+|          | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11
 | :--- | :---: | :---: | :---: | :---: |
-| Chromium | ✅ | ✅ | ✅ | ✅ |
-| WebKit | ✅ | ✅ | ✅ | ✅ |
-| Firefox | ✅ | ✅ | ✅ | ✅ |
+| Chromium | ✅ | ✅ | ✅ |
+| WebKit | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ✅ |
 
 ### New introduction docs
 
@@ -293,14 +553,14 @@ Note that the new methods [`method: Page.routeFromHAR`] and [`method: BrowserCon
   await page.Locator("role=button[name='log in']").ClickAsync();
   ```
 
-  Read more in [our documentation](./selectors#role-selector).
+  Read more in [our documentation](./locators.md#locate-by-role).
 
 - New [`method: Locator.filter`] API to filter an existing locator
 
   ```csharp
   var buttons = page.Locator("role=button");
   // ...
-  var submitLocator = buttons.Filter(new LocatorFilterOptions { HasText = "Sign up" });
+  var submitLocator = buttons.Filter(new() { HasText = "Sign up" });
   await submitLocator.ClickAsync();
   ```
 
@@ -315,7 +575,7 @@ Note that the new methods [`method: Page.routeFromHAR`] and [`method: BrowserCon
   await page.Locator("role=button[name='log in']").ClickAsync();
   ```
 
-  Read more in [our documentation](./selectors#role-selector).
+  Read more in [our documentation](./locators.md#locate-by-role).
 - New `scale` option in [`method: Page.screenshot`] for smaller sized screenshots.
 - New `caret` option in [`method: Page.screenshot`] to control text caret. Defaults to `"hide"`.
 - We now ship a designated .NET docker image `mcr.microsoft.com/playwright/dotnet`. Read more in [our documentation](./docker).
@@ -604,7 +864,7 @@ await locator.ClickAsync();
 
 Learn more in the [documentation](./api/class-locator).
 
-#### 🧩 Experimental [**React**](./selectors#react-selectors) and [**Vue**](./selectors#vue-selectors) selector engines
+#### 🧩 Experimental [**React**](./other-locators.md#react-locator) and [**Vue**](./other-locators.md#vue-locator) selector engines
 
 React and Vue selectors allow selecting elements by its component name and/or property values. The syntax is very similar to [attribute selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors) and supports all attribute selector operators.
 
@@ -613,12 +873,12 @@ await page.Locator("_react=SubmitButton[enabled=true]").ClickAsync();
 await page.Locator("_vue=submit-button[enabled=true]").ClickAsync();
 ```
 
-Learn more in the [react selectors documentation](./selectors#react-selectors) and the [vue selectors documentation](./selectors#vue-selectors).
+Learn more in the [react selectors documentation](./other-locators.md#react-locator) and the [vue selectors documentation](./other-locators.md#vue-locator).
 
-#### ✨ New [**`nth`**](./selectors#n-th-element-selector) and [**`visible`**](./selectors#selecting-visible-elements) selector engines
+#### ✨ New [**`nth`**](./other-locators.md#n-th-element-locator) and [**`visible`**](./other-locators.md#css-matching-only-visible-elements) selector engines
 
-- [`nth`](./selectors#n-th-element-selector) selector engine is equivalent to the `:nth-match` pseudo class, but could be combined with other selector engines.
-- [`visible`](./selectors#selecting-visible-elements) selector engine is equivalent to the `:visible` pseudo class, but could be combined with other selector engines.
+- [`nth`](./other-locators.md#n-th-element-locator) selector engine is equivalent to the `:nth-match` pseudo class, but could be combined with other selector engines.
+- [`visible`](./other-locators.md#css-matching-only-visible-elements) selector engine is equivalent to the `:visible` pseudo class, but could be combined with other selector engines.
 
 ```csharp
 // select the first button among all buttons
@@ -674,7 +934,7 @@ await button.ClickAsync("button >> visible=true");
 #### Highlights
 
 - Playwright for .NET v1.12 is now stable!
-- Ships with the [codegen](./cli.md#generate-code) and [trace viewer](./trace-viewer.md) tools out-of-the-box
+- Ships with the [codegen](./codegen.md) and [trace viewer](./trace-viewer.md) tools out-of-the-box
 
 #### Browser Versions
 

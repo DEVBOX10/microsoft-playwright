@@ -1,6 +1,6 @@
 ---
 id: trace-viewer-intro
-title: "Trace Viewer"
+title: "Trace viewer"
 ---
 
 Playwright Trace Viewer is a GUI tool that lets you explore recorded Playwright traces of your tests meaning you can go back and forward though each action of your test and visually see what was happening during each action.
@@ -40,6 +40,7 @@ context = await browser.new_context()
 # Start tracing before creating / navigating a page.
 await context.tracing.start(screenshots=True, snapshots=True, sources=True)
 
+page = await context.new_page()
 await page.goto("https://playwright.dev")
 
 # Stop tracing and export it into a zip archive.
@@ -53,6 +54,7 @@ context = browser.new_context()
 # Start tracing before creating / navigating a page.
 context.tracing.start(screenshots=True, snapshots=True, sources=True)
 
+page = context.new_page()
 page.goto("https://playwright.dev")
 
 # Stop tracing and export it into a zip archive.
@@ -60,24 +62,24 @@ context.tracing.stop(path = "trace.zip")
 ```
 
 ```csharp
-await using var browser = playwright.Chromium.LaunchAsync();
+await using var browser = await Playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 
 // Start tracing before creating / navigating a page.
 await context.Tracing.StartAsync(new()
 {
-  Screenshots = true,
-  Snapshots = true,
-  Sources = true
+    Screenshots = true,
+    Snapshots = true,
+    Sources = true
 });
 
-var page = context.NewPageAsync();
+var page = await context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
 
 // Stop tracing and export it into a zip archive.
 await context.Tracing.StopAsync(new()
 {
-  Path = "trace.zip"
+    Path = "trace.zip"
 });
 ```
 
@@ -93,7 +95,7 @@ npx playwright show-trace trace.zip
 ```
 
 ```bash java
-mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="show-trace trace.zip"
+mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="show-trace trace.zip"
 ```
 
 ```bash python
@@ -107,6 +109,6 @@ pwsh bin/Debug/netX/playwright.ps1 show-trace trace.zip
 
 View traces of your test by clicking through each action or hovering using the timeline and see the state of the page before and after the action. Inspect the log, source and network during each step of the test. The trace viewer creates a DOM snapshot so you can fully interact with it, open devtools etc.
 
-<img width="1386" alt="Playwright Trace Viewer" src="https://user-images.githubusercontent.com/13063165/189136442-4fc6d7a3-6f0c-4a5f-9d36-2650018b018a.png" />
+<img width="1976" alt="Playwright Trace Viewer" src="https://user-images.githubusercontent.com/13063165/212869694-61368b16-f176-4083-bbc2-fc85b95131f0.png" />
 
 To learn more check out our detailed guide on [Trace Viewer](/trace-viewer.md).

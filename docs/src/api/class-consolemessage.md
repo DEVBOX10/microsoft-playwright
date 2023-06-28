@@ -7,7 +7,7 @@ context.
 
 ```js
 // Listen for all console logs
-page.on('console', msg => console.log(msg.text()))
+page.on('console', msg => console.log(msg.text()));
 
 // Listen for all console events and handle errors
 page.on('console', msg => {
@@ -16,30 +16,28 @@ page.on('console', msg => {
 });
 
 // Get the next console log
-const [msg] = await Promise.all([
-  page.waitForEvent('console'),
-  // Issue console.log inside the page
-  page.evaluate(() => {
-    console.log('hello', 42, { foo: 'bar' });
-  }),
-]);
+const msgPromise = page.waitForEvent('console');
+await page.evaluate(() => {
+  console.log('hello', 42, { foo: 'bar' });  // Issue console.log inside the page
+});
+const msg = await msgPromise;
 
 // Deconstruct console log arguments
-await msg.args[0].jsonValue() // hello
-await msg.args[1].jsonValue() // 42
+await msg.args()[0].jsonValue(); // hello
+await msg.args()[1].jsonValue(); // 42
 ```
 
 ```java
-// Listen for all System.out.printlns
+// Listen for all console messages and print them to the standard output.
 page.onConsoleMessage(msg -> System.out.println(msg.text()));
 
-// Listen for all console events and handle errors
+// Listen for all console messages and print errors to the standard output.
 page.onConsoleMessage(msg -> {
   if ("error".equals(msg.type()))
     System.out.println("Error text: " + msg.text());
 });
 
-// Get the next System.out.println
+// Get the next console message
 ConsoleMessage msg = page.waitForConsoleMessage(() -> {
   // Issue console.log inside the page
   page.evaluate("console.log('hello', 42, { foo: 'bar' });");
@@ -87,17 +85,17 @@ msg.args[1].json_value() # 42
 ```
 
 ```csharp
-// Listen for all System.out.printlns
+// Listen for all console messages and print them to the standard output.
 page.Console += (_, msg) => Console.WriteLine(msg.Text);
 
-// Listen for all console events and handle errors
+// Listen for all console messages and print errors to the standard output.
 page.Console += (_, msg) =>
 {
     if ("error".Equals(msg.Type))
         Console.WriteLine("Error text: " + msg.Text);
 };
 
-// Get the next System.out.println
+// Get the next console message
 var waitForMessageTask = page.WaitForConsoleMessageAsync();
 await page.EvaluateAsync("console.log('hello', 42, { foo: 'bar' });");
 var message = await waitForMessageTask;
@@ -126,6 +124,12 @@ List of arguments passed to a `console` function call. See also [`event: Page.co
 - returns: <[string]>
 
 URL of the resource followed by 0-based line and column numbers in the resource formatted as `URL:line:column`.
+
+## method: ConsoleMessage.page
+* since: v1.34
+- returns: <[null]|[Page]>
+
+The page that produced this console message, if any.
 
 ## method: ConsoleMessage.text
 * since: v1.8

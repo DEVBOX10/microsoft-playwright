@@ -18,6 +18,7 @@ env:
   # Force terminal colors. @see https://www.npmjs.com/package/colors
   FORCE_COLOR: 1
   FLAKINESS_CONNECTION_STRING: ${{ secrets.FLAKINESS_CONNECTION_STRING }}
+  ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
 jobs:
   test_linux:
@@ -26,14 +27,13 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
-        os: [ubuntu-18.04, ubuntu-20.04]
+        os: [ubuntu-20.04, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -45,26 +45,20 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: ${{ matrix.browser }}-${{ matrix.os }}-test-results
-        path: test-results
 
   test_mac:
     name: ${{ matrix.os }} (${{ matrix.browser }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-11, macos-12]
+        os: [macos-12, macos-13]
         browser: [chromium, firefox, webkit]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -75,11 +69,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: ${{ matrix.browser }}-${{ matrix.os }}-test-results
-        path: test-results
 
   test_win:
     name: "Windows"
@@ -92,8 +81,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -105,11 +93,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: ${{ matrix.browser }}-win-test-results
-        path: test-results
 
   test-package-installations-other-node-versions:
     name: "Installation Test ${{ matrix.os }} (${{ matrix.node_version }})"
@@ -119,16 +102,15 @@ jobs:
       matrix:
         include:
         - os: ubuntu-latest
-          node_version: "^18.0.0"
+          node_version: 18
         - os: ubuntu-latest
-          node_version: "^16.0.0"
+          node_version: 20
     timeout-minutes: 30
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
         node-version: ${{ matrix.node_version }}
-    - run: npm i -g npm@8
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -154,8 +136,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -169,11 +150,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: always() && startsWith(matrix.os, 'ubuntu-')
-      with:
-        name: headful-${{ matrix.browser }}-linux-test-results
-        path: test-results
 
   transport_linux:
     name: "Transport"
@@ -186,30 +162,19 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         DEBUG: pw:install
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
     - run: npx playwright install --with-deps chromium
-    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run test -- --project='Chromium page tests'
-      if: matrix.mode == 'service'
-      env:
-        PWTEST_MODE: ${{ matrix.mode }}
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
-      if: matrix.mode != 'service'
       env:
         PWTEST_MODE: ${{ matrix.mode }}
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: mode-${{ matrix.mode }}-linux-test-results
-        path: test-results
 
   tracing_linux:
     name: Tracing ${{ matrix.browser }} ${{ matrix.channel }}
@@ -227,8 +192,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -239,9 +203,30 @@ jobs:
       env:
         PWTEST_TRACE: 1
         PWTEST_CHANNEL: ${{ matrix.channel }}
+        PWTEST_BLOB_REPORT: 1
+        PWTEST_BLOB_SUFFIX: ${{ (matrix.channel && format('-{0}', matrix.channel)) || '' }}
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
+    - name: Upload blob report to Azure
+      if: always() && github.event_name == 'push'
+      run: az storage blob upload-batch -s test-results/blob-report -d '$web/run-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}' --connection-string "${{ secrets.AZURE_CONNECTION_STRING_FOR_BLOB_REPORT }}"
+    - name: Upload blob report to GitHub
+      uses: actions/upload-artifact@v3
+      if: always() && github.event_name == 'pull_request'
+      with:
+        name: blob-report-${{ github.run_attempt }}
+        path: test-results/blob-report
+        retention-days: 30
+    - name: Write the pull request number in an file
+      if: always() && github.event_name == 'pull_request'
+      run: echo '${{ github.event.number }}' > pull_request_number.txt;
+    - name: Upload artifact with pull request number
+      uses: actions/upload-artifact@v3
+      if: always() && github.event_name == 'pull_request'
+      with:
+        name: pull-request
+        path: pull_request_number.txt
 
   chrome_stable_linux:
     name: "Chrome Stable (Linux)"
@@ -250,8 +235,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -263,11 +247,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: chrome-stable-linux-test-results
-        path: test-results
 
   chrome_stable_win:
     name: "Chrome Stable (Win)"
@@ -276,8 +255,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -290,11 +268,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: chrome-stable-win-test-results
-        path: test-results
 
   chrome_stable_mac:
     name: "Chrome Stable (Mac)"
@@ -303,8 +276,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -316,11 +288,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: chrome-stable-mac-test-results
-        path: test-results
 
   chromium_tot:
     name: Chromium TOT ${{ matrix.os }}
@@ -328,34 +295,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-18.04, macos-12, windows-latest]
+        os: [ubuntu-20.04, macos-12, windows-latest]
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
     - run: npx playwright install --with-deps chromium-tip-of-tree
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-20.04'
       env:
         PWTEST_CHANNEL: chromium-tip-of-tree
     - run: npm run ctest
-      if: matrix.os != 'ubuntu-18.04'
+      if: matrix.os != 'ubuntu-20.04'
       env:
         PWTEST_CHANNEL: chromium-tip-of-tree
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: chromium-tot-${{ matrix.os }}-test-results
-        path: test-results
 
   chromium_tot_headed:
     name: Chromium TOT headed ${{ matrix.os }}
@@ -368,8 +329,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -386,11 +346,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: chromium-tot-headed-${{ matrix.os }}-test-results
-        path: test-results
 
   firefox_beta_linux:
     name: "Firefox Beta (Linux)"
@@ -399,8 +354,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -412,11 +366,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: firefox-beta-linux-test-results
-        path: test-results
 
   firefox_beta_win:
     name: "Firefox Beta (Win)"
@@ -425,8 +374,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -439,11 +387,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: firefox-beta-win-test-results
-        path: test-results
 
   firefox_beta_mac:
     name: "Firefox Beta (Mac)"
@@ -452,8 +395,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -465,11 +407,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: firefox-beta-mac-test-results
-        path: test-results
 
   edge_stable_mac:
     name: "Edge Stable (Mac)"
@@ -478,8 +415,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -491,12 +427,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: msedge-stable-mac-test-results
-        path: test-results
-
 
   edge_stable_win:
     name: "Edge Stable (Win)"
@@ -505,8 +435,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -519,11 +448,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: edge-stable-win-test-results
-        path: test-results
 
   edge_stable_linux:
     name: "Edge Stable (Linux)"
@@ -532,8 +456,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -545,11 +468,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: edge-stable-linux-test-results
-        path: test-results
 
   edge_beta_mac:
     name: "Edge Beta (Mac)"
@@ -558,8 +476,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -571,11 +488,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: msedge-beta-mac-test-results
-        path: test-results
 
   edge_beta_win:
     name: "Edge Beta (Win)"
@@ -584,8 +496,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -598,11 +509,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: edge-beta-win-test-results
-        path: test-results
 
   edge_beta_linux:
     name: "Edge Beta (Linux)"
@@ -611,8 +517,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -624,11 +529,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: edge-beta-linux-test-results
-        path: test-results
 
   edge_dev_mac:
     name: "Edge Dev (Mac)"
@@ -637,8 +537,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -650,11 +549,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: msedge-dev-mac-test-results
-        path: test-results
 
   edge_dev_win:
     name: "Edge Dev (Win)"
@@ -663,8 +557,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -677,11 +570,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: edge-dev-win-test-results
-        path: test-results
 
   edge_dev_linux:
     name: "Edge Dev (Linux)"
@@ -690,8 +578,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -703,11 +590,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: edge-dev-linux-test-results
-        path: test-results
 
   chrome_beta_linux:
     name: "Chrome Beta (Linux)"
@@ -716,8 +598,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -729,11 +610,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: chrome-beta-linux-test-results
-        path: test-results
 
   chrome_beta_win:
     name: "Chrome Beta (Win)"
@@ -742,8 +618,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -756,11 +631,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: chrome-beta-win-test-results
-        path: test-results
 
   chrome_beta_mac:
     name: "Chrome Beta (Mac)"
@@ -769,8 +639,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -782,11 +651,6 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
-      with:
-        name: chrome-beta-mac-test-results
-        path: test-results
 
   build-playwright-driver:
     name: "build-playwright-driver"
@@ -795,36 +659,30 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
     - run: npm run build
     - run: npx playwright install-deps
     - run: utils/build/build-playwright-driver.sh
 
-  smoke_test_docker_integration:
-    runs-on: ubuntu-20.04
+  test_linux_chromium_headless_new:
+    name: Linux Chromium Headless New
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 16
     - run: npm ci
       env:
         DEBUG: pw:install
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps
-    - run: ./utils/docker/build.sh --amd64 focal playwright:localbuild
-    - run: PWTEST_DOCKER_BASE_IMAGE=playwright:localbuild npx playwright docker build
-    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run dtest
+    - run: npx playwright install --with-deps chromium
+    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run test -- --project=chromium
+      env:
+        PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW: 1
+    - run: node tests/config/checkCoverage.js chromium
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: docker-integration-test-results
-        path: test-results
-

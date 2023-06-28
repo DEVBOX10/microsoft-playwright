@@ -33,6 +33,7 @@ APIResponse response = context.request().post("https://example.com/upload_member
 ```
 
 Alternatively, you can build the file payload manually:
+
 ```java
 FilePayload filePayload = new FilePayload("members.csv", "text/csv",
   "Alice, 33\nJohn, 35\n".getBytes(StandardCharsets.UTF_8));
@@ -90,7 +91,7 @@ this request body.
 * since: v1.18
 - returns: <[RequestOptions]>
 
-Sets an HTTP header to the request.
+Sets an HTTP header to the request. This header will apply to the fetched request as well as any redirects initiated by it.
 
 ### param: RequestOptions.setHeader.name
 * since: v1.18

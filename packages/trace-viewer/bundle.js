@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-import fs, { existsSync } from 'fs';
-import path from 'path';
-
 /**
  * @returns {import('vite').Plugin}
  */
@@ -31,7 +28,8 @@ export function bundle() {
       transform(html, ctx) {
         if (!ctx || !ctx.bundle)
           return html;
-        return html.replace(/(?=<!--)([\s\S]*?)-->/, '');
+        // Workaround vite issue that we cannot exclude some scripts from preprocessing.
+        return html.replace(/(?=<!--)([\s\S]*?)-->/, '').replace('<!-- <script src="stall.js"></script> -->', '<script src="stall.js"></script>');
       },
     },
   }

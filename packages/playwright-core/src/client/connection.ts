@@ -36,7 +36,7 @@ import { WritableStream } from './writableStream';
 import { debugLogger } from '../common/debugLogger';
 import { SelectorsOwner } from './selectors';
 import { Android, AndroidSocket, AndroidDevice } from './android';
-import { captureStackTrace, type ParsedStackTrace } from '../utils/stackTrace';
+import { captureLibraryStackTrace, type ParsedStackTrace } from '../utils/stackTrace';
 import { Artifact } from './artifact';
 import { EventEmitter } from 'events';
 import { JsonPipe } from './jsonPipe';
@@ -44,6 +44,8 @@ import { APIRequestContext } from './fetch';
 import { LocalUtils } from './localUtils';
 import { Tracing } from './tracing';
 import { findValidator, ValidationError, type ValidatorContext } from '../protocol/validator';
+import { createInstrumentation } from './clientInstrumentation';
+import type { ClientInstrumentation } from './clientInstrumentation';
 
 class Root extends ChannelOwner<channels.RootChannel> {
   constructor(connection: Connection) {
@@ -71,11 +73,14 @@ export class Connection extends EventEmitter {
   private _localUtils?: LocalUtils;
   // Some connections allow resolving in-process dispatchers.
   toImpl: ((client: ChannelOwner) => any) | undefined;
+  private _tracingCount = 0;
+  readonly _instrumentation: ClientInstrumentation;
 
-  constructor(localUtils?: LocalUtils) {
+  constructor(localUtils: LocalUtils | undefined, instrumentation: ClientInstrumentation | undefined) {
     super();
     this._rootObject = new Root(this);
     this._localUtils = localUtils;
+    this._instrumentation = instrumentation || createInstrumentation();
   }
 
   markAsRemote() {
@@ -102,7 +107,14 @@ export class Connection extends EventEmitter {
     return this._objects.get(guid)!;
   }
 
-  async sendMessageToServer(object: ChannelOwner, type: string, method: string, params: any, stackTrace: ParsedStackTrace | null): Promise<any> {
+  async setIsTracing(isTracing: boolean) {
+    if (isTracing)
+      this._tracingCount++;
+    else
+      this._tracingCount--;
+  }
+
+  async sendMessageToServer(object: ChannelOwner, type: string, method: string, params: any, stackTrace: ParsedStackTrace | null, wallTime: number | undefined): Promise<any> {
     if (this._closedErrorMessage)
       throw new Error(this._closedErrorMessage);
 
@@ -112,9 +124,11 @@ export class Connection extends EventEmitter {
     const converted = { id, guid, method, params };
     // Do not include metadata in debug logs to avoid noise.
     debugLogger.log('channel:command', converted);
-    const metadata: channels.Metadata = { stack: frames, apiName, internal: !apiName };
+    const location = frames[0] ? { file: frames[0].file, line: frames[0].line, column: frames[0].column } : undefined;
+    const metadata: channels.Metadata = { wallTime, apiName, location, internal: !apiName };
     this.onmessage({ ...converted, metadata });
-
+    if (this._tracingCount && frames && type !== 'LocalUtils')
+      this._localUtils?._channel.addStackToTracingNoReply({ callData: { stack: frames, id } }).catch(() => {});
     return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject, stackTrace, type, method }));
   }
 
@@ -166,7 +180,7 @@ export class Connection extends EventEmitter {
   }
 
   close(errorMessage: string = 'Connection closed') {
-    const stack = captureStackTrace().frameTexts.join('\n');
+    const stack = captureLibraryStackTrace().frameTexts.join('\n');
     if (stack)
       errorMessage += '\n    ==== Closed by ====\n' + stack + '\n';
     this._closedErrorMessage = errorMessage;

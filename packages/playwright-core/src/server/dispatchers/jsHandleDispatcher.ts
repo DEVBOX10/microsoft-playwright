@@ -36,11 +36,11 @@ export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandl
   }
 
   async evaluateExpression(params: channels.JSHandleEvaluateExpressionParams): Promise<channels.JSHandleEvaluateExpressionResult> {
-    return { value: serializeResult(await this._object.evaluateExpressionAndWaitForSignals(params.expression, params.isFunction, true /* returnByValue */, parseArgument(params.arg))) };
+    return { value: serializeResult(await this._object.evaluateExpression(params.expression, { isFunction: params.isFunction }, parseArgument(params.arg))) };
   }
 
   async evaluateExpressionHandle(params: channels.JSHandleEvaluateExpressionHandleParams): Promise<channels.JSHandleEvaluateExpressionHandleResult> {
-    const jsHandle = await this._object.evaluateExpressionAndWaitForSignals(params.expression, params.isFunction, false /* returnByValue */, parseArgument(params.arg));
+    const jsHandle = await this._object.evaluateExpressionHandle(params.expression, { isFunction: params.isFunction }, parseArgument(params.arg));
     return { handle: ElementHandleDispatcher.fromJSHandle(this.parentScope(), jsHandle) };
   }
 
@@ -59,6 +59,10 @@ export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandl
 
   async jsonValue(): Promise<channels.JSHandleJsonValueResult> {
     return { value: serializeResult(await this._object.jsonValue()) };
+  }
+
+  async objectCount(params?: channels.JSHandleObjectCountParams | undefined): Promise<channels.JSHandleObjectCountResult> {
+    return { count: await this._object.objectCount() };
   }
 
   async dispose() {

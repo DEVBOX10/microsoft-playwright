@@ -68,8 +68,7 @@ Using the following, Playwright will run your WebView2 application as a sub-proc
 
 <!-- source code is available here to verify that the examples are working https://github.com/mxschmitt/playwright-webview2-demo -->
 
-```ts
-// webView2Test.ts
+```js title="webView2Test.ts"
 import { test as base } from '@playwright/test';
 import fs from 'fs';
 import os from 'os';
@@ -97,7 +96,7 @@ export const test = base.extend({
     }));
     const browser = await playwright.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
     await use(browser);
-    await browser.close()
+    await browser.close();
     childProcess.execSync(`taskkill /pid ${webView2Process.pid} /T /F`);
     fs.rmdirSync(userDataDir, { recursive: true });
   },
@@ -114,8 +113,7 @@ export const test = base.extend({
 export { expect } from '@playwright/test';
 ```
 
-```ts
-// example.spec.ts
+```js title="example.spec.ts"
 import { test, expect } from './webView2Test';
 
 test('test WebView2', async ({ page }) => {
@@ -125,8 +123,7 @@ test('test WebView2', async ({ page }) => {
 });
 ```
 
-```java
-// WebView2Process.java
+```java title="WebView2Process.java"
 package com.example;
 
 import java.io.BufferedReader;
@@ -200,8 +197,7 @@ public class WebView2Process {
 }
 ```
 
-```java
-// TestExample.java
+```java title="TestExample.java"
 package com.example;
 
 import com.microsoft.playwright.Browser;
@@ -248,8 +244,7 @@ public class TestExample {
 }
 ```
 
-```python
-# conftest.py
+```python title="conftest.py"
 import os
 import socket
 import tempfile
@@ -331,8 +326,7 @@ def _find_free_port(port=9000, max_port=65535):
     raise IOError("no free ports")
 ```
 
-```python
-# test_webview2.py
+```python title="test_webview2.py"
 from playwright.sync_api import Page, expect
 
 
@@ -428,6 +422,6 @@ public class Tests : WebView2Test
 
 ## Debugging
 
-Inside your webview2 control, you can just right-click to open the context menu and select "Inspect" to open the DevTools or press <kbd>F12</kbd>. You can also use the [WebView2.OpenDevToolsWindow](https://docs.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.wpf.webview2.opendevtoolswindow?view=webview2-dotnet-1.0.1343.22) method to open the DevTools programmatically.
+Inside your webview2 control, you can just right-click to open the context menu and select "Inspect" to open the DevTools or press <kbd>F12</kbd>. You can also use the [WebView2.CoreWebView2.OpenDevToolsWindow](https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2.opendevtoolswindow?view=webview2-dotnet-1.0.1462.37) method to open the DevTools programmatically.
 
 For debugging tests, see the Playwright [Debugging guide](./debug).

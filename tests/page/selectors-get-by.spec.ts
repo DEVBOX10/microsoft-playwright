@@ -36,6 +36,13 @@ it('getByTestId should escape id', async ({ page }) => {
   await expect(page.getByTestId('He"llo')).toHaveText('Hello world');
 });
 
+it('getByTestId should work for regex', async ({ page }) => {
+  await page.setContent('<div><div data-testid="Hello">Hello world</div></div>');
+  await expect(page.getByTestId(/He[l]*o/)).toHaveText('Hello world');
+  await expect(page.mainFrame().getByTestId('Hello')).toHaveText('Hello world');
+  await expect(page.locator('div').getByTestId('Hello')).toHaveText('Hello world');
+});
+
 it('getByText should work', async ({ page }) => {
   await page.setContent(`<div>yo</div><div>ya</div><div>\nye  </div>`);
   expect(await page.getByText('ye').evaluate(e => e.outerHTML)).toContain('>\nye  </div>');
@@ -71,6 +78,53 @@ it('getByLabel should work with nested elements', async ({ page }) => {
   expect(await page.getByLabel('Name', { exact: true }).elementHandles()).toEqual([]);
   expect(await page.getByLabel('what?').elementHandles()).toEqual([]);
   expect(await page.getByLabel(/last name/).elementHandles()).toEqual([]);
+});
+
+it('getByLabel should work with multiply-labelled input', async ({ page }) => {
+  await page.setContent(`<label for=target>Name</label><input id=target type=text><label for=target>First or Last</label>`);
+  expect(await page.getByLabel('Name').evaluate(e => e.id)).toBe('target');
+  expect(await page.getByLabel('First or Last').evaluate(e => e.id)).toBe('target');
+});
+
+it('getByLabel should work with ancestor label and multiple controls', async ({ page }) => {
+  await page.setContent(`<label>Name<button id=target>Click me</button><input type=text></label>`);
+  expect(await page.getByLabel('Name').evaluate(e => e.id)).toBe('target');
+});
+
+it('getByLabel should work with ancestor label and for', async ({ page }) => {
+  await page.setContent(`
+    <label for=target>Name<input type=text id=nontarget></label>
+    <input type=text id=target>
+  `);
+  expect(await page.getByLabel('Name').evaluate(e => e.id)).toBe('target');
+});
+
+it('getByLabel should work with aria-labelledby', async ({ page }) => {
+  await page.setContent(`<label id=name-label>Name</label><button aria-labelledby=name-label>Click me</button>`);
+  expect(await page.getByLabel('Name').evaluate(e => e.textContent)).toBe('Click me');
+});
+
+it('getByLabel should prioritize aria-labelledby over native label', async ({ page }) => {
+  await page.setContent(`
+    <label id=name-label>Name</label>
+    <label>Wrong<button aria-labelledby=name-label>Click me</button></label>
+  `);
+  expect(await page.getByLabel('Name').evaluate(e => e.textContent)).toBe('Click me');
+});
+
+it('getByLabel should work with aria-label', async ({ page }) => {
+  await page.setContent(`<input id=target aria-label="Name">`);
+  expect(await page.getByLabel('Name').evaluate(e => e.id)).toBe('target');
+});
+
+it('getByLabel should ignore empty aria-label', async ({ page }) => {
+  await page.setContent(`<label for=target>Last Name</label><input id=target type=text aria-label>`);
+  expect(await page.getByLabel('Last Name').evaluate(e => e.id)).toBe('target');
+});
+
+it('getByLabel should prioritize aria-labelledby over aria-label', async ({ page }) => {
+  await page.setContent(`<label id=other-label>Other</label><input id=target aria-label="Name" aria-labelledby=other-label>`);
+  expect(await page.getByLabel('Other').evaluate(e => e.id)).toBe('target');
 });
 
 it('getByPlaceholder should work', async ({ page }) => {
@@ -123,12 +177,12 @@ wo"rld</label><input id=control />`);
     input.setAttribute('title', 'hello my\nwo"rld');
     input.setAttribute('alt', 'hello my\nwo"rld');
   });
-  await expect(page.getByText('hello my\nwo"rld')).toHaveAttribute('id', 'label');
-  await expect(page.getByText('hello       my     wo"rld')).toHaveAttribute('id', 'label');
-  await expect(page.getByLabel('hello my\nwo"rld')).toHaveAttribute('id', 'control');
-  await expect(page.getByPlaceholder('hello my\nwo"rld')).toHaveAttribute('id', 'control');
-  await expect(page.getByAltText('hello my\nwo"rld')).toHaveAttribute('id', 'control');
-  await expect(page.getByTitle('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByText('hello my\nwo"rld')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByText('hello       my     wo"rld')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByLabel('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByPlaceholder('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByAltText('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByTitle('hello my\nwo"rld')).toHaveAttribute('id', 'control');
 
   await page.setContent(`<label id=label for=control>Hello my
 world</label><input id=control />`);
@@ -137,10 +191,82 @@ world</label><input id=control />`);
     input.setAttribute('title', 'hello my\nworld');
     input.setAttribute('alt', 'hello my\nworld');
   });
-  await expect(page.getByText('hello my\nworld')).toHaveAttribute('id', 'label');
-  await expect(page.getByText('hello        my    world')).toHaveAttribute('id', 'label');
-  await expect(page.getByLabel('hello my\nworld')).toHaveAttribute('id', 'control');
-  await expect(page.getByPlaceholder('hello my\nworld')).toHaveAttribute('id', 'control');
-  await expect(page.getByAltText('hello my\nworld')).toHaveAttribute('id', 'control');
-  await expect(page.getByTitle('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByText('hello my\nworld')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByText('hello        my    world')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByLabel('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByPlaceholder('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByAltText('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByTitle('hello my\nworld')).toHaveAttribute('id', 'control');
+
+  await page.setContent(`<div id=target title="my title">Text here</div>`);
+  await expect.soft(page.getByTitle('my title', { exact: true })).toHaveCount(1, { timeout: 500 });
+  await expect.soft(page.getByTitle('my t\itle', { exact: true })).toHaveCount(1, { timeout: 500 });
+  await expect.soft(page.getByTitle('my t\\itle', { exact: true })).toHaveCount(0, { timeout: 500 });
+  await expect.soft(page.getByTitle('my t\\\itle', { exact: true })).toHaveCount(0, { timeout: 500 });
+  await expect.soft(page.getByTitle('my t\\\\itle', { exact: true })).toHaveCount(0, { timeout: 500 });
+
+  await page.setContent(`<label for=target>foo &gt;&gt; bar</label><input id=target>`);
+  await page.$eval('input', input => {
+    input.setAttribute('placeholder', 'foo >> bar');
+    input.setAttribute('title', 'foo >> bar');
+    input.setAttribute('alt', 'foo >> bar');
+  });
+  expect.soft(await page.getByText('foo >> bar').textContent()).toBe('foo >> bar');
+  await expect.soft(page.locator('label')).toHaveText('foo >> bar');
+  await expect.soft(page.getByText('foo >> bar')).toHaveText('foo >> bar');
+  expect.soft(await page.getByText(/foo >> bar/).textContent()).toBe('foo >> bar');
+  await expect.soft(page.getByLabel('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByLabel(/foo >> bar/)).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByPlaceholder('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByAltText('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByTitle('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByPlaceholder(/foo >> bar/)).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByAltText(/foo >> bar/)).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByTitle(/foo >> bar/)).toHaveAttribute('id', 'target');
+});
+
+it('getByRole escaping', async ({ page }) => {
+  await page.setContent(`
+    <a href="https://playwright.dev">issues 123</a>
+    <a href="https://playwright.dev">he llo 56</a>
+    <button>Click me</button>
+  `);
+  expect.soft(await page.getByRole('button').evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<button>Click me</button>`,
+  ]);
+  expect.soft(await page.getByRole('link').evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<a href="https://playwright.dev">issues 123</a>`,
+    `<a href="https://playwright.dev">he llo 56</a>`,
+  ]);
+
+  expect.soft(await page.getByRole('link', { name: 'issues 123' }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<a href="https://playwright.dev">issues 123</a>`,
+  ]);
+  expect.soft(await page.getByRole('link', { name: 'sues' }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<a href="https://playwright.dev">issues 123</a>`,
+  ]);
+  expect.soft(await page.getByRole('link', { name: '  he    \n  llo ' }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<a href="https://playwright.dev">he llo 56</a>`,
+  ]);
+  expect.soft(await page.getByRole('button', { name: 'issues' }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+  ]);
+
+  expect.soft(await page.getByRole('link', { name: 'sues', exact: true }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+  ]);
+  expect.soft(await page.getByRole('link', { name: '   he \n llo 56 ', exact: true }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<a href="https://playwright.dev">he llo 56</a>`,
+  ]);
+
+  expect.soft(await page.getByRole('button', { name: 'Click me', exact: true }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<button>Click me</button>`,
+  ]);
+  expect.soft(await page.getByRole('button', { name: 'Click \me', exact: true }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<button>Click me</button>`,
+  ]);
+  expect.soft(await page.getByRole('button', { name: 'Click \\me', exact: true }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+  ]);
+  expect.soft(await page.getByRole('button', { name: 'Click \\\me', exact: true }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+  ]);
+  expect.soft(await page.getByRole('button', { name: 'Click \\\\me', exact: true }).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+  ]);
 });

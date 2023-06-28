@@ -14,23 +14,19 @@
  * limitations under the License.
  */
 
-import type { FullConfig, Suite, TestCase, TestError, TestResult, FullResult, TestStep } from '../../types/testReporter';
-import type { ReporterInternal } from '../types';
+import type { FullConfig, TestCase, TestError, TestResult, FullResult, TestStep, Reporter } from '../../types/testReporter';
+import type { Suite } from '../common/test';
 
-export class Multiplexer implements ReporterInternal {
-  private _reporters: ReporterInternal[];
+export class Multiplexer implements Reporter {
+  private _reporters: Reporter[];
 
-  constructor(reporters: ReporterInternal[]) {
+  constructor(reporters: Reporter[]) {
     this._reporters = reporters;
-  }
-
-  printsToStdio() {
-    return this._reporters.some(r => r.printsToStdio ? r.printsToStdio() : true);
   }
 
   onBegin(config: FullConfig, suite: Suite) {
     for (const reporter of this._reporters)
-      reporter.onBegin?.(config, suite);
+      wrap(() => reporter.onBegin?.(config, suite));
   }
 
   onTestBegin(test: TestCase, result: TestResult) {
@@ -55,12 +51,12 @@ export class Multiplexer implements ReporterInternal {
 
   async onEnd(result: FullResult) {
     for (const reporter of this._reporters)
-      await Promise.resolve().then(() => reporter.onEnd?.(result)).catch(e => console.error('Error in reporter', e));
+      await wrapAsync(() => reporter.onEnd?.(result));
   }
 
-  async _onExit() {
+  async onExit() {
     for (const reporter of this._reporters)
-      await Promise.resolve().then(() => reporter._onExit?.()).catch(e => console.error('Error in reporter', e));
+      await wrapAsync(() => reporter.onExit?.());
   }
 
   onError(error: TestError) {
@@ -70,12 +66,20 @@ export class Multiplexer implements ReporterInternal {
 
   onStepBegin(test: TestCase, result: TestResult, step: TestStep) {
     for (const reporter of this._reporters)
-      wrap(() => (reporter as any).onStepBegin?.(test, result, step));
+      wrap(() => reporter.onStepBegin?.(test, result, step));
   }
 
   onStepEnd(test: TestCase, result: TestResult, step: TestStep) {
     for (const reporter of this._reporters)
-      (reporter as any).onStepEnd?.(test, result, step);
+      wrap(() => reporter.onStepEnd?.(test, result, step));
+  }
+}
+
+async function wrapAsync(callback: () => void | Promise<void>) {
+  try {
+    await callback();
+  } catch (e) {
+    console.error('Error in reporter', e);
   }
 }
 

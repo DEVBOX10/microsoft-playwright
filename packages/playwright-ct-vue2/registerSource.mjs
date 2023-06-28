@@ -18,28 +18,67 @@
 
 // This file is injected into the registry as text, no dependencies are allowed.
 
-import Vue from 'vue';
+import __pwVue, { h as __pwH } from 'vue';
 
-/** @typedef {import('../playwright-test/types/component').Component} Component */
+/** @typedef {import('../playwright-ct-core/types/component').Component} Component */
+/** @typedef {import('../playwright-ct-core/types/component').JsxComponent} JsxComponent */
+/** @typedef {import('../playwright-ct-core/types/component').ObjectComponent} ObjectComponent */
 /** @typedef {import('vue').Component} FrameworkComponent */
 
+/** @type {Map<string, () => Promise<FrameworkComponent>>} */
+const __pwLoaderRegistry = new Map();
 /** @type {Map<string, FrameworkComponent>} */
-const registry = new Map();
+const __pwRegistry = new Map();
 
 /**
- * @param {{[key: string]: FrameworkComponent}} components
+ * @param {{[key: string]: () => Promise<FrameworkComponent>}} components
  */
-export function register(components) {
+export function pwRegister(components) {
   for (const [name, value] of Object.entries(components))
-    registry.set(name, value);
+    __pwLoaderRegistry.set(name, value);
+}
+
+/**
+ * @param {Component} component
+ * @returns {component is JsxComponent | ObjectComponent}
+ */
+function isComponent(component) {
+  return !(typeof component !== 'object' || Array.isArray(component));
+}
+
+/**
+ * @param {Component} component
+ */
+async function __pwResolveComponent(component) {
+  if (!isComponent(component))
+    return
+
+  let componentFactory = __pwLoaderRegistry.get(component.type);
+  if (!componentFactory) {
+    // Lookup by shorthand.
+    for (const [name, value] of __pwLoaderRegistry) {
+      if (component.type.endsWith(`_${name}_vue`)) {
+        componentFactory = value;
+        break;
+      }
+    }
+  }
+
+  if (!componentFactory && component.type[0].toUpperCase() === component.type[0])
+    throw new Error(`Unregistered component: ${component.type}. Following components are registered: ${[...__pwRegistry.keys()]}`);
+
+  if(componentFactory)
+    __pwRegistry.set(component.type, await componentFactory())
+
+  if ('children' in component)
+    await Promise.all(component.children.map(child => __pwResolveComponent(child)))
 }
 
 /**
  * @param {Component | string} child
- * @param {import('vue').CreateElement} h
  */
-function createChild(child, h) {
-  return typeof child === 'string' ? child : createWrapper(child, h);
+function __pwCreateChild(child) {
+  return typeof child === 'string' ? child : __pwCreateWrapper(child);
 }
 
 /**
@@ -49,7 +88,7 @@ function createChild(child, h) {
  * @param {string} key
  * @return {boolean}
  */
-function componentHasKeyInProps(Component, key) {
+function __pwComponentHasKeyInProps(Component, key) {
   if (Array.isArray(Component.props))
     return Component.props.includes(key);
 
@@ -58,28 +97,9 @@ function componentHasKeyInProps(Component, key) {
 
 /**
  * @param {Component} component
- * @param {import('vue').CreateElement} h
  */
-function createComponent(component, h) {
-  /**
-   * @type {import('vue').Component | string | undefined}
-   */
-  let componentFunc = registry.get(component.type);
-  if (!componentFunc) {
-    // Lookup by shorthand.
-    for (const [name, value] of registry) {
-      if (component.type.endsWith(`_${name}_vue`)) {
-        componentFunc = value;
-        break;
-      }
-    }
-  }
-
-  if (!componentFunc && component.type[0].toUpperCase() === component.type[0])
-    throw new Error(`Unregistered component: ${component.type}. Following components are registered: ${[...registry.keys()]}`);
-
-  componentFunc = componentFunc || component.type;
-
+function __pwCreateComponent(component) {
+  const componentFunc = __pwRegistry.get(component.type) || component.type;
   const isVueComponent = componentFunc !== component.type;
 
   /**
@@ -99,9 +119,9 @@ function createComponent(component, h) {
       if (typeof child !== 'string' && child.type === 'template' && child.kind === 'jsx') {
         const slotProperty = Object.keys(child.props).find(k => k.startsWith('v-slot:'));
         const slot = slotProperty ? slotProperty.substring('v-slot:'.length) : 'default';
-        nodeData.scopedSlots[slot] = () => child.children.map(c => createChild(c, h));
+        nodeData.scopedSlots[slot] = () => child.children.map(c => __pwCreateChild(c));
       } else {
-        children.push(createChild(child, h));
+        children.push(__pwCreateChild(child));
       }
     }
 
@@ -110,7 +130,7 @@ function createComponent(component, h) {
         const event = key.substring('v-on:'.length);
         nodeData.on[event] = value;
       } else {
-        if (isVueComponent && componentHasKeyInProps(componentFunc, key))
+        if (isVueComponent && __pwComponentHasKeyInProps(componentFunc, key))
           nodeData.props[key] = value;
         else
           nodeData.attrs[key] = value;
@@ -122,7 +142,7 @@ function createComponent(component, h) {
     // Vue test util syntax.
     const options = component.options || {};
     for (const [key, value] of Object.entries(options.slots || {})) {
-      const list = (Array.isArray(value) ? value : [value]).map(v => createChild(v, h));
+      const list = (Array.isArray(value) ? value : [value]).map(v => __pwCreateChild(v));
       if (key === 'default')
         children.push(...list);
       else
@@ -147,12 +167,11 @@ function createComponent(component, h) {
 
 /**
  * @param {Component} component
- * @param {import('vue').CreateElement} h
  * @returns {import('vue').VNode}
  */
-function createWrapper(component, h) {
-  const { Component, nodeData, slots } = createComponent(component, h);
-  const wrapper = h(Component, nodeData, slots);
+function __pwCreateWrapper(component) {
+  const { Component, nodeData, slots } = __pwCreateComponent(component);
+  const wrapper = __pwH(Component, nodeData, slots);
   return wrapper;
 }
 
@@ -160,12 +179,15 @@ const instanceKey = Symbol('instanceKey');
 const wrapperKey = Symbol('wrapperKey');
 
 window.playwrightMount = async (component, rootElement, hooksConfig) => {
-  for (const hook of /** @type {any} */(window).__pw_hooks_before_mount || [])
-    await hook({ hooksConfig });
+  await __pwResolveComponent(component);
+  let options = {};
+  for (const hook of window.__pw_hooks_before_mount || [])
+    options = await hook({ hooksConfig, Vue: __pwVue });
 
-  const instance = new Vue({
-    render: h => {
-      const wrapper = createWrapper(component, h);
+  const instance = new __pwVue({
+    ...options,
+    render: () => {
+      const wrapper = __pwCreateWrapper(component);
       /** @type {any} */ (rootElement)[wrapperKey] = wrapper;
       return wrapper;
     },
@@ -173,12 +195,12 @@ window.playwrightMount = async (component, rootElement, hooksConfig) => {
   rootElement.appendChild(instance.$el);
   /** @type {any} */ (rootElement)[instanceKey] = instance;
 
-  for (const hook of /** @type {any} */(window).__pw_hooks_after_mount || [])
+  for (const hook of window.__pw_hooks_after_mount || [])
     await hook({ hooksConfig, instance });
 };
 
 window.playwrightUnmount = async rootElement => {
-  const component = /** @type {any} */(rootElement)[instanceKey];
+  const component = rootElement[instanceKey];
   if (!component)
     throw new Error('Component was not mounted');
   component.$destroy();
@@ -186,12 +208,16 @@ window.playwrightUnmount = async rootElement => {
 };
 
 window.playwrightUpdate = async (element, options) => {
+  await __pwResolveComponent(options);
   const wrapper = /** @type {any} */(element)[wrapperKey];
   if (!wrapper)
     throw new Error('Component was not mounted');
 
   const component = wrapper.componentInstance;
-  const { nodeData, slots } = createComponent(options, component.$createElement);
+  if (!component)
+    throw new Error('Updating a native HTML element is not supported');
+
+  const { nodeData, slots } = __pwCreateComponent(options);
 
   for (const [name, value] of Object.entries(nodeData.on || {})) {
     component.$on(name, value);

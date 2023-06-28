@@ -17,10 +17,10 @@
 import type { NavigationEvent } from '../frames';
 import { Frame } from '../frames';
 import type * as channels from '@protocol/channels';
-import { Dispatcher, lookupNullableDispatcher, existingDispatcher } from './dispatcher';
+import { Dispatcher, existingDispatcher } from './dispatcher';
 import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import { parseArgument, serializeResult } from './jsHandleDispatcher';
-import type { ResponseDispatcher } from './networkDispatchers';
+import { ResponseDispatcher } from './networkDispatchers';
 import { RequestDispatcher } from './networkDispatchers';
 import type { CallMetadata } from '../instrumentation';
 import type { WritableStreamDispatcher } from './writableStreamDispatcher';
@@ -62,13 +62,13 @@ export class FrameDispatcher extends Dispatcher<Frame, channels.FrameChannel, Pa
         return;
       const params = { url: event.url, name: event.name, error: event.error ? event.error.message : undefined };
       if (event.newDocument)
-        (params as any).newDocument = { request: RequestDispatcher.fromNullable(scope.parentScope(), event.newDocument.request || null) };
+        (params as any).newDocument = { request: RequestDispatcher.fromNullable(this.parentScope().parentScope(), event.newDocument.request || null) };
       this._dispatchEvent('navigated', params);
     });
   }
 
   async goto(params: channels.FrameGotoParams, metadata: CallMetadata): Promise<channels.FrameGotoResult> {
-    return { response: lookupNullableDispatcher<ResponseDispatcher>(await this._frame.goto(metadata, params.url, params)) };
+    return { response: ResponseDispatcher.fromNullable(this.parentScope().parentScope(), await this._frame.goto(metadata, params.url, params)) };
   }
 
   async frameElement(): Promise<channels.FrameFrameElementResult> {
@@ -76,11 +76,11 @@ export class FrameDispatcher extends Dispatcher<Frame, channels.FrameChannel, Pa
   }
 
   async evaluateExpression(params: channels.FrameEvaluateExpressionParams, metadata: CallMetadata): Promise<channels.FrameEvaluateExpressionResult> {
-    return { value: serializeResult(await this._frame.evaluateExpressionAndWaitForSignals(params.expression, params.isFunction, parseArgument(params.arg), 'main')) };
+    return { value: serializeResult(await this._frame.evaluateExpression(params.expression, { isFunction: params.isFunction, exposeUtilityScript: params.exposeUtilityScript }, parseArgument(params.arg))) };
   }
 
   async evaluateExpressionHandle(params: channels.FrameEvaluateExpressionHandleParams, metadata: CallMetadata): Promise<channels.FrameEvaluateExpressionHandleResult> {
-    return { handle: ElementHandleDispatcher.fromJSHandle(this.parentScope(), await this._frame.evaluateExpressionHandleAndWaitForSignals(params.expression, params.isFunction, parseArgument(params.arg), 'main')) };
+    return { handle: ElementHandleDispatcher.fromJSHandle(this.parentScope(), await this._frame.evaluateExpressionHandle(params.expression, { isFunction: params.isFunction }, parseArgument(params.arg))) };
   }
 
   async waitForSelector(params: channels.FrameWaitForSelectorParams, metadata: CallMetadata): Promise<channels.FrameWaitForSelectorResult> {
@@ -92,11 +92,11 @@ export class FrameDispatcher extends Dispatcher<Frame, channels.FrameChannel, Pa
   }
 
   async evalOnSelector(params: channels.FrameEvalOnSelectorParams, metadata: CallMetadata): Promise<channels.FrameEvalOnSelectorResult> {
-    return { value: serializeResult(await this._frame.evalOnSelectorAndWaitForSignals(params.selector, !!params.strict, params.expression, params.isFunction, parseArgument(params.arg))) };
+    return { value: serializeResult(await this._frame.evalOnSelector(params.selector, !!params.strict, params.expression, params.isFunction, parseArgument(params.arg))) };
   }
 
   async evalOnSelectorAll(params: channels.FrameEvalOnSelectorAllParams, metadata: CallMetadata): Promise<channels.FrameEvalOnSelectorAllResult> {
-    return { value: serializeResult(await this._frame.evalOnSelectorAllAndWaitForSignals(params.selector, params.expression, params.isFunction, parseArgument(params.arg))) };
+    return { value: serializeResult(await this._frame.evalOnSelectorAll(params.selector, params.expression, params.isFunction, parseArgument(params.arg))) };
   }
 
   async querySelector(params: channels.FrameQuerySelectorParams, metadata: CallMetadata): Promise<channels.FrameQuerySelectorResult> {

@@ -3,7 +3,7 @@ id: intro
 title: "Installation"
 ---
 
-Playwright was created specifically to accommodate the needs of end-to-end testing. Playwright supports all modern rendering engines including Chromium, WebKit, and Firefox. Test on Windows, Linux, and macOS, locally or on CI, headless or headed with native mobile emulation. 
+Playwright was created specifically to accommodate the needs of end-to-end testing. Playwright supports all modern rendering engines including Chromium, WebKit, and Firefox. Test on Windows, Linux, and macOS, locally or on CI, headless or headed with native mobile emulation.
 
 Playwright is distributed as a set of [Maven](https://maven.apache.org/what-is-maven.html) modules. The easiest way to use it is to add one dependency to your project's `pom.xml` as described below. If you're not familiar with Maven please refer to its [documentation](https://maven.apache.org/guides/getting-started/maven-in-five-minutes.html).
 
@@ -20,8 +20,7 @@ Get started by installing Playwright and running the example file to see it in a
 }>
 <TabItem value="java">
 
-```java
-// src/main/java/org/example/App.java
+```java title="src/main/java/org/example/App.java"
 package org.example;
 
 import com.microsoft.playwright.*;
@@ -58,7 +57,7 @@ public class App {
     <dependency>
       <groupId>com.microsoft.playwright</groupId>
       <artifactId>playwright</artifactId>
-      <version>1.28.0</version>
+      <version>%%VERSION%%</version>
     </dependency>
   </dependencies>
   <build>
@@ -67,6 +66,11 @@ public class App {
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.10.1</version>
+        <!-- References to interface static methods are allowed only at source level 1.8 or above -->
+        <configuration>
+          <source>1.8</source>
+          <target>1.8</target>
+        </configuration>
       </plugin>
     </plugins>
   </build>
@@ -79,14 +83,14 @@ public class App {
 With the Example.java and pom.xml above, compile and execute your new program as follows:
 
 ```bash
-mvn compile exec:java -Dexec.mainClass="org.example.App"
+mvn compile exec:java -D exec.mainClass="org.example.App"
 ```
 
 Running it downloads the Playwright package and installs browser binaries for Chromium, Firefox and WebKit. To modify this behavior see [installation parameters](./browsers.md#installing-browsers).
 
 ## First script
 
-In our first script, we will navigate to `whatsmyuseragent.org` and take a screenshot in WebKit.
+In our first script, we will navigate to `playwright.dev` and take a screenshot in WebKit.
 
 ```java
 package org.example;
@@ -99,7 +103,7 @@ public class App {
     try (Playwright playwright = Playwright.create()) {
       Browser browser = playwright.webkit().launch();
       Page page = browser.newPage();
-      page.navigate("http://whatsmyuseragent.org/");
+      page.navigate("https://playwright.dev/");
       page.screenshot(new Page.ScreenshotOptions().setPath(Paths.get("example.png")));
     }
   }
@@ -115,10 +119,17 @@ playwright.firefox().launch(new BrowserType.LaunchOptions().setHeadless(false).s
 ## Running the Example script
 
 ```bash
-mvn compile exec:java -Dexec.mainClass="org.example.App"
+mvn compile exec:java -D exec.mainClass="org.example.App"
 ```
 
 By default browsers launched with Playwright run headless, meaning no browser UI will open up when running the script. To change that you can pass `new BrowserType.LaunchOptions().setHeadless(false)` when launching the browser.
+
+## System requirements
+
+- Java 8 or higher.
+- Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
+- MacOS 12 Monterey or MacOS 13 Ventura.
+- Debian 11, Ubuntu 20.04 or Ubuntu 22.04.
 
 ## What's next
 

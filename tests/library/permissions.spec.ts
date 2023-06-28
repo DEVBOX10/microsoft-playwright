@@ -100,9 +100,8 @@ it.describe('permissions', () => {
     expect(await getPermission(page, 'geolocation')).toBe('prompt');
   });
 
-  it('should trigger permission onchange', async ({ page, context, server, browserName, headless, browserMajorVersion }) => {
+  it('should trigger permission onchange', async ({ page, context, server, browserName, browserMajorVersion }) => {
     it.fail(browserName === 'webkit');
-    it.fail(browserName === 'chromium' && !headless && browserMajorVersion <= 102, 'Fixed on ToT, remove once Beta rolls');
 
     await page.goto(server.EMPTY_PAGE);
     await page.evaluate(() => {
@@ -120,7 +119,12 @@ it.describe('permissions', () => {
     await context.grantPermissions(['geolocation'], { origin: server.EMPTY_PAGE });
     expect(await page.evaluate(() => window['events'])).toEqual(['prompt', 'denied', 'granted']);
     await context.clearPermissions();
-    expect(await page.evaluate(() => window['events'])).toEqual(['prompt', 'denied', 'granted', 'prompt']);
+
+    // Note: Chromium 110 stopped triggering "onchange" when clearing permissions.
+    expect(await page.evaluate(() => window['events'])).toEqual(
+        (browserName === 'chromium' && browserMajorVersion === 110) ?
+          ['prompt', 'denied', 'granted'] :
+          ['prompt', 'denied', 'granted', 'prompt']);
   });
 
   it('should isolate permissions between browser contexts', async ({ server, browser }) => {
@@ -148,7 +152,7 @@ it.describe('permissions', () => {
   it('should support clipboard read', async ({ page, context, server, browserName, headless }) => {
     it.fail(browserName === 'webkit');
     it.fail(browserName === 'firefox', 'No such permissions (requires flag) in Firefox');
-    it.fixme(browserName === 'chromium' && !headless);
+    it.fixme(browserName === 'chromium' && (!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW));
 
     await page.goto(server.EMPTY_PAGE);
     expect(await getPermission(page, 'clipboard-read')).toBe('prompt');

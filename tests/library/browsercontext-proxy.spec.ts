@@ -91,6 +91,27 @@ it('should use proxy', async ({ contextFactory, server, proxyServer }) => {
   await context.close();
 });
 
+
+it('should set cookie for top-level domain', async ({ contextFactory, server, proxyServer, browserName, isLinux }) => {
+  it.fixme(browserName === 'webkit' && isLinux);
+
+  proxyServer.forwardTo(server.PORT);
+  const context = await contextFactory({
+    proxy: { server: `localhost:${proxyServer.PORT}` }
+  });
+  server.setRoute('/empty.html', (req, res) => {
+    res.setHeader('Set-Cookie', `name=val; Domain=codes; Path=/;`);
+    res.end();
+  });
+
+  await context.request.get('http://codes/empty.html');
+  const [cookie] = await context.cookies();
+  expect(cookie).toBeTruthy();
+  expect(cookie.name).toBe('name');
+  expect(cookie.value).toBe('val');
+  await context.close();
+});
+
 it.describe('should proxy local network requests', () => {
   for (const additionalBypass of [false, true]) {
     it.describe(additionalBypass ? 'with other bypasses' : 'by default', () => {
@@ -109,7 +130,7 @@ it.describe('should proxy local network requests', () => {
         }
       ]) {
         it(`${params.description}`, async ({ platform, browserName, contextFactory, server, proxyServer }) => {
-          it.fixme(browserName === 'webkit' && platform === 'darwin' && ['localhost', '127.0.0.1'].includes(params.target), 'Flaky on macOS; needs investigation.');
+          it.skip(browserName === 'webkit' && platform === 'darwin' && ['localhost', '127.0.0.1'].includes(params.target), 'Mac webkit does not proxy localhost');
 
           const path = `/target-${additionalBypass}-${params.target}.html`;
           server.setRoute(path, async (req, res) => {
@@ -189,7 +210,7 @@ it('should use proxy for second page', async ({ contextFactory, server, proxySer
   await context.close();
 });
 
-it('should use proxy for https urls', async ({ contextFactory, server, httpsServer, proxyServer }) => {
+it('should use proxy for https urls', async ({ contextFactory, httpsServer, proxyServer }) => {
   httpsServer.setRoute('/target.html', async (req, res) => {
     res.end('<html><title>Served by https server via proxy</title></html>');
   });
@@ -267,8 +288,6 @@ it('should authenticate with empty password', async ({ contextFactory, server, p
 });
 
 it('should isolate proxy credentials between contexts', async ({ contextFactory, server, browserName, proxyServer }) => {
-  it.fixme(browserName === 'firefox', 'Credentials from the first context stick around');
-
   proxyServer.forwardTo(server.PORT);
   let auth;
   proxyServer.setAuthHandler(req => {
@@ -333,6 +352,10 @@ it('should exclude patterns', async ({ contextFactory, server, browserName, head
     expect(proxyServer.requestUrls).toEqual([]);
     expect(error.message).toBeTruthy();
   }
+
+  // Make sure error page commits.
+  if (browserName === 'chromium')
+    await page.waitForURL('chrome-error://chromewebdata/');
 
   {
     await page.goto('http://3.non.existent.domain.for.the.test/target.html');

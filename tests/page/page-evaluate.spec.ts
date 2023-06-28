@@ -356,7 +356,7 @@ it('should properly serialize PerformanceMeasure object', async ({ page }) => {
   }]);
 });
 
-it('shuld properly serialize window.performance object', async ({ page }) => {
+it('should properly serialize window.performance object', async ({ page }) => {
   expect(await page.evaluate(() => performance)).toEqual({
     'navigation': {
       'redirectCount': 0,
@@ -482,7 +482,7 @@ it('should not throw an error when evaluation does a navigation', async ({ page,
 });
 
 it('should not throw an error when evaluation does a synchronous navigation and returns an object', async ({ page, server, browserName }) => {
-  // It is imporant to be on about:blank for sync reload.
+  // It is important to be on about:blank for sync reload.
   const result = await page.evaluate(() => {
     window.location.reload();
     return { a: 42 };
@@ -491,7 +491,7 @@ it('should not throw an error when evaluation does a synchronous navigation and 
 });
 
 it('should not throw an error when evaluation does a synchronous navigation and returns undefined', async ({ page }) => {
-  // It is imporant to be on about:blank for sync reload.
+  // It is important to be on about:blank for sync reload.
   const result = await page.evaluate(() => {
     window.location.reload();
     return undefined;
@@ -681,6 +681,21 @@ it('should work with overridden Object.defineProperty', async ({ page, server })
   expect(await page.evaluate('1+2')).toBe(3);
 });
 
+it('should work with busted Array.prototype.map/push', async ({ page, server }) => {
+  server.setRoute('/test', (req, res) => {
+    res.writeHead(200, {
+      'content-type': 'text/html',
+    });
+    res.end(`<script>
+      Array.prototype.map = null;
+      Array.prototype.push = null;
+    </script>`);
+  });
+  await page.goto(server.PREFIX + '/test');
+  expect(await page.evaluate('1+2')).toBe(3);
+  expect(await ((await page.evaluateHandle('1+2')).jsonValue())).toBe(3);
+});
+
 it('should work with overridden globalThis.Window/Document/Node', async ({ page, server }) => {
   const testCases = [
     // @ts-ignore
@@ -701,4 +716,34 @@ it('should work with overridden globalThis.Window/Document/Node', async ({ page,
       expect(await page.evaluate(() => ['foo'])).toEqual(['foo']);
     });
   }
+});
+
+it('should work with overridden URL/Date/RegExp', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21109' });
+  const testCases = [
+    // @ts-ignore
+    () => globalThis.URL = 'foo',
+    // @ts-ignore
+    () => globalThis.RegExp = 'foo',
+    // @ts-ignore
+    () => globalThis.Date = 'foo',
+  ];
+  for (const testCase of testCases) {
+    await it.step(testCase.toString(), async () => {
+      await page.goto(server.EMPTY_PAGE);
+      await page.evaluate(testCase);
+      expect(await page.evaluate('1+2')).toBe(3);
+      expect(await page.evaluate(() => ({ 'a': 2023 }))).toEqual({ 'a': 2023 });
+    });
+  }
+});
+
+it('should expose utilityScript', async ({ page }) => {
+  const result = await (page.mainFrame() as any)._evaluateExposeUtilityScript((utilityScript, { a }) => {
+    return { utils: 'parseEvaluationResultValue' in utilityScript, a };
+  }, { a: 42 });
+  expect(result).toEqual({
+    a: 42,
+    utils: true,
+  });
 });

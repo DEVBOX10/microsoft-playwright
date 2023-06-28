@@ -19,95 +19,106 @@ import { msToString } from '@web/uiUtils';
 import * as React from 'react';
 import './actionList.css';
 import * as modelUtil from './modelUtil';
-import './tabbedPane.css';
 import { asLocator } from '@isomorphic/locatorGenerators';
 import type { Language } from '@isomorphic/locatorGenerators';
+import type { TreeState } from '@web/components/treeView';
+import { TreeView } from '@web/components/treeView';
+import type { ActionTraceEventInContext } from './modelUtil';
 
 export interface ActionListProps {
-  actions: ActionTraceEvent[],
-  selectedAction: ActionTraceEvent | undefined,
-  highlightedAction: ActionTraceEvent | undefined,
+  actions: ActionTraceEventInContext[],
+  selectedAction: ActionTraceEventInContext | undefined,
   sdkLanguage: Language | undefined;
-  onSelected: (action: ActionTraceEvent) => void,
-  onHighlighted: (action: ActionTraceEvent | undefined) => void,
-  setSelectedTab: (tab: string) => void,
+  onSelected: (action: ActionTraceEventInContext) => void,
+  onHighlighted: (action: ActionTraceEventInContext | undefined) => void,
+  revealConsole: () => void,
+  isLive?: boolean,
 }
 
+type ActionTreeItem = {
+  id: string;
+  children: ActionTreeItem[];
+  parent: ActionTreeItem | undefined;
+  action?: ActionTraceEventInContext;
+};
+
+const ActionTreeView = TreeView<ActionTreeItem>;
+
 export const ActionList: React.FC<ActionListProps> = ({
-  actions = [],
+  actions,
   selectedAction,
-  highlightedAction,
   sdkLanguage,
-  onSelected = () => {},
-  onHighlighted = () => {},
-  setSelectedTab = () => {},
+  onSelected,
+  onHighlighted,
+  revealConsole,
+  isLive,
 }) => {
-  const actionListRef = React.createRef<HTMLDivElement>();
+  const [treeState, setTreeState] = React.useState<TreeState>({ expandedItems: new Map() });
+  const { rootItem, itemMap } = React.useMemo(() => {
+    const itemMap = new Map<string, ActionTreeItem>();
 
-  React.useEffect(() => {
-    actionListRef.current?.focus();
-  }, [selectedAction, actionListRef]);
+    for (const action of actions) {
+      itemMap.set(action.callId, {
+        id: action.callId,
+        parent: undefined,
+        children: [],
+        action,
+      });
+    }
 
-  return <div className='action-list vbox'>
-    <div
-      className='action-list-content'
-      tabIndex={0}
-      onKeyDown={event => {
-        if (event.key !== 'ArrowDown' &&  event.key !== 'ArrowUp')
-          return;
-        event.stopPropagation();
-        event.preventDefault();
-        const index = selectedAction ? actions.indexOf(selectedAction) : -1;
-        let newIndex = index;
-        if (event.key === 'ArrowDown') {
-          if (index === -1)
-            newIndex = 0;
-          else
-            newIndex = Math.min(index + 1, actions.length - 1);
-        }
-        if (event.key === 'ArrowUp') {
-          if (index === -1)
-            newIndex = actions.length - 1;
-          else
-            newIndex = Math.max(index - 1, 0);
-        }
-        const element = actionListRef.current?.children.item(newIndex);
-        if ((element as any)?.scrollIntoViewIfNeeded)
-          (element as any).scrollIntoViewIfNeeded(false);
-        else
-          element?.scrollIntoView();
-        onSelected(actions[newIndex]);
-      }}
-      ref={actionListRef}
-    >
-      {actions.length === 0 && <div className='no-actions-entry'>No actions recorded</div>}
-      {actions.map(action => {
-        const { metadata } = action;
-        const selectedSuffix = action === selectedAction ? ' selected' : '';
-        const highlightedSuffix = action === highlightedAction ? ' highlighted' : '';
-        const error = metadata.error?.error?.message;
-        const { errors, warnings } = modelUtil.stats(action);
-        const locator = metadata.params.selector ? asLocator(sdkLanguage || 'javascript', metadata.params.selector) : undefined;
-        return <div
-          className={'action-entry' + selectedSuffix + highlightedSuffix}
-          key={metadata.id}
-          onClick={() => onSelected(action)}
-          onMouseEnter={() => onHighlighted(action)}
-          onMouseLeave={() => (highlightedAction === action) && onHighlighted(undefined)}
-        >
-          <div className='action-title'>
-            <span>{metadata.apiName}</span>
-            {locator && <div className='action-selector' title={locator}>{locator}</div>}
-            {metadata.method === 'goto' && metadata.params.url && <div className='action-url' title={metadata.params.url}>{metadata.params.url}</div>}
-          </div>
-          <div className='action-duration' style={{ flex: 'none' }}>{metadata.endTime ? msToString(metadata.endTime - metadata.startTime) : 'Timed Out'}</div>
-          <div className='action-icons' onClick={() => setSelectedTab('console')}>
-            {!!errors && <div className='action-icon'><span className={'codicon codicon-error'}></span><span className="action-icon-value">{errors}</span></div>}
-            {!!warnings && <div className='action-icon'><span className={'codicon codicon-warning'}></span><span className="action-icon-value">{warnings}</span></div>}
-          </div>
-          {error && <div className='codicon codicon-issues' title={error} />}
-        </div>;
-      })}
+    const rootItem: ActionTreeItem = { id: '', parent: undefined, children: [] };
+    for (const item of itemMap.values()) {
+      const parent = item.action!.parentId ? itemMap.get(item.action!.parentId) || rootItem : rootItem;
+      parent.children.push(item);
+      item.parent = parent;
+    }
+    return { rootItem, itemMap };
+  }, [actions]);
+
+  const { selectedItem } = React.useMemo(() => {
+    const selectedItem = selectedAction ? itemMap.get(selectedAction.callId) : undefined;
+    return { selectedItem };
+  }, [itemMap, selectedAction]);
+
+  return <ActionTreeView
+    dataTestId='action-list'
+    rootItem={rootItem}
+    treeState={treeState}
+    setTreeState={setTreeState}
+    selectedItem={selectedItem}
+    onSelected={item => onSelected(item.action!)}
+    onHighlighted={item => onHighlighted(item?.action)}
+    isError={item => !!item.action?.error?.message}
+    render={item => renderAction(item.action!, sdkLanguage, revealConsole, isLive || false)}
+  />;
+};
+
+const renderAction = (
+  action: ActionTraceEvent,
+  sdkLanguage: Language | undefined,
+  revealConsole: () => void,
+  isLive: boolean,
+) => {
+  const { errors, warnings } = modelUtil.stats(action);
+  const locator = action.params.selector ? asLocator(sdkLanguage || 'javascript', action.params.selector, false /* isFrameLocator */, true /* playSafe */) : undefined;
+
+  let time: string = '';
+  if (action.endTime)
+    time = msToString(action.endTime - action.startTime);
+  else if (action.error)
+    time = 'Timed out';
+  else if (!isLive)
+    time = '-';
+  return <>
+    <div className='action-title'>
+      <span>{action.apiName}</span>
+      {locator && <div className='action-selector' title={locator}>{locator}</div>}
+      {action.method === 'goto' && action.params.url && <div className='action-url' title={action.params.url}>{action.params.url}</div>}
     </div>
-  </div>;
+    <div className='action-duration' style={{ flex: 'none' }}>{time || <span className='codicon codicon-loading'></span>}</div>
+    <div className='action-icons' onClick={() => revealConsole()}>
+      {!!errors && <div className='action-icon'><span className='codicon codicon-error'></span><span className="action-icon-value">{errors}</span></div>}
+      {!!warnings && <div className='action-icon'><span className='codicon codicon-warning'></span><span className="action-icon-value">{warnings}</span></div>}
+    </div>
+  </>;
 };

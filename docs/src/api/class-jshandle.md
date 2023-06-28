@@ -57,7 +57,7 @@ This method passes this handle as the first argument to [`param: expression`].
 If [`param: expression`] returns a [Promise], then `handle.evaluate` would wait for the promise to resolve and return
 its value.
 
-Examples:
+**Usage**
 
 ```js
 const tweetHandle = await page.$('.tweet .retweets');
@@ -87,6 +87,9 @@ Assert.AreEqual("10 retweets", await tweetHandle.EvaluateAsync("node => node.inn
 ### param: JSHandle.evaluate.expression = %%-evaluate-expression-%%
 * since: v1.8
 
+### param: JSHandle.evaluate.expression = %%-js-evaluate-pagefunction-%%
+* since: v1.8
+
 ### param: JSHandle.evaluate.arg
 * since: v1.8
 - `arg` ?<[EvaluationArgument]>
@@ -111,6 +114,9 @@ See [`method: Page.evaluateHandle`] for more details.
 ### param: JSHandle.evaluateHandle.expression = %%-evaluate-expression-%%
 * since: v1.8
 
+### param: JSHandle.evaluateHandle.expression = %%-js-evaluate-pagefunction-%%
+* since: v1.8
+
 ### param: JSHandle.evaluateHandle.arg
 * since: v1.8
 - `arg` ?<[EvaluationArgument]>
@@ -123,8 +129,10 @@ Optional argument to pass to [`param: expression`].
 
 The method returns a map with **own property names** as keys and JSHandle instances for the property values.
 
+**Usage**
+
 ```js
-const handle = await page.evaluateHandle(() => ({window, document}));
+const handle = await page.evaluateHandle(() => ({ window, document }));
 const properties = await handle.getProperties();
 const windowHandle = properties.get('window');
 const documentHandle = properties.get('document');
@@ -132,7 +140,7 @@ await handle.dispose();
 ```
 
 ```java
-JSHandle handle = page.evaluateHandle("() => ({window, document}"););
+JSHandle handle = page.evaluateHandle("() => ({ window, document })");
 Map<String, JSHandle> properties = handle.getProperties();
 JSHandle windowHandle = properties.get("window");
 JSHandle documentHandle = properties.get("document");
@@ -140,7 +148,7 @@ handle.dispose();
 ```
 
 ```python async
-handle = await page.evaluate_handle("({window, document})")
+handle = await page.evaluate_handle("({ window, document })")
 properties = await handle.get_properties()
 window_handle = properties.get("window")
 document_handle = properties.get("document")
@@ -148,7 +156,7 @@ await handle.dispose()
 ```
 
 ```python sync
-handle = page.evaluate_handle("({window, document})")
+handle = page.evaluate_handle("({ window, document })")
 properties = handle.get_properties()
 window_handle = properties.get("window")
 document_handle = properties.get("document")
@@ -156,7 +164,7 @@ handle.dispose()
 ```
 
 ```csharp
-var handle = await page.EvaluateHandleAsync("() => ({window, document}");
+var handle = await page.EvaluateHandleAsync("() => ({ window, document }");
 var properties = await handle.GetPropertiesAsync();
 var windowHandle = properties["window"];
 var documentHandle = properties["document"];

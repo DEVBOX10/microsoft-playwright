@@ -1,25 +1,13 @@
 ---
 id: test-parameterize
-title: "Parametrize tests"
+title: "Parameterize tests"
 ---
 
-You can either parametrize tests on a test level or on a project level.
+You can either parameterize tests on a test level or on a project level.
 
 ## Parameterized Tests
 
-```js tab=js-js
-// example.spec.js
-const people = ['Alice', 'Bob'];
-for (const name of people) {
-  test(`testing with ${name}`, async () => {
-    // ...
-  });
-  // You can also do it with test.describe() or with multiple tests as long the test name is unique.
-}
-```
-
-```js tab=js-ts
-// example.spec.ts
+```js title="example.spec.ts"
 const people = ['Alice', 'Bob'];
 for (const name of people) {
   test(`testing with ${name}`, async () => {
@@ -35,8 +23,7 @@ Playwright Test supports running multiple test projects at the same time. In the
 
 We declare the option `person` and set the value in the config. The first project runs with the value `Alice` and the second with the value `Bob`.
 
-```js tab=js-js
-// my-test.js
+```js tab=js-js title="my-test.js"
 const base = require('@playwright/test');
 
 exports.test = base.test.extend({
@@ -46,8 +33,7 @@ exports.test = base.test.extend({
 });
 ```
 
-```js tab=js-ts
-// my-test.ts
+```js tab=js-ts title="my-test.ts"
 import { test as base } from '@playwright/test';
 
 export type TestOptions = {
@@ -63,19 +49,7 @@ export const test = base.extend<TestOptions>({
 
 We can use this option in the test, similarly to [fixtures](./test-fixtures.md).
 
-```js tab=js-js
-// example.spec.js
-const { test } = require('./my-test');
-
-test('test 1', async ({ page, person }) => {
-  await page.goto(`/index.html`);
-  await expect(page.locator('#node')).toContainText(person);
-  // ...
-});
-```
-
-```js tab=js-ts
-// example.spec.ts
+```js title="example.spec.ts"
 import { test } from './my-test';
 
 test('test 1', async ({ page, person }) => {
@@ -87,12 +61,10 @@ test('test 1', async ({ page, person }) => {
 
 Now, we can run tests in multiple configurations by using projects.
 
-```js tab=js-js
-// playwright.config.js
+```js tab=js-js title="playwright.config.ts"
 // @ts-check
 
-/** @type {import('@playwright/test').PlaywrightTestConfig<{ person: string }>} */
-const config = {
+module.exports = defineConfig({
   projects: [
     {
       name: 'alice',
@@ -103,17 +75,14 @@ const config = {
       use: { person: 'Bob' },
     },
   ]
-};
-
-module.exports = config;
+});
 ```
 
-```js tab=js-ts
-// playwright.config.ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-import { TestOptions } from './my-test';
+```js tab=js-ts title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+import type { TestOptions } from './my-test';
 
-const config: PlaywrightTestConfig<TestOptions> = {
+export default defineConfig<TestOptions>({
   projects: [
     {
       name: 'alice',
@@ -124,14 +93,12 @@ const config: PlaywrightTestConfig<TestOptions> = {
       use: { person: 'Bob' },
     },
   ]
-};
-export default config;
+});
 ```
 
 We can also use the option in a fixture. Learn more about [fixtures](./test-fixtures.md).
 
-```js tab=js-js
-// my-test.js
+```js tab=js-js title="my-test.js"
 const base = require('@playwright/test');
 
 exports.test = base.test.extend({
@@ -151,15 +118,14 @@ exports.test = base.test.extend({
 });
 ```
 
-```js tab=js-ts
-// my-test.ts
+```js tab=js-ts title="my-test.ts"
 import { test as base } from '@playwright/test';
 
 export type TestOptions = {
   person: string;
 };
 
-export const test = base.test.extend<TestOptions>({
+export const test = base.extend<TestOptions>({
   // Define an option and provide a default value.
   // We can later override it in the config.
   person: ['John', { option: true }],
@@ -177,7 +143,7 @@ export const test = base.test.extend<TestOptions>({
 ```
 
 :::note
-Parametrized projects behavior has changed in version 1.18. [Learn more](./release-notes#breaking-change-custom-config-options).
+Parameterized projects behavior has changed in version 1.18. [Learn more](./release-notes#breaking-change-custom-config-options).
 :::
 
 ## Passing Environment Variables
@@ -186,8 +152,7 @@ You can use environment variables to configure tests from the command line.
 
 For example, consider the following test file that needs a username and a password. It is usually a good idea not to store your secrets in the source code, so we'll need a way to pass secrets from outside.
 
-```js tab=js-js
-// example.spec.js
+```js title="example.spec.ts"
 test(`example test`, async ({ page }) => {
   // ...
   await page.getByLabel('User Name').fill(process.env.USERNAME);
@@ -195,16 +160,7 @@ test(`example test`, async ({ page }) => {
 });
 ```
 
-```js tab=js-ts
-// example.spec.ts
-test(`example test`, async ({ page }) => {
-  // ...
-  await page.getByLabel('User Name').fill(process.env.USERNAME);
-  await page.getByLabel('Password').fill(process.env.PASSWORD);
-});
-```
-
-You can run this test with your secrect username and password set in the command line.
+You can run this test with your secret username and password set in the command line.
 
 ```bash tab=bash-bash
 USERNAME=me PASSWORD=secret npx playwright test
@@ -224,31 +180,14 @@ npx playwright test
 
 Similarly, configuration file can also read environment variables passed through the command line.
 
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-/** @type {import('@playwright/test').PlaywrightTestConfig} */
-const config = {
+export default defineConfig({
   use: {
     baseURL: process.env.STAGING === '1' ? 'http://staging.example.test/' : 'http://example.test/',
   }
-};
-
-module.exports = config;
-```
-
-```js tab=js-ts
-// playwright.config.ts
-import type { PlaywrightTestConfig } from '@playwright/test';
-
-const config: PlaywrightTestConfig = {
-  use: {
-    baseURL: process.env.STAGING === '1' ? 'http://staging.example.test/' : 'http://example.test/',
-  }
-};
-export default config;
+});
 ```
 
 Now, you can run tests against a staging or a production environment:
@@ -271,29 +210,8 @@ npx playwright test
 
 To make environment variables easier to manage, consider something like `.env` files. Here is an example that uses [`dotenv`](https://www.npmjs.com/package/dotenv) package to read environment variables directly in the configuration file.
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-// Read from default ".env" file.
-require('dotenv').config();
-
-// Alternatively, read from "../my.env" file.
-require('dotenv').config({ path: path.resolve(__dirname, '..', 'my.env') });
-
-/** @type {import('@playwright/test').PlaywrightTestConfig} */
-const config = {
-  use: {
-    baseURL: process.env.STAGING === '1' ? 'http://staging.example.test/' : 'http://example.test/',
-  }
-};
-
-module.exports = config;
-```
-
-```js tab=js-ts
-// playwright.config.ts
-import type { PlaywrightTestConfig } from '@playwright/test';
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -303,12 +221,11 @@ dotenv.config();
 // Alternatively, read from "../my.env" file.
 dotenv.config({ path: path.resolve(__dirname, '..', 'my.env') });
 
-const config: PlaywrightTestConfig = {
+export default defineConfig({
   use: {
     baseURL: process.env.STAGING === '1' ? 'http://staging.example.test/' : 'http://example.test/',
   }
-};
-export default config;
+});
 ```
 
 Now, you can just edit `.env` file to set any variables you'd like.
@@ -342,8 +259,7 @@ See for example this CSV file, in our example `input.csv`:
 
 Based on this we'll generate some tests by using the [csv-parse](https://www.npmjs.com/package/csv-parse) library from NPM:
 
-```js tab=js-ts
-// foo.spec.ts
+```js title="test.spec.ts"
 import fs from 'fs';
 import path from 'path';
 import { test } from '@playwright/test';
@@ -355,26 +271,7 @@ const records = parse(fs.readFileSync(path.join(__dirname, 'input.csv')), {
 });
 
 for (const record of records) {
-  test(`fooo: ${record.test_case}`, async ({ page }) => {
-    console.log(record.test_case, record.some_value, record.some_other_value);
-  });
-}
-```
-
-```js tab=js-js
-// foo.spec.js
-const fs = require('fs');
-const path = require('path');
-const { test } = require('@playwright/test');
-const { parse } = require('csv-parse/sync');
-
-const records = parse(fs.readFileSync(path.join(__dirname, 'input.csv')), {
-  columns: true,
-  skip_empty_lines: true
-});
-
-for (const record of records) {
-  test(`fooo: ${record.test_case}`, async ({ page }) => {
+  test(`foo: ${record.test_case}`, async ({ page }) => {
     console.log(record.test_case, record.some_value, record.some_other_value);
   });
 }

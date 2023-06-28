@@ -16,84 +16,65 @@
 
 import fs from 'fs';
 import { mime } from 'playwright-core/lib/utilsBundle';
+import type { StackFrame } from '@protocol/channels';
 import util from 'util';
 import path from 'path';
 import url from 'url';
-import { colors, debug, minimatch } from 'playwright-core/lib/utilsBundle';
-import type { TestError, Location } from './types';
+import { colors, debug, minimatch, parseStackTraceLine } from 'playwright-core/lib/utilsBundle';
+import type { TestInfoError } from './../types/test';
+import type { Location } from './../types/testReporter';
 import { calculateSha1, isRegExp, isString } from 'playwright-core/lib/utils';
-import { isInternalFileName } from 'playwright-core/lib/utils/stackTrace';
-import { currentTestInfo } from './globals';
-import type { ParsedStackTrace } from 'playwright-core/lib/utils/stackTrace';
-import { captureStackTrace as coreCaptureStackTrace } from 'playwright-core/lib/utils/stackTrace';
+import type { RawStack } from 'playwright-core/lib/utils';
 
-export type { ParsedStackTrace };
-
-const PLAYWRIGHT_CORE_PATH = path.dirname(require.resolve('playwright-core'));
-const EXPECT_PATH = require.resolve('./expectBundle');
-const EXPECT_PATH_IMPL = require.resolve('./expectBundleImpl');
 const PLAYWRIGHT_TEST_PATH = path.join(__dirname, '..');
+const PLAYWRIGHT_CORE_PATH = path.dirname(require.resolve('playwright-core/package.json'));
 
-function filterStackTrace(e: Error) {
+export function filterStackTrace(e: Error): { message: string, stack: string } {
   if (process.env.PWDEBUGIMPL)
-    return;
+    return { message: e.message, stack: e.stack || '' };
 
-  // This method filters internal stack frames using Error.prepareStackTrace
-  // hook. Read more about the hook: https://v8.dev/docs/stack-trace-api
-  //
-  // NOTE: Error.prepareStackTrace will only be called if `e.stack` has not
-  // been accessed before. This is the case for Jest Expect and simple throw
-  // statements.
-  //
-  // If `e.stack` has been accessed, this method will be NOOP.
-  const oldPrepare = Error.prepareStackTrace;
-  const stackFormatter = oldPrepare || ((error, structuredStackTrace) => [
-    `${error.name}: ${error.message}`,
-    ...structuredStackTrace.map(callSite => '    at ' + callSite.toString()),
-  ].join('\n'));
-  Error.prepareStackTrace = (error, structuredStackTrace) => {
-    return stackFormatter(error, structuredStackTrace.filter(callSite => {
-      const fileName = callSite.getFileName();
-      const functionName = callSite.getFunctionName() || undefined;
-      if (!fileName)
-        return true;
-      return !fileName.startsWith(PLAYWRIGHT_TEST_PATH) &&
-             !fileName.startsWith(PLAYWRIGHT_CORE_PATH) &&
-             !isInternalFileName(fileName, functionName);
-    }));
+  const stackLines = stringifyStackFrames(filteredStackTrace(e.stack?.split('\n') || []));
+  return {
+    message: e.message,
+    stack: `${e.name}: ${e.message}\n${stackLines.join('\n')}`
   };
-  // eslint-disable-next-line
-  e.stack; // trigger Error.prepareStackTrace
-  Error.prepareStackTrace = oldPrepare;
 }
 
-export function captureStackTrace(customApiName?: string): ParsedStackTrace {
-  const stackTrace: ParsedStackTrace = coreCaptureStackTrace();
-  const frames = [];
-  const frameTexts = [];
-  for (let i = 0; i < stackTrace.frames.length; ++i) {
-    const frame = stackTrace.frames[i];
-    if (frame.file === EXPECT_PATH || frame.file === EXPECT_PATH_IMPL)
+export function filterStackFile(file: string) {
+  if (!process.env.PWDEBUGIMPL && file.startsWith(PLAYWRIGHT_TEST_PATH))
+    return false;
+  if (!process.env.PWDEBUGIMPL && file.startsWith(PLAYWRIGHT_CORE_PATH))
+    return false;
+  return true;
+}
+
+export function filteredStackTrace(rawStack: RawStack): StackFrame[] {
+  const frames: StackFrame[] = [];
+  for (const line of rawStack) {
+    const frame = parseStackTraceLine(line);
+    if (!frame || !frame.file)
+      continue;
+    if (!filterStackFile(frame.file))
       continue;
     frames.push(frame);
-    frameTexts.push(stackTrace.frameTexts[i]);
   }
-  return {
-    allFrames: stackTrace.allFrames,
-    frames,
-    frameTexts,
-    apiName: customApiName ?? stackTrace.apiName,
-  };
+  return frames;
 }
 
-export function serializeError(error: Error | any): TestError {
-  if (error instanceof Error) {
-    filterStackTrace(error);
-    return {
-      message: error.message,
-      stack: error.stack
-    };
+export function stringifyStackFrames(frames: StackFrame[]): string[] {
+  const stackLines: string[] = [];
+  for (const frame of frames) {
+    if (frame.function)
+      stackLines.push(`    at ${frame.function} (${frame.file}:${frame.line}:${frame.column})`);
+    else
+      stackLines.push(`    at ${frame.file}:${frame.line}:${frame.column}`);
   }
+  return stackLines;
+}
+
+export function serializeError(error: Error | any): TestInfoError {
+  if (error instanceof Error)
+    return filterStackTrace(error);
   return {
     value: util.inspect(error)
   };
@@ -108,7 +89,19 @@ export type TestFileFilter = {
   column: number | null;
 };
 
-export function createFileMatcherFromFilters(filters: TestFileFilter[]): Matcher {
+export function createFileFiltersFromArguments(args: string[]): TestFileFilter[] {
+  return args.map(arg => {
+    const match = /^(.*?):(\d+):?(\d+)?$/.exec(arg);
+    return {
+      re: forceRegExp(match ? match[1] : arg),
+      line: match ? parseInt(match[2], 10) : null,
+      column: match?.[3] ? parseInt(match[3], 10) : null,
+    };
+  });
+}
+
+export function createFileMatcherFromArguments(args: string[]): Matcher {
+  const filters = createFileFiltersFromArguments(args);
   return createFileMatcher(filters.map(filter => filter.re || filter.exact || ''));
 }
 
@@ -161,10 +154,10 @@ export function createTitleMatcher(patterns: RegExp | RegExp[]): Matcher {
   };
 }
 
-export function mergeObjects<A extends object, B extends object>(a: A | undefined | void, b: B | undefined | void): A & B {
+export function mergeObjects<A extends object, B extends object, C extends object>(a: A | undefined | void, b: B | undefined | void, c: B | undefined | void): A & B & C {
   const result = { ...a } as any;
-  if (!Object.is(b, undefined)) {
-    for (const [name, value] of Object.entries(b as B)) {
+  for (const x of [b, c].filter(Boolean)) {
+    for (const [name, value] of Object.entries(x as any)) {
       if (!Object.is(value, undefined))
         result[name] = value;
     }
@@ -176,7 +169,7 @@ export function forceRegExp(pattern: string): RegExp {
   const match = pattern.match(/^\/(.*)\/([gi]*)$/);
   if (match)
     return new RegExp(match[1], match[2]);
-  return new RegExp(pattern, 'g');
+  return new RegExp(pattern, 'gi');
 }
 
 export function relativeFilePath(file: string): string {
@@ -193,10 +186,6 @@ export function errorWithFile(file: string, message: string) {
   return new Error(`${relativeFilePath(file)}: ${message}`);
 }
 
-export function errorWithLocation(location: Location, message: string) {
-  return new Error(`${formatLocation(location)}: ${message}`);
-}
-
 export function expectTypes(receiver: any, types: string[], matcherName: string) {
   if (typeof receiver !== 'object' || !types.includes(receiver.constructor.name)) {
     const commaSeparated = types.slice();
@@ -206,8 +195,18 @@ export function expectTypes(receiver: any, types: string[], matcherName: string)
   }
 }
 
-export function sanitizeForFilePath(s: string) {
-  return s.replace(/[\x00-\x2C\x2E-\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+/g, '-');
+export function sanitizeForFilePath(input: string) {
+  let nonTrivialSubstitute = false;
+  let sanitized = input.replace(/[\x00-\x2C\x2E-\x2F\x3A-\x40\x5B-\x60\x7B-\x7F\x2A\-\*]+/g, substring => {
+    if (substring !== ' ')
+      nonTrivialSubstitute = true;
+    return '-';
+  });
+  if (!nonTrivialSubstitute)
+    return sanitized;
+  // If we sanitized the beginning or end, remove it for cosmetic reasons.
+  sanitized = sanitized.replace(/^-/, '').replace(/-$/, '');
+  return sanitized + '-' + calculateSha1(input).substring(0, 6);
 }
 
 export function trimLongString(s: string, length = 100) {
@@ -218,14 +217,6 @@ export function trimLongString(s: string, length = 100) {
   const start = Math.floor((length - middle.length) / 2);
   const end = length - middle.length - start;
   return s.substring(0, start) + middle + s.slice(-end);
-}
-
-export function addSuffixToFilePath(filePath: string, suffix: string, customExtension?: string, sanitize = false): string {
-  const dirname = path.dirname(filePath);
-  const ext = path.extname(filePath);
-  const name = path.basename(filePath, ext);
-  const base = path.join(dirname, name);
-  return (sanitize ? sanitizeForFilePath(base) : base) + suffix + (customExtension || ext);
 }
 
 /**
@@ -246,16 +237,6 @@ export function callLogText(log: string[] | undefined): string {
 Call log:
   ${colors.dim('- ' + (log || []).join('\n  - '))}
 `;
-}
-
-export function currentExpectTimeout(options: { timeout?: number }) {
-  const testInfo = currentTestInfo();
-  if (options.timeout !== undefined)
-    return options.timeout;
-  let defaultExpectTimeout = testInfo?.project._expect?.timeout;
-  if (typeof defaultExpectTimeout === 'undefined')
-    defaultExpectTimeout = 5000;
-  return defaultExpectTimeout;
 }
 
 const folderToPackageJsonPath = new Map<string, string>();
@@ -282,7 +263,7 @@ export function getPackageJsonPath(folderPath: string): string {
   return result;
 }
 
-export async function normalizeAndSaveAttachment(outputPath: string, name: string, options: { path?: string, body?: string | Buffer, contentType?: string } = {}): Promise<{ name: string; path?: string | undefined; body?: Buffer | undefined; contentType: string; }>  {
+export async function normalizeAndSaveAttachment(outputPath: string, name: string, options: { path?: string, body?: string | Buffer, contentType?: string } = {}): Promise<{ name: string; path?: string | undefined; body?: Buffer | undefined; contentType: string; }> {
   if ((options.path !== undefined ? 1 : 0) + (options.body !== undefined ? 1 : 0) !== 1)
     throw new Error(`Exactly one of "path" and "body" must be specified`);
   if (options.path !== undefined) {
@@ -301,4 +282,71 @@ export async function normalizeAndSaveAttachment(outputPath: string, name: strin
     const contentType = options.contentType ?? (typeof options.body === 'string' ? 'text/plain' : 'application/octet-stream');
     return { name, contentType, body: typeof options.body === 'string' ? Buffer.from(options.body) : options.body };
   }
+}
+
+export function fileIsModule(file: string): boolean {
+  if (file.endsWith('.mjs') || file.endsWith('.mts'))
+    return true;
+  if (file.endsWith('.cjs') || file.endsWith('.cts'))
+    return false;
+  const folder = path.dirname(file);
+  return folderIsModule(folder);
+}
+
+function folderIsModule(folder: string): boolean {
+  const packageJsonPath = getPackageJsonPath(folder);
+  if (!packageJsonPath)
+    return false;
+  // Rely on `require` internal caching logic.
+  return require(packageJsonPath).type === 'module';
+}
+
+export function experimentalLoaderOption() {
+  return ` --no-warnings --experimental-loader=${url.pathToFileURL(require.resolve('@playwright/test/lib/transform/esmLoader')).toString()}`;
+}
+
+export function envWithoutExperimentalLoaderOptions(): NodeJS.ProcessEnv {
+  const substring = experimentalLoaderOption();
+  const result = { ...process.env };
+  if (result.NODE_OPTIONS)
+    result.NODE_OPTIONS = result.NODE_OPTIONS.replace(substring, '').trim() || undefined;
+  return result;
+}
+
+// This follows the --moduleResolution=bundler strategy from tsc.
+// https://devblogs.microsoft.com/typescript/announcing-typescript-5-0-beta/#moduleresolution-bundler
+const kExtLookups = new Map([
+  ['.js', ['.jsx', '.ts', '.tsx']],
+  ['.jsx', ['.tsx']],
+  ['.cjs', ['.cts']],
+  ['.mjs', ['.mts']],
+  ['', ['.js', '.ts', '.jsx', '.tsx', '.cjs', '.mjs', '.cts', '.mts']],
+]);
+export function resolveImportSpecifierExtension(resolved: string): string | undefined {
+  if (fileExists(resolved))
+    return resolved;
+
+  for (const [ext, others] of kExtLookups) {
+    if (!resolved.endsWith(ext))
+      continue;
+    for (const other of others) {
+      const modified = resolved.substring(0, resolved.length - ext.length) + other;
+      if (fileExists(modified))
+        return modified;
+    }
+    break;  // Do not try '' when a more specific extesion like '.jsx' matched.
+  }
+  // try directory imports last
+  if (dirExists(resolved)) {
+    const dirImport = path.join(resolved, 'index');
+    return resolveImportSpecifierExtension(dirImport);
+  }
+}
+
+function fileExists(resolved: string) {
+  return fs.statSync(resolved, { throwIfNoEntry: false })?.isFile();
+}
+
+function dirExists(resolved: string) {
+  return fs.statSync(resolved, { throwIfNoEntry: false })?.isDirectory();
 }

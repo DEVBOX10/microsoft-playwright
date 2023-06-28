@@ -96,7 +96,6 @@ it('should accept userDataDir', async ({ createUserDataDir, browserType }) => {
 });
 
 it('should restore state from userDataDir', async ({ browserType, server, createUserDataDir, isMac, browserName }) => {
-  it.fixme(browserName === 'firefox', 'https://github.com/microsoft/playwright/issues/12632');
   it.slow();
 
   const userDataDir = await createUserDataDir();
@@ -234,3 +233,10 @@ it('should support har option', async ({ launchPersistent, asset }) => {
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 0, 0)');
 });
 
+it('user agent is up to date', async ({ launchPersistent, browser, mode }) => {
+  it.skip(mode !== 'default');
+  const { userAgent } = await (browser as any)._channel.defaultUserAgentForTest();
+  const { context, page } = await launchPersistent();
+  expect(await page.evaluate(() => navigator.userAgent)).toBe(userAgent);
+  await context.close();
+});

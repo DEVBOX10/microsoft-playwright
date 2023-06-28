@@ -1,11 +1,11 @@
 {
   "name": "@playwright/experimental-ct-solid",
-  "version": "1.28.0-next",
+  "version": "1.36.0-next",
   "description": "Playwright Component Testing for Solid",
   "repository": "github:Microsoft/playwright",
   "homepage": "https://playwright.dev",
   "engines": {
-    "node": ">=14"
+    "node": ">=16"
   },
   "author": {
     "name": "Microsoft Corporation"
@@ -26,11 +26,13 @@
     }
   },
   "dependencies": {
-    "vite": "^3.2.1",
-    "vite-plugin-solid": "^2.3.10",
-    "@playwright/test": "1.28.0-next"
+    "@playwright/experimental-ct-core": "1.36.0-next",
+    "vite-plugin-solid": "^2.7.0"
   },
   "devDependencies": {
-    "solid-js": "^1.4.7"
+    "solid-js": "^1.7.0"
+  },
+  "bin": {
+    "playwright": "./cli.js"
   }
 }

@@ -17,10 +17,19 @@
 import { serializeAsCallArgument, parseEvaluationResultValue } from '../isomorphic/utilityScriptSerializers';
 
 export class UtilityScript {
-  evaluate(isFunction: boolean | undefined, returnByValue: boolean, expression: string, argCount: number, ...argsAndHandles: any[]) {
+  serializeAsCallArgument = serializeAsCallArgument;
+  parseEvaluationResultValue = parseEvaluationResultValue;
+
+  evaluate(isFunction: boolean | undefined, returnByValue: boolean, exposeUtilityScript: boolean | undefined, expression: string, argCount: number, ...argsAndHandles: any[]) {
     const args = argsAndHandles.slice(0, argCount);
     const handles = argsAndHandles.slice(argCount);
-    const parameters = args.map(a => parseEvaluationResultValue(a, handles));
+    const parameters = [];
+    for (let i = 0; i < args.length; i++)
+      parameters[i] = this.parseEvaluationResultValue(args[i], handles);
+    if (exposeUtilityScript)
+      parameters.unshift(this);
+
+    // eslint-disable-next-line no-restricted-globals
     let result = globalThis.eval(expression);
     if (isFunction === true) {
       result = result(...parameters);
@@ -63,5 +72,3 @@ export class UtilityScript {
     return safeJson(value);
   }
 }
-
-module.exports = UtilityScript;

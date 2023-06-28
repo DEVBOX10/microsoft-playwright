@@ -23,6 +23,7 @@ const path = require('path');
 const { parseApi } = require('./api_parser');
 const missingDocs = require('./missingDocs');
 const md = require('../markdown');
+const docs = require('./documentation');
 
 /** @typedef {import('./documentation').Type} Type */
 /** @typedef {import('../markdown').MarkdownNode} MarkdownNode */
@@ -56,7 +57,7 @@ async function run() {
     params.set('firefox-version', firefox);
     params.set('webkit-version', webkit);
     params.set('chromium-version-badge', `[![Chromium version](https://img.shields.io/badge/chromium-${chromium}-blue.svg?logo=google-chrome)](https://www.chromium.org/Home)`);
-    params.set('firefox-version-badge', `[![Firefox version](https://img.shields.io/badge/firefox-${firefox}-blue.svg?logo=mozilla-firefox)](https://www.mozilla.org/en-US/firefox/new/)`);
+    params.set('firefox-version-badge', `[![Firefox version](https://img.shields.io/badge/firefox-${firefox}-blue.svg?logo=firefoxbrowser)](https://www.mozilla.org/en-US/firefox/new/)`);
     params.set('webkit-version-badge', `[![WebKit version](https://img.shields.io/badge/webkit-${webkit}-blue.svg?logo=safari)](https://webkit.org/)`);
 
     let content = fs.readFileSync(path.join(PROJECT_DIR, 'README.md')).toString();
@@ -85,29 +86,6 @@ async function run() {
         browser.browserVersion = versions[browser.name];
     }
     writeAssumeNoop(browsersJSONPath, JSON.stringify(browsersJSON, null, 2) + '\n', dirtyFiles);
-  }
-
-  // Patch docker version in docs
-  {
-    const regex = new RegExp("(mcr.microsoft.com/playwright[^: ]*):?([^ ]*)");
-    for (const filePath of getAllMarkdownFiles(path.join(PROJECT_DIR, 'docs'))) {
-      let content = fs.readFileSync(filePath).toString();
-      content = content.replace(new RegExp('(mcr.microsoft.com/playwright[^:]*):([\\w\\d-.]+)', 'ig'), (match, imageName, imageVersion) => {
-        const [version, distroName] = imageVersion.split('-');
-        return `${imageName}:v${playwrightVersion}-${distroName ?? 'focal'}`;
-      });
-      writeAssumeNoop(filePath, content, dirtyFiles);
-    }
-
-    // Patch pom.xml
-    {
-      const introPath = path.join(PROJECT_DIR, 'docs', 'src', 'intro-java.md');
-      const pomVersionRe = new RegExp('^(\\s*<artifactId>playwright<\\/artifactId>\\n\\s*<version>)(.*)(<\\/version>)$', 'gm');
-      let content = fs.readFileSync(introPath).toString();
-      const majorVersion = playwrightVersion.replace(new RegExp('((\\d+\\.){2})(\\d+)'), '$10')
-      content = content.replace(pomVersionRe, '$1' + majorVersion + '$3');
-      writeAssumeNoop(introPath, content, dirtyFiles);
-    }
   }
 
   // Update device descriptors
@@ -165,6 +143,9 @@ async function run() {
 
         // This validates member links.
         documentation.setLinkRenderer(() => undefined);
+        // This validates code snippet groups in comments.
+        documentation.setCodeGroupsTransformer(lang, tabs => tabs.map(tab => tab.spec));
+        documentation.generateSourceCodeComments();
 
         const relevantMarkdownFiles = new Set([...getAllMarkdownFiles(documentationRoot)
           // filter out language specific files
@@ -185,9 +166,12 @@ async function run() {
           if (langs.some(other => other !== lang && filePath.endsWith(`-${other}.md`)))
             continue;
           const data = fs.readFileSync(filePath, 'utf-8');
-          const rootNode = md.filterNodesForLanguage(md.parse(data), lang);
-          documentation.renderLinksInText(rootNode);
-          // Validate links
+          let rootNode = md.filterNodesForLanguage(md.parse(data), lang);
+          // Validates code snippet groups.
+          rootNode = docs.processCodeGroups(rootNode, lang, tabs => tabs.map(tab => tab.spec));
+          // Renders links.
+          documentation.renderLinksInNodes(rootNode);
+          // Validate links.
           {
             md.visitAll(rootNode, node => {
               if (!node.text)
@@ -200,23 +184,10 @@ async function run() {
                 if (mdLink.startsWith('#'))
                   continue;
 
-                // The assertion classes are "virtual files" which get merged into test-assertions.md inside our docs generator
                 let markdownBasePath = path.dirname(filePath);
-                if ([
-                  'class-screenshotassertions.md',
-                  'class-locatorassertions.md',
-                  'class-pageassertions.md'
-                ].includes(path.basename(filePath))) {
-                  markdownBasePath = documentationRoot;
-                }
-
                 let linkWithoutHash = path.join(markdownBasePath, mdLink.split('#')[0]);
                 if (path.extname(linkWithoutHash) !== '.md')
                   linkWithoutHash += '.md';
-
-                // We generate it inside the generator (playwright.dev)
-                if (path.basename(linkWithoutHash) === 'test-assertions.md')
-                  return;
 
                 if (!relevantMarkdownFiles.has(linkWithoutHash))
                   throw new Error(`${path.relative(PROJECT_DIR, filePath)} references to '${linkWithoutHash}' as '${mdLinkName}' which does not exist.`);

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { chromiumVersionLessThan } from '../../config/utils';
 import { contextTest as it, expect } from '../../config/browserTest';
 
 it('should work', async function({ page, server }) {
@@ -56,21 +57,24 @@ it('should report stylesheets that have no coverage', async function({ page, ser
   expect(coverage[0].ranges.length).toBe(0);
 });
 
-it('should work with media queries', async function({ page, server }) {
+it('should work with media queries', async function({ page, server, browserVersion }) {
+  it.skip(chromiumVersionLessThan(browserVersion, '115.0.5762.0'), 'https://chromium-review.googlesource.com/c/chromium/src/+/4508957');
   await page.coverage.startCSSCoverage();
   await page.goto(server.PREFIX + '/csscoverage/media.html');
   const coverage = await page.coverage.stopCSSCoverage();
   expect(coverage.length).toBe(1);
   expect(coverage[0].url).toContain('/csscoverage/media.html');
   expect(coverage[0].ranges).toEqual([
-    { start: 17, end: 38 }
+    { start: 8, end: 15 },
+    { start: 17, end: 38 },
   ]);
 });
 
-it('should work with complicated usecases', async function({ page, server }) {
+it('should work with complicated usecases', async function({ page, server, browserVersion }) {
+  it.skip(chromiumVersionLessThan(browserVersion, '115.0.5762.0'), 'https://chromium-review.googlesource.com/c/chromium/src/+/4508957');
   await page.coverage.startCSSCoverage();
   await page.goto(server.PREFIX + '/csscoverage/involved.html');
-  const coverage: any = await page.coverage.stopCSSCoverage();
+  const coverage = await page.coverage.stopCSSCoverage();
   delete coverage[0].text;
   delete coverage[0].url;
   expect(coverage).toEqual(
@@ -80,6 +84,10 @@ it('should work with complicated usecases', async function({ page, server }) {
             {
               'start': 149,
               'end': 297
+            },
+            {
+              'start': 306,
+              'end': 323
             },
             {
               'start': 327,

@@ -40,7 +40,7 @@ yarn create playwright
 ```
 
 </TabItem>
-  
+
 <TabItem value="pnpm">
 
 ```bash
@@ -55,6 +55,7 @@ Run the install command and select the following to get started:
  - Choose between TypeScript or JavaScript (default is TypeScript)
  - Name of your Tests folder (default is tests or e2e if you already have a tests folder in your project)
  - Add a GitHub Actions workflow to easily run tests on CI
+ - Install Playwright browsers (default is true)
 
 
 ## What's Installed
@@ -72,7 +73,7 @@ tests-examples/
 ```
 
 The [playwright.config](./test-configuration.md) is where you can add configuration for Playwright including modifying which browsers you would like to run Playwright on. If you are running tests inside an already existing project then dependencies will be added directly to your `package.json`.
- 
+
 The `tests` folder contains a basic example test to help you get started with testing. For a more detailed example check out the `tests-examples` folder which contains tests written to test a todo app.
 
 ## Running the Example Test
@@ -85,6 +86,12 @@ npx playwright test
 
 See our doc on [Running Tests](./running-tests.md) to learn more about running tests in headed mode, running multiple tests, running specific tests etc.
 
+Run your tests with [UI Mode](./test-ui-mode.md) for a better developer experience with time travel debugging, watch mode and more.
+
+```bash
+npx playwright test --ui
+```
+
 ## HTML Test Reports
 
 Once your test has finished running a [HTML Reporter](./test-reporters.md#html-reporter) will have been created which shows you a full report of your tests allowing you to filter the report by browsers, passed tests, failed tests, skipped tests and flaky tests. You can click on each test and explore the test's errors as well as each step of the test. By default, the HTML report is opened automatically if some of the tests failed.
@@ -93,8 +100,14 @@ Once your test has finished running a [HTML Reporter](./test-reporters.md#html-r
 npx playwright show-report
 ```
 
-<img width="739" alt="HTML Reporter" src="https://user-images.githubusercontent.com/13063165/181803518-1f554349-f72a-4ad3-a7aa-4d3d1b4cad13.png" />
+<img width="1392" alt="HTML Reporter" src="https://user-images.githubusercontent.com/13063165/212743312-edf1e8ed-3fc2-48aa-9c93-24ae3e36504d.png" />
 
+## System requirements
+
+- Node.js 16+
+- Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
+- MacOS 12 Monterey or MacOS 13 Ventura.
+- Debian 11, Ubuntu 20.04 or Ubuntu 22.04.
 
 ## What's next
 

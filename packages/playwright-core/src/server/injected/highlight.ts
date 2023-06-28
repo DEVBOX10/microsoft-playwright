@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-import { stringifySelector } from '../isomorphic/selectorParser';
-import type { ParsedSelector } from '../isomorphic/selectorParser';
+import { stringifySelector } from '../../utils/isomorphic/selectorParser';
+import type { ParsedSelector } from '../../utils/isomorphic/selectorParser';
 import type { InjectedScript } from './injectedScript';
-import { asLocator } from '../isomorphic/locatorGenerators';
-import type { Language } from '../isomorphic/locatorGenerators';
+import { asLocator } from '../../utils/isomorphic/locatorGenerators';
+import type { Language } from '../../utils/isomorphic/locatorGenerators';
 
 type HighlightEntry = {
   targetElement: Element,
@@ -42,6 +42,7 @@ export class Highlight {
 
   constructor(injectedScript: InjectedScript) {
     this._injectedScript = injectedScript;
+    const document = injectedScript.document;
     this._isUnderTest = injectedScript.isUnderTest;
     this._glassPaneElement = document.createElement('x-pw-glass');
     this._glassPaneElement.style.position = 'fixed';
@@ -52,6 +53,7 @@ export class Highlight {
     this._glassPaneElement.style.zIndex = '2147483647';
     this._glassPaneElement.style.pointerEvents = 'none';
     this._glassPaneElement.style.display = 'flex';
+    this._glassPaneElement.style.backgroundColor = 'transparent';
 
     this._actionPointElement = document.createElement('x-pw-action-point');
     this._actionPointElement.setAttribute('hidden', 'true');
@@ -100,7 +102,7 @@ export class Highlight {
   }
 
   install() {
-    document.documentElement.appendChild(this._glassPaneElement);
+    this._injectedScript.document.documentElement.appendChild(this._glassPaneElement);
   }
 
   setLanguage(language: Language) {
@@ -110,7 +112,7 @@ export class Highlight {
   runHighlightOnRaf(selector: ParsedSelector) {
     if (this._rafRequest)
       cancelAnimationFrame(this._rafRequest);
-    this.updateHighlight(this._injectedScript.querySelectorAll(selector, document.documentElement), stringifySelector(selector), false);
+    this.updateHighlight(this._injectedScript.querySelectorAll(selector, this._injectedScript.document.documentElement), stringifySelector(selector), false);
     this._rafRequest = requestAnimationFrame(() => this.runHighlightOnRaf(selector));
   }
 
@@ -121,7 +123,7 @@ export class Highlight {
   }
 
   isInstalled(): boolean {
-    return this._glassPaneElement.parentElement === document.documentElement && !this._glassPaneElement.nextElementSibling;
+    return this._glassPaneElement.parentElement === this._injectedScript.document.documentElement && !this._glassPaneElement.nextElementSibling;
   }
 
   showActionPoint(x: number, y: number) {
@@ -153,8 +155,8 @@ export class Highlight {
     this._innerUpdateHighlight(elements, { color, tooltipText: selector ? asLocator(this._language, selector) : '' });
   }
 
-  maskElements(elements: Element[]) {
-    this._innerUpdateHighlight(elements, { color: '#F0F' });
+  maskElements(elements: Element[], color?: string) {
+    this._innerUpdateHighlight(elements, { color: color ? color : '#F0F' });
   }
 
   private _innerUpdateHighlight(elements: Element[], options: { color: string, tooltipText?: string }) {
@@ -173,7 +175,7 @@ export class Highlight {
 
       let tooltipElement;
       if (options.tooltipText) {
-        tooltipElement = document.createElement('x-pw-tooltip');
+        tooltipElement = this._injectedScript.document.createElement('x-pw-tooltip');
         this._glassPaneShadow.appendChild(tooltipElement);
         const suffix = elements.length > 1 ? ` [${i + 1} of ${elements.length}]` : '';
         tooltipElement.textContent = options.tooltipText + suffix;
@@ -252,7 +254,7 @@ export class Highlight {
   }
 
   private _createHighlightElement(): HTMLElement {
-    const highlightElement = document.createElement('x-pw-highlight');
+    const highlightElement = this._injectedScript.document.createElement('x-pw-highlight');
     highlightElement.style.position = 'absolute';
     highlightElement.style.top = '0';
     highlightElement.style.left = '0';

@@ -49,6 +49,10 @@ export class CRServiceWorker extends Worker {
 
     session.send('Runtime.enable', {}).catch(e => { });
     session.send('Runtime.runIfWaitingForDebugger').catch(e => { });
+    session.on('Inspector.targetReloadedAfterCrash', () => {
+      // Resume service worker after restart.
+      session._sendMayFail('Runtime.runIfWaitingForDebugger', {});
+    });
   }
 
   async updateOffline(initial: boolean): Promise<void> {
@@ -108,15 +112,13 @@ export class CRServiceWorker extends Worker {
     this._browserContext.emit(BrowserContext.Events.Request, request);
     if (route) {
       const r = new network.Route(request, route);
-      if (this._browserContext._requestInterceptor) {
-        this._browserContext._requestInterceptor(r, request);
+      if (this._browserContext._requestInterceptor?.(r, request))
         return;
-      }
-      r.continue();
+      r.continue({ isFallback: true });
     }
   }
 
   private _isNetworkInspectionEnabled(): boolean {
-    return this._browserContext._options.serviceWorkers === 'allow';
+    return this._browserContext._options.serviceWorkers !== 'block';
   }
 }

@@ -30,6 +30,20 @@ it('should resume when closing inspector', async ({ page, recorderPageGetter, cl
   await scriptPromise;
 });
 
+it('should not reset timeouts', async ({ page, recorderPageGetter, closeRecorder, server }) => {
+  page.context().setDefaultNavigationTimeout(1000);
+  page.context().setDefaultTimeout(1000);
+
+  const pausePromise = page.pause();
+  await recorderPageGetter();
+  await closeRecorder();
+  await pausePromise;
+
+  server.setRoute('/empty.html', () => {});
+  const error = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  expect(error.message).toContain('page.goto: Timeout 1000ms exceeded.');
+});
+
 it.describe('pause', () => {
   it.skip(({ mode }) => mode !== 'default');
 
@@ -230,6 +244,7 @@ it.describe('pause', () => {
     const scriptPromise = (async () => {
       await page.pause();
       await expect(page.locator('button')).toHaveText('Submit');
+      await expect(page.locator('button')).not.toHaveText('Submit2');
       await page.pause();  // 2
     })();
     const recorderPage = await recorderPageGetter();
@@ -238,6 +253,7 @@ it.describe('pause', () => {
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
       'expect(page.locator(\'button\')).toHaveText()- XXms',
+      'expect(page.locator(\'button\')).not.toHaveText()- XXms',
       'page.pause',
     ]);
     await recorderPage.click('[title="Resume (F8)"]');
@@ -292,12 +308,11 @@ it.describe('pause', () => {
     })().catch(e => e);
     const recorderPage = await recorderPageGetter();
     await recorderPage.click('[title="Resume (F8)"]');
-    await recorderPage.waitForSelector('.source-line-error');
+    await recorderPage.waitForSelector('.source-line-error-underline');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
       'page.getByRole(\'button\').isChecked()- XXms',
-      'waiting for \"getByRole(\'button\')"',
-      'selector resolved to <button onclick=\"console.log(1)\">Submit</button>',
+      'waiting for getByRole(\'button\')',
       'error: Error: Not a checkbox or radio button',
     ]);
     const error = await scriptPromise;
@@ -410,6 +425,25 @@ it.describe('pause', () => {
       'keyup',
       'keyup',
     ]);
+  });
+
+  it('should highlight locators with custom testId', async ({ page, playwright, recorderPageGetter }) => {
+    await page.setContent('<div data-custom-id=foo id=target>and me</div>');
+    const scriptPromise = (async () => {
+      await page.pause();
+      playwright.selectors.setTestIdAttribute('data-custom-id');
+      await page.getByTestId('foo').click();
+    })();
+    const recorderPage = await recorderPageGetter();
+
+    const box1Promise = waitForTestLog<Box>(page, 'Highlight box for test: ');
+    await recorderPage.click('[title="Step over (F10)"]');
+    const box2 = roundBox(await page.locator('#target').boundingBox());
+    const box1 = roundBox(await box1Promise);
+    expect(box1).toEqual(box2);
+
+    await recorderPage.click('[title="Resume (F8)"]');
+    await scriptPromise;
   });
 });
 
