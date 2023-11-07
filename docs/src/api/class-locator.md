@@ -2,7 +2,7 @@
 * since: v1.14
 
 Locators are the central piece of Playwright's auto-waiting and retry-ability. In a nutshell, locators represent
-a way to find element(s) on the page at any moment. Locator can be created with the [`method: Page.locator`] method.
+a way to find element(s) on the page at any moment. A locator can be created with the [`method: Page.locator`] method.
 
 [Learn more about locators](../locators.md).
 
@@ -10,8 +10,7 @@ a way to find element(s) on the page at any moment. Locator can be created with 
 * since: v1.29
 - returns: <[Array]<[Locator]>>
 
-When locator points to a list of elements, returns array of locators, pointing
-to respective elements.
+When the locator points to a list of elements, this returns an array of locators, pointing to their respective elements.
 
 :::note
 [`method: Locator.all`] does not wait for elements to match the locator, and instead immediately returns whatever is present in the page.
@@ -54,6 +53,10 @@ foreach (var li in await page.GetByRole("listitem").AllAsync())
 
 Returns an array of `node.innerText` values for all matching nodes.
 
+:::caution Asserting text
+If you need to assert text on the page, prefer [`method: LocatorAssertions.toHaveText`] with [`option: useInnerText`] option to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
+
 **Usage**
 
 ```js
@@ -81,6 +84,10 @@ var texts = await page.GetByRole(AriaRole.Link).AllInnerTextsAsync();
 - returns: <[Array]<[string]>>
 
 Returns an array of `node.textContent` values for all matching nodes.
+
+:::caution Asserting text
+If you need to assert text on the page, prefer [`method: LocatorAssertions.toHaveText`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
 
 **Usage**
 
@@ -435,6 +442,10 @@ await page.Locator("canvas").ClickAsync(new() {
 - returns: <[int]>
 
 Returns the number of elements matching the locator.
+
+:::caution Asserting count
+If you need to assert the number of elements on the page, prefer [`method: LocatorAssertions.toHaveCount`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
 
 **Usage**
 
@@ -914,7 +925,7 @@ This method waits for [actionability](../actionability.md) checks, focuses the e
 
 If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be filled instead.
 
-To send fine-grained keyboard events, use [`method: Locator.type`].
+To send fine-grained keyboard events, use [`method: Locator.pressSequentially`].
 
 ### param: Locator.fill.value
 * since: v1.14
@@ -1059,6 +1070,10 @@ await locator.ClickAsync();
 - returns: <[null]|[string]>
 
 Returns the matching element's attribute value.
+
+:::caution Asserting attributes
+If you need to assert an element's attribute, prefer [`method: LocatorAssertions.toHaveAttribute`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
 
 ### param: Locator.getAttribute.name
 * since: v1.14
@@ -1228,6 +1243,10 @@ Returns the [`element.innerHTML`](https://developer.mozilla.org/en-US/docs/Web/A
 
 Returns the [`element.innerText`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/innerText).
 
+:::caution Asserting text
+If you need to assert text on the page, prefer [`method: LocatorAssertions.toHaveText`] with [`option: useInnerText`] option to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
+
 ### option: Locator.innerText.timeout = %%-input-timeout-%%
 * since: v1.14
 
@@ -1239,6 +1258,10 @@ Returns the [`element.innerText`](https://developer.mozilla.org/en-US/docs/Web/A
 - returns: <[string]>
 
 Returns the value for the matching `<input>` or `<textarea>` or `<select>` element.
+
+:::caution Asserting value
+If you need to assert input value, prefer [`method: LocatorAssertions.toHaveValue`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
 
 **Usage**
 
@@ -1278,6 +1301,10 @@ Throws elements that are not an input, textarea or a select. However, if the ele
 
 Returns whether the element is checked. Throws if the element is not a checkbox or radio input.
 
+:::caution Asserting checked state
+If you need to assert that checkbox is checked, prefer [`method: LocatorAssertions.toBeChecked`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
+
 **Usage**
 
 ```js
@@ -1311,6 +1338,10 @@ var isChecked = await page.GetByRole(AriaRole.Checkbox).IsCheckedAsync();
 - returns: <[boolean]>
 
 Returns whether the element is disabled, the opposite of [enabled](../actionability.md#enabled).
+
+:::caution Asserting disabled state
+If you need to assert that an element is disabled, prefer [`method: LocatorAssertions.toBeDisabled`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
 
 **Usage**
 
@@ -1346,6 +1377,10 @@ Boolean disabled = await page.GetByRole(AriaRole.Button).IsDisabledAsync();
 
 Returns whether the element is [editable](../actionability.md#editable).
 
+:::caution Asserting editable state
+If you need to assert that an element is editable, prefer [`method: LocatorAssertions.toBeEditable`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
+
 **Usage**
 
 ```js
@@ -1379,6 +1414,10 @@ Boolean editable = await page.GetByRole(AriaRole.Textbox).IsEditableAsync();
 - returns: <[boolean]>
 
 Returns whether the element is [enabled](../actionability.md#enabled).
+
+:::caution Asserting enabled state
+If you need to assert that an element is enabled, prefer [`method: LocatorAssertions.toBeEnabled`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
 
 **Usage**
 
@@ -1414,6 +1453,10 @@ Boolean enabled = await page.GetByRole(AriaRole.Button).IsEnabledAsync();
 
 Returns whether the element is hidden, the opposite of [visible](../actionability.md#visible).
 
+:::caution Asserting visibility
+If you need to assert that element is hidden, prefer [`method: LocatorAssertions.toBeHidden`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
+
 **Usage**
 
 ```js
@@ -1446,6 +1489,10 @@ Boolean hidden = await page.GetByRole(AriaRole.Button).IsHiddenAsync();
 - returns: <[boolean]>
 
 Returns whether the element is [visible](../actionability.md#visible).
+
+:::caution Asserting visibility
+If you need to assert that element is visible, prefer [`method: LocatorAssertions.toBeVisible`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
 
 **Usage**
 
@@ -1693,6 +1740,99 @@ Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
 
 ### option: Locator.press.timeout = %%-input-timeout-js-%%
 * since: v1.14
+
+
+## async method: Locator.pressSequentially
+* since: v1.38
+
+:::tip
+In most cases, you should use [`method: Locator.fill`] instead. You only need to press keys one by one if there is special keyboard handling on the page.
+:::
+
+Focuses the element, and then sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text.
+
+To press a special key, like `Control` or `ArrowDown`, use [`method: Locator.press`].
+
+**Usage**
+
+```js
+await locator.pressSequentially('Hello'); // Types instantly
+await locator.pressSequentially('World', { delay: 100 }); // Types slower, like a user
+```
+
+```java
+locator.pressSequentially("Hello"); // Types instantly
+locator.pressSequentially("World", new Locator.pressSequentiallyOptions().setDelay(100)); // Types slower, like a user
+```
+
+```python async
+await locator.press_sequentially("hello") # types instantly
+await locator.press_sequentially("world", delay=100) # types slower, like a user
+```
+
+```python sync
+locator.press_sequentially("hello") # types instantly
+locator.press_sequentially("world", delay=100) # types slower, like a user
+```
+
+```csharp
+await locator.PressSequentiallyAsync("Hello"); // Types instantly
+await locator.PressSequentiallyAsync("World", new() { Delay = 100 }); // Types slower, like a user
+```
+
+An example of typing into a text field and then submitting the form:
+
+```js
+const locator = page.getByLabel('Password');
+await locator.pressSequentially('my password');
+await locator.press('Enter');
+```
+
+```java
+Locator locator = page.getByLabel("Password");
+locator.pressSequentially("my password");
+locator.press("Enter");
+```
+
+```python async
+locator = page.get_by_label("Password")
+await locator.press_sequentially("my password")
+await locator.press("Enter")
+```
+
+```python sync
+locator = page.get_by_label("Password")
+locator.press_sequentially("my password")
+locator.press("Enter")
+```
+
+```csharp
+var locator = page.GetByLabel("Password");
+await locator.PressSequentiallyAsync("my password");
+await locator.PressAsync("Enter");
+```
+
+### param: Locator.pressSequentially.text
+* since: v1.38
+- `text` <[string]>
+
+String of characters to sequentially press into a focused element.
+
+### option: Locator.pressSequentially.delay
+* since: v1.38
+- `delay` <[float]>
+
+Time to wait between key presses in milliseconds. Defaults to 0.
+
+### option: Locator.pressSequentially.noWaitAfter = %%-input-no-wait-after-%%
+* since: v1.38
+
+### option: Locator.pressSequentially.timeout = %%-input-timeout-%%
+* since: v1.38
+
+### option: Locator.pressSequentially.timeout = %%-input-timeout-js-%%
+* since: v1.38
+
 
 ## async method: Locator.screenshot
 * since: v1.14
@@ -1972,10 +2112,13 @@ Upload file or multiple files into `<input type=file>`.
 
 ```js
 // Select one file
-await page.getByLabel('Upload file').setInputFiles('myfile.pdf');
+await page.getByLabel('Upload file').setInputFiles(path.join(__dirname, 'myfile.pdf'));
 
 // Select multiple files
-await page.getByLabel('Upload files').setInputFiles(['file1.txt', 'file2.txt']);
+await page.getByLabel('Upload files').setInputFiles([
+  path.join(__dirname, 'file1.txt'),
+  path.join(__dirname, 'file2.txt'),
+]);
 
 // Remove all the selected files
 await page.getByLabel('Upload file').setInputFiles([]);
@@ -2128,6 +2271,10 @@ When all steps combined have not finished during the specified [`option: timeout
 
 Returns the [`node.textContent`](https://developer.mozilla.org/en-US/docs/Web/API/Node/textContent).
 
+:::caution Asserting text
+If you need to assert text on the page, prefer [`method: LocatorAssertions.toHaveText`] to avoid flakiness. See [assertions guide](../test-assertions.md) for more details.
+:::
+
 ### option: Locator.textContent.timeout = %%-input-timeout-%%
 * since: v1.14
 
@@ -2136,69 +2283,13 @@ Returns the [`node.textContent`](https://developer.mozilla.org/en-US/docs/Web/AP
 
 ## async method: Locator.type
 * since: v1.14
+* deprecated: In most cases, you should use [`method: Locator.fill`] instead. You only need to press keys one by one if there is special keyboard handling on the page - in this case use [`method: Locator.pressSequentially`].
 
 Focuses the element, and then sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text.
 
 To press a special key, like `Control` or `ArrowDown`, use [`method: Locator.press`].
 
 **Usage**
-
-```js
-await element.type('Hello'); // Types instantly
-await element.type('World', { delay: 100 }); // Types slower, like a user
-```
-
-```java
-element.type("Hello"); // Types instantly
-element.type("World", new Locator.TypeOptions().setDelay(100)); // Types slower, like a user
-```
-
-```python async
-await element.type("hello") # types instantly
-await element.type("world", delay=100) # types slower, like a user
-```
-
-```python sync
-element.type("hello") # types instantly
-element.type("world", delay=100) # types slower, like a user
-```
-
-```csharp
-await element.TypeAsync("Hello"); // Types instantly
-await element.TypeAsync("World", new() { Delay = 100 }); // Types slower, like a user
-```
-
-An example of typing into a text field and then submitting the form:
-
-```js
-const element = page.getByLabel('Password');
-await element.type('my password');
-await element.press('Enter');
-```
-
-```java
-Locator element = page.getByLabel("Password");
-element.type("my password");
-element.press("Enter");
-```
-
-```python async
-element = page.get_by_label("Password")
-await element.type("my password")
-await element.press("Enter")
-```
-
-```python sync
-element = page.get_by_label("Password")
-element.type("my password")
-element.press("Enter")
-```
-
-```csharp
-var element = page.GetByLabel("Password");
-await element.TypeAsync("my password");
-await element.PressAsync("Enter");
-```
 
 ### param: Locator.type.text
 * since: v1.14

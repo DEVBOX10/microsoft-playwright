@@ -34,7 +34,6 @@ const testFiles = {
     import fs from 'fs';
     import os from 'os';
     import path from 'path';
-    import rimraf from 'rimraf';
 
     import { test, expect } from '@playwright/test';
 
@@ -54,7 +53,7 @@ const testFiles = {
         await page.click('text=Click me');
       });
 
-      test('shared failing', async ({ }) => {
+      test('shared  failing', async ({ }) => {
         await page.click('text=And me');
         expect(1).toBe(2);
       });
@@ -107,7 +106,7 @@ const testFiles = {
         const context = await playwright[browserName].launchPersistentContext(dir);
         await use(context.pages()[0]);
         await context.close();
-        rimraf.sync(dir);
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
       },
     });
 

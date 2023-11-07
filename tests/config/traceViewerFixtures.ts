@@ -38,6 +38,7 @@ class TraceViewerPage {
   actionTitles: Locator;
   callLines: Locator;
   consoleLines: Locator;
+  logLines: Locator;
   consoleLineMessages: Locator;
   consoleStacks: Locator;
   stackFrames: Locator;
@@ -47,11 +48,12 @@ class TraceViewerPage {
   constructor(public page: Page) {
     this.actionTitles = page.locator('.action-title');
     this.callLines = page.locator('.call-tab .call-line');
+    this.logLines = page.getByTestId('log-list').locator('.list-view-entry');
     this.consoleLines = page.locator('.console-line');
     this.consoleLineMessages = page.locator('.console-line-message');
     this.consoleStacks = page.locator('.console-stack');
-    this.stackFrames = page.getByTestId('stack-trace').locator('.list-view-entry');
-    this.networkRequests = page.locator('.network-request-title');
+    this.stackFrames = page.getByTestId('stack-trace-list').locator('.list-view-entry');
+    this.networkRequests = page.getByTestId('network-list').locator('.list-view-entry');
     this.snapshotContainer = page.locator('.snapshot-container iframe.snapshot-visible[name=snapshot]');
   }
 
@@ -85,18 +87,6 @@ class TraceViewerPage {
     await this.page.click('text="Network"');
   }
 
-  async eventBars() {
-    await this.page.waitForSelector('.timeline-bar.event:visible');
-    const list = await this.page.$$eval('.timeline-bar.event:visible', ee => ee.map(e => e.className));
-    const set = new Set<string>();
-    for (const item of list) {
-      for (const className of item.split(' '))
-        set.add(className);
-    }
-    const result = [...set];
-    return result.sort();
-  }
-
   @step
   async snapshotFrame(actionName: string, ordinal: number = 0, hasSubframe: boolean = false): Promise<FrameLocator> {
     await this.selectAction(actionName, ordinal);
@@ -107,7 +97,7 @@ class TraceViewerPage {
 }
 
 export const traceViewerFixtures: Fixtures<TraceViewerFixtures, {}, BaseTestFixtures, BaseWorkerFixtures> = {
-  showTraceViewer: async ({ playwright, browserName, headless }, use) => {
+  showTraceViewer: async ({ playwright, browserName, headless }, use, testInfo) => {
     const browsers: Browser[] = [];
     const contextImpls: any[] = [];
     await use(async (traces: string[], { host, port } = {}) => {
@@ -121,7 +111,7 @@ export const traceViewerFixtures: Fixtures<TraceViewerFixtures, {}, BaseTestFixt
     for (const browser of browsers)
       await browser.close();
     for (const contextImpl of contextImpls)
-      await contextImpl._browser.close();
+      await contextImpl._browser.close({ reason: 'Trace viewer closed' });
   },
 
   runAndTrace: async ({ context, showTraceViewer }, use, testInfo) => {

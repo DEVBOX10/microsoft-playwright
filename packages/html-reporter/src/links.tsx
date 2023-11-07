@@ -18,6 +18,7 @@ import type { TestAttachment } from './types';
 import * as React from 'react';
 import * as icons from './icons';
 import { TreeItem } from './treeItem';
+import { CopyToClipboard } from './copyToClipboard';
 import './links.css';
 
 export function navigate(href: string) {
@@ -68,12 +69,21 @@ export const AttachmentLink: React.FunctionComponent<{
 }> = ({ attachment, href, linkName }) => {
   return <TreeItem title={<span>
     {attachment.contentType === kMissingContentType ? icons.warning() : icons.attachment()}
-    {attachment.path && <a href={href || attachment.path} target='_blank'>{linkName || attachment.name}</a>}
+    {attachment.path && <a href={href || attachment.path} download={downloadFileNameForAttachment(attachment)}>{linkName || attachment.name}</a>}
     {attachment.body && <span>{attachment.name}</span>}
   </span>} loadChildren={attachment.body ? () => {
-    return [<div className='attachment-body'>{attachment.body}</div>];
+    return [<div className='attachment-body'><CopyToClipboard value={attachment.body!}/>{attachment.body}</div>];
   } : undefined} depth={0} style={{ lineHeight: '32px' }}></TreeItem>;
 };
+
+function downloadFileNameForAttachment(attachment: TestAttachment): string {
+  if (attachment.name.includes('.') || !attachment.path)
+    return attachment.name;
+  const firstDotIndex = attachment.path.indexOf('.');
+  if (firstDotIndex === -1)
+    return attachment.name;
+  return attachment.name + attachment.path.slice(firstDotIndex, attachment.path.length);
+}
 
 export function generateTraceUrl(traces: TestAttachment[]) {
   return `trace/index.html?${traces.map((a, i) => `trace=${new URL(a.path!, window.location.href)}`).join('&')}`;

@@ -16,23 +16,27 @@
 
 import { EventEmitter } from 'events';
 import type * as channels from '@protocol/channels';
-import { serializeError } from '../../protocol/serializers';
 import { findValidator, ValidationError, createMetadataValidator, type ValidatorContext } from '../../protocol/validator';
-import { assert, isUnderTest, monotonicTime } from '../../utils';
-import { kBrowserOrContextClosedError } from '../../common/errors';
+import { LongStandingScope, assert, isUnderTest, monotonicTime, rewriteErrorMessage } from '../../utils';
+import { TargetClosedError, isTargetClosedError, serializeError } from '../errors';
 import type { CallMetadata } from '../instrumentation';
 import { SdkObject } from '../instrumentation';
-import { rewriteErrorMessage } from '../../utils/stackTrace';
 import type { PlaywrightDispatcher } from './playwrightDispatcher';
 import { eventsHelper } from '../..//utils/eventsHelper';
 import type { RegisteredListener } from '../..//utils/eventsHelper';
 import type * as trace from '@trace/trace';
+import { isProtocolError } from '../protocolError';
 
 export const dispatcherSymbol = Symbol('dispatcher');
 const metadataValidator = createMetadataValidator();
 
 export function existingDispatcher<DispatcherType>(object: any): DispatcherType | undefined {
   return object[dispatcherSymbol];
+}
+
+let maxDispatchers = 1000;
+export function setMaxDispatchersForTest(value: number | undefined) {
+  maxDispatchers = value || 1000;
 }
 
 export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeType extends DispatcherScope> extends EventEmitter implements channels.Channel {
@@ -47,6 +51,7 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
   readonly _guid: string;
   readonly _type: string;
   _object: Type;
+  private _openScope = new LongStandingScope();
 
   constructor(parent: ParentScopeType | DispatcherConnection, object: Type, type: string, initializer: channels.InitializerTraits<Type>) {
     super();
@@ -55,18 +60,18 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
     this._parent = parent instanceof DispatcherConnection ? undefined : parent;
 
     const guid = object.guid;
-    assert(!this._connection._dispatchers.has(guid));
-    this._connection._dispatchers.set(guid, this);
+    this._guid = guid;
+    this._type = type;
+    this._object = object;
+
+    (object as any)[dispatcherSymbol] = this;
+
+    this._connection.registerDispatcher(this);
     if (this._parent) {
       assert(!this._parent._dispatchers.has(guid));
       this._parent._dispatchers.set(guid, this);
     }
 
-    this._type = type;
-    this._guid = guid;
-    this._object = object;
-
-    (object as any)[dispatcherSymbol] = this;
     if (this._parent)
       this._connection.sendCreate(this._parent, type, guid, initializer, this._parent._object);
   }
@@ -80,11 +85,24 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
   }
 
   adopt(child: DispatcherScope) {
+    if (child._parent === this)
+      return;
     const oldParent = child._parent!;
     oldParent._dispatchers.delete(child._guid);
     this._dispatchers.set(child._guid, child);
     child._parent = this;
     this._connection.sendAdopt(this, child);
+  }
+
+  async _handleCommand(callMetadata: CallMetadata, method: string, validParams: any) {
+    const commandPromise = (this as any)[method](validParams, callMetadata);
+    try {
+      return await this._openScope.race(commandPromise);
+    } catch (e) {
+      if (callMetadata.potentiallyClosesScope && isTargetClosedError(e))
+        return await commandPromise;
+      throw e;
+    }
   }
 
   _dispatchEvent<T extends keyof channels.EventsTraits<ChannelType>>(method: T, params?: channels.EventsTraits<ChannelType>[T]) {
@@ -98,30 +116,32 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
     this._connection.sendEvent(this, method as string, params, sdkObject);
   }
 
-  _dispose() {
-    this._disposeRecursively();
-    this._connection.sendDispose(this);
+  _dispose(reason?: 'gc') {
+    this._disposeRecursively(new TargetClosedError());
+    this._connection.sendDispose(this, reason);
   }
 
   protected _onDispose() {
   }
 
-  private _disposeRecursively() {
+  private _disposeRecursively(error: Error) {
     assert(!this._disposed, `${this._guid} is disposed more than once`);
     this._onDispose();
     this._disposed = true;
     eventsHelper.removeEventListeners(this._eventListeners);
 
     // Clean up from parent and connection.
-    if (this._parent)
-      this._parent._dispatchers.delete(this._guid);
+    this._parent?._dispatchers.delete(this._guid);
+    const list = this._connection._dispatchersByType.get(this._type);
+    list?.delete(this._guid);
     this._connection._dispatchers.delete(this._guid);
 
     // Dispose all children.
     for (const dispatcher of [...this._dispatchers.values()])
-      dispatcher._disposeRecursively();
+      dispatcher._disposeRecursively(error);
     this._dispatchers.clear();
     delete (this._object as any)[dispatcherSymbol];
+    this._openScope.close(error);
   }
 
   _debugScopeState(): any {
@@ -157,6 +177,8 @@ export class RootDispatcher extends Dispatcher<{ guid: '' }, any, any> {
 
 export class DispatcherConnection {
   readonly _dispatchers = new Map<string, DispatcherScope>();
+  // Collect stale dispatchers by type.
+  readonly _dispatchersByType = new Map<string, Set<string>>();
   onmessage = (message: object) => {};
   private _waitOperations = new Map<string, CallMetadata>();
   private _isLocal: boolean;
@@ -181,8 +203,8 @@ export class DispatcherConnection {
     this._sendMessageToClient(parent._guid, dispatcher._type, '__adopt__', { guid: dispatcher._guid });
   }
 
-  sendDispose(dispatcher: DispatcherScope) {
-    this._sendMessageToClient(dispatcher._guid, dispatcher._type, '__dispose__', {});
+  sendDispose(dispatcher: DispatcherScope, reason?: 'gc') {
+    this._sendMessageToClient(dispatcher._guid, dispatcher._type, '__dispose__', { reason });
   }
 
   private _sendMessageToClient(guid: string, type: string, method: string, params: any, sdkObject?: SdkObject) {
@@ -222,11 +244,37 @@ export class DispatcherConnection {
     throw new ValidationError(`${path}: expected dispatcher ${names.toString()}`);
   }
 
+  registerDispatcher(dispatcher: DispatcherScope) {
+    assert(!this._dispatchers.has(dispatcher._guid));
+    this._dispatchers.set(dispatcher._guid, dispatcher);
+    const type = dispatcher._type;
+
+    let list = this._dispatchersByType.get(type);
+    if (!list) {
+      list = new Set();
+      this._dispatchersByType.set(type, list);
+    }
+    list.add(dispatcher._guid);
+    if (list.size > maxDispatchers)
+      this._disposeStaleDispatchers(type, list);
+  }
+
+  private _disposeStaleDispatchers(type: string, dispatchers: Set<string>) {
+    const dispatchersArray = [...dispatchers];
+    this._dispatchersByType.set(type, new Set(dispatchersArray.slice(maxDispatchers / 10)));
+    for (let i = 0; i < maxDispatchers / 10; ++i) {
+      const d = this._dispatchers.get(dispatchersArray[i]);
+      if (!d)
+        continue;
+      d._dispose('gc');
+    }
+  }
+
   async dispatch(message: object) {
     const { id, guid, method, params, metadata } = message as any;
     const dispatcher = this._dispatchers.get(guid);
     if (!dispatcher) {
-      this.onmessage({ id, error: serializeError(new Error(kBrowserOrContextClosedError)) });
+      this.onmessage({ id, error: serializeError(new TargetClosedError()) });
       return;
     }
 
@@ -288,20 +336,25 @@ export class DispatcherConnection {
       }
     }
 
-
-    let error: any;
     await sdkObject?.instrumentation.onBeforeCall(sdkObject, callMetadata);
     try {
-      const result = await (dispatcher as any)[method](validParams, callMetadata);
+      const result = await dispatcher._handleCommand(callMetadata, method, validParams);
       const validator = findValidator(dispatcher._type, method, 'Result');
       callMetadata.result = validator(result, '', { tChannelImpl: this._tChannelImplToWire.bind(this), binary: this._isLocal ? 'buffer' : 'toBase64' });
     } catch (e) {
-      // Dispatching error
-      // We want original, unmodified error in metadata.
+      if (isTargetClosedError(e) && sdkObject) {
+        const reason = closeReason(sdkObject);
+        if (reason)
+          rewriteErrorMessage(e, reason);
+      } else if (isProtocolError(e)) {
+        if (e.type === 'closed') {
+          const reason = sdkObject ? closeReason(sdkObject) : undefined;
+          e = new TargetClosedError(reason, e.browserLogMessage());
+        } else if (e.type === 'crashed') {
+          rewriteErrorMessage(e, 'Target crashed ' + e.browserLogMessage());
+        }
+      }
       callMetadata.error = serializeError(e);
-      if (callMetadata.log.length)
-        rewriteErrorMessage(e, e.message + formatLogRecording(callMetadata.log));
-      error = serializeError(e);
     } finally {
       callMetadata.endTime = monotonicTime();
       await sdkObject?.instrumentation.onAfterCall(sdkObject, callMetadata);
@@ -310,18 +363,16 @@ export class DispatcherConnection {
     const response: any = { id };
     if (callMetadata.result)
       response.result = callMetadata.result;
-    if (error)
-      response.error = error;
+    if (callMetadata.error) {
+      response.error = callMetadata.error;
+      response.log = callMetadata.log;
+    }
     this.onmessage(response);
   }
 }
 
-function formatLogRecording(log: string[]): string {
-  if (!log.length)
-    return '';
-  const header = ` logs `;
-  const headerLength = 60;
-  const leftLength = (headerLength - header.length) / 2;
-  const rightLength = headerLength - header.length - leftLength;
-  return `\n${'='.repeat(leftLength)}${header}${'='.repeat(rightLength)}\n${log.join('\n')}\n${'='.repeat(headerLength)}`;
+function closeReason(sdkObject: SdkObject): string | undefined {
+  return sdkObject.attribution.page?._closeReason ||
+    sdkObject.attribution.context?._closeReason ||
+    sdkObject.attribution.browser?._closeReason;
 }

@@ -466,7 +466,9 @@ value.
 
 ```js
 const feedHandle = await page.$('.feed');
-expect(await feedHandle.$$eval('.tweet', nodes => nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!']);
+expect(await feedHandle.$$eval('.tweet', nodes =>
+  nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!'],
+);
 ```
 
 ```java
@@ -511,7 +513,7 @@ This method waits for [actionability](../actionability.md) checks, focuses the e
 
 If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be filled instead.
 
-To send fine-grained keyboard events, use [`method: ElementHandle.type`].
+To send fine-grained keyboard events, use [`method: Locator.pressSequentially`].
 
 ### param: ElementHandle.fill.value
 * since: v1.8
@@ -775,7 +777,7 @@ Triggers a `change` and `input` event once all the provided options have been se
 **Usage**
 
 ```js
-// single selection matching the value
+// Single selection matching the value or label
 handle.selectOption('blue');
 
 // single selection matching the label
@@ -786,7 +788,7 @@ handle.selectOption(['red', 'green', 'blue']);
 ```
 
 ```java
-// single selection matching the value
+// Single selection matching the value or label
 handle.selectOption("blue");
 // single selection matching the label
 handle.selectOption(new SelectOption().setLabel("Blue"));
@@ -795,7 +797,7 @@ handle.selectOption(new String[] {"red", "green", "blue"});
 ```
 
 ```python async
-# single selection matching the value
+# Single selection matching the value or label
 await handle.select_option("blue")
 # single selection matching the label
 await handle.select_option(label="blue")
@@ -804,7 +806,7 @@ await handle.select_option(value=["red", "green", "blue"])
 ```
 
 ```python sync
-# single selection matching the value
+# Single selection matching the value or label
 handle.select_option("blue")
 # single selection matching both the label
 handle.select_option(label="blue")
@@ -813,7 +815,7 @@ handle.select_option(value=["red", "green", "blue"])
 ```
 
 ```csharp
-// single selection matching the value
+// Single selection matching the value or label
 await handle.SelectOptionAsync(new[] { "blue" });
 // single selection matching the label
 await handle.SelectOptionAsync(new[] { new SelectOptionValue() { Label = "blue" } });
@@ -975,69 +977,13 @@ Returns the `node.textContent`.
 
 ## async method: ElementHandle.type
 * since: v1.8
+* deprecated: In most cases, you should use [`method: Locator.fill`] instead. You only need to press keys one by one if there is special keyboard handling on the page - in this case use [`method: Locator.pressSequentially`].
 
 Focuses the element, and then sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text.
 
 To press a special key, like `Control` or `ArrowDown`, use [`method: ElementHandle.press`].
 
 **Usage**
-
-```js
-await elementHandle.type('Hello'); // Types instantly
-await elementHandle.type('World', { delay: 100 }); // Types slower, like a user
-```
-
-```java
-elementHandle.type("Hello"); // Types instantly
-elementHandle.type("World", new ElementHandle.TypeOptions().setDelay(100)); // Types slower, like a user
-```
-
-```python async
-await element_handle.type("hello") # types instantly
-await element_handle.type("world", delay=100) # types slower, like a user
-```
-
-```python sync
-element_handle.type("hello") # types instantly
-element_handle.type("world", delay=100) # types slower, like a user
-```
-
-```csharp
-await elementHandle.TypeAsync("Hello"); // Types instantly
-await elementHandle.TypeAsync("World", new() { Delay = 100 }); // Types slower, like a user
-```
-
-An example of typing into a text field and then submitting the form:
-
-```js
-const elementHandle = await page.$('input');
-await elementHandle.type('some text');
-await elementHandle.press('Enter');
-```
-
-```java
-ElementHandle elementHandle = page.querySelector("input");
-elementHandle.type("some text");
-elementHandle.press("Enter");
-```
-
-```python async
-element_handle = await page.query_selector("input")
-await element_handle.type("some text")
-await element_handle.press("Enter")
-```
-
-```python sync
-element_handle = page.query_selector("input")
-element_handle.type("some text")
-element_handle.press("Enter")
-```
-
-```csharp
-var elementHandle = await page.QuerySelectorAsync("input");
-await elementHandle.TypeAsync("some text");
-await elementHandle.PressAsync("Enter");
-```
 
 ### param: ElementHandle.type.text
 * since: v1.8

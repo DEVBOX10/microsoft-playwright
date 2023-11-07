@@ -100,7 +100,7 @@ export class ElectronApplication extends SdkObject {
   async close() {
     const progressController = new ProgressController(serverSideCallMetadata(), this);
     const closed = progressController.run(progress => helper.waitForEvent(progress, this, ElectronApplication.Events.Close).promise);
-    await this._browserContext.close(serverSideCallMetadata());
+    await this._browserContext.close({ reason: 'Application exited' });
     this._nodeConnection.close();
     await closed;
   }
@@ -231,7 +231,7 @@ export class Electron extends SdkObject {
         browserLogsCollector,
         artifactsDir,
         downloadsPath: artifactsDir,
-        tracesDir: artifactsDir,
+        tracesDir: options.tracesDir || artifactsDir,
         originalLaunchOptions: {},
       };
       validateBrowserContextOptions(contextOptions, browserOptions);
@@ -239,7 +239,7 @@ export class Electron extends SdkObject {
       app = new ElectronApplication(this, browser, nodeConnection, launchedProcess);
       await app.initialize();
       return app;
-    }, TimeoutSettings.timeout(options));
+    }, TimeoutSettings.launchTimeout(options));
   }
 }
 

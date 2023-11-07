@@ -21,8 +21,10 @@ import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import { parseSerializedValue, serializeValue } from '../../protocol/serializers';
 import type { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
 import type { ElectronApplicationDispatcher } from './electronDispatcher';
+import type { FrameDispatcher } from './frameDispatcher';
+import type { CallMetadata } from '../instrumentation';
 
-export type JSHandleDispatcherParentScope = PageDispatcher | WorkerDispatcher | ElectronApplicationDispatcher;
+export type JSHandleDispatcherParentScope = PageDispatcher | FrameDispatcher | WorkerDispatcher | ElectronApplicationDispatcher;
 
 export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandleChannel, JSHandleDispatcherParentScope> implements channels.JSHandleChannel {
   _type_JSHandle = true;
@@ -65,8 +67,10 @@ export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandl
     return { count: await this._object.objectCount() };
   }
 
-  async dispose() {
-    await this._object.dispose();
+  async dispose(_: any, metadata: CallMetadata) {
+    metadata.potentiallyClosesScope = true;
+    this._object.dispose();
+    this._dispose();
   }
 }
 

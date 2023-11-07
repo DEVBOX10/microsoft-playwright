@@ -47,9 +47,9 @@ it('should report requests and responses handled by service worker', async ({ pa
 
   await page.goto(server.PREFIX + '/serviceworkers/fetchdummy/sw.html');
   await page.evaluate(() => window['activationPromise']);
-  const [swResponse, request] = await Promise.all([
-    page.evaluate(() => window['fetchDummy']('foo')),
+  const [request, swResponse] = await Promise.all([
     page.waitForEvent('request'),
+    page.evaluate(() => window['fetchDummy']('foo')),
   ]);
   expect(swResponse).toBe('responseFromServiceWorker:foo');
   expect(request.url()).toBe(server.PREFIX + '/serviceworkers/fetchdummy/foo');
@@ -69,9 +69,10 @@ it('should report requests and responses handled by service worker', async ({ pa
   expect(await failedRequest.response()).toBe(null);
 });
 
-it('should report requests and responses handled by service worker with routing', async ({ page, server, isAndroid, isElectron }) => {
+it('should report requests and responses handled by service worker with routing', async ({ page, server, isAndroid, isElectron, mode, platform }) => {
   it.fixme(isAndroid);
   it.fixme(isElectron);
+  it.fixme(mode.startsWith('service') && platform === 'linux', 'Times out for no clear reason');
 
   await page.route('**/*', route => route.continue());
   await page.goto(server.PREFIX + '/serviceworkers/fetchdummy/sw.html');
@@ -146,6 +147,8 @@ it('should report navigation requests and responses handled by service worker wi
     const [, failedRequest] = await Promise.all([
       page.evaluate(() => {
         window.location.href = '/serviceworkers/stub/error.html';
+        // eslint-disable-next-line
+        undefined
       }),
       page.waitForEvent('requestfailed'),
     ]);
@@ -171,7 +174,7 @@ it('should return response body when Cross-Origin-Opener-Policy is set', async (
 it('should fire requestfailed when intercepting race', async ({ page, server, browserName }) => {
   it.skip(browserName !== 'chromium', 'This test is specifically testing Chromium race');
 
-  const promsie = new Promise<void>(resolve => {
+  const promise = new Promise<void>(resolve => {
     let counter = 0;
     const failures = new Set();
     const alive = new Set();
@@ -214,7 +217,7 @@ it('should fire requestfailed when intercepting race', async ({ page, server, br
     </script>
   `);
 
-  await promsie;
+  await promise;
 });
 
 it('main resource xhr should have type xhr', async ({ page, server }) => {

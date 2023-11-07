@@ -318,6 +318,12 @@ it('should work with pipe in xpath', async ({ page, server }) => {
   await page.click(`//code|//span[@id="t2"]`);
 });
 
+it('should print original xpath in error', async ({ page, browserName }) => {
+  const error = await page.locator(`//*[contains(@Class, 'foo']`).isVisible().catch(e => e);
+  expect(error.message).toContain('//*[contains(@Class, \\\'foo\\\']');
+  expect(error.message).not.toContain('.//*[contains(@Class, \'foo\']');
+});
+
 it('data-testid on the handle should be relative', async ({ page }) => {
   await page.setContent(`
     <span data-testid="find-me" id=target1>1</span>
@@ -434,6 +440,16 @@ it('should work with internal:or=', async ({ page, server }) => {
   expect(await page.locator(`article >> internal:or="span"`).textContent()).toBe('world');
   expect(await page.locator(`div >> internal:or="article"`).textContent()).toBe('hello');
   expect(await page.locator(`span >> internal:or="article"`).textContent()).toBe('world');
+});
+
+it('should work with internal:chain=', async ({ page, server }) => {
+  await page.setContent(`
+    <div>one <span>two</span> <button>three</button> </div>
+    <span>four</span>
+    <button>five</button>
+  `);
+  expect(await page.$$eval(`div >> internal:chain="button"`, els => els.map(e => e.textContent))).toEqual(['three']);
+  expect(await page.$$eval(`div >> internal:chain="span >> internal:or=\\"button\\""`, els => els.map(e => e.textContent))).toEqual(['two', 'three']);
 });
 
 it('chaining should work with large DOM @smoke', async ({ page, server }) => {

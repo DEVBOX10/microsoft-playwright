@@ -21,7 +21,7 @@ import fs from 'fs';
 import { getUserAgent } from '../../../packages/playwright-core/lib/utils/userAgent';
 import { suppressCertificateWarning } from '../../config/utils';
 
-test.skip(({ mode }) => mode === 'service');
+test.skip(({ mode }) => mode.startsWith('service'));
 
 test('should connect to an existing cdp session', async ({ browserType, mode }, testInfo) => {
   const port = 9339 + testInfo.workerIndex;
@@ -199,7 +199,7 @@ test('should connect over a ws endpoint', async ({ browserType, server }, testIn
     expect(contexts.length).toBe(1);
     await cdpBrowser.close();
 
-    // also connect with the depercreated wsEndpoint option
+    // also connect with the deprecated wsEndpoint option
     const cdpBrowser2 = await browserType.connectOverCDP({
       wsEndpoint: JSON.parse(json).webSocketDebuggerUrl,
     });
@@ -413,6 +413,88 @@ test('should be able to connect via localhost', async ({ browserType }, testInfo
     const cdpBrowser = await browserType.connectOverCDP(`http://localhost:${port}`);
     const contexts = cdpBrowser.contexts();
     expect(contexts.length).toBe(1);
+    await cdpBrowser.close();
+  } finally {
+    await browserServer.close();
+  }
+});
+
+test('emulate media should not be affected by second connectOverCDP', async ({ browserType }, testInfo) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/24109' });
+  test.fixme();
+  const port = 9339 + testInfo.workerIndex;
+  const browserServer = await browserType.launch({
+    args: ['--remote-debugging-port=' + port]
+  });
+  try {
+    async function isPrint(page) {
+      return await page.evaluate(() => matchMedia('print').matches);
+    }
+
+    const browser1 = await browserType.connectOverCDP(`http://localhost:${port}`);
+    const context1 = await browser1.newContext();
+    const page1 = await context1.newPage();
+    await page1.emulateMedia({ media: 'print' });
+    expect(await isPrint(page1)).toBe(true);
+    const browser2 = await browserType.connectOverCDP(`http://localhost:${port}`);
+    expect(await isPrint(page1)).toBe(true);
+    await Promise.all([
+      browser1.close(),
+      browser2.close()
+    ]);
+  } finally {
+    await browserServer.close();
+  }
+});
+
+test('should allow tracing over cdp session', async ({ browserType, trace }, testInfo) => {
+  test.skip(trace === 'on');
+
+  const port = 9339 + testInfo.workerIndex;
+  const browserServer = await browserType.launch({
+    args: ['--remote-debugging-port=' + port]
+  });
+  try {
+    const cdpBrowser = await browserType.connectOverCDP({
+      endpointURL: `http://127.0.0.1:${port}/`,
+    });
+    const [context] = cdpBrowser.contexts();
+    await context.tracing.start({ screenshots: true, snapshots: true });
+    const page = await context.newPage();
+    await page.evaluate(() => 2 + 2);
+    const traceZip = testInfo.outputPath('trace.zip');
+    await context.tracing.stop({ path: traceZip });
+    await cdpBrowser.close();
+    expect(fs.existsSync(traceZip)).toBe(true);
+  } finally {
+    await browserServer.close();
+  }
+});
+
+test('setInputFiles should preserve lastModified timestamp', async ({ browserType, asset }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27452' });
+
+  const port = 9339 + test.info().workerIndex;
+  const browserServer = await browserType.launch({
+    args: ['--remote-debugging-port=' + port]
+  });
+  try {
+    const cdpBrowser = await browserType.connectOverCDP({
+      endpointURL: `http://127.0.0.1:${port}/`,
+    });
+    const [context] = cdpBrowser.contexts();
+    const page = await context.newPage();
+    await page.setContent(`<input type=file multiple=true/>`);
+    const input = page.locator('input');
+    const files = ['file-to-upload.txt', 'file-to-upload-2.txt'];
+    await input.setInputFiles(files.map(f => asset(f)));
+    expect(await input.evaluate(e => [...(e as HTMLInputElement).files].map(f => f.name))).toEqual(files);
+    const timestamps = await input.evaluate(e => [...(e as HTMLInputElement).files].map(f => f.lastModified));
+    const expectedTimestamps = files.map(file => Math.round(fs.statSync(asset(file)).mtimeMs));
+    // On Linux browser sometimes reduces the timestamp by 1ms: 1696272058110.0715  -> 1696272058109 or even
+    // rounds it to seconds in WebKit: 1696272058110 -> 1696272058000.
+    for (let i = 0; i < timestamps.length; i++)
+      expect(Math.abs(timestamps[i] - expectedTimestamps[i]), `expected: ${expectedTimestamps}; actual: ${timestamps}`).toBeLessThan(1000);
     await cdpBrowser.close();
   } finally {
     await browserServer.close();

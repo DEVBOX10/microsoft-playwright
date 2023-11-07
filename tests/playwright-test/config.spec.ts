@@ -480,3 +480,77 @@ test('should have correct types for the config', async ({ runTSC }) => {
   });
   expect(result.exitCode).toBe(0);
 });
+
+test('should not allow tracesDir in launchOptions', async ({ runTSC }) => {
+  const result = await runTSC({
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+
+      export default defineConfig({
+        use: {
+          launchOptions: {
+            tracesDir: 'foo',
+          },
+        },
+      });
+  `
+  });
+  expect(result.exitCode).not.toBe(0);
+});
+
+test('should merge configs', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      import { defineConfig, expect } from '@playwright/test';
+      const baseConfig = defineConfig({
+        timeout: 10,
+        use: {
+          foo: 1,
+        },
+        expect: {
+          timeout: 11,
+        },
+        projects: [
+          {
+            name: 'A',
+            timeout: 20,
+          }
+        ],
+      });
+      const derivedConfig = defineConfig(baseConfig, {
+        timeout: 30,
+        use: {
+          bar: 2,
+        },
+        expect: {
+          timeout: 12,
+        },
+        projects: [
+          { name: 'B', timeout: 40 },
+          { name: 'A', timeout: 50 },
+        ],
+        webServer: {
+          command: 'echo 123',
+        }
+      });
+
+      expect(derivedConfig).toEqual(expect.objectContaining({
+        timeout: 30,
+        use: { foo: 1, bar: 2 },
+        expect: { timeout: 12 },
+        projects: [
+          { name: 'B', timeout: 40, use: {} },
+          { name: 'A', timeout: 50, use: {} }
+        ],
+        webServer: [{
+          command: 'echo 123',
+        }]
+      }));
+    `,
+    'a.test.ts': `
+      import { test } from '@playwright/test';
+      test('pass', async ({}) => {});
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});

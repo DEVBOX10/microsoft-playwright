@@ -72,6 +72,32 @@ it('should unroute', async ({ page, server }) => {
   expect(intercepted).toEqual([1]);
 });
 
+it('should support ? in glob pattern', async ({ page, server }) => {
+  server.setRoute('/index', (req, res) => res.end('index-no-hello'));
+  server.setRoute('/index123hello', (req, res) => res.end('index123hello'));
+  server.setRoute('/index?hello', (req, res) => res.end('index?hello'));
+
+  await page.route('**/index?hello', async (route, request) => {
+    await route.fulfill({ body: 'intercepted any character' });
+  });
+
+  await page.route('**/index\\?hello', async (route, request) => {
+    await route.fulfill({ body: 'intercepted question mark' });
+  });
+
+  await page.goto(server.PREFIX + '/index?hello');
+  expect(await page.content()).toContain('intercepted question mark');
+
+  await page.goto(server.PREFIX + '/index');
+  expect(await page.content()).toContain('index-no-hello');
+
+  await page.goto(server.PREFIX + '/index1hello');
+  expect(await page.content()).toContain('intercepted any character');
+
+  await page.goto(server.PREFIX + '/index123hello');
+  expect(await page.content()).toContain('index123hello');
+});
+
 it('should work when POST is redirected with 302', async ({ page, server }) => {
   server.setRedirect('/rredirect', '/empty.html');
   await page.goto(server.EMPTY_PAGE);
@@ -940,3 +966,20 @@ for (const method of ['fulfill', 'continue', 'fallback', 'abort'] as const) {
     expect(e.message).toContain('Route is already handled!');
   });
 }
+
+it('should intercept when postData is more than 1MB', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22753' });
+  await page.goto(server.EMPTY_PAGE);
+  let interceptionCallback;
+  const interceptionPromise = new Promise(x => interceptionCallback = x);
+  const POST_BODY = '0'.repeat(2 * 1024 * 1024); // 2MB
+  await page.route('**/404.html', async route => {
+    await route.abort();
+    interceptionCallback(route.request().postData());
+  });
+  await page.evaluate(POST_BODY => fetch('/404.html', {
+    method: 'POST',
+    body: POST_BODY,
+  }).catch(e => {}), POST_BODY);
+  expect(await interceptionPromise).toBe(POST_BODY);
+});

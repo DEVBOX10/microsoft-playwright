@@ -3,6 +3,8 @@ id: test-snapshots
 title: "Visual comparisons"
 ---
 
+## Introduction
+
 Playwright Test includes the ability to produce and visually compare screenshots using `await expect(page).toHaveScreenshot()`. On first execution, Playwright test will generate reference screenshots. Subsequent runs will compare against the reference.
 
 ```js title="example.spec.ts"
@@ -15,7 +17,8 @@ test('example test', async ({ page }) => {
 ```
 
 When you run above for the first time, test runner will say:
-```
+
+```txt
 Error: A snapshot doesn't exist at example.spec.ts-snapshots/example-test-1-chromium-darwin.png, writing actual.
 ```
 
@@ -56,7 +59,7 @@ npx playwright test --update-snapshots
 > Note that `snapshotName` also accepts an array of path segments to the snapshot file such as `expect().toHaveScreenshot(['relative', 'path', 'to', 'snapshot.png'])`.
 > However, this path must stay within the snapshots directory for each test file (i.e. `a.spec.js-snapshots`), otherwise it will throw.
 
-Playwright Test uses the [pixelmatch](https://github.com/mapbox/pixelmatch) library. You can [pass various options](./test-assertions#page-assertions-to-have-screenshot-2) to modify its behavior:
+Playwright Test uses the [pixelmatch](https://github.com/mapbox/pixelmatch) library. You can [pass various options](./api/class-pageassertions.md#page-assertions-to-have-screenshot-1) to modify its behavior:
 
 ```js title="example.spec.ts"
 import { test, expect } from '@playwright/test';

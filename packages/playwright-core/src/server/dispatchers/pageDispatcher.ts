@@ -19,7 +19,7 @@ import type { Frame } from '../frames';
 import { Page, Worker } from '../page';
 import type * as channels from '@protocol/channels';
 import { Dispatcher, existingDispatcher } from './dispatcher';
-import { parseError, serializeError } from '../../protocol/serializers';
+import { parseError } from '../errors';
 import { FrameDispatcher } from './frameDispatcher';
 import { RequestDispatcher } from './networkDispatchers';
 import { ResponseDispatcher } from './networkDispatchers';
@@ -58,7 +58,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     // If we split pageCreated and pageReady, there should be no main frame during pageCreated.
 
     // We will reparent it to the page below using adopt.
-    const mainFrame = FrameDispatcher.from(parentScope as any as PageDispatcher, page.mainFrame());
+    const mainFrame = FrameDispatcher.from(parentScope, page.mainFrame());
 
     super(parentScope, page, 'Page', {
       mainFrame,
@@ -80,12 +80,11 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
       this._dispatchEvent('download', { url: download.url, suggestedFilename: download.suggestedFilename(), artifact: ArtifactDispatcher.from(parentScope, download.artifact) });
     });
     this.addObjectListener(Page.Events.FileChooser, (fileChooser: FileChooser) => this._dispatchEvent('fileChooser', {
-      element: ElementHandleDispatcher.from(this, fileChooser.element()),
+      element: ElementHandleDispatcher.from(mainFrame, fileChooser.element()),
       isMultiple: fileChooser.isMultiple()
     }));
     this.addObjectListener(Page.Events.FrameAttached, frame => this._onFrameAttached(frame));
     this.addObjectListener(Page.Events.FrameDetached, frame => this._onFrameDetached(frame));
-    this.addObjectListener(Page.Events.PageError, error => this._dispatchEvent('pageError', { error: serializeError(error) }));
     this.addObjectListener(Page.Events.WebSocket, webSocket => this._dispatchEvent('webSocket', { webSocket: new WebSocketDispatcher(this, webSocket) }));
     this.addObjectListener(Page.Events.Worker, worker => this._dispatchEvent('worker', { worker: new WorkerDispatcher(this, worker) }));
     this.addObjectListener(Page.Events.Video, (artifact: Artifact) => this._dispatchEvent('video', { artifact: ArtifactDispatcher.from(parentScope, artifact) }));
@@ -201,6 +200,8 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   async close(params: channels.PageCloseParams, metadata: CallMetadata): Promise<void> {
+    if (!params.runBeforeUnload)
+      metadata.potentiallyClosesScope = true;
     await this._page.close(metadata, params);
   }
 
@@ -297,11 +298,11 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   _onFrameAttached(frame: Frame) {
-    this._dispatchEvent('frameAttached', { frame: FrameDispatcher.from(this, frame) });
+    this._dispatchEvent('frameAttached', { frame: FrameDispatcher.from(this.parentScope(), frame) });
   }
 
   _onFrameDetached(frame: Frame) {
-    this._dispatchEvent('frameDetached', { frame: FrameDispatcher.from(this, frame) });
+    this._dispatchEvent('frameDetached', { frame: FrameDispatcher.from(this.parentScope(), frame) });
   }
 
   override _onDispose() {
@@ -346,7 +347,7 @@ export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels
 
   constructor(scope: PageDispatcher, name: string, needsHandle: boolean, source: { context: BrowserContext, page: Page, frame: Frame }, args: any[]) {
     super(scope, { guid: 'bindingCall@' + createGuid() }, 'BindingCall', {
-      frame: FrameDispatcher.from(scope, source.frame),
+      frame: FrameDispatcher.from(scope.parentScope(), source.frame),
       name,
       args: needsHandle ? undefined : args.map(serializeResult),
       handle: needsHandle ? ElementHandleDispatcher.fromJSHandle(scope, args[0] as JSHandle) : undefined,

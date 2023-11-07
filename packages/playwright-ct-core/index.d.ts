@@ -22,8 +22,8 @@ import type {
   PlaywrightWorkerArgs,
   PlaywrightWorkerOptions,
   Locator,
-} from '@playwright/test';
-import type { JsonObject } from '@playwright/experimental-ct-core/types/component';
+} from 'playwright/test';
+import type { JsonObject } from './types/component';
 import type { InlineConfig } from 'vite';
 
 export type PlaywrightTestConfig<T = {}, W = {}> = Omit<BasePlaywrightTestConfig<T, W>, 'use'> & {
@@ -63,4 +63,4 @@ export function defineConfig(config: PlaywrightTestConfig): PlaywrightTestConfig
 export function defineConfig<T>(config: PlaywrightTestConfig<T>): PlaywrightTestConfig<T>;
 export function defineConfig<T, W>(config: PlaywrightTestConfig<T, W>): PlaywrightTestConfig<T, W>;
 
-export { expect, devices } from '@playwright/test';
+export { expect, devices } from 'playwright/test';

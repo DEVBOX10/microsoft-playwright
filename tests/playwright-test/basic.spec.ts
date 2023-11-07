@@ -447,10 +447,10 @@ test('should not reuse worker after unhandled rejection in test.fail', async ({ 
       });
     `
   }, { workers: 1 });
-  expect(result.exitCode).toBe(1);
-  expect(result.failed).toBe(1);
-  expect(result.interrupted).toBe(1);
-  expect(result.output).toContain(`Error: Oh my!`);
+  expect(result.exitCode).toBe(0);
+  expect(result.failed).toBe(0);
+  expect(result.passed).toBe(2);
+  expect(result.output).not.toContain(`Oh my!`);
   expect(result.output).not.toContain(`Did not teardown test scope`);
 });
 
@@ -468,6 +468,35 @@ test('should allow unhandled expects in test.fail', async ({ runInlineTest }) =>
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
   expect(result.output).not.toContain(`Error: expect`);
+});
+
+test('should not skip tests after test.fail', async ({ runInlineTest, server }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('failing', async ({}) => {
+        test.fail();
+        expect(Promise.resolve('a')).resolves.toBe('b');
+        await new Promise(f => setTimeout(f, 1000));
+      });
+    `,
+    'b.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('passing', async ({}) => {
+        console.log('b-passing');
+      });
+    `,
+    'c.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('passing', async ({}) => {
+        console.log('c-passing');
+      });
+    `,
+  }, { workers: '1' });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(3);
+  expect(result.output).toContain('b-passing');
+  expect(result.output).toContain('c-passing');
 });
 
 test('should support describe.skip', async ({ runInlineTest }) => {

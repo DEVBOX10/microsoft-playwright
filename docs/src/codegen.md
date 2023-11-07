@@ -5,6 +5,7 @@ title: "Test generator"
 
 import LiteYouTube from '@site/src/components/LiteYouTube';
 
+## Introduction
 
 Playwright comes with the ability to generate tests for you as you perform actions in the browser and is a great way to quickly get started with testing. Playwright will look at your page and figure out the best locator, prioritizing [role, text and test id locators](./locators.md). If the generator finds multiple elements matching the locator, it will improve the locator to make it resilient that uniquely identify the target element.
 
@@ -144,7 +145,7 @@ You can use the test generator to generate tests using emulation so as to genera
 
 ### Emulate viewport size
 
-Playwright opens a browser window with it's viewport set to a specific width and height and is not responsive as tests need to be run under the same conditions. Use the `--viewport` option to generate tests with a different viewport size.
+Playwright opens a browser window with its viewport set to a specific width and height and is not responsive as tests need to be run under the same conditions. Use the `--viewport` option to generate tests with a different viewport size.
 
 ```bash js
 npx playwright codegen --viewport-size=800,600 playwright.dev

@@ -22,7 +22,7 @@ import { TreeView } from '@web/components/treeView';
 import type { TreeState } from '@web/components/treeView';
 import { baseFullConfig, TeleReporterReceiver, TeleSuite } from '@testIsomorphic/teleReceiver';
 import type { TeleTestCase } from '@testIsomorphic/teleReceiver';
-import type { FullConfig, Suite, TestCase, Location, TestError } from '@playwright/test/types/testReporter';
+import type { FullConfig, Suite, TestCase, Location, TestError } from 'playwright/types/testReporter';
 import { SplitView } from '@web/components/splitView';
 import { idForAction, MultiTraceModel } from './modelUtil';
 import type { SourceLocation } from './modelUtil';
@@ -38,6 +38,8 @@ import { artifactsFolderName } from '@testIsomorphic/folders';
 import { msToString, settings, useSetting } from '@web/uiUtils';
 import type { ActionTraceEvent } from '@trace/trace';
 import { connect } from './wsPort';
+import { testStatusIcon } from './testUtils';
+import type { UITestStatus } from './testUtils';
 
 let updateRootSuite: (config: FullConfig, rootSuite: Suite, loadErrors: TestError[], progress: Progress | undefined) => void = () => {};
 let runWatchedTests = (fileNames: string[]) => {};
@@ -74,7 +76,7 @@ export const UIModeView: React.FC<{}> = ({
   const [projectFilters, setProjectFilters] = React.useState<Map<string, boolean>>(new Map());
   const [testModel, setTestModel] = React.useState<TestModel>({ config: undefined, rootSuite: undefined, loadErrors: [] });
   const [progress, setProgress] = React.useState<Progress & { total: number } | undefined>();
-  const [selectedItem, setSelectedItem] = React.useState<{ testFile?: SourceLocation, testCase?: TestCase }>({});
+  const [selectedItem, setSelectedItem] = React.useState<{ treeItem?: TreeItem, testFile?: SourceLocation, testCase?: TestCase }>({});
   const [visibleTestIds, setVisibleTestIds] = React.useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
   const [runningState, setRunningState] = React.useState<{ testIds: Set<string>, itemSelectedByUser?: boolean } | undefined>();
@@ -84,6 +86,7 @@ export const UIModeView: React.FC<{}> = ({
   const runTestBacklog = React.useRef<Set<string>>(new Set());
   const [collapseAllCount, setCollapseAllCount] = React.useState(0);
   const [isDisconnected, setIsDisconnected] = React.useState(false);
+  const [hasBrowsers, setHasBrowsers] = React.useState(true);
 
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -91,8 +94,10 @@ export const UIModeView: React.FC<{}> = ({
     setIsLoading(true);
     setWatchedTreeIds({ value: new Set() });
     updateRootSuite(baseFullConfig, new TeleSuite('', 'root'), [], undefined);
-    refreshRootSuite(true).then(() => {
+    refreshRootSuite(true).then(async () => {
       setIsLoading(false);
+      const { hasBrowsers } = await sendMessage('checkBrowsers');
+      setHasBrowsers(hasBrowsers);
     });
   }, []);
 
@@ -100,7 +105,11 @@ export const UIModeView: React.FC<{}> = ({
     inputRef.current?.focus();
     setIsLoading(true);
     connect({ onEvent: dispatchEvent, onClose: () => setIsDisconnected(true) }).then(send => {
-      sendMessage = send;
+      sendMessage = async (method, params) => {
+        const logForTest = (window as any).__logForTest;
+        logForTest?.({ method, params });
+        await send(method, params);
+      };
       reloadTests();
     });
   }, [reloadTests]);
@@ -121,7 +130,7 @@ export const UIModeView: React.FC<{}> = ({
     setTestModel({ config, rootSuite, loadErrors });
     setProjectFilters(new Map(projectFilters));
     if (runningState && newProgress)
-      setProgress({ ...newProgress, total: runningState.testIds.size });
+      setProgress(newProgress);
     else if (!newProgress)
       setProgress(undefined);
   }, [projectFilters, runningState]);
@@ -150,10 +159,10 @@ export const UIModeView: React.FC<{}> = ({
 
       const time = '  [' + new Date().toLocaleTimeString() + ']';
       xtermDataSource.write('\x1B[2m—'.repeat(Math.max(0, xtermSize.cols - time.length)) + time + '\x1B[22m');
-      setProgress({ total: testIds.size, passed: 0, failed: 0, skipped: 0 });
+      setProgress({ total: 0, passed: 0, failed: 0, skipped: 0 });
       setRunningState({ testIds });
 
-      await sendMessage('run', { testIds: [...testIds] });
+      await sendMessage('run', { testIds: [...testIds], projects: [...projectFilters].filter(([_, v]) => v).map(([p]) => p) });
       // Clear pending tests in case of interrupt.
       for (const test of testModel.rootSuite?.allTests() || []) {
         if (test.results[0]?.duration === -1)
@@ -162,16 +171,47 @@ export const UIModeView: React.FC<{}> = ({
       setTestModel({ ...testModel });
       setRunningState(undefined);
     });
-  }, [runningState, testModel]);
+  }, [projectFilters, runningState, testModel]);
 
   const isRunningTest = !!runningState;
+  const dialogRef = React.useRef<HTMLDialogElement>(null);
+  const openInstallDialog = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dialogRef.current?.showModal();
+  }, []);
+  const closeInstallDialog = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dialogRef.current?.close();
+  }, []);
+  const installBrowsers = React.useCallback((e: React.MouseEvent) => {
+    closeInstallDialog(e);
+    setIsShowingOutput(true);
+    sendMessage('installBrowsers').then(async () => {
+      setIsShowingOutput(false);
+      const { hasBrowsers } = await sendMessage('checkBrowsers');
+      setHasBrowsers(hasBrowsers);
+    });
+  }, [closeInstallDialog]);
 
   return <div className='vbox ui-mode'>
+    {!hasBrowsers && <dialog ref={dialogRef}>
+      <div className='title'><span className='codicon codicon-lightbulb'></span>Install browsers</div>
+      <div className='body'>
+        Playwright did not find installed browsers.
+        <br></br>
+        Would you like to run `playwright install`?
+        <br></br>
+        <button className='button' onClick={installBrowsers}>Install</button>
+        <button className='button secondary' onClick={closeInstallDialog}>Dismiss</button>
+      </div>
+    </dialog>}
     {isDisconnected && <div className='drop-target'>
       <div className='title'>UI Mode disconnected</div>
       <div><a href='#' onClick={() => window.location.reload()}>Reload the page</a> to reconnect</div>
     </div>}
-    <SplitView sidebarSize={250} orientation='horizontal' sidebarIsFirst={true}>
+    <SplitView sidebarSize={250} minSidebarSize={150} orientation='horizontal' sidebarIsFirst={true} settingName='testListSidebar'>
       <div className='vbox'>
         <div className={'vbox' + (isShowingOutput ? '' : ' hidden')}>
           <Toolbar>
@@ -188,11 +228,12 @@ export const UIModeView: React.FC<{}> = ({
       </div>
       <div className='vbox ui-mode-sidebar'>
         <Toolbar noShadow={true} noMinHeight={true}>
-          <img src='icon-32x32.png' />
+          <img src='playwright-logo.svg' alt='Playwright logo' />
           <div className='section-title'>Playwright</div>
           <ToolbarButton icon='color-mode' title='Toggle color mode' onClick={() => toggleTheme()} />
           <ToolbarButton icon='refresh' title='Reload' onClick={() => reloadTests()} disabled={isRunningTest || isLoading}></ToolbarButton>
           <ToolbarButton icon='terminal' title='Toggle output' toggled={isShowingOutput} onClick={() => { setIsShowingOutput(!isShowingOutput); }} />
+          {!hasBrowsers && <ToolbarButton icon='lightbulb-autofix' style={{ color: 'var(--vscode-list-warningForeground)' }} title='Playwright browsers are missing' onClick={openInstallDialog} />}
         </Toolbar>
         <FiltersView
           filterText={filterText}
@@ -213,7 +254,10 @@ export const UIModeView: React.FC<{}> = ({
           </div>}
           <ToolbarButton icon='play' title='Run all' onClick={() => runTests('bounce-if-busy', visibleTestIds)} disabled={isRunningTest || isLoading}></ToolbarButton>
           <ToolbarButton icon='debug-stop' title='Stop' onClick={() => sendMessageNoReply('stop')} disabled={!isRunningTest || isLoading}></ToolbarButton>
-          <ToolbarButton icon='eye' title='Watch all' toggled={watchAll} onClick={() => setWatchAll(!watchAll)}></ToolbarButton>
+          <ToolbarButton icon='eye' title='Watch all' toggled={watchAll} onClick={() => {
+            setWatchedTreeIds({ value: new Set() });
+            setWatchAll(!watchAll);
+          }}></ToolbarButton>
           <ToolbarButton icon='collapse-all' title='Collapse all' onClick={() => {
             setCollapseAllCount(collapseAllCount + 1);
           }} />
@@ -299,7 +343,7 @@ const FiltersView: React.FC<{
                 if (configFile)
                   settings.setObject(configFile + ':projects', [...copy.entries()].filter(([_, v]) => v).map(([k]) => k));
               }}/>
-              <div>{projectName}</div>
+              <div>{projectName || 'untitled'}</div>
             </label>
           </div>;
         })}
@@ -322,7 +366,7 @@ const TestList: React.FC<{
   setWatchedTreeIds: (ids: { value: Set<string> }) => void,
   isLoading?: boolean,
   setVisibleTestIds: (testIds: Set<string>) => void,
-  onItemSelected: (item: { testCase?: TestCase, testFile?: SourceLocation }) => void,
+  onItemSelected: (item: { treeItem?: TreeItem, testCase?: TestCase, testFile?: SourceLocation }) => void,
   requestedCollapseAllCount: number,
 }> = ({ statusFilters, projectFilters, filterText, testModel, runTests, runningState, watchAll, watchedTreeIds, setWatchedTreeIds, isLoading, onItemSelected, setVisibleTestIds, requestedCollapseAllCount }) => {
   const [treeState, setTreeState] = React.useState<TreeState>({ expandedItems: new Map() });
@@ -405,7 +449,7 @@ const TestList: React.FC<{
       selectedTest = selectedTreeItem.test;
     else if (selectedTreeItem?.kind === 'case' && selectedTreeItem.tests.length === 1)
       selectedTest = selectedTreeItem.tests[0];
-    onItemSelected({ testCase: selectedTest, testFile });
+    onItemSelected({ treeItem: selectedTreeItem, testCase: selectedTest, testFile });
     return { selectedTreeItem };
   }, [onItemSelected, selectedTreeItemId, testModel, treeItemMap]);
 
@@ -456,13 +500,14 @@ const TestList: React.FC<{
   };
 
   return <TestTreeView
+    name='tests'
     treeState={treeState}
     setTreeState={setTreeState}
     rootItem={rootItem}
     dataTestId='test-tree'
     render={treeItem => {
       return <div className='hbox ui-mode-list-item'>
-        <div className='ui-mode-list-item-title'>{treeItem.title}</div>
+        <div className='ui-mode-list-item-title' title={treeItem.title}>{treeItem.title}</div>
         {!!treeItem.duration && treeItem.status !== 'skipped' && <div className='ui-mode-list-item-time'>{msToString(treeItem.duration)}</div>}
         <Toolbar noMinHeight={true} noShadow={true}>
           <ToolbarButton icon='play' title='Run' onClick={() => runTreeItem(treeItem)} disabled={!!runningState}></ToolbarButton>
@@ -477,19 +522,7 @@ const TestList: React.FC<{
         </Toolbar>
       </div>;
     }}
-    icon={treeItem => {
-      if (treeItem.status === 'scheduled')
-        return 'codicon-clock';
-      if (treeItem.status === 'running')
-        return 'codicon-loading';
-      if (treeItem.status === 'failed')
-        return 'codicon-error';
-      if (treeItem.status === 'passed')
-        return 'codicon-check';
-      if (treeItem.status === 'skipped')
-        return 'codicon-circle-slash';
-      return 'codicon-circle-outline';
-    }}
+    icon={treeItem => testStatusIcon(treeItem.status)}
     selectedItem={selectedTreeItem}
     onAccepted={runTreeItem}
     onSelected={treeItem => {
@@ -503,7 +536,7 @@ const TestList: React.FC<{
 };
 
 const TraceView: React.FC<{
-  item: { testFile?: SourceLocation, testCase?: TestCase },
+  item: { treeItem?: TreeItem, testFile?: SourceLocation, testCase?: TestCase },
   rootDir?: string,
 }> = ({ item, rootDir }) => {
   const [model, setModel] = React.useState<{ model: MultiTraceModel, isLive: boolean } | undefined>();
@@ -564,7 +597,6 @@ const TraceView: React.FC<{
   return <Workbench
     key='workbench'
     model={model?.model}
-    hideTimelineBars={true}
     hideStackFrames={true}
     showSourcesFirst={true}
     rootDir={rootDir}
@@ -572,10 +604,12 @@ const TraceView: React.FC<{
     onSelectionChanged={onSelectionChanged}
     fallbackLocation={item.testFile}
     isLive={model?.isLive}
-    drawer='bottom' />;
+    status={item.treeItem?.status} />;
 };
 
 let receiver: TeleReporterReceiver | undefined;
+let lastRunReceiver: TeleReporterReceiver | undefined;
+let lastRunTestCount: number;
 
 let throttleTimer: NodeJS.Timeout | undefined;
 let throttleData: { config: FullConfig, rootSuite: Suite, loadErrors: TestError[], progress: Progress } | undefined;
@@ -598,20 +632,35 @@ const refreshRootSuite = (eraseResults: boolean): Promise<void> => {
     return sendMessage('list', {});
 
   let rootSuite: Suite;
-  let loadErrors: TestError[];
+  const loadErrors: TestError[] = [];
   const progress: Progress = {
+    total: 0,
     passed: 0,
     failed: 0,
     skipped: 0,
   };
   let config: FullConfig;
   receiver = new TeleReporterReceiver(pathSeparator, {
-    onBegin: (c: FullConfig, suite: Suite) => {
-      if (!rootSuite) {
-        rootSuite = suite;
-        loadErrors = [];
-      }
+    version: () => 'v2',
+
+    onConfigure: (c: FullConfig) => {
       config = c;
+      // TeleReportReceiver is merging everything into a single suite, so when we
+      // run one test, we still get many tests via rootSuite.allTests().length.
+      // To work around that, have a dedicated per-run receiver that will only have
+      // suite for a single test run, and hence will have correct total.
+      lastRunReceiver = new TeleReporterReceiver(pathSeparator, {
+        onBegin: (suite: Suite) => {
+          lastRunTestCount = suite.allTests().length;
+          lastRunReceiver = undefined;
+        }
+      }, false);
+    },
+
+    onBegin: (suite: Suite) => {
+      if (!rootSuite)
+        rootSuite = suite;
+      progress.total = lastRunTestCount;
       progress.passed = 0;
       progress.failed = 0;
       progress.skipped = 0;
@@ -639,8 +688,18 @@ const refreshRootSuite = (eraseResults: boolean): Promise<void> => {
     onError: (error: TestError) => {
       xtermDataSource.write((error.stack || error.value || '') + '\n');
       loadErrors.push(error);
-      throttleUpdateRootSuite(config, rootSuite, loadErrors, progress);
+      throttleUpdateRootSuite(config, rootSuite ?? new TeleSuite('', 'root'), loadErrors, progress);
     },
+
+    printsToStdio: () => {
+      return false;
+    },
+
+    onStdOut: () => {},
+    onStdErr: () => {},
+    onExit: () => {},
+    onStepBegin: () => {},
+    onStepEnd: () => {},
   }, true);
   receiver._setClearPreviousResultsWhenTestBegins();
   return sendMessage('list', {});
@@ -678,6 +737,9 @@ const dispatchEvent = (method: string, params?: any) => {
     return;
   }
 
+  // The order of receiver dispatches matters here, we want to assign `lastRunTestCount`
+  // before we use it.
+  lastRunReceiver?.dispatch({ method, params })?.catch(() => {});
   receiver?.dispatch({ method, params })?.catch(() => {});
 };
 
@@ -713,6 +775,7 @@ const collectTestIds = (treeItem?: TreeItem): Set<string> => {
 };
 
 type Progress = {
+  total: number;
   passed: number;
   failed: number;
   skipped: number;
@@ -726,7 +789,7 @@ type TreeItemBase = {
   duration: number;
   parent: TreeItem | undefined;
   children: TreeItem[];
-  status: 'none' | 'running' | 'scheduled' | 'passed' | 'failed' | 'skipped';
+  status: UITestStatus;
 };
 
 type GroupItem = TreeItemBase & {
@@ -793,12 +856,12 @@ function createTree(rootSuite: Suite | undefined, loadErrors: TestError[], proje
   const visitSuite = (projectName: string, parentSuite: Suite, parentGroup: GroupItem) => {
     for (const suite of parentSuite.suites) {
       const title = suite.title || '<anonymous>';
-      let group = parentGroup.children.find(item => item.title === title) as GroupItem | undefined;
+      let group = parentGroup.children.find(item => item.kind === 'group' && item.title === title) as GroupItem | undefined;
       if (!group) {
         group = {
           kind: 'group',
           subKind: 'describe',
-          id: parentGroup.id + '\x1e' + title,
+          id: 'suite:' + parentSuite.titlePath().join('\x1e') + '\x1e' + title,  // account for anonymous suites
           title,
           location: suite.location!,
           duration: 0,
@@ -814,11 +877,11 @@ function createTree(rootSuite: Suite | undefined, loadErrors: TestError[], proje
 
     for (const test of parentSuite.tests) {
       const title = test.title;
-      let testCaseItem = parentGroup.children.find(t => t.title === title) as TestCaseItem;
+      let testCaseItem = parentGroup.children.find(t => t.kind !== 'group' && t.title === title) as TestCaseItem;
       if (!testCaseItem) {
         testCaseItem = {
           kind: 'case',
-          id: parentGroup.id + '\x1e' + title,
+          id: 'test:' + test.titlePath().join('\x1e'),
           title,
           parent: parentGroup,
           children: [],
@@ -870,12 +933,13 @@ function createTree(rootSuite: Suite | undefined, loadErrors: TestError[], proje
       const fileItem = getFileItem(rootItem, fileSuite.location!.file.split(pathSeparator), true, fileMap);
       visitSuite(projectSuite.title, fileSuite, fileItem);
     }
-    for (const loadError of loadErrors) {
-      if (!loadError.location)
-        continue;
-      const fileItem = getFileItem(rootItem, loadError.location.file.split(pathSeparator), true, fileMap);
-      fileItem.hasLoadErrors = true;
-    }
+  }
+
+  for (const loadError of loadErrors) {
+    if (!loadError.location)
+      continue;
+    const fileItem = getFileItem(rootItem, loadError.location.file.split(pathSeparator), true, fileMap);
+    fileItem.hasLoadErrors = true;
   }
   return rootItem;
 }
@@ -889,7 +953,7 @@ function filterTree(rootItem: GroupItem, filterText: string, statusFilters: Map<
     if (!tokens.every(token => title.includes(token)) && !testCase.tests.some(t => runningTestIds?.has(t.id)))
       return false;
     testCase.children = (testCase.children as TestItem[]).filter(test => {
-      return !filtersStatuses || runningTestIds?.has(test.id) || statusFilters.get(test.status);
+      return !filtersStatuses || runningTestIds?.has(test.test.id) || statusFilters.get(test.status);
     });
     testCase.tests = (testCase.children as TestItem[]).map(c => c.test);
     return !!testCase.children.length;

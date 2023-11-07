@@ -29,7 +29,7 @@ import * as types from './types';
 import { BrowserContext } from './browserContext';
 import type { Progress } from './progress';
 import { ProgressController } from './progress';
-import { assert, constructURLBasedOnBaseURL, makeWaitForNextTask, monotonicTime } from '../utils';
+import { LongStandingScope, assert, constructURLBasedOnBaseURL, makeWaitForNextTask, monotonicTime } from '../utils';
 import { ManualPromise } from '../utils/manualPromise';
 import { debugLogger } from '../common/debugLogger';
 import type { CallMetadata } from './instrumentation';
@@ -41,10 +41,10 @@ import type { ScreenshotOptions } from './screenshotter';
 import type { InputFilesItems } from './dom';
 import { asLocator } from '../utils/isomorphic/locatorGenerators';
 import { FrameSelectors } from './frameSelectors';
-import { TimeoutError } from '../common/errors';
+import { TimeoutError } from './errors';
 
 type ContextData = {
-  contextPromise: ManualPromise<dom.FrameExecutionContext | Error>;
+  contextPromise: ManualPromise<dom.FrameExecutionContext | { destroyedReason: string }>;
   context: dom.FrameExecutionContext | null;
 };
 
@@ -200,7 +200,9 @@ export class FrameManager {
       // Do not override request with undefined.
       return;
     }
-    frame.setPendingDocument({ documentId, request: undefined });
+
+    const request = documentId ? Array.from(frame._inflightRequests).find(request => request._documentId === documentId) : undefined;
+    frame.setPendingDocument({ documentId, request });
   }
 
   frameCommittedNewDocumentNavigation(frameId: string, url: string, name: string, documentId: string, initial: boolean) {
@@ -476,15 +478,13 @@ export class Frame extends SdkObject {
   readonly _page: Page;
   private _parentFrame: Frame | null;
   _url = '';
-  private _detached = false;
   private _contextData = new Map<types.World, ContextData>();
   private _childFrames = new Set<Frame>();
   _name = '';
   _inflightRequests = new Set<network.Request>();
   private _networkIdleTimer: NodeJS.Timer | undefined;
   private _setContentCounter = 0;
-  readonly _detachedPromise: Promise<void>;
-  private _detachedCallback = () => {};
+  readonly _detachedScope = new LongStandingScope();
   private _raceAgainstEvaluationStallingEventsPromises = new Set<ManualPromise<any>>();
   readonly _redirectedNavigations = new Map<string, { url: string, gotoPromise: Promise<network.Response | null> }>(); // documentId -> data
   readonly selectors: FrameSelectors;
@@ -497,8 +497,6 @@ export class Frame extends SdkObject {
     this._parentFrame = parentFrame;
     this._currentDocument = { documentId: undefined, request: undefined };
     this.selectors = new FrameSelectors(this);
-
-    this._detachedPromise = new Promise<void>(x => this._detachedCallback = x);
 
     this._contextData.set('main', { contextPromise: new ManualPromise(), context: null });
     this._contextData.set('utility', { contextPromise: new ManualPromise(), context: null });
@@ -514,7 +512,7 @@ export class Frame extends SdkObject {
   }
 
   isDetached(): boolean {
-    return this._detached;
+    return this._detachedScope.isClosed();
   }
 
   _onLifecycleEvent(event: RegularLifecycleEvent) {
@@ -617,21 +615,19 @@ export class Frame extends SdkObject {
   }
 
   async raceNavigationAction(progress: Progress, options: types.GotoOptions, action: () => Promise<network.Response | null>): Promise<network.Response | null> {
-    return Promise.race([
-      this._page._disconnectedPromise.then(() => { throw new Error('Navigation failed because page was closed!'); }),
-      this._page._crashedPromise.then(() => { throw new Error('Navigation failed because page crashed!'); }),
-      this._detachedPromise.then(() => { throw new Error('Navigating frame was detached!'); }),
-      action().catch(e => {
-        if (e instanceof NavigationAbortedError && e.documentId) {
-          const data = this._redirectedNavigations.get(e.documentId);
-          if (data) {
-            progress.log(`waiting for redirected navigation to "${data.url}"`);
-            return data.gotoPromise;
-          }
+    return LongStandingScope.raceMultiple([
+      this._detachedScope,
+      this._page.openScope,
+    ], action().catch(e => {
+      if (e instanceof NavigationAbortedError && e.documentId) {
+        const data = this._redirectedNavigations.get(e.documentId);
+        if (data) {
+          progress.log(`waiting for redirected navigation to "${data.url}"`);
+          return data.gotoPromise;
         }
-        throw e;
-      }),
-    ]);
+      }
+      throw e;
+    }));
   }
 
   redirectNavigation(url: string, documentId: string, referer: string | undefined) {
@@ -732,10 +728,10 @@ export class Frame extends SdkObject {
   }
 
   _context(world: types.World): Promise<dom.FrameExecutionContext> {
-    return this._contextData.get(world)!.contextPromise.then(contextOrError => {
-      if (contextOrError instanceof js.ExecutionContext)
-        return contextOrError;
-      throw contextOrError;
+    return this._contextData.get(world)!.contextPromise.then(contextOrDestroyedReason => {
+      if (contextOrDestroyedReason instanceof js.ExecutionContext)
+        return contextOrDestroyedReason;
+      throw new Error(contextOrDestroyedReason.destroyedReason);
     });
   }
 
@@ -838,7 +834,7 @@ export class Frame extends SdkObject {
   async evalOnSelector(selector: string, strict: boolean, expression: string, isFunction: boolean | undefined, arg: any, scope?: dom.ElementHandle): Promise<any> {
     const handle = await this.selectors.query(selector, { strict }, scope);
     if (!handle)
-      throw new Error(`Error: failed to find element matching selector "${selector}"`);
+      throw new Error(`Failed to find element matching selector "${selector}"`);
     const result = await handle.evaluateExpression(expression, { isFunction }, arg);
     handle.dispose();
     return result;
@@ -901,7 +897,6 @@ export class Frame extends SdkObject {
           });
         });
         const contentPromise = context.evaluate(({ html, tag }) => {
-          window.stop();
           document.open();
           console.debug(tag);  // eslint-disable-line no-console
           document.write(html);
@@ -1057,12 +1052,11 @@ export class Frame extends SdkObject {
       if (timeout) {
         // Make sure we react immediately upon page close or frame detach.
         // We need this to show expected/received values in time.
-        await Promise.race([
-          this._page._disconnectedPromise,
-          this._page._crashedPromise,
-          this._detachedPromise,
-          new Promise(f => setTimeout(f, timeout)),
-        ]);
+        const actionPromise = new Promise(f => setTimeout(f, timeout));
+        await LongStandingScope.raceMultiple([
+          this._page.openScope,
+          this._detachedScope,
+        ], actionPromise);
       }
       progress.throwIfAborted();
       try {
@@ -1538,13 +1532,11 @@ export class Frame extends SdkObject {
 
   _onDetached() {
     this._stopNetworkIdleTimer();
-    this._detached = true;
-    this._detachedCallback();
-    const error = new Error('Frame was detached');
+    this._detachedScope.close(new Error('Frame was detached'));
     for (const data of this._contextData.values()) {
       if (data.context)
-        data.context.contextDestroyed(error);
-      data.contextPromise.resolve(error);
+        data.context.contextDestroyed('Frame was detached');
+      data.contextPromise.resolve({ destroyedReason: 'Frame was detached' });
     }
     if (this._parentFrame)
       this._parentFrame._childFrames.delete(this);
@@ -1597,7 +1589,7 @@ export class Frame extends SdkObject {
     // connections so we might end up creating multiple isolated worlds.
     // We can use either.
     if (data.context) {
-      data.context.contextDestroyed(new Error('Execution context was destroyed, most likely because of a navigation'));
+      data.context.contextDestroyed('Execution context was destroyed, most likely because of a navigation');
       this._setContext(world, null);
     }
     this._setContext(world, context);
@@ -1606,9 +1598,9 @@ export class Frame extends SdkObject {
   _contextDestroyed(context: dom.FrameExecutionContext) {
     // Sometimes we get this after detach, in which case we should not reset
     // our already destroyed contexts to something that will never resolve.
-    if (this._detached)
+    if (this._detachedScope.isClosed())
       return;
-    context.contextDestroyed(new Error('Execution context was destroyed, most likely because of a navigation'));
+    context.contextDestroyed('Execution context was destroyed, most likely because of a navigation');
     for (const [world, data] of this._contextData) {
       if (data.context === context)
         this._setContext(world, null);
@@ -1620,7 +1612,7 @@ export class Frame extends SdkObject {
     // We should not start a timer and report networkidle in detached frames.
     // This happens at least in Firefox for child frames, where we may get requestFinished
     // after the frame was detached - probably a race in the Firefox itself.
-    if (this._firedLifecycleEvents.has('networkidle') || this._detached)
+    if (this._firedLifecycleEvents.has('networkidle') || this._detachedScope.isClosed())
       return;
     this._networkIdleTimer = setTimeout(() => {
       this._firedNetworkIdleSelf = true;
@@ -1709,12 +1701,10 @@ class SignalBarrier {
         this._progress.log(`  navigated to "${frame._url}"`);
       return true;
     });
-    await Promise.race([
-      frame._page._disconnectedPromise,
-      frame._page._crashedPromise,
-      frame._detachedPromise,
-      waiter.promise,
-    ]).catch(e => {});
+    await LongStandingScope.raceMultiple([
+      frame._page.openScope,
+      frame._detachedScope,
+    ], waiter.promise).catch(() => {});
     waiter.dispose();
     this.release();
   }

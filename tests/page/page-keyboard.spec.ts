@@ -358,7 +358,7 @@ it('should support MacOS shortcuts', async ({ page, server, platform, browserNam
   expect(await page.$eval('textarea', textarea => textarea.value)).toBe('some ');
 });
 
-it('should press the meta key', async ({ page, browserName, isMac }) => {
+it('should press the meta key', async ({ page, browserName, isMac, browserMajorVersion }) => {
   const lastEvent = await captureLastKeydown(page);
   await page.keyboard.press('Meta');
   const { key, code, metaKey } = await lastEvent.jsonValue();
@@ -367,7 +367,7 @@ it('should press the meta key', async ({ page, browserName, isMac }) => {
   else
     expect(key).toBe('Meta');
 
-  if (browserName === 'firefox')
+  if (browserName === 'firefox' && browserMajorVersion <= 117)
     expect(code).toBe('OSLeft');
   else
     expect(code).toBe('MetaLeft');
@@ -701,4 +701,15 @@ it('should type after context menu was opened', async ({ server, page, browserNa
   await page.keyboard.down('ArrowDown');
 
   await expect.poll(() => page.evaluate('window.keys')).toEqual(['ArrowDown']);
+});
+
+it('should have correct Keydown/Keyup order when pressing Escape key', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27709' });
+
+  await page.goto(server.PREFIX + '/input/keyboard.html');
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate('getResult()')).toBe(`
+Keydown: Escape Escape 27 []
+Keyup: Escape Escape 27 []
+`.trim());
 });

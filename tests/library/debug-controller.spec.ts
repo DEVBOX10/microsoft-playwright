@@ -46,13 +46,12 @@ const test = baseTest.extend<Fixtures>({
   connectedBrowserFactory: async ({ wsEndpoint, browserType }, use) => {
     const browsers: BrowserWithReuse [] = [];
     await use(async () => {
-      const oldValue = (browserType as any)._defaultConnectOptions;
-      (browserType as any)._defaultConnectOptions = {
-        wsEndpoint,
-        headers: { 'x-playwright-reuse-context': '1', },
-      };
-      const browser = await browserType.launch() as BrowserWithReuse;
-      (browserType as any)._defaultConnectOptions = oldValue;
+      const browser = await browserType.connect(wsEndpoint, {
+        headers: {
+          'x-playwright-launch-options': JSON.stringify((browserType as any)._defaultLaunchOptions),
+          'x-playwright-reuse-context': '1',
+        },
+      }) as BrowserWithReuse;
       browsers.push(browser);
       return browser;
     });
@@ -65,7 +64,7 @@ const test = baseTest.extend<Fixtures>({
 });
 
 test.slow(true, 'All controller tests are slow');
-test.skip(({ mode }) => mode === 'service');
+test.skip(({ mode }) => mode.startsWith('service'));
 
 test('should pick element', async ({ backend, connectedBrowser }) => {
   const events = [];

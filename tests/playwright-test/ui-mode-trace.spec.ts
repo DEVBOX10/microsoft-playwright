@@ -34,7 +34,7 @@ test('should merge trace events', async ({ runUITest, server }) => {
 
   await page.getByText('trace test').dblclick();
 
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
@@ -45,8 +45,6 @@ test('should merge trace events', async ({ runUITest, server }) => {
     /locator.clickgetByRole\('button'\)[\d.]+m?s/,
     /expect.toBe[\d.]+m?s/,
     /After Hooks[\d.]+m?s/,
-    /fixture: page[\d.]+m?s/,
-    /fixture: context[\d.]+m?s/,
   ]);
 });
 
@@ -63,7 +61,7 @@ test('should merge web assertion events', async ({  runUITest }, testInfo) => {
 
   await page.getByText('trace test').dblclick();
 
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
@@ -72,8 +70,6 @@ test('should merge web assertion events', async ({  runUITest }, testInfo) => {
     /page.setContent[\d.]+m?s/,
     /expect.toBeVisiblelocator\('button'\)[\d.]+m?s/,
     /After Hooks[\d.]+m?s/,
-    /fixture: page[\d.]+m?s/,
-    /fixture: context[\d.]+m?s/,
   ]);
 });
 
@@ -90,7 +86,7 @@ test('should merge screenshot assertions', async ({  runUITest }, testInfo) => {
 
   await page.getByText('trace test').dblclick();
 
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
@@ -98,9 +94,8 @@ test('should merge screenshot assertions', async ({  runUITest }, testInfo) => {
     /Before Hooks[\d.]+m?s/,
     /page.setContent[\d.]+m?s/,
     /expect.toHaveScreenshot[\d.]+m?s/,
+    /attach "trace-test-1-actual.png/,
     /After Hooks[\d.]+m?s/,
-    /fixture: page[\d.]+m?s/,
-    /fixture: context[\d.]+m?s/,
   ]);
 });
 
@@ -137,7 +132,7 @@ test('should show snapshots for sync assertions', async ({ runUITest, server }) 
 
   await page.getByText('trace test').dblclick();
 
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
@@ -147,8 +142,6 @@ test('should show snapshots for sync assertions', async ({ runUITest, server }) 
     /locator\.clickgetByRole\('button'\)[\d.]+m?s/,
     /expect\.toBe[\d.]+m?s/,
     /After Hooks[\d.]+m?s/,
-    /fixture: page[\d.]+m?s/,
-    /fixture: context[\d.]+m?s/,
   ]);
 
   await expect(

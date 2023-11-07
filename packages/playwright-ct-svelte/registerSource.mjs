@@ -21,7 +21,6 @@
 import { detach as __pwDetach, insert as __pwInsert, noop as __pwNoop } from 'svelte/internal';
 
 /** @typedef {import('../playwright-ct-core/types/component').Component} Component */
-/** @typedef {import('../playwright-ct-core/types/component').JsxComponent} JsxComponent */
 /** @typedef {import('../playwright-ct-core/types/component').ObjectComponent} ObjectComponent */
 /** @typedef {any} FrameworkComponent */
 /** @typedef {import('svelte').SvelteComponent} SvelteComponent */
@@ -40,19 +39,19 @@ export function pwRegister(components) {
 }
 
 /**
- * @param {Component} component
- * @returns {component is JsxComponent | ObjectComponent}
+ * @param {any} component
+ * @returns {component is ObjectComponent}
  */
 function isComponent(component) {
   return !(typeof component !== 'object' || Array.isArray(component));
 }
 
 /**
- * @param {Component} component
+ * @param {ObjectComponent} component
  */
 async function __pwResolveComponent(component) {
   if (!isComponent(component))
-    return
+    return;
 
   let componentFactory = __pwLoaderRegistry.get(component.type);
   if (!componentFactory) {
@@ -68,11 +67,8 @@ async function __pwResolveComponent(component) {
   if (!componentFactory)
     throw new Error(`Unregistered component: ${component.type}. Following components are registered: ${[...__pwRegistry.keys()]}`);
 
-  if(componentFactory)
-    __pwRegistry.set(component.type, await componentFactory())
-
-  if ('children' in component)
-    await Promise.all(component.children.map(child => __pwResolveComponent(child)))
+  if (componentFactory)
+    __pwRegistry.set(component.type, await componentFactory());
 }
 
 /**
@@ -84,8 +80,8 @@ function __pwCreateSlots(slots) {
 
   for (const slotName in slots) {
     const template = document
-        .createRange()
-        .createContextualFragment(slots[slotName]);
+      .createRange()
+      .createContextualFragment(slots[slotName]);
     svelteSlots[slotName] = [createSlotFn(template)];
   }
 
@@ -109,24 +105,33 @@ function __pwCreateSlots(slots) {
 const __pwSvelteComponentKey = Symbol('svelteComponent');
 
 window.playwrightMount = async (component, rootElement, hooksConfig) => {
-  await __pwResolveComponent(component);
-  const componentCtor = __pwRegistry.get(component.type);
-  
   if (component.kind !== 'object')
     throw new Error('JSX mount notation is not supported');
 
+  await __pwResolveComponent(component);
+  const componentCtor = __pwRegistry.get(component.type);
 
-  for (const hook of window.__pw_hooks_before_mount || [])
-    await hook({ hooksConfig });
-
-  const svelteComponent = /** @type {SvelteComponent} */ (new componentCtor({
-    target: rootElement,
-    props: {
-      ...component.options?.props,
-      $$slots: __pwCreateSlots(component.options?.slots),
-      $$scope: {},
+  class App extends componentCtor {
+    constructor(options = {}) {
+      super({
+        target: rootElement,
+        props: {
+          ...component.options?.props,
+          $$slots: __pwCreateSlots(component.options?.slots),
+          $$scope: {},
+        },
+        ...options
+      });
     }
-  }));
+  }
+
+  let svelteComponent;
+  for (const hook of window.__pw_hooks_before_mount || [])
+    svelteComponent = await hook({ hooksConfig, App });
+
+  if (!svelteComponent)
+    svelteComponent = new App();
+
   rootElement[__pwSvelteComponentKey] = svelteComponent;
 
   for (const [key, listener] of Object.entries(component.options?.on || {}))
@@ -144,6 +149,9 @@ window.playwrightUnmount = async rootElement => {
 };
 
 window.playwrightUpdate = async (rootElement, component) => {
+  if (component.kind !== 'object')
+    throw new Error('JSX mount notation is not supported');
+
   await __pwResolveComponent(component);
   const svelteComponent = /** @type {SvelteComponent} */ (rootElement[__pwSvelteComponentKey]);
   if (!svelteComponent)

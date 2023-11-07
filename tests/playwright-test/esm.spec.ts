@@ -547,3 +547,128 @@ test('should disallow ESM when config is cjs', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
   expect(result.output).toContain('Unknown file extension ".ts"');
 });
+
+test('should be able to use use execSync with a Node.js file inside a spec', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/24516' });
+  const result = await runInlineTest({
+    'global-setup.ts': `
+      import { execSync, spawnSync, fork } from 'child_process';
+      console.log('%%global-setup import level');
+      console.log('%%execSync: ' + execSync('node hello.js').toString());
+      console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+      export default async () => {
+        console.log('%%global-setup export level');
+        console.log('%%execSync: ' + execSync('node hello.js').toString());
+        console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+        const child = fork('hellofork.js');
+        child.on('message', (m) => console.log('%%fork: ' + m));
+        await new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+      }
+    `,
+    'global-teardown.ts': `
+      import { execSync, spawnSync, fork } from 'child_process';
+      console.log('%%global-teardown import level');
+      console.log('%%execSync: ' + execSync('node hello.js').toString());
+      console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+      export default async () => {
+        console.log('%%global-teardown export level');
+        console.log('%%execSync: ' + execSync('node hello.js').toString());
+        console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+        const child = fork('hellofork.js');
+        child.on('message', (m) => console.log('%%fork: ' + m));
+        await new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+      }
+    `,
+    'package.json': `{ "type": "module" }`,
+    'playwright.config.ts': `export default {
+      projects: [{name: 'foo'}],
+      globalSetup: './global-setup.ts',
+      globalTeardown: './global-teardown.ts',
+    };`,
+    'hello.js': `console.log('hello from hello.js');`,
+    'hellofork.js': `process.send('hello from hellofork.js');`,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      import { execSync, spawnSync, fork } from 'child_process';
+      console.log('%%inside test file');
+      console.log('%%execSync: ' + execSync('node hello.js').toString());
+      console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+      test('check project name', async ({}) => {
+        console.log('%%inside test');
+        console.log('%%execSync: ' + execSync('node hello.js').toString());
+        console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+        const child = fork('hellofork.js');
+        child.on('message', (m) => console.log('%%fork: ' + m));
+        await new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.outputLines).toEqual([
+    'global-setup import level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'global-teardown import level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'global-setup export level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'fork: hello from hellofork.js',
+    'inside test file',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'inside test file',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'inside test',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'fork: hello from hellofork.js',
+    'global-teardown export level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'fork: hello from hellofork.js',
+  ]);
+});
+
+test('should be able to use mergeTests/mergeExpect', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.mjs': `
+      import { test as base, expect as baseExpect, mergeTests, mergeExpects } from '@playwright/test';
+      const test = mergeTests(
+        base.extend({
+          myFixture1: '1',
+        }),
+        base.extend({
+          myFixture2: '2',
+        }),
+      );
+
+      const expect = mergeExpects(
+        baseExpect.extend({
+          async toBeFoo1(page, x) {
+            return { pass: true, message: () => '' };
+          }
+        }),
+        baseExpect.extend({
+          async toBeFoo2(page, x) {
+            return { pass: true, message: () => '' };
+          }
+        }),
+      );
+
+      test('merged', async ({ myFixture1, myFixture2 }) => {
+        console.log('%%myFixture1: ' + myFixture1);
+        console.log('%%myFixture2: ' + myFixture2);
+        await expect(1).toBeFoo1();
+        await expect(1).toBeFoo2();
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.outputLines).toContain('myFixture1: 1');
+  expect(result.outputLines).toContain('myFixture2: 2');
+});

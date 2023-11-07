@@ -94,6 +94,11 @@ it('should transfer arrays as arrays, not objects', async ({ page }) => {
   expect(result).toBe(true);
 });
 
+it('should transfer bigint', async ({ page }) => {
+  expect(await page.evaluate(() => 42n)).toBe(42n);
+  expect(await page.evaluate(a => a, 17n)).toBe(17n);
+});
+
 it('should transfer maps as empty objects', async ({ page }) => {
   const result = await page.evaluate(a => a.x.constructor.name + ' ' + JSON.stringify(a.x), { x: new Map([[1, 2]]) });
   expect(result).toBe('Object {}');
@@ -447,7 +452,7 @@ it('should throw if underlying element was disposed', async ({ page }) => {
   await element.dispose();
   let error = null;
   await page.evaluate(e => e.textContent, element).catch(e => error = e);
-  expect(error.message).toContain('JSHandle is disposed');
+  expect(error.message).toContain('no object with guid');
 });
 
 it('should simulate a user gesture', async ({ page }) => {
@@ -647,6 +652,23 @@ it('should not add a toJSON property to newly created Arrays after evaluation', 
 it('should not use toJSON in jsonValue', async ({ page }) => {
   const resultHandle = await page.evaluateHandle(() => ({ toJSON: () => 'string', data: 'data' }));
   expect(await resultHandle.jsonValue()).toEqual({ data: 'data', toJSON: {} });
+});
+
+it('should ignore buggy toJSON', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    class Foo {
+      toJSON() {
+        throw new Error('Bad');
+      }
+    }
+    class Bar {
+      get toJSON() {
+        throw new Error('Also bad');
+      }
+    }
+    return { foo: new Foo(), bar: new Bar() };
+  });
+  expect(result).toEqual({ foo: {}, bar: {} });
 });
 
 it('should not expose the injected script export', async ({ page }) => {

@@ -19,7 +19,7 @@ import { InvalidSelectorError, parseCSS } from './cssParser';
 export { InvalidSelectorError, isInvalidSelectorError } from './cssParser';
 
 export type NestedSelectorBody = { parsed: ParsedSelector, distance?: number };
-const kNestedSelectorNames = new Set(['internal:has', 'internal:has-not', 'internal:and', 'internal:or', 'left-of', 'right-of', 'above', 'below', 'near']);
+const kNestedSelectorNames = new Set(['internal:has', 'internal:has-not', 'internal:and', 'internal:or', 'internal:chain', 'left-of', 'right-of', 'above', 'below', 'near']);
 const kNestedSelectorNamesWithDistance = new Set(['left-of', 'right-of', 'above', 'below', 'near']);
 
 export type ParsedSelectorPart = {
@@ -123,11 +123,18 @@ function selectorPartsEqual(list1: ParsedSelectorPart[], list2: ParsedSelectorPa
   return stringifySelector({ parts: list1 }) === stringifySelector({ parts: list2 });
 }
 
-export function stringifySelector(selector: string | ParsedSelector): string {
+export function stringifySelector(selector: string | ParsedSelector, forceEngineName?: boolean): string {
   if (typeof selector === 'string')
     return selector;
   return selector.parts.map((p, i) => {
-    const prefix = p.name === 'css' ? '' : p.name + '=';
+    let includeEngine = true;
+    if (!forceEngineName && i !== selector.capture) {
+      if (p.name === 'css')
+        includeEngine = false;
+      else if (p.name === 'xpath' && p.source.startsWith('//') || p.source.startsWith('..'))
+        includeEngine = false;
+    }
+    const prefix = includeEngine ? p.name + '=' : '';
     return `${i === selector.capture ? '*' : ''}${prefix}${p.source}`;
   }).join(' >> ');
 }
@@ -302,7 +309,7 @@ export function parseAttributeSelector(selector: string, allowUnquotedStrings: b
       if (next() === '\\') {
         source += eat1();
         if (EOL)
-          syntaxError('parsing regular expressiion');
+          syntaxError('parsing regular expression');
       } else if (inClass && next() === ']') {
         inClass = false;
       } else if (!inClass && next() === '[') {

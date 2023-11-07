@@ -23,7 +23,7 @@ export interface ToolbarButtonProps {
   icon?: string,
   disabled?: boolean,
   toggled?: boolean,
-  onClick: () => void,
+  onClick: (e: React.MouseEvent) => void,
   style?: React.CSSProperties
 }
 
@@ -51,6 +51,12 @@ export const ToolbarButton: React.FC<React.PropsWithChildren<ToolbarButtonProps>
     {icon && <span className={`codicon codicon-${icon}`} style={children ? { marginRight: 5 } : {}}></span>}
     {children}
   </button>;
+};
+
+export const ToolbarSeparator: React.FC<{ style?: React.CSSProperties }> = ({
+  style,
+}) => {
+  return <div className='toolbar-separator' style={style}></div>;
 };
 
 const preventDefault = (e: any) => {

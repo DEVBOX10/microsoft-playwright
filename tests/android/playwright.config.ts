@@ -49,22 +49,24 @@ const metadata = {
   video: false,
 };
 
-config.projects.push({
+config.projects!.push({
   name: 'android',
   use: {
     loopback: '10.0.2.2',
     browserName: 'chromium',
   },
+  snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}{-projectName}{ext}',
   testDir: path.join(testDir, 'android'),
   metadata,
 });
 
-config.projects.push({
+config.projects!.push({
   name: 'android',
   use: {
     loopback: '10.0.2.2',
     browserName: 'chromium',
   },
+  snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}{-projectName}{ext}',
   testDir: path.join(testDir, 'page'),
   metadata,
 });

@@ -38,7 +38,6 @@ export type InitializerTraits<T> =
     T extends TracingChannel ? TracingInitializer :
     T extends DialogChannel ? DialogInitializer :
     T extends BindingCallChannel ? BindingCallInitializer :
-    T extends ConsoleMessageChannel ? ConsoleMessageInitializer :
     T extends WebSocketChannel ? WebSocketInitializer :
     T extends ResponseChannel ? ResponseInitializer :
     T extends RouteChannel ? RouteInitializer :
@@ -76,7 +75,6 @@ export type EventsTraits<T> =
     T extends TracingChannel ? TracingEvents :
     T extends DialogChannel ? DialogEvents :
     T extends BindingCallChannel ? BindingCallEvents :
-    T extends ConsoleMessageChannel ? ConsoleMessageEvents :
     T extends WebSocketChannel ? WebSocketEvents :
     T extends ResponseChannel ? ResponseEvents :
     T extends RouteChannel ? RouteEvents :
@@ -114,7 +112,6 @@ export type EventTargetTraits<T> =
     T extends TracingChannel ? TracingEventTarget :
     T extends DialogChannel ? DialogEventTarget :
     T extends BindingCallChannel ? BindingCallEventTarget :
-    T extends ConsoleMessageChannel ? ConsoleMessageEventTarget :
     T extends WebSocketChannel ? WebSocketEventTarget :
     T extends ResponseChannel ? ResponseEventTarget :
     T extends RouteChannel ? RouteEventTarget :
@@ -179,6 +176,7 @@ export type SerializedValue = {
   v?: 'null' | 'undefined' | 'NaN' | 'Infinity' | '-Infinity' | '-0',
   d?: string,
   u?: string,
+  bi?: string,
   r?: {
     p: string,
     f: string,
@@ -319,7 +317,7 @@ export type APIRequestContextFetchParams = {
   method?: string,
   headers?: NameValue[],
   postData?: Binary,
-  jsonData?: any,
+  jsonData?: string,
   formData?: NameValue[],
   multipartData?: FormField[],
   timeout?: number,
@@ -332,7 +330,7 @@ export type APIRequestContextFetchOptions = {
   method?: string,
   headers?: NameValue[],
   postData?: Binary,
-  jsonData?: any,
+  jsonData?: string,
   formData?: NameValue[],
   multipartData?: FormField[],
   timeout?: number,
@@ -391,7 +389,26 @@ export type APIResponse = {
 
 export type LifecycleEvent = 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
 // ----------- LocalUtils -----------
-export type LocalUtilsInitializer = {};
+export type LocalUtilsInitializer = {
+  deviceDescriptors: {
+    name: string,
+    descriptor: {
+      userAgent: string,
+      viewport: {
+        width: number,
+        height: number,
+      },
+      screen?: {
+        width: number,
+        height: number,
+      },
+      deviceScaleFactor: number,
+      isMobile: boolean,
+      hasTouch: boolean,
+      defaultBrowserType: 'chromium' | 'firefox' | 'webkit',
+    },
+  }[],
+};
 export interface LocalUtilsEventTarget {
 }
 export interface LocalUtilsChannel extends LocalUtilsEventTarget, Channel {
@@ -536,25 +553,7 @@ export type PlaywrightInitializer = {
   webkit: BrowserTypeChannel,
   android: AndroidChannel,
   electron: ElectronChannel,
-  utils: LocalUtilsChannel,
-  deviceDescriptors: {
-    name: string,
-    descriptor: {
-      userAgent: string,
-      viewport: {
-        width: number,
-        height: number,
-      },
-      screen?: {
-        width: number,
-        height: number,
-      },
-      deviceScaleFactor: number,
-      isMobile: boolean,
-      hasTouch: boolean,
-      defaultBrowserType: 'chromium' | 'firefox' | 'webkit',
-    },
-  }[],
+  utils?: LocalUtilsChannel,
   selectors: SelectorsChannel,
   preLaunchedBrowser?: BrowserChannel,
   preConnectedAndroidDevice?: AndroidDeviceChannel,
@@ -584,8 +583,8 @@ export type PlaywrightNewRequestParams = {
   },
   timeout?: number,
   storageState?: {
-    cookies: NetworkCookie[],
-    origins: OriginStorage[],
+    cookies?: NetworkCookie[],
+    origins?: OriginStorage[],
   },
   tracesDir?: string,
 };
@@ -607,8 +606,8 @@ export type PlaywrightNewRequestOptions = {
   },
   timeout?: number,
   storageState?: {
-    cookies: NetworkCookie[],
-    origins: OriginStorage[],
+    cookies?: NetworkCookie[],
+    origins?: OriginStorage[],
   },
   tracesDir?: string,
 };
@@ -930,6 +929,7 @@ export type BrowserTypeLaunchPersistentContextParams = {
   downloadsPath?: string,
   tracesDir?: string,
   chromiumSandbox?: boolean,
+  firefoxUserPrefs?: any,
   noDefaultViewport?: boolean,
   viewport?: {
     width: number,
@@ -964,7 +964,7 @@ export type BrowserTypeLaunchPersistentContextParams = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,
@@ -1001,6 +1001,7 @@ export type BrowserTypeLaunchPersistentContextOptions = {
   downloadsPath?: string,
   tracesDir?: string,
   chromiumSandbox?: boolean,
+  firefoxUserPrefs?: any,
   noDefaultViewport?: boolean,
   viewport?: {
     width: number,
@@ -1035,7 +1036,7 @@ export type BrowserTypeLaunchPersistentContextOptions = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,
@@ -1081,18 +1082,23 @@ export interface BrowserEventTarget {
 }
 export interface BrowserChannel extends BrowserEventTarget, Channel {
   _type_Browser: boolean;
-  close(params?: BrowserCloseParams, metadata?: CallMetadata): Promise<BrowserCloseResult>;
+  close(params: BrowserCloseParams, metadata?: CallMetadata): Promise<BrowserCloseResult>;
   killForTests(params?: BrowserKillForTestsParams, metadata?: CallMetadata): Promise<BrowserKillForTestsResult>;
   defaultUserAgentForTest(params?: BrowserDefaultUserAgentForTestParams, metadata?: CallMetadata): Promise<BrowserDefaultUserAgentForTestResult>;
   newContext(params: BrowserNewContextParams, metadata?: CallMetadata): Promise<BrowserNewContextResult>;
   newContextForReuse(params: BrowserNewContextForReuseParams, metadata?: CallMetadata): Promise<BrowserNewContextForReuseResult>;
+  stopPendingOperations(params: BrowserStopPendingOperationsParams, metadata?: CallMetadata): Promise<BrowserStopPendingOperationsResult>;
   newBrowserCDPSession(params?: BrowserNewBrowserCDPSessionParams, metadata?: CallMetadata): Promise<BrowserNewBrowserCDPSessionResult>;
   startTracing(params: BrowserStartTracingParams, metadata?: CallMetadata): Promise<BrowserStartTracingResult>;
   stopTracing(params?: BrowserStopTracingParams, metadata?: CallMetadata): Promise<BrowserStopTracingResult>;
 }
 export type BrowserCloseEvent = {};
-export type BrowserCloseParams = {};
-export type BrowserCloseOptions = {};
+export type BrowserCloseParams = {
+  reason?: string,
+};
+export type BrowserCloseOptions = {
+  reason?: string,
+};
 export type BrowserCloseResult = void;
 export type BrowserKillForTestsParams = {};
 export type BrowserKillForTestsOptions = {};
@@ -1137,7 +1143,7 @@ export type BrowserNewContextParams = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,
@@ -1195,7 +1201,7 @@ export type BrowserNewContextOptions = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,
@@ -1256,7 +1262,7 @@ export type BrowserNewContextForReuseParams = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,
@@ -1314,7 +1320,7 @@ export type BrowserNewContextForReuseOptions = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,
@@ -1340,6 +1346,13 @@ export type BrowserNewContextForReuseOptions = {
 export type BrowserNewContextForReuseResult = {
   context: BrowserContextChannel,
 };
+export type BrowserStopPendingOperationsParams = {
+  reason: string,
+};
+export type BrowserStopPendingOperationsOptions = {
+
+};
+export type BrowserStopPendingOperationsResult = void;
 export type BrowserNewBrowserCDPSessionParams = {};
 export type BrowserNewBrowserCDPSessionOptions = {};
 export type BrowserNewBrowserCDPSessionResult = {
@@ -1347,13 +1360,11 @@ export type BrowserNewBrowserCDPSessionResult = {
 };
 export type BrowserStartTracingParams = {
   page?: PageChannel,
-  path?: string,
   screenshots?: boolean,
   categories?: string[],
 };
 export type BrowserStartTracingOptions = {
   page?: PageChannel,
-  path?: string,
   screenshots?: boolean,
   categories?: string[],
 };
@@ -1361,7 +1372,7 @@ export type BrowserStartTracingResult = void;
 export type BrowserStopTracingParams = {};
 export type BrowserStopTracingOptions = {};
 export type BrowserStopTracingResult = {
-  binary: Binary,
+  artifact: ArtifactChannel,
 };
 
 export interface BrowserEvents {
@@ -1396,6 +1407,7 @@ export interface EventTargetEvents {
 // ----------- BrowserContext -----------
 export type BrowserContextInitializer = {
   isChromium: boolean,
+  isLocalBrowserOnServer: boolean,
   requestContext: APIRequestContextChannel,
   tracing: TracingChannel,
 };
@@ -1405,6 +1417,7 @@ export interface BrowserContextEventTarget {
   on(event: 'close', callback: (params: BrowserContextCloseEvent) => void): this;
   on(event: 'dialog', callback: (params: BrowserContextDialogEvent) => void): this;
   on(event: 'page', callback: (params: BrowserContextPageEvent) => void): this;
+  on(event: 'pageError', callback: (params: BrowserContextPageErrorEvent) => void): this;
   on(event: 'route', callback: (params: BrowserContextRouteEvent) => void): this;
   on(event: 'video', callback: (params: BrowserContextVideoEvent) => void): this;
   on(event: 'backgroundPage', callback: (params: BrowserContextBackgroundPageEvent) => void): this;
@@ -1420,7 +1433,7 @@ export interface BrowserContextChannel extends BrowserContextEventTarget, EventT
   addInitScript(params: BrowserContextAddInitScriptParams, metadata?: CallMetadata): Promise<BrowserContextAddInitScriptResult>;
   clearCookies(params?: BrowserContextClearCookiesParams, metadata?: CallMetadata): Promise<BrowserContextClearCookiesResult>;
   clearPermissions(params?: BrowserContextClearPermissionsParams, metadata?: CallMetadata): Promise<BrowserContextClearPermissionsResult>;
-  close(params?: BrowserContextCloseParams, metadata?: CallMetadata): Promise<BrowserContextCloseResult>;
+  close(params: BrowserContextCloseParams, metadata?: CallMetadata): Promise<BrowserContextCloseResult>;
   cookies(params: BrowserContextCookiesParams, metadata?: CallMetadata): Promise<BrowserContextCookiesResult>;
   exposeBinding(params: BrowserContextExposeBindingParams, metadata?: CallMetadata): Promise<BrowserContextExposeBindingResult>;
   grantPermissions(params: BrowserContextGrantPermissionsParams, metadata?: CallMetadata): Promise<BrowserContextGrantPermissionsResult>;
@@ -1445,13 +1458,25 @@ export type BrowserContextBindingCallEvent = {
   binding: BindingCallChannel,
 };
 export type BrowserContextConsoleEvent = {
-  message: ConsoleMessageChannel,
+  page: PageChannel,
+  type: string,
+  text: string,
+  args: JSHandleChannel[],
+  location: {
+    url: string,
+    lineNumber: number,
+    columnNumber: number,
+  },
 };
 export type BrowserContextCloseEvent = {};
 export type BrowserContextDialogEvent = {
   dialog: DialogChannel,
 };
 export type BrowserContextPageEvent = {
+  page: PageChannel,
+};
+export type BrowserContextPageErrorEvent = {
+  error: SerializedError,
   page: PageChannel,
 };
 export type BrowserContextRouteEvent = {
@@ -1506,8 +1531,12 @@ export type BrowserContextClearCookiesResult = void;
 export type BrowserContextClearPermissionsParams = {};
 export type BrowserContextClearPermissionsOptions = {};
 export type BrowserContextClearPermissionsResult = void;
-export type BrowserContextCloseParams = {};
-export type BrowserContextCloseOptions = {};
+export type BrowserContextCloseParams = {
+  reason?: string,
+};
+export type BrowserContextCloseOptions = {
+  reason?: string,
+};
 export type BrowserContextCloseResult = void;
 export type BrowserContextCookiesParams = {
   urls: string[],
@@ -1676,9 +1705,10 @@ export type BrowserContextHarExportResult = {
 };
 export type BrowserContextCreateTempFileParams = {
   name: string,
+  lastModifiedMs?: number,
 };
 export type BrowserContextCreateTempFileOptions = {
-
+  lastModifiedMs?: number,
 };
 export type BrowserContextCreateTempFileResult = {
   writableStream: WritableStreamChannel,
@@ -1698,6 +1728,7 @@ export interface BrowserContextEvents {
   'close': BrowserContextCloseEvent;
   'dialog': BrowserContextDialogEvent;
   'page': BrowserContextPageEvent;
+  'pageError': BrowserContextPageErrorEvent;
   'route': BrowserContextRouteEvent;
   'video': BrowserContextVideoEvent;
   'backgroundPage': BrowserContextBackgroundPageEvent;
@@ -1726,7 +1757,6 @@ export interface PageEventTarget {
   on(event: 'fileChooser', callback: (params: PageFileChooserEvent) => void): this;
   on(event: 'frameAttached', callback: (params: PageFrameAttachedEvent) => void): this;
   on(event: 'frameDetached', callback: (params: PageFrameDetachedEvent) => void): this;
-  on(event: 'pageError', callback: (params: PagePageErrorEvent) => void): this;
   on(event: 'route', callback: (params: PageRouteEvent) => void): this;
   on(event: 'video', callback: (params: PageVideoEvent) => void): this;
   on(event: 'webSocket', callback: (params: PageWebSocketEvent) => void): this;
@@ -1788,9 +1818,6 @@ export type PageFrameAttachedEvent = {
 export type PageFrameDetachedEvent = {
   frame: FrameChannel,
 };
-export type PagePageErrorEvent = {
-  error: SerializedError,
-};
 export type PageRouteEvent = {
   route: RouteChannel,
 };
@@ -1826,9 +1853,11 @@ export type PageAddInitScriptOptions = {
 export type PageAddInitScriptResult = void;
 export type PageCloseParams = {
   runBeforeUnload?: boolean,
+  reason?: string,
 };
 export type PageCloseOptions = {
   runBeforeUnload?: boolean,
+  reason?: string,
 };
 export type PageCloseResult = void;
 export type PageEmulateMediaParams = {
@@ -2221,7 +2250,6 @@ export interface PageEvents {
   'fileChooser': PageFileChooserEvent;
   'frameAttached': PageFrameAttachedEvent;
   'frameDetached': PageFrameDetachedEvent;
-  'pageError': PagePageErrorEvent;
   'route': PageRouteEvent;
   'video': PageVideoEvent;
   'webSocket': PageWebSocketEvent;
@@ -2768,6 +2796,7 @@ export type FrameSetInputFilesParams = {
     name: string,
     mimeType?: string,
     buffer: Binary,
+    lastModifiedMs?: number,
   }[],
   timeout?: number,
   noWaitAfter?: boolean,
@@ -3398,6 +3427,7 @@ export type ElementHandleSetInputFilesParams = {
     name: string,
     mimeType?: string,
     buffer: Binary,
+    lastModifiedMs?: number,
   }[],
   timeout?: number,
   noWaitAfter?: boolean,
@@ -3707,27 +3737,6 @@ export interface WebSocketEvents {
   'close': WebSocketCloseEvent;
 }
 
-// ----------- ConsoleMessage -----------
-export type ConsoleMessageInitializer = {
-  page: PageChannel,
-  type: string,
-  text: string,
-  args: JSHandleChannel[],
-  location: {
-    url: string,
-    lineNumber: number,
-    columnNumber: number,
-  },
-};
-export interface ConsoleMessageEventTarget {
-}
-export interface ConsoleMessageChannel extends ConsoleMessageEventTarget, Channel {
-  _type_ConsoleMessage: boolean;
-}
-
-export interface ConsoleMessageEvents {
-}
-
 // ----------- BindingCall -----------
 export type BindingCallInitializer = {
   frame: FrameChannel,
@@ -3803,13 +3812,13 @@ export type TracingTracingStartParams = {
   name?: string,
   snapshots?: boolean,
   screenshots?: boolean,
-  sources?: boolean,
+  live?: boolean,
 };
 export type TracingTracingStartOptions = {
   name?: string,
   snapshots?: boolean,
   screenshots?: boolean,
-  sources?: boolean,
+  live?: boolean,
 };
 export type TracingTracingStartResult = void;
 export type TracingTracingStartChunkParams = {
@@ -3859,7 +3868,7 @@ export interface ArtifactChannel extends ArtifactEventTarget, Channel {
 export type ArtifactPathAfterFinishedParams = {};
 export type ArtifactPathAfterFinishedOptions = {};
 export type ArtifactPathAfterFinishedResult = {
-  value?: string,
+  value: string,
 };
 export type ArtifactSaveAsParams = {
   path: string,
@@ -3881,7 +3890,7 @@ export type ArtifactFailureResult = {
 export type ArtifactStreamParams = {};
 export type ArtifactStreamOptions = {};
 export type ArtifactStreamResult = {
-  stream?: StreamChannel,
+  stream: StreamChannel,
 };
 export type ArtifactCancelParams = {};
 export type ArtifactCancelOptions = {};
@@ -3987,7 +3996,7 @@ export type ElectronLaunchParams = {
   cwd?: string,
   env?: NameValue[],
   timeout?: number,
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   bypassCSP?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   extraHTTPHeaders?: NameValue[],
@@ -4014,6 +4023,7 @@ export type ElectronLaunchParams = {
   },
   strictSelectors?: boolean,
   timezoneId?: string,
+  tracesDir?: string,
 };
 export type ElectronLaunchOptions = {
   executablePath?: string,
@@ -4021,7 +4031,7 @@ export type ElectronLaunchOptions = {
   cwd?: string,
   env?: NameValue[],
   timeout?: number,
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   bypassCSP?: boolean,
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   extraHTTPHeaders?: NameValue[],
@@ -4048,6 +4058,7 @@ export type ElectronLaunchOptions = {
   },
   strictSelectors?: boolean,
   timezoneId?: string,
+  tracesDir?: string,
 };
 export type ElectronLaunchResult = {
   electronApplication: ElectronApplicationChannel,
@@ -4411,7 +4422,7 @@ export type AndroidDeviceLaunchBrowserParams = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,
@@ -4467,7 +4478,7 @@ export type AndroidDeviceLaunchBrowserOptions = {
   colorScheme?: 'dark' | 'light' | 'no-preference' | 'no-override',
   reducedMotion?: 'reduce' | 'no-preference' | 'no-override',
   forcedColors?: 'active' | 'none' | 'no-override',
-  acceptDownloads?: boolean,
+  acceptDownloads?: 'accept' | 'deny' | 'internal-browser-default',
   baseURL?: string,
   recordVideo?: {
     dir: string,

@@ -24,8 +24,9 @@ it('should work @smoke', async ({ page, server }) => {
   expect(page.url()).toBe(server.EMPTY_PAGE);
 });
 
-it('should work with file URL', async ({ page, asset, isAndroid }) => {
+it('should work with file URL', async ({ page, asset, isAndroid, mode }) => {
   it.skip(isAndroid, 'No files on Android');
+  it.skip(mode.startsWith('service'));
 
   const fileurl = url.pathToFileURL(asset('empty.html')).href;
   await page.goto(fileurl);
@@ -33,8 +34,9 @@ it('should work with file URL', async ({ page, asset, isAndroid }) => {
   expect(page.frames().length).toBe(1);
 });
 
-it('should work with file URL with subframes', async ({ page, asset, isAndroid }) => {
+it('should work with file URL with subframes', async ({ page, asset, isAndroid, mode }) => {
   it.skip(isAndroid, 'No files on Android');
+  it.skip(mode.startsWith('service'));
 
   const fileurl = url.pathToFileURL(asset('frames/two-frames.html')).href;
   await page.goto(fileurl);
@@ -261,7 +263,7 @@ it('should fail when navigating to bad url', async ({ mode, page, browserName })
     expect(error.message).toContain('Invalid url');
 });
 
-it('should fail when navigating to bad SSL', async ({ page, browserName, httpsServer }) => {
+it('should fail when navigating to bad SSL', async ({ page, browserName, httpsServer, platform }) => {
   // Make sure that network events do not emit 'undefined'.
   // @see https://crbug.com/750469
   page.on('request', request => expect(request).toBeTruthy());
@@ -269,15 +271,15 @@ it('should fail when navigating to bad SSL', async ({ page, browserName, httpsSe
   page.on('requestfailed', request => expect(request).toBeTruthy());
   let error = null;
   await page.goto(httpsServer.EMPTY_PAGE).catch(e => error = e);
-  expect(error.message).toContain(expectedSSLError(browserName));
+  expect(error.message).toMatch(expectedSSLError(browserName, platform));
 });
 
-it('should fail when navigating to bad SSL after redirects', async ({ page, browserName, server, httpsServer }) => {
+it('should fail when navigating to bad SSL after redirects', async ({ page, browserName, server, httpsServer, platform }) => {
   server.setRedirect('/redirect/1.html', '/redirect/2.html');
   server.setRedirect('/redirect/2.html', '/empty.html');
   let error = null;
   await page.goto(httpsServer.PREFIX + '/redirect/1.html').catch(e => error = e);
-  expect(error.message).toContain(expectedSSLError(browserName));
+  expect(error.message).toMatch(expectedSSLError(browserName, platform));
 });
 
 it('should not crash when navigating to bad SSL after a cross origin navigation', async ({ page, server, httpsServer }) => {
@@ -300,14 +302,23 @@ it('should throw if networkidle2 is passed as an option', async ({ page, server 
 it('should fail when main resources failed to load', async ({ page, browserName, isWindows, mode }) => {
   let error = null;
   await page.goto('http://localhost:44123/non-existing-url').catch(e => error = e);
-  if (browserName === 'chromium')
-    expect(error.message).toContain('net::ERR_CONNECTION_REFUSED');
-  else if (browserName === 'webkit' && isWindows)
+  if (browserName === 'chromium') {
+    if (mode === 'service2')
+      expect(error.message).toContain('net::ERR_SOCKS_CONNECTION_FAILED');
+    else
+      expect(error.message).toContain('net::ERR_CONNECTION_REFUSED');
+  } else if (browserName === 'webkit' && isWindows && mode === 'service2') {
+    expect(error.message).toContain(`proxy handshake error`);
+  } else if (browserName === 'webkit' && isWindows) {
     expect(error.message).toContain(`Couldn\'t connect to server`);
-  else if (browserName === 'webkit')
-    expect(error.message).toContain('Could not connect');
-  else
+  } else if (browserName === 'webkit') {
+    if (mode === 'service2')
+      expect(error.message).toContain('Connection refused');
+    else
+      expect(error.message).toContain('Could not connect');
+  } else {
     expect(error.message).toContain('NS_ERROR_CONNECTION_REFUSED');
+  }
 });
 
 it('should fail when exceeding maximum navigation timeout', async ({ page, server, playwright }) => {
@@ -616,6 +627,21 @@ it('should send referer', async ({ page, server }) => {
     }),
   ]);
   expect(request1.headers['referer']).toBe('http://google.com/');
+  // Make sure subresources do not inherit referer.
+  expect(request2.headers['referer']).toBe(server.PREFIX + '/grid.html');
+  expect(page.url()).toBe(server.PREFIX + '/grid.html');
+});
+
+it('should send referer of cross-origin URL', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27765' });
+  const [request1, request2] = await Promise.all([
+    server.waitForRequest('/grid.html'),
+    server.waitForRequest('/digits/1.png'),
+    page.goto(server.PREFIX + '/grid.html', {
+      referer: 'https://microsoft.com/xbox/'
+    }),
+  ]);
+  expect(request1.headers['referer']).toBe('https://microsoft.com/xbox/');
   // Make sure subresources do not inherit referer.
   expect(request2.headers['referer']).toBe(server.PREFIX + '/grid.html');
   expect(page.url()).toBe(server.PREFIX + '/grid.html');

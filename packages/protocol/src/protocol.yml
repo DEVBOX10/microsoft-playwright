@@ -80,6 +80,8 @@ SerializedValue:
     d: string?
     # String representation of the URL.
     u: string?
+    # String representation of BigInt.
+    bi: string?
     # Regular expression pattern and flags.
     r:
       type: object?
@@ -286,7 +288,7 @@ APIRequestContext:
           type: array?
           items: NameValue
         postData: binary?
-        jsonData: json?
+        jsonData: string?
         formData:
           type: array?
           items: NameValue
@@ -409,6 +411,7 @@ LaunchOptions:
     downloadsPath: string?
     tracesDir: string?
     chromiumSandbox: boolean?
+    firefoxUserPrefs: json?
 
 
 ContextOptions:
@@ -472,7 +475,12 @@ ContextOptions:
       - active
       - none
       - no-override
-    acceptDownloads: boolean?
+    acceptDownloads:
+      type: enum?
+      literals:
+      - accept
+      - deny
+      - internal-browser-default
     baseURL: string?
     recordVideo:
       type: object?
@@ -493,6 +501,37 @@ ContextOptions:
 
 LocalUtils:
   type: interface
+
+  initializer:
+    deviceDescriptors:
+      type: array
+      items:
+        type: object
+        properties:
+          name: string
+          descriptor:
+            type: object
+            properties:
+              userAgent: string
+              viewport:
+                type: object
+                properties:
+                  width: number
+                  height: number
+              screen:
+                type: object?
+                properties:
+                  width: number
+                  height: number
+              deviceScaleFactor: number
+              isMobile: boolean
+              hasTouch: boolean
+              defaultBrowserType:
+                type: enum
+                literals:
+                - chromium
+                - firefox
+                - webkit
 
   commands:
 
@@ -607,36 +646,7 @@ Playwright:
     webkit: BrowserType
     android: Android
     electron: Electron
-    utils: LocalUtils
-    deviceDescriptors:
-      type: array
-      items:
-        type: object
-        properties:
-          name: string
-          descriptor:
-            type: object
-            properties:
-              userAgent: string
-              viewport:
-                type: object
-                properties:
-                  width: number
-                  height: number
-              screen:
-                type: object?
-                properties:
-                  width: number
-                  height: number
-              deviceScaleFactor: number
-              isMobile: boolean
-              hasTouch: boolean
-              defaultBrowserType:
-                type: enum
-                literals:
-                - chromium
-                - firefox
-                - webkit
+    utils: LocalUtils?
     selectors: Selectors
     # Only present when connecting remotely via BrowserType.connect() method.
     preLaunchedBrowser: Browser?
@@ -672,10 +682,10 @@ Playwright:
           type: object?
           properties:
             cookies:
-              type: array
+              type: array?
               items: NetworkCookie
             origins:
-              type: array
+              type: array?
               items: OriginStorage
         tracesDir: string?
 
@@ -859,7 +869,6 @@ BrowserType:
     launch:
       parameters:
         $mixin: LaunchOptions
-        firefoxUserPrefs: json?
         slowMo: number?
       returns:
         browser: Browser
@@ -895,6 +904,8 @@ Browser:
   commands:
 
     close:
+      parameters:
+        reason: string?
 
     killForTests:
 
@@ -946,6 +957,10 @@ Browser:
       returns:
         context: BrowserContext
 
+    stopPendingOperations:
+      parameters:
+        reason: string
+
     newBrowserCDPSession:
       returns:
         session: CDPSession
@@ -953,7 +968,6 @@ Browser:
     startTracing:
       parameters:
         page: Page?
-        path: string?
         screenshots: boolean?
         categories:
           type: array?
@@ -961,7 +975,7 @@ Browser:
 
     stopTracing:
       returns:
-        binary: binary
+        artifact: Artifact
 
 
   events:
@@ -998,6 +1012,7 @@ BrowserContext:
 
   initializer:
     isChromium: boolean
+    isLocalBrowserOnServer: boolean
     requestContext: APIRequestContext
     tracing: Tracing
 
@@ -1018,6 +1033,8 @@ BrowserContext:
     clearPermissions:
 
     close:
+      parameters:
+        reason: string?
 
     cookies:
       parameters:
@@ -1146,6 +1163,7 @@ BrowserContext:
     createTempFile:
       parameters:
         name: string
+        lastModifiedMs: number?
       returns:
         writableStream: WritableStream
 
@@ -1170,7 +1188,18 @@ BrowserContext:
 
     console:
       parameters:
-        message: ConsoleMessage
+        page: Page
+        type: string
+        text: string
+        args:
+          type: array
+          items: JSHandle
+        location:
+          type: object
+          properties:
+            url: string
+            lineNumber: number
+            columnNumber: number
 
     close:
 
@@ -1180,6 +1209,11 @@ BrowserContext:
 
     page:
       parameters:
+        page: Page
+
+    pageError:
+      parameters:
+        error: SerializedError
         page: Page
 
     route:
@@ -1254,6 +1288,7 @@ Page:
     close:
       parameters:
         runBeforeUnload: boolean?
+        reason: string?
 
     emulateMedia:
       parameters:
@@ -1628,10 +1663,6 @@ Page:
     frameDetached:
       parameters:
         frame: Frame
-
-    pageError:
-      parameters:
-        error: SerializedError
 
     route:
       parameters:
@@ -2088,6 +2119,7 @@ Frame:
               name: string
               mimeType: string?
               buffer: binary
+              lastModifiedMs: number?
         timeout: number?
         noWaitAfter: boolean?
       flags:
@@ -2656,6 +2688,7 @@ ElementHandle:
               name: string
               mimeType: string?
               buffer: binary
+              lastModifiedMs: number?
         timeout: number?
         noWaitAfter: boolean?
       flags:
@@ -2937,25 +2970,6 @@ WebSocket:
     close:
 
 
-ConsoleMessage:
-  type: interface
-
-  initializer:
-    page: Page
-    type: string
-    text: string
-    args:
-      type: array
-      items: JSHandle
-    location:
-      type: object
-      properties:
-        url: string
-        lineNumber: number
-        columnNumber: number
-
-
-
 BindingCall:
   type: interface
 
@@ -3007,7 +3021,7 @@ Tracing:
         name: string?
         snapshots: boolean?
         screenshots: boolean?
-        sources: boolean?
+        live: boolean?
 
     tracingStartChunk:
       parameters:
@@ -3046,7 +3060,7 @@ Artifact:
 
     pathAfterFinished:
       returns:
-        value: string?
+        value: string
 
     # Blocks path/failure/delete/context.close until saved to the local |path|.
     saveAs:
@@ -3064,7 +3078,7 @@ Artifact:
 
     stream:
       returns:
-        stream: Stream?
+        stream: Stream
 
     cancel:
 
@@ -3135,7 +3149,12 @@ Electron:
           type: array?
           items: NameValue
         timeout: number?
-        acceptDownloads: boolean?
+        acceptDownloads:
+          type: enum?
+          literals:
+          - accept
+          - deny
+          - internal-browser-default
         bypassCSP: boolean?
         colorScheme:
           type: enum?
@@ -3174,6 +3193,7 @@ Electron:
                 height: number
         strictSelectors: boolean?
         timezoneId: string?
+        tracesDir: string?
 
       returns:
         electronApplication: ElectronApplication

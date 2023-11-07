@@ -18,7 +18,7 @@
 
 /* eslint-disable no-console */
 
-import { getPackageManager } from '../utils';
+import { getPackageManager, gracefullyProcessExitDoNotHang } from '../utils';
 import program from './program';
 
 function printPlaywrightTestError(command: string) {
@@ -48,21 +48,17 @@ function printPlaywrightTestError(command: string) {
   }
 }
 
-{
-  const command = program.command('test').allowUnknownOption(true);
-  command.description('Run tests with Playwright Test. Available in @playwright/test package.');
-  command.action(async () => {
-    printPlaywrightTestError('test');
-    process.exit(1);
-  });
-}
-
-{
-  const command = program.command('show-report').allowUnknownOption(true);
-  command.description('Show Playwright Test HTML report. Available in @playwright/test package.');
-  command.action(async () => {
-    printPlaywrightTestError('show-report');
-    process.exit(1);
+const kExternalPlaywrightTestCommands = [
+  ['test', 'Run tests with Playwright Test.'],
+  ['show-report', 'Show Playwright Test HTML report.'],
+  ['merge-reports', 'Merge Playwright Test Blob reports'],
+];
+for (const [command, description] of kExternalPlaywrightTestCommands) {
+  const playwrightTest = program.command(command).allowUnknownOption(true);
+  playwrightTest.description(`${description} Available in @playwright/test package.`);
+  playwrightTest.action(async () => {
+    printPlaywrightTestError(command);
+    gracefullyProcessExitDoNotHang(1);
   });
 }
 

@@ -18,7 +18,7 @@ import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
 import type * as channels from '@protocol/channels';
 import * as util from 'util';
-import { isString, monotonicTime } from '../utils';
+import { asLocator, isString, monotonicTime } from '../utils';
 import { ElementHandle } from './elementHandle';
 import type { Frame } from './frame';
 import type { FilePayload, FrameExpectOptions, Rect, SelectOption, SelectOptionOptions, TimeoutOptions } from './types';
@@ -145,7 +145,7 @@ export class Locator implements api.Locator {
       return new Locator(this._frame, this._selector + ' >> ' + selectorOrLocator, options);
     if (selectorOrLocator._frame !== this._frame)
       throw new Error(`Locators must belong to the same frame.`);
-    return new Locator(this._frame, this._selector + ' >> ' + selectorOrLocator._selector, options);
+    return new Locator(this._frame, this._selector + ' >> internal:chain=' + JSON.stringify(selectorOrLocator._selector), options);
   }
 
   getByTestId(testId: string | RegExp): Locator {
@@ -315,6 +315,10 @@ export class Locator implements api.Locator {
     return this._frame.type(this._selector, text, { strict: true, ...options });
   }
 
+  async pressSequentially(text: string, options: channels.ElementHandleTypeOptions = {}): Promise<void> {
+    return this.type(text, options);
+  }
+
   async uncheck(options: channels.ElementHandleUncheckOptions = {}) {
     return this._frame.uncheck(this._selector, { strict: true, ...options });
   }
@@ -351,7 +355,7 @@ export class Locator implements api.Locator {
   }
 
   toString() {
-    return `Locator@${this._selector}`;
+    return asLocator('javascript', this._selector, undefined, true);
   }
 }
 

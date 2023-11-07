@@ -16,23 +16,24 @@
 
 import type zip from '@zip.js/zip.js';
 // @ts-ignore
-import zipImport from '@zip.js/zip.js/dist/zip-no-worker-inflate.min.js';
+import * as zipImport from '@zip.js/zip.js/lib/zip-no-worker-inflate.js';
 import type { TraceModelBackend } from './traceModel';
 
 const zipjs = zipImport as typeof zip;
 
-type Progress = (done: number, total: number) => void;
+type Progress = (done: number, total: number) => undefined;
 
 export class ZipTraceModelBackend implements TraceModelBackend {
-  private _zipReader: zip.ZipReader;
+  private _zipReader: zip.ZipReader<unknown>;
   private _entriesPromise: Promise<Map<string, zip.Entry>>;
   private _traceURL: string;
 
   constructor(traceURL: string, progress: Progress) {
     this._traceURL = traceURL;
+    zipjs.configure({ baseURL: self.location.href } as any);
     this._zipReader = new zipjs.ZipReader(
         new zipjs.HttpReader(formatUrl(traceURL), { mode: 'cors', preventHeadRequest: true } as any),
-        { useWebWorkers: false }) as zip.ZipReader;
+        { useWebWorkers: false });
     this._entriesPromise = this._zipReader.getEntries({ onprogress: progress }).then(entries => {
       const map = new Map<string, zip.Entry>();
       for (const entry of entries)
@@ -120,7 +121,7 @@ export class FetchTraceModelBackend implements TraceModelBackend {
 
   async readBlob(entryName: string): Promise<Blob | undefined> {
     const response = await this._readEntry(entryName);
-    return response?.blob();
+    return response?.status === 200 ? await response?.blob() : undefined;
   }
 
   private async _readEntry(entryName: string): Promise<Response | undefined> {

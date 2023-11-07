@@ -112,7 +112,9 @@ export interface Page {
    *
    * ```js
    * const bodyHandle = await page.evaluate('document.body');
-   * const html = await page.evaluate<string, HTMLElement>(([body, suffix]) => body.innerHTML + suffix, [bodyHandle, 'hello']);
+   * const html = await page.evaluate<string, HTMLElement>(([body, suffix]) =>
+   *   body.innerHTML + suffix, [bodyHandle, 'hello']
+   * );
    * await bodyHandle.dispose();
    * ```
    *
@@ -159,7 +161,9 @@ export interface Page {
    *
    * ```js
    * const bodyHandle = await page.evaluate('document.body');
-   * const html = await page.evaluate<string, HTMLElement>(([body, suffix]) => body.innerHTML + suffix, [bodyHandle, 'hello']);
+   * const html = await page.evaluate<string, HTMLElement>(([body, suffix]) =>
+   *   body.innerHTML + suffix, [bodyHandle, 'hello']
+   * );
    * await bodyHandle.dispose();
    * ```
    *
@@ -978,7 +982,7 @@ export interface Page {
    *
    * ```js
    * page.on('filechooser', async fileChooser => {
-   *   await fileChooser.setFiles('/tmp/myfile.pdf');
+   *   await fileChooser.setFiles(path.join(__dirname, '/tmp/myfile.pdf'));
    * });
    * ```
    *
@@ -1274,7 +1278,7 @@ export interface Page {
    *
    * ```js
    * page.on('filechooser', async fileChooser => {
-   *   await fileChooser.setFiles('/tmp/myfile.pdf');
+   *   await fileChooser.setFiles(path.join(__dirname, '/tmp/myfile.pdf'));
    * });
    * ```
    *
@@ -1665,7 +1669,7 @@ export interface Page {
    *
    * ```js
    * page.on('filechooser', async fileChooser => {
-   *   await fileChooser.setFiles('/tmp/myfile.pdf');
+   *   await fileChooser.setFiles(path.join(__dirname, '/tmp/myfile.pdf'));
    * });
    * ```
    *
@@ -1998,6 +2002,11 @@ export interface Page {
    */
   close(options?: {
     /**
+     * The reason to be reported to the operations interrupted by the page closure.
+     */
+    reason?: string;
+
+    /**
      * Defaults to `false`. Whether to run the
      * [before unload](https://developer.mozilla.org/en-US/docs/Web/Events/beforeunload) page handlers.
      */
@@ -2316,7 +2325,9 @@ export interface Page {
    * (async () => {
    *   const browser = await webkit.launch({ headless: false });
    *   const page = await browser.newPage();
-   *   await page.exposeFunction('sha256', text => crypto.createHash('sha256').update(text).digest('hex'));
+   *   await page.exposeFunction('sha256', text =>
+   *     crypto.createHash('sha256').update(text).digest('hex'),
+   *   );
    *   await page.setContent(`
    *     <script>
    *       async function onClick() {
@@ -2349,7 +2360,7 @@ export interface Page {
    * instead.
    *
    * To send fine-grained keyboard events, use
-   * [page.type(selector, text[, options])](https://playwright.dev/docs/api/class-page#page-type).
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param selector A selector to search for an element. If there are multiple elements satisfying the selector, the first will be
    * used.
    * @param value Value to fill for the `<input>`, `<textarea>` or `[contenteditable]` element.
@@ -3600,7 +3611,7 @@ export interface Page {
 
   /**
    * If specified the network requests that are made in the page will be served from the HAR file. Read more about
-   * [Replaying from HAR](https://playwright.dev/docs/network#replaying-from-har).
+   * [Replaying from HAR](https://playwright.dev/docs/mock#replaying-from-har).
    *
    * Playwright will not serve requests intercepted by Service Worker from the HAR file. See
    * [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when
@@ -3621,7 +3632,8 @@ export interface Page {
     /**
      * If specified, updates the given HAR with the actual network information instead of serving from file. The file is
      * written to disk when
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) is called.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) is
+     * called.
      */
     update?: boolean;
 
@@ -3670,7 +3682,7 @@ export interface Page {
    * **Usage**
    *
    * ```js
-   * // single selection matching the value
+   * // Single selection matching the value or label
    * page.selectOption('select#colors', 'blue');
    *
    * // single selection matching the label
@@ -3815,6 +3827,8 @@ export interface Page {
   }): Promise<void>;
 
   /**
+   * This method internally calls [document.write()](https://developer.mozilla.org/en-US/docs/Web/API/Document/write),
+   * inheriting all its specific characteristics and behaviors.
    * @param html HTML markup to assign to the page.
    * @param options
    */
@@ -4095,9 +4109,6 @@ export interface Page {
   title(): Promise<string>;
 
   /**
-   * **NOTE** Use locator-based [locator.type(text[, options])](https://playwright.dev/docs/api/class-locator#locator-type)
-   * instead. Read more about [locators](https://playwright.dev/docs/locators).
-   *
    * Sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text. `page.type` can be used to
    * send fine-grained keyboard events. To fill values in form fields, use
    * [page.fill(selector, value[, options])](https://playwright.dev/docs/api/class-page#page-fill).
@@ -4106,12 +4117,10 @@ export interface Page {
    * [keyboard.press(key[, options])](https://playwright.dev/docs/api/class-keyboard#keyboard-press).
    *
    * **Usage**
-   *
-   * ```js
-   * await page.type('#mytextarea', 'Hello'); // Types instantly
-   * await page.type('#mytextarea', 'World', { delay: 100 }); // Types slower, like a user
-   * ```
-   *
+   * @deprecated In most cases, you should use
+   * [locator.fill(value[, options])](https://playwright.dev/docs/api/class-locator#locator-fill) instead. You only need
+   * to press keys one by one if there is special keyboard handling on the page - in this case use
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param selector A selector to search for an element. If there are multiple elements satisfying the selector, the first will be
    * used.
    * @param text A text to type into a focused element.
@@ -4326,7 +4335,7 @@ export interface Page {
    *
    * ```js
    * page.on('filechooser', async fileChooser => {
-   *   await fileChooser.setFiles('/tmp/myfile.pdf');
+   *   await fileChooser.setFiles(path.join(__dirname, '/tmp/myfile.pdf'));
    * });
    * ```
    *
@@ -4550,7 +4559,9 @@ export interface Page {
    * const request = await requestPromise;
    *
    * // Alternative way with a predicate. Note no await.
-   * const requestPromise = page.waitForRequest(request => request.url() === 'https://example.com' && request.method() === 'GET');
+   * const requestPromise = page.waitForRequest(request =>
+   *   request.url() === 'https://example.com' && request.method() === 'GET',
+   * );
    * await page.getByText('trigger request').click();
    * const request = await requestPromise;
    * ```
@@ -4580,7 +4591,9 @@ export interface Page {
    * const response = await responsePromise;
    *
    * // Alternative way with a predicate. Note no await.
-   * const responsePromise = page.waitForResponse(response => response.url() === 'https://example.com' && response.status() === 200);
+   * const responsePromise = page.waitForResponse(response =>
+   *   response.url() === 'https://example.com' && response.status() === 200
+   * );
    * await page.getByText('trigger response').click();
    * const response = await responsePromise;
    * ```
@@ -4694,6 +4707,8 @@ export interface Page {
   request: APIRequestContext;
 
   touchscreen: Touchscreen;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 /**
@@ -4766,7 +4781,9 @@ export interface Frame {
    *
    * ```js
    * const bodyHandle = await frame.evaluate('document.body');
-   * const html = await frame.evaluate(([body, suffix]) => body.innerHTML + suffix, [bodyHandle, 'hello']);
+   * const html = await frame.evaluate(([body, suffix]) =>
+   *   body.innerHTML + suffix, [bodyHandle, 'hello'],
+   * );
    * await bodyHandle.dispose();
    * ```
    *
@@ -4809,7 +4826,9 @@ export interface Frame {
    *
    * ```js
    * const bodyHandle = await frame.evaluate('document.body');
-   * const html = await frame.evaluate(([body, suffix]) => body.innerHTML + suffix, [bodyHandle, 'hello']);
+   * const html = await frame.evaluate(([body, suffix]) =>
+   *   body.innerHTML + suffix, [bodyHandle, 'hello'],
+   * );
    * await bodyHandle.dispose();
    * ```
    *
@@ -4851,7 +4870,9 @@ export interface Frame {
    *
    * ```js
    * const aHandle = await frame.evaluateHandle(() => document.body);
-   * const resultHandle = await frame.evaluateHandle(([body, suffix]) => body.innerHTML + suffix, [aHandle, 'hello']);
+   * const resultHandle = await frame.evaluateHandle(([body, suffix]) =>
+   *   body.innerHTML + suffix, [aHandle, 'hello'],
+   * );
    * console.log(await resultHandle.jsonValue());
    * await resultHandle.dispose();
    * ```
@@ -4893,7 +4914,9 @@ export interface Frame {
    *
    * ```js
    * const aHandle = await frame.evaluateHandle(() => document.body);
-   * const resultHandle = await frame.evaluateHandle(([body, suffix]) => body.innerHTML + suffix, [aHandle, 'hello']);
+   * const resultHandle = await frame.evaluateHandle(([body, suffix]) =>
+   *   body.innerHTML + suffix, [aHandle, 'hello'],
+   * );
    * console.log(await resultHandle.jsonValue());
    * await resultHandle.dispose();
    * ```
@@ -5826,7 +5849,7 @@ export interface Frame {
    * instead.
    *
    * To send fine-grained keyboard events, use
-   * [frame.type(selector, text[, options])](https://playwright.dev/docs/api/class-frame#frame-type).
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param selector A selector to search for an element. If there are multiple elements satisfying the selector, the first will be
    * used.
    * @param value Value to fill for the `<input>`, `<textarea>` or `[contenteditable]` element.
@@ -6757,7 +6780,7 @@ export interface Frame {
    * **Usage**
    *
    * ```js
-   * // single selection matching the value
+   * // Single selection matching the value or label
    * frame.selectOption('select#colors', 'blue');
    *
    * // single selection matching both the value and the label
@@ -6900,6 +6923,8 @@ export interface Frame {
   }): Promise<void>;
 
   /**
+   * This method internally calls [document.write()](https://developer.mozilla.org/en-US/docs/Web/API/Document/write),
+   * inheriting all its specific characteristics and behaviors.
    * @param html HTML markup to assign to the page.
    * @param options
    */
@@ -7099,9 +7124,6 @@ export interface Frame {
   title(): Promise<string>;
 
   /**
-   * **NOTE** Use locator-based [locator.type(text[, options])](https://playwright.dev/docs/api/class-locator#locator-type)
-   * instead. Read more about [locators](https://playwright.dev/docs/locators).
-   *
    * Sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text. `frame.type` can be used
    * to send fine-grained keyboard events. To fill values in form fields, use
    * [frame.fill(selector, value[, options])](https://playwright.dev/docs/api/class-frame#frame-fill).
@@ -7110,12 +7132,10 @@ export interface Frame {
    * [keyboard.press(key[, options])](https://playwright.dev/docs/api/class-keyboard#keyboard-press).
    *
    * **Usage**
-   *
-   * ```js
-   * await frame.type('#mytextarea', 'Hello'); // Types instantly
-   * await frame.type('#mytextarea', 'World', { delay: 100 }); // Types slower, like a user
-   * ```
-   *
+   * @deprecated In most cases, you should use
+   * [locator.fill(value[, options])](https://playwright.dev/docs/api/class-locator#locator-fill) instead. You only need
+   * to press keys one by one if there is special keyboard handling on the page - in this case use
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param selector A selector to search for an element. If there are multiple elements satisfying the selector, the first will be
    * used.
    * @param text A text to type into a focused element.
@@ -7544,7 +7564,7 @@ export interface BrowserContext {
    * Emitted when Browser context gets closed. This might happen because of one of the following:
    * - Browser context is closed.
    * - Browser application is closed or crashed.
-   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   * - The [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
    */
   on(event: 'close', listener: (browserContext: BrowserContext) => void): this;
 
@@ -7660,6 +7680,12 @@ export interface BrowserContext {
   on(event: 'serviceworker', listener: (worker: Worker) => void): this;
 
   /**
+   * Emitted when exception is unhandled in any of the pages in this context. To listen for errors from a particular
+   * page, use [page.on('pageerror')](https://playwright.dev/docs/api/class-page#page-event-page-error) instead.
+   */
+  on(event: 'weberror', listener: (webError: WebError) => void): this;
+
+  /**
    * Adds an event listener that will be automatically removed after it is triggered once. See `addListener` for more information about this event.
    */
   once(event: 'backgroundpage', listener: (page: Page) => void): this;
@@ -7710,6 +7736,11 @@ export interface BrowserContext {
   once(event: 'serviceworker', listener: (worker: Worker) => void): this;
 
   /**
+   * Adds an event listener that will be automatically removed after it is triggered once. See `addListener` for more information about this event.
+   */
+  once(event: 'weberror', listener: (webError: WebError) => void): this;
+
+  /**
    * **NOTE** Only works with Chromium browser's persistent context.
    *
    * Emitted when new background page is created in the context.
@@ -7725,7 +7756,7 @@ export interface BrowserContext {
    * Emitted when Browser context gets closed. This might happen because of one of the following:
    * - Browser context is closed.
    * - Browser application is closed or crashed.
-   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   * - The [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
    */
   addListener(event: 'close', listener: (browserContext: BrowserContext) => void): this;
 
@@ -7841,6 +7872,12 @@ export interface BrowserContext {
   addListener(event: 'serviceworker', listener: (worker: Worker) => void): this;
 
   /**
+   * Emitted when exception is unhandled in any of the pages in this context. To listen for errors from a particular
+   * page, use [page.on('pageerror')](https://playwright.dev/docs/api/class-page#page-event-page-error) instead.
+   */
+  addListener(event: 'weberror', listener: (webError: WebError) => void): this;
+
+  /**
    * Removes an event listener added by `on` or `addListener`.
    */
   removeListener(event: 'backgroundpage', listener: (page: Page) => void): this;
@@ -7893,6 +7930,11 @@ export interface BrowserContext {
   /**
    * Removes an event listener added by `on` or `addListener`.
    */
+  removeListener(event: 'weberror', listener: (webError: WebError) => void): this;
+
+  /**
+   * Removes an event listener added by `on` or `addListener`.
+   */
   off(event: 'backgroundpage', listener: (page: Page) => void): this;
 
   /**
@@ -7941,6 +7983,11 @@ export interface BrowserContext {
   off(event: 'serviceworker', listener: (worker: Worker) => void): this;
 
   /**
+   * Removes an event listener added by `on` or `addListener`.
+   */
+  off(event: 'weberror', listener: (webError: WebError) => void): this;
+
+  /**
    * **NOTE** Only works with Chromium browser's persistent context.
    *
    * Emitted when new background page is created in the context.
@@ -7956,7 +8003,7 @@ export interface BrowserContext {
    * Emitted when Browser context gets closed. This might happen because of one of the following:
    * - Browser context is closed.
    * - Browser application is closed or crashed.
-   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   * - The [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
    */
   prependListener(event: 'close', listener: (browserContext: BrowserContext) => void): this;
 
@@ -8072,6 +8119,12 @@ export interface BrowserContext {
   prependListener(event: 'serviceworker', listener: (worker: Worker) => void): this;
 
   /**
+   * Emitted when exception is unhandled in any of the pages in this context. To listen for errors from a particular
+   * page, use [page.on('pageerror')](https://playwright.dev/docs/api/class-page#page-event-page-error) instead.
+   */
+  prependListener(event: 'weberror', listener: (webError: WebError) => void): this;
+
+  /**
    * Adds cookies into this browser context. All pages within this context will have these cookies installed. Cookies
    * can be obtained via
    * [browserContext.cookies([urls])](https://playwright.dev/docs/api/class-browsercontext#browser-context-cookies).
@@ -8163,8 +8216,14 @@ export interface BrowserContext {
    * Closes the browser context. All the pages that belong to the browser context will be closed.
    *
    * **NOTE** The default browser context cannot be closed.
+   * @param options
    */
-  close(): Promise<void>;
+  close(options?: {
+    /**
+     * The reason to be reported to the operations interrupted by the context closure.
+     */
+    reason?: string;
+  }): Promise<void>;
 
   /**
    * If no URLs are specified, this method returns all cookies. If URLs are specified, only cookies that affect those
@@ -8193,7 +8252,9 @@ export interface BrowserContext {
    * (async () => {
    *   const browser = await webkit.launch({ headless: false });
    *   const context = await browser.newContext();
-   *   await context.exposeFunction('sha256', text => crypto.createHash('sha256').update(text).digest('hex'));
+   *   await context.exposeFunction('sha256', text =>
+   *     crypto.createHash('sha256').update(text).digest('hex'),
+   *   );
    *   const page = await context.newPage();
    *   await page.setContent(`
    *     <script>
@@ -8327,7 +8388,7 @@ export interface BrowserContext {
 
   /**
    * If specified the network requests that are made in the context will be served from the HAR file. Read more about
-   * [Replaying from HAR](https://playwright.dev/docs/network#replaying-from-har).
+   * [Replaying from HAR](https://playwright.dev/docs/mock#replaying-from-har).
    *
    * Playwright will not serve requests intercepted by Service Worker from the HAR file. See
    * [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when
@@ -8348,7 +8409,8 @@ export interface BrowserContext {
     /**
      * If specified, updates the given HAR with the actual network information instead of serving from file. The file is
      * written to disk when
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) is called.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) is
+     * called.
      */
     update?: boolean;
 
@@ -8540,7 +8602,7 @@ export interface BrowserContext {
    * Emitted when Browser context gets closed. This might happen because of one of the following:
    * - Browser context is closed.
    * - Browser application is closed or crashed.
-   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   * - The [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
    */
   waitForEvent(event: 'close', optionsOrPredicate?: { predicate?: (browserContext: BrowserContext) => boolean | Promise<boolean>, timeout?: number } | ((browserContext: BrowserContext) => boolean | Promise<boolean>)): Promise<BrowserContext>;
 
@@ -8655,6 +8717,12 @@ export interface BrowserContext {
    */
   waitForEvent(event: 'serviceworker', optionsOrPredicate?: { predicate?: (worker: Worker) => boolean | Promise<boolean>, timeout?: number } | ((worker: Worker) => boolean | Promise<boolean>)): Promise<Worker>;
 
+  /**
+   * Emitted when exception is unhandled in any of the pages in this context. To listen for errors from a particular
+   * page, use [page.on('pageerror')](https://playwright.dev/docs/api/class-page#page-event-page-error) instead.
+   */
+  waitForEvent(event: 'weberror', optionsOrPredicate?: { predicate?: (webError: WebError) => boolean | Promise<boolean>, timeout?: number } | ((webError: WebError) => boolean | Promise<boolean>)): Promise<WebError>;
+
 
   /**
    * API testing helper associated with this context. Requests made with this API will use context cookies.
@@ -8662,6 +8730,8 @@ export interface BrowserContext {
   request: APIRequestContext;
 
   tracing: Tracing;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 /**
@@ -8926,6 +8996,8 @@ export interface JSHandle<T = any> {
    * @param propertyName property to get
    */
   getProperty(propertyName: string): Promise<JSHandle>;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 /**
@@ -9115,7 +9187,9 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    *
    * ```js
    * const feedHandle = await page.$('.feed');
-   * expect(await feedHandle.$$eval('.tweet', nodes => nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!']);
+   * expect(await feedHandle.$$eval('.tweet', nodes =>
+   *   nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!'],
+   * );
    * ```
    *
    * @param selector A selector to query for.
@@ -9144,7 +9218,9 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    *
    * ```js
    * const feedHandle = await page.$('.feed');
-   * expect(await feedHandle.$$eval('.tweet', nodes => nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!']);
+   * expect(await feedHandle.$$eval('.tweet', nodes =>
+   *   nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!'],
+   * );
    * ```
    *
    * @param selector A selector to query for.
@@ -9173,7 +9249,9 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    *
    * ```js
    * const feedHandle = await page.$('.feed');
-   * expect(await feedHandle.$$eval('.tweet', nodes => nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!']);
+   * expect(await feedHandle.$$eval('.tweet', nodes =>
+   *   nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!'],
+   * );
    * ```
    *
    * @param selector A selector to query for.
@@ -9202,7 +9280,9 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    *
    * ```js
    * const feedHandle = await page.$('.feed');
-   * expect(await feedHandle.$$eval('.tweet', nodes => nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!']);
+   * expect(await feedHandle.$$eval('.tweet', nodes =>
+   *   nodes.map(n => n.innerText))).toEqual(['Hello!', 'Hi!'],
+   * );
    * ```
    *
    * @param selector A selector to query for.
@@ -9605,7 +9685,7 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    * instead.
    *
    * To send fine-grained keyboard events, use
-   * [elementHandle.type(text[, options])](https://playwright.dev/docs/api/class-elementhandle#element-handle-type).
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param value Value to set for the `<input>`, `<textarea>` or `[contenteditable]` element.
    * @param options
    */
@@ -9927,7 +10007,7 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    * **Usage**
    *
    * ```js
-   * // single selection matching the value
+   * // Single selection matching the value or label
    * handle.selectOption('blue');
    *
    * // single selection matching the label
@@ -10204,20 +10284,10 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
    * [elementHandle.press(key[, options])](https://playwright.dev/docs/api/class-elementhandle#element-handle-press).
    *
    * **Usage**
-   *
-   * ```js
-   * await elementHandle.type('Hello'); // Types instantly
-   * await elementHandle.type('World', { delay: 100 }); // Types slower, like a user
-   * ```
-   *
-   * An example of typing into a text field and then submitting the form:
-   *
-   * ```js
-   * const elementHandle = await page.$('input');
-   * await elementHandle.type('some text');
-   * await elementHandle.press('Enter');
-   * ```
-   *
+   * @deprecated In most cases, you should use
+   * [locator.fill(value[, options])](https://playwright.dev/docs/api/class-locator#locator-fill) instead. You only need
+   * to press keys one by one if there is special keyboard handling on the page - in this case use
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param text A text to type into a focused element.
    * @param options
    */
@@ -10330,7 +10400,7 @@ export interface ElementHandle<T=Node> extends JSHandle<T> {
 
 /**
  * Locators are the central piece of Playwright's auto-waiting and retry-ability. In a nutshell, locators represent a
- * way to find element(s) on the page at any moment. Locator can be created with the
+ * way to find element(s) on the page at any moment. A locator can be created with the
  * [page.locator(selector[, options])](https://playwright.dev/docs/api/class-page#page-locator) method.
  *
  * [Learn more about locators](https://playwright.dev/docs/locators).
@@ -10389,6 +10459,62 @@ export interface Locator {
     timeout?: number;
   }): Promise<R>;
   /**
+   * Execute JavaScript code in the page, taking the matching element as an argument, and return a {@link JSHandle} with
+   * the result.
+   *
+   * **Details**
+   *
+   * Returns the return value of `pageFunction` as a{@link JSHandle}, called with the matching element as a first
+   * argument, and `arg` as a second argument.
+   *
+   * The only difference between
+   * [locator.evaluate(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate)
+   * and
+   * [locator.evaluateHandle(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate-handle)
+   * is that
+   * [locator.evaluateHandle(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate-handle)
+   * returns {@link JSHandle}.
+   *
+   * If `pageFunction` returns a [Promise], this method will wait for the promise to resolve and return its value.
+   *
+   * If `pageFunction` throws or rejects, this method throws.
+   *
+   * See [page.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-page#page-evaluate-handle) for
+   * more details.
+   * @param pageFunction Function to be evaluated in the page context.
+   * @param arg Optional argument to pass to `pageFunction`.
+   * @param options
+   */
+  evaluateHandle<R, Arg, E extends SVGElement | HTMLElement = SVGElement | HTMLElement>(pageFunction: PageFunctionOn<E, Arg, R>, arg: Arg): Promise<SmartHandle<R>>;
+  /**
+   * Execute JavaScript code in the page, taking the matching element as an argument, and return a {@link JSHandle} with
+   * the result.
+   *
+   * **Details**
+   *
+   * Returns the return value of `pageFunction` as a{@link JSHandle}, called with the matching element as a first
+   * argument, and `arg` as a second argument.
+   *
+   * The only difference between
+   * [locator.evaluate(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate)
+   * and
+   * [locator.evaluateHandle(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate-handle)
+   * is that
+   * [locator.evaluateHandle(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate-handle)
+   * returns {@link JSHandle}.
+   *
+   * If `pageFunction` returns a [Promise], this method will wait for the promise to resolve and return its value.
+   *
+   * If `pageFunction` throws or rejects, this method throws.
+   *
+   * See [page.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-page#page-evaluate-handle) for
+   * more details.
+   * @param pageFunction Function to be evaluated in the page context.
+   * @param arg Optional argument to pass to `pageFunction`.
+   * @param options
+   */
+  evaluateHandle<R, E extends SVGElement | HTMLElement = SVGElement | HTMLElement>(pageFunction: PageFunctionOn<E, void, R>): Promise<SmartHandle<R>>;
+  /**
    * Execute JavaScript code in the page, taking all matching elements as an argument.
    *
    * **Details**
@@ -10446,7 +10572,8 @@ export interface Locator {
     timeout?: number;
   }): Promise<null|ElementHandle<SVGElement | HTMLElement>>;
   /**
-   * When locator points to a list of elements, returns array of locators, pointing to respective elements.
+   * When the locator points to a list of elements, this returns an array of locators, pointing to their respective
+   * elements.
    *
    * **NOTE** [locator.all()](https://playwright.dev/docs/api/class-locator#locator-all) does not wait for elements to
    * match the locator, and instead immediately returns whatever is present in the page.  When the list of elements
@@ -10467,6 +10594,10 @@ export interface Locator {
   /**
    * Returns an array of `node.innerText` values for all matching nodes.
    *
+   * **NOTE** If you need to assert text on the page, prefer
+   * [expect(locator).toHaveText(expected[, options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-have-text)
+   * with `useInnerText` option to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
+   *
    * **Usage**
    *
    * ```js
@@ -10478,6 +10609,10 @@ export interface Locator {
 
   /**
    * Returns an array of `node.textContent` values for all matching nodes.
+   *
+   * **NOTE** If you need to assert text on the page, prefer
+   * [expect(locator).toHaveText(expected[, options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-have-text)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    *
    * **Usage**
    *
@@ -10781,6 +10916,10 @@ export interface Locator {
   /**
    * Returns the number of elements matching the locator.
    *
+   * **NOTE** If you need to assert the number of elements on the page, prefer
+   * [expect(locator).toHaveCount(count[, options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-have-count)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
+   *
    * **Usage**
    *
    * ```js
@@ -10996,43 +11135,6 @@ export interface Locator {
   elementHandles(): Promise<Array<ElementHandle>>;
 
   /**
-   * Execute JavaScript code in the page, taking the matching element as an argument, and return a {@link JSHandle} with
-   * the result.
-   *
-   * **Details**
-   *
-   * Returns the return value of `pageFunction` as a{@link JSHandle}, called with the matching element as a first
-   * argument, and `arg` as a second argument.
-   *
-   * The only difference between
-   * [locator.evaluate(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate)
-   * and
-   * [locator.evaluateHandle(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate-handle)
-   * is that
-   * [locator.evaluateHandle(pageFunction[, arg, options])](https://playwright.dev/docs/api/class-locator#locator-evaluate-handle)
-   * returns {@link JSHandle}.
-   *
-   * If `pageFunction` returns a [Promise], this method will wait for the promise to resolve and return its value.
-   *
-   * If `pageFunction` throws or rejects, this method throws.
-   *
-   * See [page.evaluateHandle(pageFunction[, arg])](https://playwright.dev/docs/api/class-page#page-evaluate-handle) for
-   * more details.
-   * @param pageFunction Function to be evaluated in the page context.
-   * @param arg Optional argument to pass to `pageFunction`.
-   * @param options
-   */
-  evaluateHandle(pageFunction: Function|string, arg?: EvaluationArgument, options?: {
-    /**
-     * Maximum time in milliseconds. Defaults to `0` - no timeout. The default value can be changed via `actionTimeout`
-     * option in the config, or by using the
-     * [browserContext.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-browsercontext#browser-context-set-default-timeout)
-     * or [page.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-page#page-set-default-timeout) methods.
-     */
-    timeout?: number;
-  }): Promise<JSHandle>;
-
-  /**
    * Set a value to the input field.
    *
    * **Usage**
@@ -11052,7 +11154,7 @@ export interface Locator {
    * instead.
    *
    * To send fine-grained keyboard events, use
-   * [locator.type(text[, options])](https://playwright.dev/docs/api/class-locator#locator-type).
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param value Value to set for the `<input>`, `<textarea>` or `[contenteditable]` element.
    * @param options
    */
@@ -11164,6 +11266,10 @@ export interface Locator {
 
   /**
    * Returns the matching element's attribute value.
+   *
+   * **NOTE** If you need to assert an element's attribute, prefer
+   * [expect(locator).toHaveAttribute(name, value[, options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-have-attribute)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    * @param name Attribute name to get the value for.
    * @param options
    */
@@ -11579,6 +11685,10 @@ export interface Locator {
 
   /**
    * Returns the [`element.innerText`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/innerText).
+   *
+   * **NOTE** If you need to assert text on the page, prefer
+   * [expect(locator).toHaveText(expected[, options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-have-text)
+   * with `useInnerText` option to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    * @param options
    */
   innerText(options?: {
@@ -11593,6 +11703,10 @@ export interface Locator {
 
   /**
    * Returns the value for the matching `<input>` or `<textarea>` or `<select>` element.
+   *
+   * **NOTE** If you need to assert input value, prefer
+   * [expect(locator).toHaveValue(value[, options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-have-value)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    *
    * **Usage**
    *
@@ -11621,6 +11735,10 @@ export interface Locator {
   /**
    * Returns whether the element is checked. Throws if the element is not a checkbox or radio input.
    *
+   * **NOTE** If you need to assert that checkbox is checked, prefer
+   * [expect(locator).toBeChecked([options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-checked)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
+   *
    * **Usage**
    *
    * ```js
@@ -11641,6 +11759,10 @@ export interface Locator {
 
   /**
    * Returns whether the element is disabled, the opposite of [enabled](https://playwright.dev/docs/actionability#enabled).
+   *
+   * **NOTE** If you need to assert that an element is disabled, prefer
+   * [expect(locator).toBeDisabled([options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-disabled)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    *
    * **Usage**
    *
@@ -11663,6 +11785,10 @@ export interface Locator {
   /**
    * Returns whether the element is [editable](https://playwright.dev/docs/actionability#editable).
    *
+   * **NOTE** If you need to assert that an element is editable, prefer
+   * [expect(locator).toBeEditable([options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-editable)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
+   *
    * **Usage**
    *
    * ```js
@@ -11683,6 +11809,10 @@ export interface Locator {
 
   /**
    * Returns whether the element is [enabled](https://playwright.dev/docs/actionability#enabled).
+   *
+   * **NOTE** If you need to assert that an element is enabled, prefer
+   * [expect(locator).toBeEnabled([options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-enabled)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    *
    * **Usage**
    *
@@ -11705,6 +11835,10 @@ export interface Locator {
   /**
    * Returns whether the element is hidden, the opposite of [visible](https://playwright.dev/docs/actionability#visible).
    *
+   * **NOTE** If you need to assert that element is hidden, prefer
+   * [expect(locator).toBeHidden([options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-hidden)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
+   *
    * **Usage**
    *
    * ```js
@@ -11724,6 +11858,10 @@ export interface Locator {
 
   /**
    * Returns whether the element is [visible](https://playwright.dev/docs/actionability#visible).
+   *
+   * **NOTE** If you need to assert that element is visible, prefer
+   * [expect(locator).toBeVisible([options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-visible)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    *
    * **Usage**
    *
@@ -11874,6 +12012,57 @@ export interface Locator {
   press(key: string, options?: {
     /**
      * Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
+     */
+    delay?: number;
+
+    /**
+     * Actions that initiate navigations are waiting for these navigations to happen and for pages to start loading. You
+     * can opt out of waiting via setting this flag. You would only need this option in the exceptional cases such as
+     * navigating to inaccessible pages. Defaults to `false`.
+     */
+    noWaitAfter?: boolean;
+
+    /**
+     * Maximum time in milliseconds. Defaults to `0` - no timeout. The default value can be changed via `actionTimeout`
+     * option in the config, or by using the
+     * [browserContext.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-browsercontext#browser-context-set-default-timeout)
+     * or [page.setDefaultTimeout(timeout)](https://playwright.dev/docs/api/class-page#page-set-default-timeout) methods.
+     */
+    timeout?: number;
+  }): Promise<void>;
+
+  /**
+   * **NOTE** In most cases, you should use
+   * [locator.fill(value[, options])](https://playwright.dev/docs/api/class-locator#locator-fill) instead. You only need
+   * to press keys one by one if there is special keyboard handling on the page.
+   *
+   * Focuses the element, and then sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the
+   * text.
+   *
+   * To press a special key, like `Control` or `ArrowDown`, use
+   * [locator.press(key[, options])](https://playwright.dev/docs/api/class-locator#locator-press).
+   *
+   * **Usage**
+   *
+   * ```js
+   * await locator.pressSequentially('Hello'); // Types instantly
+   * await locator.pressSequentially('World', { delay: 100 }); // Types slower, like a user
+   * ```
+   *
+   * An example of typing into a text field and then submitting the form:
+   *
+   * ```js
+   * const locator = page.getByLabel('Password');
+   * await locator.pressSequentially('my password');
+   * await locator.press('Enter');
+   * ```
+   *
+   * @param text String of characters to sequentially press into a focused element.
+   * @param options
+   */
+  pressSequentially(text: string, options?: {
+    /**
+     * Time to wait between key presses in milliseconds. Defaults to 0.
      */
     delay?: number;
 
@@ -12129,10 +12318,13 @@ export interface Locator {
    *
    * ```js
    * // Select one file
-   * await page.getByLabel('Upload file').setInputFiles('myfile.pdf');
+   * await page.getByLabel('Upload file').setInputFiles(path.join(__dirname, 'myfile.pdf'));
    *
    * // Select multiple files
-   * await page.getByLabel('Upload files').setInputFiles(['file1.txt', 'file2.txt']);
+   * await page.getByLabel('Upload files').setInputFiles([
+   *   path.join(__dirname, 'file1.txt'),
+   *   path.join(__dirname, 'file2.txt'),
+   * ]);
    *
    * // Remove all the selected files
    * await page.getByLabel('Upload file').setInputFiles([]);
@@ -12270,6 +12462,10 @@ export interface Locator {
 
   /**
    * Returns the [`node.textContent`](https://developer.mozilla.org/en-US/docs/Web/API/Node/textContent).
+   *
+   * **NOTE** If you need to assert text on the page, prefer
+   * [expect(locator).toHaveText(expected[, options])](https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-have-text)
+   * to avoid flakiness. See [assertions guide](https://playwright.dev/docs/test-assertions) for more details.
    * @param options
    */
   textContent(options?: {
@@ -12290,20 +12486,10 @@ export interface Locator {
    * [locator.press(key[, options])](https://playwright.dev/docs/api/class-locator#locator-press).
    *
    * **Usage**
-   *
-   * ```js
-   * await element.type('Hello'); // Types instantly
-   * await element.type('World', { delay: 100 }); // Types slower, like a user
-   * ```
-   *
-   * An example of typing into a text field and then submitting the form:
-   *
-   * ```js
-   * const element = page.getByLabel('Password');
-   * await element.type('my password');
-   * await element.press('Enter');
-   * ```
-   *
+   * @deprecated In most cases, you should use
+   * [locator.fill(value[, options])](https://playwright.dev/docs/api/class-locator#locator-fill) instead. You only need
+   * to press keys one by one if there is special keyboard handling on the page - in this case use
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
    * @param text A text to type into a focused element.
    * @param options
    */
@@ -12656,6 +12842,12 @@ export interface BrowserType<Unused = {}> {
     extraHTTPHeaders?: { [key: string]: string; };
 
     /**
+     * Firefox user preferences. Learn more about the Firefox user preferences at
+     * [`about:config`](https://support.mozilla.org/en-US/kb/about-config-editor-firefox).
+     */
+    firefoxUserPrefs?: { [key: string]: string|number|boolean; };
+
+    /**
      * Emulates `'forced-colors'` media feature, supported values are `'active'`, `'none'`. See
      * [page.emulateMedia([options])](https://playwright.dev/docs/api/class-page#page-emulate-media) for more details.
      * Passing `null` resets emulation to system defaults. Defaults to `'none'`.
@@ -12737,7 +12929,7 @@ export interface BrowserType<Unused = {}> {
     /**
      * Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device,
      * so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more
-     * about [mobile emulation](https://playwright.dev/docs/emulation#isMobile).
+     * about [mobile emulation](https://playwright.dev/docs/emulation#ismobile).
      */
     isMobile?: boolean;
 
@@ -12801,8 +12993,8 @@ export interface BrowserType<Unused = {}> {
     /**
      * Enables [HAR](http://www.softwareishard.com/blog/har-12-spec) recording for all pages into `recordHar.path` file.
      * If not specified, the HAR is not recorded. Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for the HAR to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * the HAR to be saved.
      */
     recordHar?: {
       /**
@@ -12842,8 +13034,8 @@ export interface BrowserType<Unused = {}> {
     /**
      * Enables video recording for all pages into `recordVideo.dir` directory. If not specified videos are not recorded.
      * Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for videos to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * videos to be saved.
      */
     recordVideo?: {
       /**
@@ -12958,7 +13150,7 @@ export interface BrowserType<Unused = {}> {
     videosPath?: string;
 
     /**
-     * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport.  Use `null` to disable the consistent
+     * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport. Use `null` to disable the consistent
      * viewport emulation. Learn more about [viewport emulation](https://playwright.dev/docs/emulation#viewport).
      *
      * **NOTE** The `null` value opts out from the default presets, makes viewport depend on the host window size defined
@@ -13567,6 +13759,8 @@ export interface ElectronApplication {
    * Convenience method that returns all the opened windows.
    */
   windows(): Array<Page>;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 export type AndroidElementInfo = {
@@ -13706,8 +13900,12 @@ export {};
  *     const webview = await device.webView({ pkg: 'org.chromium.webview_shell' });
  *
  *     // Fill the input box.
- *     await device.fill({ res: 'org.chromium.webview_shell:id/url_field' }, 'github.com/microsoft/playwright');
- *     await device.press({ res: 'org.chromium.webview_shell:id/url_field' }, 'Enter');
+ *     await device.fill({
+ *       res: 'org.chromium.webview_shell:id/url_field',
+ *     }, 'github.com/microsoft/playwright');
+ *     await device.press({
+ *       res: 'org.chromium.webview_shell:id/url_field',
+ *     }, 'Enter');
  *
  *     // Work with WebView's page as usual.
  *     const page = await webview.page();
@@ -14144,7 +14342,7 @@ export interface AndroidDevice {
     /**
      * Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device,
      * so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more
-     * about [mobile emulation](https://playwright.dev/docs/emulation#isMobile).
+     * about [mobile emulation](https://playwright.dev/docs/emulation#ismobile).
      */
     isMobile?: boolean;
 
@@ -14208,8 +14406,8 @@ export interface AndroidDevice {
     /**
      * Enables [HAR](http://www.softwareishard.com/blog/har-12-spec) recording for all pages into `recordHar.path` file.
      * If not specified, the HAR is not recorded. Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for the HAR to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * the HAR to be saved.
      */
     recordHar?: {
       /**
@@ -14249,8 +14447,8 @@ export interface AndroidDevice {
     /**
      * Enables video recording for all pages into `recordVideo.dir` directory. If not specified videos are not recorded.
      * Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for videos to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * videos to be saved.
      */
     recordVideo?: {
       /**
@@ -14348,7 +14546,7 @@ export interface AndroidDevice {
     videosPath?: string;
 
     /**
-     * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport.  Use `null` to disable the consistent
+     * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport. Use `null` to disable the consistent
      * viewport emulation. Learn more about [viewport emulation](https://playwright.dev/docs/emulation#viewport).
      *
      * **NOTE** The `null` value opts out from the default presets, makes viewport depend on the host window size defined
@@ -14622,6 +14820,8 @@ export interface AndroidDevice {
   webViews(): Array<AndroidWebView>;
 
   input: AndroidInput;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 export interface AndroidInput {
@@ -14757,6 +14957,8 @@ export interface AndroidSocket {
    * @param data Data to write.
    */
   write(data: Buffer): Promise<void>;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 /**
@@ -15056,10 +15258,8 @@ export interface APIRequestContext {
    * All responses returned by
    * [apiRequestContext.get(url[, options])](https://playwright.dev/docs/api/class-apirequestcontext#api-request-context-get)
    * and similar methods are stored in the memory, so that you can later call
-   * [apiResponse.body()](https://playwright.dev/docs/api/class-apiresponse#api-response-body). This method discards all
-   * stored responses, and makes
-   * [apiResponse.body()](https://playwright.dev/docs/api/class-apiresponse#api-response-body) throw "Response disposed"
-   * error.
+   * [apiResponse.body()](https://playwright.dev/docs/api/class-apiresponse#api-response-body).This method discards all
+   * its resources, calling any method on disposed {@link APIRequestContext} will throw an exception.
    */
   dispose(): Promise<void>;
 
@@ -15696,6 +15896,8 @@ export interface APIRequestContext {
       }>;
     }>;
   }>;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 /**
@@ -15766,6 +15968,8 @@ export interface APIResponse {
    * Contains the URL of the response.
    */
   url(): string;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 /**
@@ -15792,7 +15996,7 @@ export interface Browser extends EventEmitter {
    * Emitted when Browser gets disconnected from the browser application. This might happen because of one of the
    * following:
    * - Browser application is closed or crashed.
-   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   * - The [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
    */
   on(event: 'disconnected', listener: (browser: Browser) => void): this;
 
@@ -15805,7 +16009,7 @@ export interface Browser extends EventEmitter {
    * Emitted when Browser gets disconnected from the browser application. This might happen because of one of the
    * following:
    * - Browser application is closed or crashed.
-   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   * - The [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
    */
   addListener(event: 'disconnected', listener: (browser: Browser) => void): this;
 
@@ -15823,7 +16027,7 @@ export interface Browser extends EventEmitter {
    * Emitted when Browser gets disconnected from the browser application. This might happen because of one of the
    * following:
    * - Browser application is closed or crashed.
-   * - The [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
+   * - The [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close) method was called.
    */
   prependListener(event: 'disconnected', listener: (browser: Browser) => void): this;
 
@@ -15841,14 +16045,20 @@ export interface Browser extends EventEmitter {
    * the browser server.
    *
    * **NOTE** This is similar to force quitting the browser. Therefore, you should call
-   * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) on any {@link
-   * BrowserContext}'s you explicitly created earlier with
+   * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) on
+   * any {@link BrowserContext}'s you explicitly created earlier with
    * [browser.newContext([options])](https://playwright.dev/docs/api/class-browser#browser-new-context) **before**
-   * calling [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close).
+   * calling [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close).
    *
    * The {@link Browser} object itself is considered to be disposed and cannot be used anymore.
+   * @param options
    */
-  close(): Promise<void>;
+  close(options?: {
+    /**
+     * The reason to be reported to the operations interrupted by the browser closure.
+     */
+    reason?: string;
+  }): Promise<void>;
 
   /**
    * Returns an array of all open browser contexts. In a newly created browser, this will return zero browser contexts.
@@ -15883,10 +16093,10 @@ export interface Browser extends EventEmitter {
    *
    * **NOTE** If directly using this method to create {@link BrowserContext}s, it is best practice to explicitly close
    * the returned context via
-   * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) when your code
-   * is done with the {@link BrowserContext}, and before calling
-   * [browser.close()](https://playwright.dev/docs/api/class-browser#browser-close). This will ensure the `context` is
-   * closed gracefully and any artifacts—like HARs and videos—are fully flushed and saved.
+   * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) when
+   * your code is done with the {@link BrowserContext}, and before calling
+   * [browser.close([options])](https://playwright.dev/docs/api/class-browser#browser-close). This will ensure the
+   * `context` is closed gracefully and any artifacts—like HARs and videos—are fully flushed and saved.
    *
    * **Usage**
    *
@@ -16019,7 +16229,7 @@ export interface Browser extends EventEmitter {
     /**
      * Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device,
      * so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more
-     * about [mobile emulation](https://playwright.dev/docs/emulation#isMobile).
+     * about [mobile emulation](https://playwright.dev/docs/emulation#ismobile).
      */
     isMobile?: boolean;
 
@@ -16087,8 +16297,8 @@ export interface Browser extends EventEmitter {
     /**
      * Enables [HAR](http://www.softwareishard.com/blog/har-12-spec) recording for all pages into `recordHar.path` file.
      * If not specified, the HAR is not recorded. Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for the HAR to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * the HAR to be saved.
      */
     recordHar?: {
       /**
@@ -16128,8 +16338,8 @@ export interface Browser extends EventEmitter {
     /**
      * Enables video recording for all pages into `recordVideo.dir` directory. If not specified videos are not recorded.
      * Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for videos to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * videos to be saved.
      */
     recordVideo?: {
       /**
@@ -16283,7 +16493,7 @@ export interface Browser extends EventEmitter {
     videosPath?: string;
 
     /**
-     * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport.  Use `null` to disable the consistent
+     * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport. Use `null` to disable the consistent
      * viewport emulation. Learn more about [viewport emulation](https://playwright.dev/docs/emulation#viewport).
      *
      * **NOTE** The `null` value opts out from the default presets, makes viewport depend on the host window size defined
@@ -16355,6 +16565,8 @@ export interface Browser extends EventEmitter {
    * Returns the browser version.
    */
   version(): string;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 export interface BrowserServer {
@@ -16411,6 +16623,8 @@ export interface BrowserServer {
    * to establish connection to the browser.
    */
   wsEndpoint(): string;
+
+  [Symbol.asyncDispose](): Promise<void>;
 }
 
 /**
@@ -16684,7 +16898,7 @@ export interface Dialog {
  *
  * All the downloaded files belonging to the browser context are deleted when the browser context is closed.
  *
- * Download event is emitted once the download starts. Download path becomes available once download completes:
+ * Download event is emitted once the download starts. Download path becomes available once download completes.
  *
  * ```js
  * // Start waiting for download before clicking. Note no await.
@@ -16692,8 +16906,8 @@ export interface Dialog {
  * await page.getByText('Download file').click();
  * const download = await downloadPromise;
  *
- * // Wait for the download process to complete.
- * console.log(await download.path());
+ * // Wait for the download process to complete and save the downloaded file somewhere.
+ * await download.saveAs('/path/to/save/at/' + download.suggestedFilename());
  * ```
  *
  */
@@ -16707,7 +16921,7 @@ export interface Download {
   /**
    * Returns readable stream for current download or `null` if download failed.
    */
-  createReadStream(): Promise<null|Readable>;
+  createReadStream(): Promise<Readable>;
 
   /**
    * Deletes the downloaded file. Will wait for the download to finish if necessary.
@@ -16732,11 +16946,18 @@ export interface Download {
    * [download.suggestedFilename()](https://playwright.dev/docs/api/class-download#download-suggested-filename) to get
    * suggested file name.
    */
-  path(): Promise<null|string>;
+  path(): Promise<string>;
 
   /**
    * Copy the download to a user-specified path. It is safe to call this method while the download is still in progress.
    * Will wait for the download to finish if necessary.
+   *
+   * **Usage**
+   *
+   * ```js
+   * await download.saveAs('/path/to/save/at/' + download.suggestedFilename());
+   * ```
+   *
    * @param path Path where the download should be copied.
    */
   saveAs(path: string): Promise<void>;
@@ -16915,8 +17136,8 @@ export interface Electron {
     /**
      * Enables [HAR](http://www.softwareishard.com/blog/har-12-spec) recording for all pages into `recordHar.path` file.
      * If not specified, the HAR is not recorded. Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for the HAR to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * the HAR to be saved.
      */
     recordHar?: {
       /**
@@ -16956,8 +17177,8 @@ export interface Electron {
     /**
      * Enables video recording for all pages into `recordVideo.dir` directory. If not specified videos are not recorded.
      * Make sure to await
-     * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for videos to
-     * be saved.
+     * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+     * videos to be saved.
      */
     recordVideo?: {
       /**
@@ -16995,6 +17216,11 @@ export interface Electron {
      * for a list of supported timezone IDs. Defaults to the system timezone.
      */
     timezoneId?: string;
+
+    /**
+     * If specified, traces are saved into this directory.
+     */
+    tracesDir?: string;
   }): Promise<ElectronApplication>;
 }
 
@@ -17007,7 +17233,7 @@ export interface Electron {
  * const fileChooserPromise = page.waitForEvent('filechooser');
  * await page.getByText('Upload file').click();
  * const fileChooser = await fileChooserPromise;
- * await fileChooser.setFiles('myfile.pdf');
+ * await fileChooser.setFiles(path.join(__dirname, 'myfile.pdf'));
  * ```
  *
  */
@@ -17587,6 +17813,9 @@ export interface Keyboard {
   insertText(text: string): Promise<void>;
 
   /**
+   * **NOTE** In most cases, you should use
+   * [locator.press(key[, options])](https://playwright.dev/docs/api/class-locator#locator-press) instead.
+   *
    * `key` can specify the intended
    * [keyboardEvent.key](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key) value or a single character
    * to generate the text for. A superset of the `key` values can be found
@@ -17633,6 +17862,11 @@ export interface Keyboard {
   }): Promise<void>;
 
   /**
+   * **NOTE** In most cases, you should use
+   * [locator.fill(value[, options])](https://playwright.dev/docs/api/class-locator#locator-fill) instead. You only need
+   * to press keys one by one if there is special keyboard handling on the page - in this case use
+   * [locator.pressSequentially(text[, options])](https://playwright.dev/docs/api/class-locator#locator-press-sequentially).
+   *
    * Sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text.
    *
    * To press a special key, like `Control` or `ArrowDown`, use
@@ -17903,6 +18137,32 @@ export interface Request {
 
   /**
    * Returns the {@link Frame} that initiated this request.
+   *
+   * **Usage**
+   *
+   * ```js
+   * const frameUrl = request.frame().url();
+   * ```
+   *
+   * **Details**
+   *
+   * Note that in some cases the frame is not available, and this method will throw.
+   * - When request originates in the Service Worker. You can use `request.serviceWorker()` to check that.
+   * - When navigation request is issued before the corresponding frame is created. You can use
+   *   [request.isNavigationRequest()](https://playwright.dev/docs/api/class-request#request-is-navigation-request) to
+   *   check that.
+   *
+   * Here is an example that handles all the cases:
+   *
+   * ```js
+   * if (request.serviceWorker())
+   *   console.log(`request ${request.url()} from a service worker`);
+   * else if (request.isNavigationRequest())
+   *   console.log(`request ${request.url()} is a navigation request`);
+   * else
+   *   console.log(`request ${request.url()} from a frame ${request.frame().url()}`);
+   * ```
+   *
    */
   frame(): Frame;
 
@@ -17939,6 +18199,9 @@ export interface Request {
 
   /**
    * Whether this request is driving frame's navigation.
+   *
+   * Some navigation requests are issued before the corresponding frame is created, and therefore do not have
+   * [request.frame()](https://playwright.dev/docs/api/class-request#request-frame) available.
    */
   isNavigationRequest(): boolean;
 
@@ -18019,9 +18282,14 @@ export interface Request {
   response(): Promise<null|Response>;
 
   /**
-   * **NOTE** This field is Chromium only. It's safe to call when using other browsers, but it will always be `null`.
-   *
    * The Service {@link Worker} that is performing the request.
+   *
+   * **Details**
+   *
+   * This method is Chromium only. It's safe to call when using other browsers, but it will always be `null`.
+   *
+   * Requests originated in a Service Worker do not have a
+   * [request.frame()](https://playwright.dev/docs/api/class-request#request-frame) available.
    */
   serviceWorker(): null|Worker;
 
@@ -18830,6 +19098,34 @@ export interface Video {
 }
 
 /**
+ * {@link WebError} class represents an unhandled exception thrown in the page. It is dispatched via the
+ * [browserContext.on('weberror')](https://playwright.dev/docs/api/class-browsercontext#browser-context-event-web-error)
+ * event.
+ *
+ * ```js
+ * // Log all uncaught errors to the terminal
+ * context.on('weberror', webError => {
+ *   console.log(`Uncaught exception: "${webError.error()}"`);
+ * });
+ *
+ * // Navigate to a page with an exception.
+ * await page.goto('data:text/html,<script>throw new Error("Test")</script>');
+ * ```
+ *
+ */
+export interface WebError {
+  /**
+   * Unhandled error that was thrown.
+   */
+  error(): Error;
+
+  /**
+   * The page that produced this unhandled exception, if any.
+   */
+  page(): null|Page;
+}
+
+/**
  * The {@link WebSocket} class represents websocket connections in the page.
  */
 export interface WebSocket {
@@ -19151,7 +19447,7 @@ export interface BrowserContextOptions {
   /**
    * Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device,
    * so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more
-   * about [mobile emulation](https://playwright.dev/docs/emulation#isMobile).
+   * about [mobile emulation](https://playwright.dev/docs/emulation#ismobile).
    */
   isMobile?: boolean;
 
@@ -19219,8 +19515,8 @@ export interface BrowserContextOptions {
   /**
    * Enables [HAR](http://www.softwareishard.com/blog/har-12-spec) recording for all pages into `recordHar.path` file.
    * If not specified, the HAR is not recorded. Make sure to await
-   * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for the HAR to
-   * be saved.
+   * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+   * the HAR to be saved.
    */
   recordHar?: {
     /**
@@ -19260,8 +19556,8 @@ export interface BrowserContextOptions {
   /**
    * Enables video recording for all pages into `recordVideo.dir` directory. If not specified videos are not recorded.
    * Make sure to await
-   * [browserContext.close()](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for videos to
-   * be saved.
+   * [browserContext.close([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-close) for
+   * videos to be saved.
    */
   recordVideo?: {
     /**
@@ -19415,7 +19711,7 @@ export interface BrowserContextOptions {
   videosPath?: string;
 
   /**
-   * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport.  Use `null` to disable the consistent
+   * Emulates consistent viewport for each page. Defaults to an 1280x720 viewport. Use `null` to disable the consistent
    * viewport emulation. Learn more about [viewport emulation](https://playwright.dev/docs/emulation#viewport).
    *
    * **NOTE** The `null` value opts out from the default presets, makes viewport depend on the host window size defined
@@ -19634,6 +19930,23 @@ export interface ConnectOverCDPOptions {
 }
 
 export interface ConnectOptions {
+  /**
+   * This option exposes network available on the connecting client to the browser being connected to. Consists of a
+   * list of rules separated by comma.
+   *
+   * Available rules:
+   * 1. Hostname pattern, for example: `example.com`, `*.org:99`, `x.*.y.com`, `*foo.org`.
+   * 1. IP literal, for example: `127.0.0.1`, `0.0.0.0:99`, `[::1]`, `[0:0::1]:99`.
+   * 1. `<loopback>` that matches local loopback interfaces: `localhost`, `*.localhost`, `127.0.0.1`, `[::1]`.
+   *
+   * Some common examples:
+   * 1. `"*"` to expose all network.
+   * 1. `"<loopback>"` to expose localhost network.
+   * 1. `"*.test.internal-domain,*.staging.internal-domain,<loopback>"` to expose test/staging deployments and
+   *    localhost.
+   */
+  exposeNetwork?: string;
+
   /**
    * Additional HTTP headers to be sent with web socket connect request. Optional.
    */
@@ -19938,6 +20251,8 @@ type Devices = {
   "Galaxy S9+ landscape": DeviceDescriptor;
   "Galaxy Tab S4": DeviceDescriptor;
   "Galaxy Tab S4 landscape": DeviceDescriptor;
+  "iPad (gen 5)": DeviceDescriptor;
+  "iPad (gen 5) landscape": DeviceDescriptor;
   "iPad (gen 6)": DeviceDescriptor;
   "iPad (gen 6) landscape": DeviceDescriptor;
   "iPad (gen 7)": DeviceDescriptor;
@@ -19986,6 +20301,14 @@ type Devices = {
   "iPhone 13 Pro Max landscape": DeviceDescriptor;
   "iPhone 13 Mini": DeviceDescriptor;
   "iPhone 13 Mini landscape": DeviceDescriptor;
+  "iPhone 14": DeviceDescriptor;
+  "iPhone 14 landscape": DeviceDescriptor;
+  "iPhone 14 Plus": DeviceDescriptor;
+  "iPhone 14 Plus landscape": DeviceDescriptor;
+  "iPhone 14 Pro": DeviceDescriptor;
+  "iPhone 14 Pro landscape": DeviceDescriptor;
+  "iPhone 14 Pro Max": DeviceDescriptor;
+  "iPhone 14 Pro Max landscape": DeviceDescriptor;
   "Kindle Fire HDX": DeviceDescriptor;
   "Kindle Fire HDX landscape": DeviceDescriptor;
   "LG Optimus L70": DeviceDescriptor;
@@ -20024,6 +20347,8 @@ type Devices = {
   "Pixel 4a (5G) landscape": DeviceDescriptor;
   "Pixel 5": DeviceDescriptor;
   "Pixel 5 landscape": DeviceDescriptor;
+  "Pixel 7": DeviceDescriptor;
+  "Pixel 7 landscape": DeviceDescriptor;
   "Moto G4": DeviceDescriptor;
   "Moto G4 landscape": DeviceDescriptor;
   "Desktop Chrome HiDPI": DeviceDescriptor;

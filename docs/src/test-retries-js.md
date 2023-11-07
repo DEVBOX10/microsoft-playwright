@@ -3,6 +3,8 @@ id: test-retries
 title: "Retries"
 ---
 
+## Introduction
+
 Test retries are a way to automatically re-run a test when it fails. This is useful when a test is flaky and fails intermittently. Test retries are configured in the [configuration file](./test-configuration.md).
 
 ## Failures
@@ -19,6 +21,7 @@ test.describe('suite', () => {
   test('first good', async ({ page }) => { /* ... */ });
   test('second flaky', async ({ page }) => { /* ... */ });
   test('third good', async ({ page }) => { /* ... */ });
+  test.afterAll(async () => { /* ... */ });
 });
 ```
 
@@ -28,25 +31,30 @@ When **all tests pass**, they will run in order in the same worker process.
   * `first good` passes
   * `second flaky` passes
   * `third good` passes
+  * `afterAll` hook runs
 
 Should **any test fail**, Playwright Test will discard the entire worker process along with the browser and will start a new one. Testing will continue in the new worker process starting with the next test.
 * Worker process #1 starts
   * `beforeAll` hook runs
   * `first good` passes
   * `second flaky` fails
+  * `afterAll` hook runs
 * Worker process #2 starts
   * `beforeAll` hook runs again
   * `third good` passes
+  * `afterAll` hook runs
 
 If you **enable [retries](#retries)**, second worker process will start by retrying the failed test and continue from there.
 * Worker process #1 starts
   * `beforeAll` hook runs
   * `first good` passes
   * `second flaky` fails
+  * `afterAll` hook runs
 * Worker process #2 starts
   * `beforeAll` hook runs again
   * `second flaky` is retried and passes
   * `third good` passes
+  * `afterAll` hook runs
 
 This scheme works perfectly for independent tests and guarantees that failing tests can't affect healthy ones.
 
@@ -161,7 +169,7 @@ It is usually better to make your tests isolated, so they can be efficiently run
 
 ## Reuse single page between tests
 
-Playwright Test creates an isolated [Page] object for each test. However, if you'd like to reuse a single [Page] object between multiple tests, you can create your own in [`method: Test.beforeAll`] and close it in [`method: Test.afterAll`].
+Playwright Test creates an isolated [Page] object for each test. However, if you'd like to reuse a single [Page] object between multiple tests, you can create your own in [`method: Test.beforeAll#1`] and close it in [`method: Test.afterAll#1`].
 
 ```js tab=js-js title="example.spec.js"
 // @ts-check

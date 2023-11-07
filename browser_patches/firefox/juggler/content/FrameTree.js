@@ -266,8 +266,8 @@ class FrameTree {
       return;
     }
     if (frame._pendingNavigationId) {
-      const url = docShell.domWindow ? docShell.domWindow.location.href : 'about:blank';
-      this._frameNavigationCommitted(frame, url);
+      docShell.QueryInterface(Ci.nsIWebNavigation);
+      this._frameNavigationCommitted(frame, docShell.currentURI.spec);
     }
 
     if (frame === this._mainFrame) {
@@ -657,7 +657,7 @@ class Worker {
 
     workerDebugger.initialize('chrome://juggler/content/content/WorkerMain.js');
 
-    this._channel = new SimpleChannel(`content::worker[${this._workerId}]`);
+    this._channel = new SimpleChannel(`content::worker[${this._workerId}]`, 'worker-' + this._workerId);
     this._channel.setTransport({
       sendMessage: obj => workerDebugger.postMessage(JSON.stringify(obj)),
       dispose: () => {},

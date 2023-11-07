@@ -4,13 +4,110 @@ title: "Release notes"
 toc_max_heading_level: 2
 ---
 
----
-id: release-notes
-title: "Release notes"
-toc_max_heading_level: 2
----
+## Version 1.39
 
-import LiteYouTube from '@site/src/components/LiteYouTube';
+Evergreen browsers update.
+
+### Browser Versions
+
+* Chromium 119.0.6045.9
+* Mozilla Firefox 118.0.1
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 118
+* Microsoft Edge 118
+
+## Version 1.38
+
+### Trace Viewer Updates
+
+![Playwright Trace Viewer](https://github.com/microsoft/playwright/assets/746130/0c41e20d-c54b-4600-8ca8-1cbb6393ddef)
+
+1. Zoom into time range.
+1. Network panel redesign.
+
+### New APIs
+
+- [`event: BrowserContext.webError`]
+- [`method: Locator.pressSequentially`]
+
+### Deprecations
+
+* The following methods were deprecated: [`method: Page.type`], [`method: Frame.type`],
+  [`method: Locator.type`] and [`method: ElementHandle.type`].
+  Please use [`method: Locator.fill`] instead which is much faster. Use
+  [`method: Locator.pressSequentially`] only if there is a special keyboard
+  handling on the page, and you need to press keys one-by-one.
+
+### Browser Versions
+
+* Chromium 117.0.5938.62
+* Mozilla Firefox 117.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 116
+* Microsoft Edge 116
+
+## Version 1.37
+
+### New APIs
+
+- New methods [`method: BrowserContext.newCDPSession`] and [`method: Browser.newBrowserCDPSession`] create a [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) session for the page and browser respectively.
+
+  ```java
+  CDPSession cdpSession = page.context().newCDPSession(page);
+  cdpSession.send("Runtime.enable");
+
+  JsonObject params = new JsonObject();
+  params.addProperty("expression", "window.foo = 'bar'");
+  cdpSession.send("Runtime.evaluate", params);
+
+  Object foo = page.evaluate("window['foo']");
+  assertEquals("bar", foo);
+  ```
+
+### 📚 Debian 12 Bookworm Support
+
+Playwright now supports Debian 12 Bookworm on both x86_64 and arm64 for Chromium, Firefox and WebKit.
+Let us know if you encounter any issues!
+
+Linux support looks like this:
+
+|          | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11 | Debian 12 |
+| :--- | :---: | :---: | :---: | :---: |
+| Chromium | ✅ | ✅ | ✅ | ✅ |
+| WebKit | ✅ | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ✅ | ✅ |
+
+### Browser Versions
+
+* Chromium 116.0.5845.82
+* Mozilla Firefox 115.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 115
+* Microsoft Edge 115
+
+## Version 1.36
+
+🏝️ Summer maintenance release.
+
+### Browser Versions
+
+* Chromium 115.0.5790.75
+* Mozilla Firefox 115.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 114
+* Microsoft Edge 114
 
 ## Version 1.35
 
@@ -126,7 +223,7 @@ This version was also tested against the following stable channels:
 ### New APIs
 
 - New options [`option: updateMode`] and [`option: updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
-- Chaining existing locator objects, see [locator docs](./locators.md#chaining-locators) for details.
+- Chaining existing locator objects, see [locator docs](./locators.md#matching-inside-a-locator) for details.
 - New option [`option: name`] in method [`method: Tracing.startChunk`].
 
 ### Browser Versions
@@ -305,7 +402,7 @@ All the same methods are also available on [Locator], [FrameLocator] and [Frame]
 
 - [`method: LocatorAssertions.toHaveAttribute`] with an empty value does not match missing attribute anymore. For example, the following snippet will succeed when `button` **does not** have a `disabled` attribute.
 
-   ```js
+   ```java
    assertThat(page.getByRole(AriaRole.BUTTON)).hasAttribute("disabled", "");
    ```
 
@@ -340,7 +437,7 @@ This version was also tested against the following stable channels:
 A bunch of Playwright APIs already support the `setWaitUntil(WaitUntilState.DOMCONTENTLOADED)` option.
 For example:
 
-```js
+```java
 page.navigate("https://playwright.dev", new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 ```
 
@@ -434,7 +531,7 @@ Use the new methods [`method: Page.routeFromHAR`] or [`method: BrowserContext.ro
 context.routeFromHAR(Paths.get("example.har"));
 ```
 
-Read more in [our documentation](./network#record-and-replay-requests).
+Read more in [our documentation](./mock.md#mocking-with-har-files).
 
 
 ### Advanced Routing
@@ -582,7 +679,7 @@ This version was also tested against the following stable channels:
   page.locator("article", new Page.LocatorOptions().setHas(page.locator(".highlight"))).click();
   ```
 
-  Read more in [locator documentation](./api/class-locator#locator-locator-option-has)
+  Read more in [locator documentation](./api/class-locator#locator-locator)
 
 - New [`method: Locator.page`]
 - [`method: Page.screenshot`] and [`method: Locator.screenshot`] now automatically hide blinking caret
@@ -655,7 +752,7 @@ Read more in [our documentation](./test-assertions).
     page.locator("li", new Page.LocatorOptions().setHasText("my item"))
         .locator("button").click();
     ```
-    Read more in [locator documentation](./api/class-locator#locator-locator-option-has-text)
+    Read more in [locator documentation](./api/class-locator#locator-locator)
 
 ### Tracing Improvements
 

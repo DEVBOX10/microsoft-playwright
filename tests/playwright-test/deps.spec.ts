@@ -133,7 +133,7 @@ test('should not run project if dependency failed', async ({ runInlineTest }) =>
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(1);
   expect(result.failed).toBe(1);
-  expect(result.skipped).toBe(1);
+  expect(result.didNotRun).toBe(1);
   expect(result.output).toContain('Failed project B');
   expect(result.outputLines).toEqual(['A', 'B']);
 });
@@ -210,7 +210,7 @@ test('should not filter dependency by file name', async ({ runInlineTest }) => {
   expect(result.output).toContain('1) [A] › one.spec.ts:3:11 › fails');
 });
 
-test('should not filter dependency by only', async ({ runInlineTest }) => {
+test('should filter dependency by only', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
       module.exports = { projects: [
@@ -235,7 +235,7 @@ test('should not filter dependency by only', async ({ runInlineTest }) => {
     `,
   });
   expect(result.exitCode).toBe(0);
-  expect(result.outputLines).toEqual(['setup in setup', 'setup 2 in setup', 'test in browser']);
+  expect(result.outputLines).toEqual(['setup 2 in setup']);
 });
 
 test('should filter dependency by only when running explicitly', async ({ runInlineTest }) => {
@@ -297,7 +297,7 @@ test('should not filter dependency by only 3', async ({ runInlineTest }) => {
   expect(result.outputLines).toEqual(['setup 2 in setup']);
 });
 
-test('should report skipped dependent tests', async ({ runInlineTest }) => {
+test('should not report skipped dependent tests', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
       module.exports = { projects: [
@@ -318,8 +318,8 @@ test('should report skipped dependent tests', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.skipped).toBe(1);
-  expect(result.results.length).toBe(2);
+  expect(result.didNotRun).toBe(1);
+  expect(result.results.length).toBe(1);
 });
 
 test('should report circular dependencies', async ({ runInlineTest }) => {
@@ -452,7 +452,7 @@ test('should run project with teardown', async ({ runInlineTest }) => {
   expect(result.outputLines).toEqual(['A', 'B']);
 });
 
-test('should run teardown after depedents', async ({ runInlineTest }) => {
+test('should run teardown after dependents', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
       module.exports = {
@@ -499,7 +499,7 @@ test('should run teardown after failure', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(1);
   expect(result.failed).toBe(1);
-  expect(result.skipped).toBe(2);
+  expect(result.didNotRun).toBe(2);
   expect(result.outputLines).toEqual(['A', 'D']);
 });
 
@@ -583,4 +583,110 @@ test('should only apply --repeat-each to top-level', async ({ runInlineTest }) =
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(5);
   expect(result.outputLines).toEqual(['A', 'B', 'B', 'C', 'C']);
+});
+
+test('should run teardown when all projects are top-level at run point', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        projects: [
+          { name: 'setup', teardown: 'teardown' },
+          { name: 'teardown' },
+          { name: 'project', dependencies: ['setup'] },
+        ],
+      };`,
+    'test.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test', async ({}, testInfo) => {
+        console.log('\\n%%' + testInfo.project.name);
+      });
+    `,
+  }, { workers: 1 }, undefined, { additionalArgs: ['test.spec.ts'] });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(3);
+  expect(result.outputLines).toEqual(['setup', 'project', 'teardown']);
+});
+
+test('should not run deps for projects filtered with grep', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        projects: [
+          { name: 'setupA', teardown: 'teardownA', testMatch: '**/hook.spec.ts' },
+          { name: 'teardownA', testMatch: '**/hook.spec.ts' },
+          { name: 'projectA', dependencies: ['setupA'], testMatch: '**/a.spec.ts' },
+          { name: 'setupB', teardown: 'teardownB', testMatch: '**/hook.spec.ts' },
+          { name: 'teardownB', testMatch: '**/hook.spec.ts' },
+          { name: 'projectB', dependencies: ['setupB'], testMatch: '**/b.spec.ts' },
+        ],
+      };`,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test', async ({}, testInfo) => {
+        console.log('\\n%%' + testInfo.project.name);
+      });
+    `,
+    'hook.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test', async ({}, testInfo) => {
+        console.log('\\n%%' + testInfo.project.name);
+      });
+    `,
+    'b.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test', async ({}, testInfo) => {
+        console.log('\\n%%' + testInfo.project.name);
+      });
+    `,
+  }, { workers: 1 }, undefined, { additionalArgs: ['--grep=b.spec.ts'] });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(3);
+  expect(result.outputLines).toEqual(['setupB', 'projectB', 'teardownB']);
+});
+
+test('should allow only in dependent', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        projects: [
+          { name: 'setup', testMatch: '**/setup.ts' },
+          { name: 'project', dependencies: ['setup'] },
+        ],
+      };`,
+    'setup.ts': `
+      import { test, expect } from '@playwright/test';
+      test('setup', async ({}) => {});
+    `,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test.only('test', async ({}) => {
+      });
+      test('test 2', async ({}) => { expect(1).toBe(2); });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(2);
+});
+
+test('should allow only in dependent (2)', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = {
+        projects: [
+          { name: 'setup', testMatch: '**/setup.ts' },
+          { name: 'project', dependencies: ['setup'] },
+        ],
+      };`,
+    'setup.ts': `
+      import { test, expect } from '@playwright/test';
+      test.only('setup', async ({}) => {});
+    `,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test', async ({}) => { expect(1).toBe(2); });
+      test('test 2', async ({}) => { expect(1).toBe(2); });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
 });

@@ -3,8 +3,6 @@ id: puppeteer
 title: "Migrating from Puppeteer"
 ---
 
-<!-- TOC -->
-
 ## Migration Principles
 
 This guide describes migration to [Playwright Library](./library) and [Playwright Test](./intro.md) from Puppeteer. The APIs have similarities, but Playwright offers much more possibilities for web testing and cross-browser automation.
@@ -34,7 +32,7 @@ This guide describes migration to [Playwright Library](./library) and [Playwrigh
 | `await page.hover(selector)`                       | `await page.locator(selector).hover()`      |
 | `await page.select(selector, values)`              | `await page.locator(selector).selectOption(values)` |
 | `await page.tap(selector)`                         | `await page.locator(selector).tap()`        |
-| `await page.type(selector, ...)`                   | `await page.locator(selector).type(...)`<br/> Please also consider [`method: Locator.fill`] |
+| `await page.type(selector, ...)`                   | `await page.locator(selector).fill(...)` |
 | `await page.waitForFileChooser(...)`<br/>`await elementHandle.uploadFile(...)` | `await page.locator(selector).setInputFiles(...)` |
 | `await page.cookies([...urls])`                    | `await browserContext.cookies([urls])`      |
 | `await page.deleteCookie(...cookies)`              | `await browserContext.clearCookies()`       |
@@ -137,7 +135,7 @@ test.describe('Playwright homepage', () => {
 1. Each Playwright Test file has explicit import of the `test` and `expect` functions
 1. Test function is marked with `async`
 1. Playwright Test is given a `page` as one of its parameters. This is one of the many [useful fixtures](./api/class-fixtures) in Playwright Test.
-Playwright Test creates an isolated [Page] object for each test. However, if you'd like to reuse a single [Page] object between multiple tests, you can create your own in [`method: Test.beforeAll`] and close it in [`method: Test.afterAll`].
+Playwright Test creates an isolated [Page] object for each test. However, if you'd like to reuse a single [Page] object between multiple tests, you can create your own in [`method: Test.beforeAll#1`] and close it in [`method: Test.afterAll#1`].
 1. Locator creation with [`method: Page.locator`] is one of the few methods that is sync.
 1. Use [assertions](./test-assertions) to verify the state instead of `page.$eval()`.
 
@@ -157,12 +155,12 @@ Once you're on Playwright Test, you get a lot!
 - Run tests across **all web engines** (Chrome, Firefox, Safari) on **any popular operating system** (Windows, macOS, Ubuntu)
 - Full support for multiple origins, [(i)frames](./api/class-frame), [tabs and contexts](./pages)
 - Run tests in isolation in parallel across multiple browsers
-- Built-in test artifact collection: [video recording](./test-configuration#record-video), [screenshots](./test-configuration#automatic-screenshots) and [playwright traces](./test-configuration#record-test-trace)
+- Built-in test [artifact collection](./test-use-options.md#recording-options)
 
 You also get all these ✨ awesome tools ✨ that come bundled with Playwright Test:
 - [Playwright Inspector](./debug.md)
-- [Playwright Test Code generation](./auth#code-generation)
-- [Playwright Tracing](./trace-viewer) for post-mortem debugging
+- [Playwright Test Code generation](./codegen-intro.md)
+- [Playwright Tracing](./trace-viewer.md) for post-mortem debugging
 
 ## Further Reading
 

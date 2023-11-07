@@ -3,6 +3,8 @@ id: accessibility-testing
 title: "Accessibility testing"
 ---
 
+## Introduction
+
 Playwright can be used to test your application for many types of accessibility issues.
 
 A few examples of problems this can catch include:
@@ -71,7 +73,9 @@ For example, you can use [`AxeBuilder.include()`](https://github.com/dequelabs/a
 `AxeBuilder.analyze()` will scan the page *in its current state* when you call it. To scan parts of a page that are revealed based on UI interactions, use [Locators](./locators.md) to interact with the page before invoking `analyze()`:
 
 ```js
-test('navigation menu flyout should not have automatically detectable accessibility violations', async ({ page }) => {
+test('navigation menu should not have automatically detectable accessibility violations', async ({
+  page,
+}) => {
   await page.goto('https://your-site.com/');
 
   await page.getByRole('button', { name: 'Navigation Menu' }).click();
@@ -95,7 +99,7 @@ By default, axe checks against a wide variety of accessibility rules. Some of th
 
 You can constrain an accessibility scan to only run those rules which are "tagged" as corresponding to specific WCAG success criteria by using [`AxeBuilder.withTags()`](https://github.com/dequelabs/axe-core-npm/blob/develop/packages/playwright/README.md#axebuilderwithtagstags-stringarray). For example, [Accessibility Insights for Web's Automated Checks](https://accessibilityinsights.io/docs/web/getstarted/fastpass/?referrer=playwright-accessibility-testing-js) only include axe rules that test for violations of WCAG A and AA success criteria; to match that behavior, you would use the tags `wcag2a`, `wcag2aa`, `wcag21a`, and `wcag21aa`.
 
-Note that [automated testing cannot detect all types of WCAG violations](#disclaimer).
+Note that automated testing cannot detect all types of WCAG violations.
 
 ```js
 test('should not have any automatically detectable WCAG A or AA violations', async ({ page }) => {
@@ -126,7 +130,9 @@ This is usually the simplest option, but it has some important downsides:
 Here is an example of excluding one element from being scanned in one specific test:
 
 ```js
-test('should not have any accessibility violations outside of elements with known issues', async ({ page }) => {
+test('should not have any accessibility violations outside of elements with known issues', async ({
+  page,
+}) => {
   await page.goto('https://your-site.com/page-with-known-issues');
 
   const accessibilityScanResults = await new AxeBuilder({ page })
@@ -146,7 +152,9 @@ If your application contains many different pre-existing violations of a specifi
 You can find the rule IDs to pass to `disableRules()` in the `id` property of the violations you want to suppress. A [complete list of axe's rules](https://github.com/dequelabs/axe-core/blob/master/doc/rule-descriptions.md) can be found in `axe-core`'s documentation.
 
 ```js
-test('should not have any accessibility violations outside of rules with known issues', async ({ page }) => {
+test('should not have any accessibility violations outside of rules with known issues', async ({
+  page,
+}) => {
   await page.goto('https://your-site.com/page-with-known-issues');
 
   const accessibilityScanResults = await new AxeBuilder({ page })

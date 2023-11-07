@@ -234,3 +234,42 @@ test('should reset mouse position', async ({ reusedContext, browserName, platfor
   await expect(page.locator('#one')).toHaveCSS('background-color', 'rgb(0, 0, 255)');
   await expect(page.locator('#two')).toHaveCSS('background-color', 'rgb(0, 0, 255)');
 });
+
+test('should reset tracing', async ({ reusedContext, trace }, testInfo) => {
+  test.skip(trace === 'on');
+
+  let context = await reusedContext();
+  await context.tracing.start();
+
+  let page = await context.newPage();
+  await page.evaluate('1 + 1');
+
+  context = await reusedContext();
+  page = context.pages()[0];
+  await page.evaluate('2 + 2');
+
+  const error = await context.tracing.stopChunk({ path: testInfo.outputPath('trace.zip') }).catch(e => e);
+  expect(error.message).toContain('Must start tracing before stopping');
+});
+
+test('should continue issuing events after closing the reused page', async ({ reusedContext, server }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/24574' });
+
+  {
+    const context = await reusedContext();
+    const page = await context.newPage();
+    await Promise.all([
+      page.waitForRequest(server.PREFIX + '/one-style.css'),
+      page.goto(server.PREFIX + '/one-style.html'),
+    ]);
+    await page.close();
+  }
+  {
+    const context = await reusedContext();
+    const page = context.pages()[0];
+    await Promise.all([
+      page.waitForRequest(server.PREFIX + '/one-style.css', { timeout: 10000 }),
+      page.goto(server.PREFIX + '/one-style.html'),
+    ]);
+  }
+});

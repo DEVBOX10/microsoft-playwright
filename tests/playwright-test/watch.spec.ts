@@ -40,7 +40,7 @@ test('should print dependencies in CJS mode', async ({ runInlineTest }) => {
       test('passes', () => {});
     `,
     'globalTeardown.ts': `
-      import { fileDependencies } from '@playwright/test/lib/internalsForTest';
+      import { fileDependencies } from 'playwright/lib/internalsForTest';
       export default () => {
         console.log('###' + JSON.stringify(fileDependencies()) + '###');
       };
@@ -79,7 +79,7 @@ test('should print dependencies in ESM mode', async ({ runInlineTest }) => {
       test('passes', () => {});
     `,
     'globalTeardown.ts': `
-      import { fileDependencies } from '@playwright/test/lib/internalsForTest';
+      import { fileDependencies } from 'playwright/lib/internalsForTest';
       export default () => {
         console.log('###' + JSON.stringify(fileDependencies()) + '###');
       };
@@ -600,7 +600,7 @@ test('should run CT on changed deps', async ({ runWatchTest, writeFiles }) => {
 
   await testProcess.waitForOutput(`src${path.sep}button.spec.tsx:4:11 › pass`);
   expect(testProcess.output).not.toContain(`src${path.sep}link.spec.tsx`);
-  await testProcess.waitForOutput('Error: Timed out 1000ms waiting for expect(received).toHaveText(expected)');
+  await testProcess.waitForOutput(`Error: Timed out 1000ms waiting for expect(locator).toHaveText(expected)`);
   await testProcess.waitForOutput('Waiting for file changes.');
 });
 
@@ -695,4 +695,28 @@ test('should run CT on indirect deps change ESM mode', async ({ runWatchTest, wr
   await testProcess.waitForOutput(`src${path.sep}button.spec.tsx:4:7 › pass`);
   expect(testProcess.output).not.toContain(`src${path.sep}link.spec.tsx`);
   await testProcess.waitForOutput('Waiting for file changes.');
+});
+
+test('should run global teardown before exiting', async ({ runWatchTest }) => {
+  const testProcess = await runWatchTest({
+    'playwright.config.ts': `
+      export default {
+        globalTeardown: './global-teardown.ts',
+      };
+    `,
+    'global-teardown.ts': `
+      export default async function() {
+        console.log('running teardown');
+      };
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('passes', async () => {
+      });
+    `,
+  }, {});
+  await testProcess.waitForOutput('a.test.ts:3:11 › passes');
+  await testProcess.waitForOutput('Waiting for file changes.');
+  testProcess.write('\x1B');
+  await testProcess.waitForOutput('running teardown');
 });

@@ -13,17 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 import path from 'path';
-import { spawnAsync } from '../../packages/playwright-core/lib/utils/spawnAsync';
-import { rimraf } from 'playwright-core/lib/utilsBundle';
-import { promisify } from 'util';
 import fs from 'fs';
+import { spawnAsync } from '../../packages/playwright-core/lib/utils/spawnAsync';
+import { removeFolders } from '../../packages/playwright-core/lib/utils/fileUtils';
 import { TMP_WORKSPACES } from './npmTest';
 
 const PACKAGE_BUILDER_SCRIPT = path.join(__dirname, '..', '..', 'utils', 'pack_package.js');
 
 async function globalSetup() {
-  await promisify(rimraf)(TMP_WORKSPACES);
+  await removeFolders([TMP_WORKSPACES]);
   console.log(`Temporary workspaces will be created in ${TMP_WORKSPACES}. They will not be removed at the end. Set DEBUG=itest to determine which sub-dir a specific test is using.`);
   await fs.promises.mkdir(TMP_WORKSPACES, { recursive: true });
 
@@ -32,7 +32,7 @@ async function globalSetup() {
   } else {
     console.log('Building packages. Set PWTEST_INSTALLATION_TEST_SKIP_PACKAGE_BUILDS to skip.');
     const outputDir = path.join(__dirname, 'output');
-    await promisify(rimraf)(outputDir);
+    await removeFolders([outputDir]);
     await fs.promises.mkdir(outputDir, { recursive: true });
 
     const build = async (buildTarget: string, pkgNameOverride?: string) => {
@@ -51,7 +51,28 @@ async function globalSetup() {
       build('playwright-chromium'),
       build('playwright-firefox'),
       build('playwright-webkit'),
+      build('playwright-browser-chromium', '@playwright/browser-chromium'),
+      build('playwright-browser-firefox', '@playwright/browser-firefox'),
+      build('playwright-browser-webkit', '@playwright/browser-webkit'),
+      build('playwright-ct-react', '@playwright/experimental-ct-react'),
+      build('playwright-ct-core', '@playwright/experimental-ct-core'),
     ]);
+
+    const buildPlaywrightTestPlugin = async () => {
+      const cwd = path.resolve(path.join(__dirname, `playwright-test-plugin`));
+      const tscResult = await spawnAsync('npx', ['tsc', '-p', 'tsconfig.json'], { cwd, shell: process.platform === 'win32' });
+      if (tscResult.code)
+        throw new Error(`Failed to build playwright-test-plugin:\n${tscResult.stderr}\n${tscResult.stdout}`);
+      const packResult = await spawnAsync('npm', ['pack'], { cwd, shell: process.platform === 'win32' });
+      if (packResult.code)
+        throw new Error(`Failed to build playwright-test-plugin:\n${packResult.stderr}\n${packResult.stdout}`);
+      const tgzName = packResult.stdout.trim();
+      const outPath = path.resolve(path.join(outputDir, `playwright-test-plugin.tgz`));
+      await fs.promises.rename(path.join(cwd, tgzName), outPath);
+      console.log('Built: playwright-test-plugin');
+      return ['playwright-test-plugin', outPath];
+    };
+    builds.push(await buildPlaywrightTestPlugin());
 
     await fs.promises.writeFile(path.join(__dirname, '.registry.json'), JSON.stringify(Object.fromEntries(builds)));
   }

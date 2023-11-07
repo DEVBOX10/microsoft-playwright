@@ -48,6 +48,7 @@ class Reporter {
   distillStep(step) {
     return {
       ...step,
+      _startTime: undefined,
       startTime: undefined,
       duration: undefined,
       parent: undefined,
@@ -149,7 +150,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(result.exitCode).toBe(0);
       expect(result.outputLines).toEqual([
         'reporter-begin-begin%%',
-        'version-' + require('../../packages/playwright-test/package.json').version,
+        'version-' + require('../../packages/playwright/package.json').version,
         'reporter-testbegin-is run-foo%%',
         'reporter-stdout%%',
         'reporter-stderr%%',
@@ -453,7 +454,7 @@ for (const useIntermediateMergeReport of [false, true] as const) {
         `begin {\"title\":\"page.setContent\",\"category\":\"pw:api\"}`,
         `end {\"title\":\"page.setContent\",\"category\":\"pw:api\"}`,
         `begin {\"title\":\"page.click(input)\",\"category\":\"pw:api\"}`,
-        `end {\"title\":\"page.click(input)\",\"category\":\"pw:api\",\"error\":{\"message\":\"page.click: Timeout 1ms exceeded.\\n=========================== logs ===========================\\nwaiting for locator('input')\\n============================================================\",\"stack\":\"<stack>\",\"location\":\"<location>\",\"snippet\":\"<snippet>\"}}`,
+        `end {\"title\":\"page.click(input)\",\"category\":\"pw:api\",\"error\":{\"message\":\"page.click: Timeout 1ms exceeded.\\nCall log:\\n  \\u001b[2m- waiting for locator('input')\\u001b[22m\\n\",\"stack\":\"<stack>\",\"location\":\"<location>\",\"snippet\":\"<snippet>\"}}`,
         `begin {\"title\":\"After Hooks\",\"category\":\"hook\"}`,
         `begin {\"title\":\"fixture: page\",\"category\":\"fixture\"}`,
         `end {\"title\":\"fixture: page\",\"category\":\"fixture\"}`,

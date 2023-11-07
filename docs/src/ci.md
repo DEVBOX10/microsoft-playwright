@@ -2,11 +2,10 @@
 id: ci
 title: "Continuous Integration"
 ---
+## Introduction
 
 Playwright tests can be executed in CI environments. We have created sample
 configurations for common CI providers.
-
-## Introduction
 
 3 steps to get your tests running on CI:
 
@@ -67,397 +66,7 @@ The [Command line tools](./browsers#install-system-dependencies) can be used to 
 
 ### GitHub Actions
 
-#### On push/pull_request
-
-```yml js
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
-      with:
-        node-version: 18
-    - name: Install dependencies
-      run: npm ci
-    - name: Install Playwright Browsers
-      run: npx playwright install --with-deps
-    - name: Run Playwright tests
-      run: npx playwright test
-    - uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: playwright-report
-        path: playwright-report/
-        retention-days: 30
-```
-
-```yml python
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    - name: Ensure browsers are installed
-      run: python -m playwright install --with-deps
-    - name: Run your tests
-      run: pytest
-```
-
-```yml java
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-java@v3
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-    - name: Build & Install
-      run: mvn -B install -D skipTests --no-transfer-progress
-    - name: Install Playwright
-      run: mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="install --with-deps"
-    - name: Run tests
-      run: mvn test
-```
-
-```yml csharp
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Setup dotnet
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: 6.0.x
-    - run: dotnet build
-    - name: Ensure browsers are installed
-      run: pwsh bin/Debug/net6.0/playwright.ps1 install --with-deps
-    - name: Run your tests
-      run: dotnet test
-```
-
-#### On push/pull_request (sharded)
-* langs: js
-
-GitHub Actions supports [sharding tests between multiple jobs](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs) using the [`jobs.<job_id>.strategy.matrix`](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstrategymatrix) option. The `matrix` option will run a separate job for every possible combination of the provided options. In the example below, we have 2 `project` values, 10 `shardIndex` values and 1 `shardTotal` value, resulting in a total of 20 jobs to be run. So it will split up the tests between 20 jobs, each running a different browser and a different subset of tests, see [here](./test-parallel.md#shard-tests-between-multiple-machines) for more details.
-
-```yml js
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  playwright:
-    name: 'Playwright Tests - ${{ matrix.project }} - Shard ${{ matrix.shardIndex }} of ${{ matrix.shardTotal }}'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium, webkit]
-        shardIndex: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        shardTotal: [10]
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-      - name: Install dependencies
-        run: npm ci
-      - name: Install browsers
-        run: npx playwright install --with-deps
-      - name: Run your tests
-        run: npx playwright test --project=${{ matrix.project }} --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-```
-
-> Note: The `${{ <expression> }}` is the [expression](https://docs.github.com/en/actions/learn-github-actions/expressions) syntax that allows accessing the current [context](https://docs.github.com/en/actions/learn-github-actions/contexts). In this example, we are using the [`matrix`](https://docs.github.com/en/actions/learn-github-actions/contexts#matrix-context) context to set the job variants.
-
-#### Via Containers
-
-GitHub Actions support [running jobs in a container](https://docs.github.com/en/actions/using-jobs/running-jobs-in-a-container) by using the [`jobs.<job_id>.container`](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idcontainer) option. This is useful to not pollute the host environment with dependencies and to have a consistent environment for e.g. screenshots/visual regression testing across different operating systems.
-
-```yml js
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  playwright:
-    name: 'Playwright Tests'
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v%%VERSION%%-jammy
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-      - name: Install dependencies
-        run: npm ci
-      - name: Run your tests
-        run: npx playwright test
-```
-
-```yml python
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  playwright:
-    name: 'Playwright Tests'
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright/python:v%%VERSION%%-jammy
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r local-requirements.txt
-          pip install -e .
-      - name: Run your tests
-        run: pytest
-```
-
-```yml java
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  playwright:
-    name: 'Playwright Tests'
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright/java:v%%VERSION%%-jammy
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-      - name: Build & Install
-        run: mvn -B install -D skipTests --no-transfer-progress
-      - name: Run tests
-        run: mvn test
-```
-
-```yml csharp
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  playwright:
-    name: 'Playwright Tests'
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright/dotnet:v%%VERSION%%-jammy
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup dotnet
-        uses: actions/setup-dotnet@v3
-        with:
-          dotnet-version: 6.0.x
-      - run: dotnet build
-      - name: Run your tests
-        run: dotnet test
-```
-
-#### Via Containers (sharded)
-* langs: js
-
-GitHub Actions supports [sharding tests between multiple jobs](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs) using the [`jobs.<job_id>.strategy.matrix`](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstrategymatrix) option. The `matrix` option will run a separate job for every possible combination of the provided options. In the example below, we have 2 `project` values, 10 `shardIndex` values and 1 `shardTotal` value, resulting in a total of 20 jobs to be run. So it will split up the tests between 20 jobs, each running a different browser and a different subset of tests, see [here](./test-parallel.md#shard-tests-between-multiple-machines) for more details.
-
-```yml js
-name: Playwright Tests
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-jobs:
-  playwright:
-    name: 'Playwright Tests - ${{ matrix.project }} - Shard ${{ matrix.shardIndex }} of ${{ matrix.shardTotal }}'
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v%%VERSION%%-jammy
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium, webkit]
-        shardIndex: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        shardTotal: [10]
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-      - name: Install dependencies
-        run: npm ci
-      - name: Run your tests
-        run: npx playwright test --project=${{ matrix.project }} --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-```
-
-#### On deployment
-
-This will start the tests after a [GitHub Deployment](https://developer.github.com/v3/repos/deployments/) went into the `success` state.
-Services like Vercel use this pattern so you can run your end-to-end tests on their deployed environment.
-
-```yml js
-name: Playwright Tests
-on:
-  deployment_status:
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    if: github.event.deployment_status.state == 'success'
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
-      with:
-        node-version: 18
-    - name: Install dependencies
-      run: npm ci
-    - name: Install Playwright
-      run: npx playwright install --with-deps
-    - name: Run Playwright tests
-      run: npx playwright test
-      env:
-        PLAYWRIGHT_TEST_BASE_URL: ${{ github.event.deployment_status.target_url }}
-```
-
-```yml python
-name: Playwright Tests
-on:
-  deployment_status:
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    if: github.event.deployment_status.state == 'success'
-    steps:
-    - uses: actions/checkout@v3
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    - name: Ensure browsers are installed
-      run: python -m playwright install --with-deps
-    - name: Run tests
-      run: pytest
-      env:
-        # This might depend on your test-runner
-        PLAYWRIGHT_TEST_BASE_URL: ${{ github.event.deployment_status.target_url }}
-```
-
-```yml java
-name: Playwright Tests
-on:
-  deployment_status:
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    if: github.event.deployment_status.state == 'success'
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-java@v3
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-    - name: Build & Install
-      run: mvn -B install -D skipTests --no-transfer-progress
-    - name: Install Playwright
-      run: mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="install --with-deps"
-    - name: Run tests
-      run: mvn test
-      env:
-        # This might depend on your test-runner
-        PLAYWRIGHT_TEST_BASE_URL: ${{ github.event.deployment_status.target_url }}
-```
-
-```yml csharp
-name: Playwright Tests
-on:
-  deployment_status:
-jobs:
-  test:
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    if: github.event.deployment_status.state == 'success'
-    steps:
-    - uses: actions/checkout@v3
-    - name: Setup dotnet
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: 6.0.x
-    - run: dotnet build
-    - name: Ensure browsers are installed
-      run: pwsh bin/Debug/net6.0/playwright.ps1 install --with-deps
-    - name: Run tests
-      run: dotnet test
-      env:
-        # This might depend on your test-runner
-        PLAYWRIGHT_TEST_BASE_URL: ${{ github.event.deployment_status.target_url }}
-```
+Check out our [GitHub Actions](ci-intro.md) guide for more information on how to run your tests on GitHub.
 
 ### Docker
 
@@ -500,6 +109,8 @@ steps:
   displayName: 'Install Playwright browsers'
 - script: npx playwright test
   displayName: 'Run Playwright tests'
+  env:
+    CI: 'true'
 ```
 
 ```yml python
@@ -518,9 +129,9 @@ steps:
     python -m pip install --upgrade pip
     pip install -r requirements.txt
   displayName: 'Install dependencies'
-- script: npx playwright install --with-deps
+- script: playwright install --with-deps
   displayName: 'Install Playwright browsers'
-- script: npx playwright test
+- script: pytest
   displayName: 'Run Playwright tests'
 ```
 
@@ -560,7 +171,7 @@ steps:
   displayName: 'Use .NET SDK'
 - script: dotnet build --configuration Release
   displayName: 'Build'
-- script: pwsh bin/Debug/net6.0/playwright.ps1 install --with-deps
+- script: pwsh bin/Release/net6.0/playwright.ps1 install --with-deps
   displayName: 'Install Playwright browsers'
 - script: dotnet test --configuration Release
   displayName: 'Run tests'
@@ -591,6 +202,8 @@ steps:
   displayName: 'Install Playwright browsers'
 - script: npx playwright test
   displayName: 'Run Playwright tests'
+  env:
+    CI: 'true'
 - task: PublishTestResults@2
   displayName: 'Publish test results'
   inputs:
@@ -633,40 +246,31 @@ strategy:
   matrix:
     chromium-1:
       project: chromium
-      shardIndex: 1
-      shardTotal: 3
+      shard: 1/3
     chromium-2:
       project: chromium
-      shardIndex: 2
-      shardTotal: 3
+      shard: 2/3
     chromium-3:
       project: chromium
-      shardIndex: 3
-      shardTotal: 3
+      shard: 3/3
     firefox-1:
       project: firefox
-      shardIndex: 1
-      shardTotal: 3
+      shard: 1/3
     firefox-2:
       project: firefox
-      shardIndex: 2
-      shardTotal: 3
+      shard: 2/3
     firefox-3:
       project: firefox
-      shardIndex: 3
-      shardTotal: 3
+      shard: 3/3
     webkit-1:
       project: webkit
-      shardIndex: 1
-      shardTotal: 3
+      shard: 1/3
     webkit-2:
       project: webkit
-      shardIndex: 2
-      shardTotal: 3
+      shard: 2/3
     webkit-3:
       project: webkit
-      shardIndex: 3
-      shardTotal: 3
+      shard: 3/3
 steps:
 - task: NodeTool@0
   inputs:
@@ -677,8 +281,10 @@ steps:
   displayName: 'npm ci'
 - script: npx playwright install --with-deps
   displayName: 'Install Playwright browsers'
-- script: npx playwright test --project=$(project) --shard=$(shardIndex)/$(shardTotal)
+- script: npx playwright test --project=$(project) --shard=$(shard)
   displayName: 'Run Playwright tests'
+  env:
+    CI: 'true'
 ```
 
 
@@ -702,6 +308,8 @@ steps:
   displayName: 'npm ci'
 - script: npx playwright test
   displayName: 'Run Playwright tests'
+  env:
+    CI: 'true'
 ```
 
 ```yml python
@@ -826,7 +434,7 @@ pipeline {
    stages {
       stage('e2e-tests') {
          steps {
-            sh 'ci'
+            sh 'npm ci'
             sh 'npx playwright test'
          }
       }
@@ -962,7 +570,7 @@ tests:
     - npx playwright test --shard=$CI_NODE_INDEX/$CI_NODE_TOTAL
 ```
 
-GitLab CI also supports sharding tests between multiple jobs using the [parallel:matrix](https://docs.gitlab.com/ee/ci/yaml/index.html#parallelmatrix) option. The test job will run multiple times in parallel in a single pipeline, but with different variable values for each instance of the job. In the example below, we have 2 `PROJECT` values, 10 `SHARD_INDEX` values and 1 `SHARD_TOTAL` value, resulting in a total of 20 jobs to be run.
+GitLab CI also supports sharding tests between multiple jobs using the [parallel:matrix](https://docs.gitlab.com/ee/ci/yaml/index.html#parallelmatrix) option. The test job will run multiple times in parallel in a single pipeline, but with different variable values for each instance of the job. In the example below, we have 2 `PROJECT` values and 10 `SHARD` values, resulting in a total of 20 jobs to be run.
 
 ```yml
 stages:
@@ -974,11 +582,10 @@ tests:
   parallel:
     matrix:
       - PROJECT: ['chromium', 'webkit']
-        SHARD_INDEX: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        SHARD_TOTAL: 10
+        SHARD: ['1/10', '2/10', '3/10', '4/10', '5/10', '6/10', '7/10', '8/10', '9/10', '10/10']
   script:
     - npm ci
-    - npx playwright test --project=$PROJECT --shard=$SHARD_INDEX/$SHARD_TOTAL
+    - npx playwright test --project=$PROJECT --shard=$SHARD
 ```
 
 ## Caching browsers

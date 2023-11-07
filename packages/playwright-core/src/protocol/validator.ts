@@ -57,6 +57,7 @@ scheme.SerializedValue = tObject({
   v: tOptional(tEnum(['null', 'undefined', 'NaN', 'Infinity', '-Infinity', '-0'])),
   d: tOptional(tString),
   u: tOptional(tString),
+  bi: tOptional(tString),
   r: tOptional(tObject({
     p: tString,
     f: tString,
@@ -174,7 +175,7 @@ scheme.APIRequestContextFetchParams = tObject({
   method: tOptional(tString),
   headers: tOptional(tArray(tType('NameValue'))),
   postData: tOptional(tBinary),
-  jsonData: tOptional(tAny),
+  jsonData: tOptional(tString),
   formData: tOptional(tArray(tType('NameValue'))),
   multipartData: tOptional(tArray(tType('FormField'))),
   timeout: tOptional(tNumber),
@@ -216,7 +217,26 @@ scheme.APIResponse = tObject({
   headers: tArray(tType('NameValue')),
 });
 scheme.LifecycleEvent = tEnum(['load', 'domcontentloaded', 'networkidle', 'commit']);
-scheme.LocalUtilsInitializer = tOptional(tObject({}));
+scheme.LocalUtilsInitializer = tObject({
+  deviceDescriptors: tArray(tObject({
+    name: tString,
+    descriptor: tObject({
+      userAgent: tString,
+      viewport: tObject({
+        width: tNumber,
+        height: tNumber,
+      }),
+      screen: tOptional(tObject({
+        width: tNumber,
+        height: tNumber,
+      })),
+      deviceScaleFactor: tNumber,
+      isMobile: tBoolean,
+      hasTouch: tBoolean,
+      defaultBrowserType: tEnum(['chromium', 'firefox', 'webkit']),
+    }),
+  })),
+});
 scheme.LocalUtilsZipParams = tObject({
   zipFile: tString,
   entries: tArray(tType('NameValue')),
@@ -297,25 +317,7 @@ scheme.PlaywrightInitializer = tObject({
   webkit: tChannel(['BrowserType']),
   android: tChannel(['Android']),
   electron: tChannel(['Electron']),
-  utils: tChannel(['LocalUtils']),
-  deviceDescriptors: tArray(tObject({
-    name: tString,
-    descriptor: tObject({
-      userAgent: tString,
-      viewport: tObject({
-        width: tNumber,
-        height: tNumber,
-      }),
-      screen: tOptional(tObject({
-        width: tNumber,
-        height: tNumber,
-      })),
-      deviceScaleFactor: tNumber,
-      isMobile: tBoolean,
-      hasTouch: tBoolean,
-      defaultBrowserType: tEnum(['chromium', 'firefox', 'webkit']),
-    }),
-  })),
+  utils: tOptional(tChannel(['LocalUtils'])),
   selectors: tChannel(['Selectors']),
   preLaunchedBrowser: tOptional(tChannel(['Browser'])),
   preConnectedAndroidDevice: tOptional(tChannel(['AndroidDevice'])),
@@ -339,8 +341,8 @@ scheme.PlaywrightNewRequestParams = tObject({
   })),
   timeout: tOptional(tNumber),
   storageState: tOptional(tObject({
-    cookies: tArray(tType('NetworkCookie')),
-    origins: tArray(tType('OriginStorage')),
+    cookies: tOptional(tArray(tType('NetworkCookie'))),
+    origins: tOptional(tArray(tType('OriginStorage'))),
   })),
   tracesDir: tOptional(tString),
 });
@@ -519,6 +521,7 @@ scheme.BrowserTypeLaunchPersistentContextParams = tObject({
   downloadsPath: tOptional(tString),
   tracesDir: tOptional(tString),
   chromiumSandbox: tOptional(tBoolean),
+  firefoxUserPrefs: tOptional(tAny),
   noDefaultViewport: tOptional(tBoolean),
   viewport: tOptional(tObject({
     width: tNumber,
@@ -553,7 +556,7 @@ scheme.BrowserTypeLaunchPersistentContextParams = tObject({
   colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference', 'no-override'])),
   reducedMotion: tOptional(tEnum(['reduce', 'no-preference', 'no-override'])),
   forcedColors: tOptional(tEnum(['active', 'none', 'no-override'])),
-  acceptDownloads: tOptional(tBoolean),
+  acceptDownloads: tOptional(tEnum(['accept', 'deny', 'internal-browser-default'])),
   baseURL: tOptional(tString),
   recordVideo: tOptional(tObject({
     dir: tString,
@@ -586,7 +589,9 @@ scheme.BrowserInitializer = tObject({
   name: tString,
 });
 scheme.BrowserCloseEvent = tOptional(tObject({}));
-scheme.BrowserCloseParams = tOptional(tObject({}));
+scheme.BrowserCloseParams = tObject({
+  reason: tOptional(tString),
+});
 scheme.BrowserCloseResult = tOptional(tObject({}));
 scheme.BrowserKillForTestsParams = tOptional(tObject({}));
 scheme.BrowserKillForTestsResult = tOptional(tObject({}));
@@ -629,7 +634,7 @@ scheme.BrowserNewContextParams = tObject({
   colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference', 'no-override'])),
   reducedMotion: tOptional(tEnum(['reduce', 'no-preference', 'no-override'])),
   forcedColors: tOptional(tEnum(['active', 'none', 'no-override'])),
-  acceptDownloads: tOptional(tBoolean),
+  acceptDownloads: tOptional(tEnum(['accept', 'deny', 'internal-browser-default'])),
   baseURL: tOptional(tString),
   recordVideo: tOptional(tObject({
     dir: tString,
@@ -690,7 +695,7 @@ scheme.BrowserNewContextForReuseParams = tObject({
   colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference', 'no-override'])),
   reducedMotion: tOptional(tEnum(['reduce', 'no-preference', 'no-override'])),
   forcedColors: tOptional(tEnum(['active', 'none', 'no-override'])),
-  acceptDownloads: tOptional(tBoolean),
+  acceptDownloads: tOptional(tEnum(['accept', 'deny', 'internal-browser-default'])),
   baseURL: tOptional(tString),
   recordVideo: tOptional(tObject({
     dir: tString,
@@ -716,20 +721,23 @@ scheme.BrowserNewContextForReuseParams = tObject({
 scheme.BrowserNewContextForReuseResult = tObject({
   context: tChannel(['BrowserContext']),
 });
+scheme.BrowserStopPendingOperationsParams = tObject({
+  reason: tString,
+});
+scheme.BrowserStopPendingOperationsResult = tOptional(tObject({}));
 scheme.BrowserNewBrowserCDPSessionParams = tOptional(tObject({}));
 scheme.BrowserNewBrowserCDPSessionResult = tObject({
   session: tChannel(['CDPSession']),
 });
 scheme.BrowserStartTracingParams = tObject({
   page: tOptional(tChannel(['Page'])),
-  path: tOptional(tString),
   screenshots: tOptional(tBoolean),
   categories: tOptional(tArray(tString)),
 });
 scheme.BrowserStartTracingResult = tOptional(tObject({}));
 scheme.BrowserStopTracingParams = tOptional(tObject({}));
 scheme.BrowserStopTracingResult = tObject({
-  binary: tBinary,
+  artifact: tChannel(['Artifact']),
 });
 scheme.EventTargetInitializer = tOptional(tObject({}));
 scheme.EventTargetWaitForEventInfoParams = tObject({
@@ -754,6 +762,7 @@ scheme.ElectronApplicationWaitForEventInfoResult = tType('EventTargetWaitForEven
 scheme.AndroidDeviceWaitForEventInfoResult = tType('EventTargetWaitForEventInfoResult');
 scheme.BrowserContextInitializer = tObject({
   isChromium: tBoolean,
+  isLocalBrowserOnServer: tBoolean,
   requestContext: tChannel(['APIRequestContext']),
   tracing: tChannel(['Tracing']),
 });
@@ -761,13 +770,25 @@ scheme.BrowserContextBindingCallEvent = tObject({
   binding: tChannel(['BindingCall']),
 });
 scheme.BrowserContextConsoleEvent = tObject({
-  message: tChannel(['ConsoleMessage']),
+  page: tChannel(['Page']),
+  type: tString,
+  text: tString,
+  args: tArray(tChannel(['ElementHandle', 'JSHandle'])),
+  location: tObject({
+    url: tString,
+    lineNumber: tNumber,
+    columnNumber: tNumber,
+  }),
 });
 scheme.BrowserContextCloseEvent = tOptional(tObject({}));
 scheme.BrowserContextDialogEvent = tObject({
   dialog: tChannel(['Dialog']),
 });
 scheme.BrowserContextPageEvent = tObject({
+  page: tChannel(['Page']),
+});
+scheme.BrowserContextPageErrorEvent = tObject({
+  error: tType('SerializedError'),
   page: tChannel(['Page']),
 });
 scheme.BrowserContextRouteEvent = tObject({
@@ -814,7 +835,9 @@ scheme.BrowserContextClearCookiesParams = tOptional(tObject({}));
 scheme.BrowserContextClearCookiesResult = tOptional(tObject({}));
 scheme.BrowserContextClearPermissionsParams = tOptional(tObject({}));
 scheme.BrowserContextClearPermissionsResult = tOptional(tObject({}));
-scheme.BrowserContextCloseParams = tOptional(tObject({}));
+scheme.BrowserContextCloseParams = tObject({
+  reason: tOptional(tString),
+});
 scheme.BrowserContextCloseResult = tOptional(tObject({}));
 scheme.BrowserContextCookiesParams = tObject({
   urls: tArray(tString),
@@ -919,6 +942,7 @@ scheme.BrowserContextHarExportResult = tObject({
 });
 scheme.BrowserContextCreateTempFileParams = tObject({
   name: tString,
+  lastModifiedMs: tOptional(tNumber),
 });
 scheme.BrowserContextCreateTempFileResult = tObject({
   writableStream: tChannel(['WritableStream']),
@@ -957,9 +981,6 @@ scheme.PageFrameAttachedEvent = tObject({
 scheme.PageFrameDetachedEvent = tObject({
   frame: tChannel(['Frame']),
 });
-scheme.PagePageErrorEvent = tObject({
-  error: tType('SerializedError'),
-});
 scheme.PageRouteEvent = tObject({
   route: tChannel(['Route']),
 });
@@ -986,6 +1007,7 @@ scheme.PageAddInitScriptParams = tObject({
 scheme.PageAddInitScriptResult = tOptional(tObject({}));
 scheme.PageCloseParams = tObject({
   runBeforeUnload: tOptional(tBoolean),
+  reason: tOptional(tString),
 });
 scheme.PageCloseResult = tOptional(tObject({}));
 scheme.PageEmulateMediaParams = tObject({
@@ -1539,6 +1561,7 @@ scheme.FrameSetInputFilesParams = tObject({
     name: tString,
     mimeType: tOptional(tString),
     buffer: tBinary,
+    lastModifiedMs: tOptional(tNumber),
   })),
   timeout: tOptional(tNumber),
   noWaitAfter: tOptional(tBoolean),
@@ -1912,6 +1935,7 @@ scheme.ElementHandleSetInputFilesParams = tObject({
     name: tString,
     mimeType: tOptional(tString),
     buffer: tBinary,
+    lastModifiedMs: tOptional(tNumber),
   })),
   timeout: tOptional(tNumber),
   noWaitAfter: tOptional(tBoolean),
@@ -2087,17 +2111,6 @@ scheme.WebSocketSocketErrorEvent = tObject({
   error: tString,
 });
 scheme.WebSocketCloseEvent = tOptional(tObject({}));
-scheme.ConsoleMessageInitializer = tObject({
-  page: tChannel(['Page']),
-  type: tString,
-  text: tString,
-  args: tArray(tChannel(['ElementHandle', 'JSHandle'])),
-  location: tObject({
-    url: tString,
-    lineNumber: tNumber,
-    columnNumber: tNumber,
-  }),
-});
 scheme.BindingCallInitializer = tObject({
   frame: tChannel(['Frame']),
   name: tString,
@@ -2129,7 +2142,7 @@ scheme.TracingTracingStartParams = tObject({
   name: tOptional(tString),
   snapshots: tOptional(tBoolean),
   screenshots: tOptional(tBoolean),
-  sources: tOptional(tBoolean),
+  live: tOptional(tBoolean),
 });
 scheme.TracingTracingStartResult = tOptional(tObject({}));
 scheme.TracingTracingStartChunkParams = tObject({
@@ -2153,7 +2166,7 @@ scheme.ArtifactInitializer = tObject({
 });
 scheme.ArtifactPathAfterFinishedParams = tOptional(tObject({}));
 scheme.ArtifactPathAfterFinishedResult = tObject({
-  value: tOptional(tString),
+  value: tString,
 });
 scheme.ArtifactSaveAsParams = tObject({
   path: tString,
@@ -2169,7 +2182,7 @@ scheme.ArtifactFailureResult = tObject({
 });
 scheme.ArtifactStreamParams = tOptional(tObject({}));
 scheme.ArtifactStreamResult = tObject({
-  stream: tOptional(tChannel(['Stream'])),
+  stream: tChannel(['Stream']),
 });
 scheme.ArtifactCancelParams = tOptional(tObject({}));
 scheme.ArtifactCancelResult = tOptional(tObject({}));
@@ -2212,7 +2225,7 @@ scheme.ElectronLaunchParams = tObject({
   cwd: tOptional(tString),
   env: tOptional(tArray(tType('NameValue'))),
   timeout: tOptional(tNumber),
-  acceptDownloads: tOptional(tBoolean),
+  acceptDownloads: tOptional(tEnum(['accept', 'deny', 'internal-browser-default'])),
   bypassCSP: tOptional(tBoolean),
   colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference', 'no-override'])),
   extraHTTPHeaders: tOptional(tArray(tType('NameValue'))),
@@ -2239,6 +2252,7 @@ scheme.ElectronLaunchParams = tObject({
   })),
   strictSelectors: tOptional(tBoolean),
   timezoneId: tOptional(tString),
+  tracesDir: tOptional(tString),
 });
 scheme.ElectronLaunchResult = tObject({
   electronApplication: tChannel(['ElectronApplication']),
@@ -2441,7 +2455,7 @@ scheme.AndroidDeviceLaunchBrowserParams = tObject({
   colorScheme: tOptional(tEnum(['dark', 'light', 'no-preference', 'no-override'])),
   reducedMotion: tOptional(tEnum(['reduce', 'no-preference', 'no-override'])),
   forcedColors: tOptional(tEnum(['active', 'none', 'no-override'])),
-  acceptDownloads: tOptional(tBoolean),
+  acceptDownloads: tOptional(tEnum(['accept', 'deny', 'internal-browser-default'])),
   baseURL: tOptional(tString),
   recordVideo: tOptional(tObject({
     dir: tString,

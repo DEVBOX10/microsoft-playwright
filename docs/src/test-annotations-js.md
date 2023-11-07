@@ -3,6 +3,8 @@ id: test-annotations
 title: "Annotations"
 ---
 
+## Introduction
+
 Playwright Test supports test annotations to deal with failures, flakiness, skip, focus and tag tests:
 - [`method: Test.skip#1`] marks the test as irrelevant. Playwright Test does not run such a test. Use this annotation when the test is not applicable in some configuration.
 - [`method: Test.fail#1`] marks the test as failing. Playwright Test will run this test and ensure it does indeed fail. If the test does not fail, Playwright Test will complain.
@@ -93,6 +95,20 @@ To run tests containing either tag (logical `OR` operator):
 npx playwright test --grep "@fast|@slow"
 ```
 
+On Windows shells:
+
+- PowerShell
+
+  ```bash
+  npx playwright test --grep --% "@fast^|@slow"
+  ```
+
+- Command Prompt(cmd.exe) / Git Bash:
+
+  ```bash
+  npx playwright test --grep "@fast^|@slow"
+  ```
+
 Or run tests containing both tags (logical `AND` operator) using regex lookaheads:
 
 ```bash
@@ -148,7 +164,10 @@ It's also possible to add custom metadata in the form of annotations to your tes
 ```js title="example.spec.ts"
 
 test('user profile', async ({ page }) => {
-  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/<some-issue>' });
+  test.info().annotations.push({
+    type: 'issue',
+    description: 'https://github.com/microsoft/playwright/issues/<some-issue>',
+  });
   // ...
 });
 ```

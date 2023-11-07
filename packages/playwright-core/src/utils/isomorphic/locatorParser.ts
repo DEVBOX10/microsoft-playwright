@@ -16,11 +16,11 @@
 
 import { escapeForAttributeSelector, escapeForTextSelector } from '../../utils/isomorphic/stringUtils';
 import { asLocators } from './locatorGenerators';
-import type { Language } from './locatorGenerators';
+import type { Language, Quote } from './locatorGenerators';
 import { parseSelector } from './selectorParser';
 
 type TemplateParams = { quote: string, text: string }[];
-function parseLocator(locator: string, testIdAttributeName: string): string {
+function parseLocator(locator: string, testIdAttributeName: string): { selector: string, preferredQuote: Quote | undefined } {
   locator = locator
       .replace(/AriaRole\s*\.\s*([\w]+)/g, (_, group) => group.toLowerCase())
       .replace(/(get_by_role|getByRole)\s*\(\s*(?:["'`])([^'"`]+)['"`]/g, (_, group1, group2) => `${group1}(${group2.toLowerCase()}`);
@@ -92,7 +92,8 @@ function parseLocator(locator: string, testIdAttributeName: string): string {
       .replace(/regex=/g, '=')
       .replace(/,,/g, ',');
 
-  return transform(template, params, testIdAttributeName);
+  const preferredQuote = params.map(p => p.quote).filter(quote => '\'"`'.includes(quote))[0] as Quote | undefined;
+  return { selector: transform(template, params, testIdAttributeName), preferredQuote };
 }
 
 function countParams(template: string) {
@@ -105,7 +106,7 @@ function shiftParams(template: string, sub: number) {
 
 function transform(template: string, params: TemplateParams, testIdAttributeName: string): string {
   // Recursively handle filter(has=, hasnot=, sethas(), sethasnot()).
-  // TODO: handle and(locator), or(locator), locator(has=, hasnot=, sethas(), sethasnot()).
+  // TODO: handle and(locator), or(locator), locator(locator), locator(has=, hasnot=, sethas(), sethasnot()).
   while (true) {
     const hasMatch = template.match(/filter\(,?(has=|hasnot=|sethas\(|sethasnot\()/);
     if (!hasMatch)
@@ -193,7 +194,7 @@ function transform(template: string, params: TemplateParams, testIdAttributeName
         .replace(/(?:r)\$(\d+)(i)?/g, (_, ordinal, suffix) => {
           const param = params[+ordinal - 1];
           if (t.startsWith('internal:attr') || t.startsWith('internal:testid') || t.startsWith('internal:role'))
-            return new RegExp(param.text) + (suffix || '');
+            return escapeForAttributeSelector(new RegExp(param.text), false) + (suffix || '');
           return escapeForTextSelector(new RegExp(param.text, suffix), false);
         })
         .replace(/\$(\d+)(i|s)?/g, (_, ordinal, suffix) => {
@@ -217,8 +218,8 @@ export function locatorOrSelectorAsSelector(language: Language, locator: string,
   } catch (e) {
   }
   try {
-    const selector = parseLocator(locator, testIdAttributeName);
-    const locators = asLocators(language, selector);
+    const { selector, preferredQuote } = parseLocator(locator, testIdAttributeName);
+    const locators = asLocators(language, selector, undefined, undefined, undefined, preferredQuote);
     const digest = digestForComparison(locator);
     if (locators.some(candidate => digestForComparison(candidate) === digest))
       return selector;

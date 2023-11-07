@@ -39,6 +39,7 @@ import { RecentLogsCollector } from '../common/debugLogger';
 import type { CallMetadata } from './instrumentation';
 import { SdkObject } from './instrumentation';
 import { ManualPromise } from '../utils/manualPromise';
+import { type ProtocolError, isProtocolError } from './protocolError';
 
 export const kNoXServerRunningError = 'Looks like you launched a headed browser without having a XServer running.\n' +
   'Set either \'headless: true\' or use \'xvfb-run <your-playwright-app>\' before running Playwright.\n\n<3 Playwright Team';
@@ -68,7 +69,7 @@ export abstract class BrowserType extends SdkObject {
       const seleniumHubUrl = (options as any).__testHookSeleniumRemoteURL || process.env.SELENIUM_REMOTE_URL;
       if (seleniumHubUrl)
         return this._launchWithSeleniumHub(progress, seleniumHubUrl, options);
-      return this._innerLaunchWithRetries(progress, options, undefined, helper.debugProtocolLogger(protocolLogger)).catch(e => { throw this._rewriteStartupError(e); });
+      return this._innerLaunchWithRetries(progress, options, undefined, helper.debugProtocolLogger(protocolLogger)).catch(e => { throw this._rewriteStartupLog(e); });
     }, TimeoutSettings.launchTimeout(options));
     return browser;
   }
@@ -79,7 +80,7 @@ export abstract class BrowserType extends SdkObject {
     const persistent: channels.BrowserNewContextParams = options;
     controller.setLogName('browser');
     const browser = await controller.run(progress => {
-      return this._innerLaunchWithRetries(progress, options, persistent, helper.debugProtocolLogger(), userDataDir).catch(e => { throw this._rewriteStartupError(e); });
+      return this._innerLaunchWithRetries(progress, options, persistent, helper.debugProtocolLogger(), userDataDir).catch(e => { throw this._rewriteStartupLog(e); });
     }, TimeoutSettings.launchTimeout(options));
     return browser._defaultContext!;
   }
@@ -281,10 +282,29 @@ export abstract class BrowserType extends SdkObject {
     return { ...options, devtools, headless, downloadsPath, proxy };
   }
 
+  protected _createUserDataDirArgMisuseError(userDataDirArg: string): Error {
+    switch (this.attribution.playwright.options.sdkLanguage) {
+      case 'java':
+        return new Error(`Pass userDataDir parameter to 'BrowserType.launchPersistentContext(userDataDir, options)' instead of specifying '${userDataDirArg}' argument`);
+      case 'python':
+        return new Error(`Pass user_data_dir parameter to 'browser_type.launch_persistent_context(user_data_dir, **kwargs)' instead of specifying '${userDataDirArg}' argument`);
+      case 'csharp':
+        return new Error(`Pass userDataDir parameter to 'BrowserType.LaunchPersistentContextAsync(userDataDir, options)' instead of specifying '${userDataDirArg}' argument`);
+      default:
+        return new Error(`Pass userDataDir parameter to 'browserType.launchPersistentContext(userDataDir, options)' instead of specifying '${userDataDirArg}' argument`);
+    }
+  }
+
+  _rewriteStartupLog(error: Error): Error {
+    if (!isProtocolError(error))
+      return error;
+    return this._doRewriteStartupLog(error);
+  }
+
   abstract _defaultArgs(options: types.LaunchOptions, isPersistent: boolean, userDataDir: string): string[];
   abstract _connectToTransport(transport: ConnectionTransport, options: BrowserOptions): Promise<Browser>;
   abstract _amendEnvironment(env: Env, userDataDir: string, executable: string, browserArguments: string[]): Env;
-  abstract _rewriteStartupError(error: Error): Error;
+  abstract _doRewriteStartupLog(error: ProtocolError): ProtocolError;
   abstract _attemptToGracefullyCloseBrowser(transport: ConnectionTransport): void;
 }
 

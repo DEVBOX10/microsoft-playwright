@@ -62,6 +62,7 @@ const copyFiles = [];
 
 const watchMode = process.argv.slice(2).includes('--watch');
 const lintMode = process.argv.slice(2).includes('--lint');
+const withSourceMaps = process.argv.slice(2).includes('--sourcemap') || watchMode;
 const ROOT = path.join(__dirname, '..', '..');
 
 /**
@@ -194,8 +195,10 @@ for (const pkg of workspace.packages()) {
   const bundlesDir = path.join(pkg.path, 'bundles');
   if (!fs.existsSync(bundlesDir))
     continue;
-  for (const bundle of fs.readdirSync(bundlesDir))
-    bundles.push(path.join(bundlesDir, bundle));
+  for (const bundle of fs.readdirSync(bundlesDir)) {
+    if (fs.existsSync(path.join(bundlesDir, bundle, 'package.json')))
+      bundles.push(path.join(bundlesDir, bundle));
+  }
 }
 
 // Update test runner.
@@ -238,11 +241,13 @@ for (const pkg of workspace.packages()) {
     command: 'npx',
     args: [
       'babel',
-      ...(watchMode ? ['-w', '--source-maps'] : []),
+      ...(watchMode ? ['-w'] : []),
+      ...(withSourceMaps ? ['--source-maps'] : []),
       '--extensions', '.ts',
       '--out-dir', quotePath(path.join(pkg.path, 'lib')),
       '--ignore', '"packages/playwright-core/src/server/injected/**/*"',
-      quotePath(path.join(pkg.path, 'src'))],
+      quotePath(path.join(pkg.path, 'src')),
+    ],
     shell: true,
     concurrent: true,
   });
@@ -252,7 +257,11 @@ for (const pkg of workspace.packages()) {
 for (const bundle of bundles) {
   steps.push({
     command: 'npm',
-    args: ['run', watchMode ? 'watch' : 'build'],
+    args: [
+      'run',
+      watchMode ? 'watch' : 'build',
+      ...(withSourceMaps ? ['--', '--sourcemap'] : [])
+    ],
     shell: true,
     cwd: bundle,
     concurrent: true,
@@ -263,7 +272,12 @@ for (const bundle of bundles) {
 for (const webPackage of ['html-reporter', 'recorder', 'trace-viewer']) {
   steps.push({
     command: 'npx',
-    args: ['vite', 'build', ...(watchMode ? ['--watch', '--sourcemap', '--minify=false'] : [])],
+    args: [
+      'vite',
+      'build',
+      ...(watchMode ? ['--watch', '--minify=false'] : []),
+      ...(withSourceMaps ? ['--sourcemap'] : []),
+    ],
     shell: true,
     cwd: path.join(__dirname, '..', '..', 'packages', webPackage),
     concurrent: true,
@@ -272,7 +286,14 @@ for (const webPackage of ['html-reporter', 'recorder', 'trace-viewer']) {
 // Build/watch trace viewer service worker.
 steps.push({
   command: 'npx',
-  args: ['vite', '--config', 'vite.sw.config.ts', 'build', ...(watchMode ? ['--watch', '--sourcemap', '--minify=false'] : [])],
+  args: [
+    'vite',
+    '--config',
+    'vite.sw.config.ts',
+    'build',
+    ...(watchMode ? ['--watch', '--minify=false'] : []),
+    ...(withSourceMaps ? ['--sourcemap'] : []),
+  ],
   shell: true,
   cwd: path.join(__dirname, '..', '..', 'packages', 'trace-viewer'),
   concurrent: true,
@@ -329,7 +350,7 @@ copyFiles.push({
   files: 'packages/playwright-core/src/**/*.js',
   from: 'packages/playwright-core/src',
   to: 'packages/playwright-core/lib',
-  ignored: ['**/.eslintrc.js', '**/webpack*.config.js', '**/injected/**/*']
+  ignored: ['**/.eslintrc.js', '**/injected/**/*']
 });
 
 // Sometimes we require JSON files that babel ignores.

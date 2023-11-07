@@ -21,8 +21,7 @@ jobs:
     - uses: actions/checkout@v3
     - uses: actions/setup-node@v3
       with:
-        node-version: 16
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
     - run: npm run build
     - run: npx playwright install-deps
@@ -35,3 +34,22 @@ jobs:
           git diff
           exit 1
         fi
+    - name: Audit prod NPM dependencies
+      run: npm audit --omit dev
+  lint-snippets:
+    name: "Lint snippets"
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: 18
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 8.0.x
+    - run: npm ci
+    - run: pip install -r utils/doclint/linting-code-snippets/python/requirements.txt
+    - run: node utils/doclint/linting-code-snippets/cli.js

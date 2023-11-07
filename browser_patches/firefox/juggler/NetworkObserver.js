@@ -31,6 +31,8 @@ const pageNetworkSymbol = Symbol('PageNetwork');
 
 class PageNetwork {
   static forPageTarget(target) {
+    if (!target)
+      return undefined;
     let result = target[pageNetworkSymbol];
     if (!result) {
       result = new PageNetwork(target);
@@ -105,21 +107,12 @@ class NetworkRequest {
     this.httpChannel = httpChannel;
 
     const loadInfo = this.httpChannel.loadInfo;
-    let browsingContext = loadInfo?.frameBrowsingContext || loadInfo?.browsingContext;
-    // TODO: Unfortunately, requests from web workers don't have frameBrowsingContext or
-    // browsingContext.
-    //
-    // We fail to attribute them to the original frames on the browser side, but we
-    // can use load context top frame to attribute them to the top frame at least.
-    if (!browsingContext) {
-      const loadContext = helper.getLoadContext(this.httpChannel);
-      browsingContext = loadContext?.topFrameElement?.browsingContext;
-    }
+    const browsingContext = loadInfo?.frameBrowsingContext || loadInfo?.workerAssociatedBrowsingContext || loadInfo?.browsingContext;
 
     this._frameId = helper.browsingContextToFrameId(browsingContext);
 
     this.requestId = httpChannel.channelId + '';
-    this.navigationId = httpChannel.isMainDocumentChannel ? helper.toProtocolNavigationId(browsingContext.jugglerCurrentLoadIdentifier) : undefined;
+    this.navigationId = httpChannel.isMainDocumentChannel && loadInfo ? helper.toProtocolNavigationId(loadInfo.jugglerLoadIdentifier) : undefined;
 
     this._redirectedIndex = 0;
     if (redirectedFrom) {
@@ -145,7 +138,12 @@ class NetworkRequest {
       throw new Error(`Internal Error: invariant is broken for _channelToRequest map`);
     this._networkObserver._channelToRequest.set(this.httpChannel, this);
 
-    this._pageNetwork = redirectedFrom ? redirectedFrom._pageNetwork : networkObserver._findPageNetwork(httpChannel);
+    if (redirectedFrom) {
+      this._pageNetwork = redirectedFrom._pageNetwork;
+    } else if (browsingContext) {
+      const target = this._networkObserver._targetRegistry.targetForBrowserId(browsingContext.browserId);
+      this._pageNetwork = PageNetwork.forPageTarget(target);
+    }
     this._expectingInterception = false;
     this._expectingResumedRequest = undefined;  // { method, headers, postData }
     this._sentOnResponse = false;
@@ -659,16 +657,6 @@ class NetworkObserver {
     }
   }
 
-  _findPageNetwork(httpChannel) {
-    let loadContext = helper.getLoadContext(httpChannel);
-    if (!loadContext)
-      return;
-    const target = this._targetRegistry.targetForBrowser(loadContext.topFrameElement);
-    if (!target)
-      return;
-    return PageNetwork.forPageTarget(target);
-  }
-
   _onRequest(channel, topic) {
     if (!(channel instanceof Ci.nsIHttpChannel))
       return;
@@ -739,6 +727,7 @@ function readRequestPostData(httpChannel) {
   if (!iStream)
     return undefined;
   const isSeekableStream = iStream instanceof Ci.nsISeekableStream;
+  const isTellableStream = iStream instanceof Ci.nsITellableStream;
 
   // For some reason, we cannot rewind back big streams,
   // so instead we should clone them.
@@ -747,7 +736,9 @@ function readRequestPostData(httpChannel) {
     iStream = iStream.clone();
 
   let prevOffset;
-  if (isSeekableStream) {
+  // Surprisingly, stream might implement `nsITellableStream` without
+  // implementing the `tell` method.
+  if (isSeekableStream && isTellableStream && iStream.tell) {
     prevOffset = iStream.tell();
     iStream.seek(Ci.nsISeekableStream.NS_SEEK_SET, 0);
   }

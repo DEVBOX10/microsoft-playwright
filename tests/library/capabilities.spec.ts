@@ -72,6 +72,7 @@ it('should play video @smoke', async ({ page, asset, browserName, platform, mode
   it.fixme(browserName === 'webkit' && platform !== 'darwin');
   it.fixme(browserName === 'firefox', 'https://github.com/microsoft/playwright/issues/5721');
   it.fixme(browserName === 'webkit' && platform === 'darwin' && parseInt(os.release(), 10) === 20, 'Does not work on BigSur');
+  it.skip(mode.startsWith('service'));
 
   // Safari only plays mp4 so we test WebKit with an .mp4 clip.
   const fileName = browserName === 'webkit' ? 'video_mp4.html' : 'video.html';
@@ -86,6 +87,7 @@ it('should play video @smoke', async ({ page, asset, browserName, platform, mode
 it('should play webm video @smoke', async ({ page, asset, browserName, platform, mode }) => {
   it.fixme(browserName === 'webkit' && platform === 'darwin' && parseInt(os.release(), 10) === 20, 'Does not work on BigSur');
   it.fixme(browserName === 'webkit' && platform === 'win32');
+  it.skip(mode.startsWith('service'));
 
   const absolutePath = asset('video_webm.html');
   // Our test server doesn't support range requests required to play on Mac,
@@ -267,4 +269,17 @@ it('requestFullscreen', async ({ page, server, browserName, headless, isLinux })
     return result;
   });
   expect(await page.evaluate(() => !!document.fullscreenElement)).toBeFalsy();
+});
+
+it('should send no Content-Length header for GET requests with a Content-Type', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22569' });
+  await page.goto(server.EMPTY_PAGE);
+  const [request] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    page.evaluate(() => fetch('/empty.html', {
+      'headers': { 'Content-Type': 'application/json' },
+      'method': 'GET'
+    }))
+  ]);
+  expect(request.headers['content-length']).toBe(undefined);
 });

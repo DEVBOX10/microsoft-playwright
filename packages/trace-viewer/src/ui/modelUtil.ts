@@ -17,14 +17,13 @@
 import type { Language } from '@isomorphic/locatorGenerators';
 import type { ResourceSnapshot } from '@trace/snapshot';
 import type * as trace from '@trace/trace';
-import type { ActionTraceEvent, EventTraceEvent } from '@trace/trace';
+import type { ActionTraceEvent } from '@trace/trace';
 import type { ContextEntry, PageEntry } from '../entries';
 
 const contextSymbol = Symbol('context');
 const nextInContextSymbol = Symbol('next');
 const prevInListSymbol = Symbol('prev');
 const eventsSymbol = Symbol('events');
-const resourcesSymbol = Symbol('resources');
 
 export type SourceLocation = {
   file: string;
@@ -39,44 +38,65 @@ export type SourceModel = {
 
 export type ActionTraceEventInContext = ActionTraceEvent & {
   context: ContextEntry;
+  log: { time: number, message: string }[];
+};
+
+export type ActionTreeItem = {
+  id: string;
+  children: ActionTreeItem[];
+  parent: ActionTreeItem | undefined;
+  action?: ActionTraceEventInContext;
 };
 
 export class MultiTraceModel {
   readonly startTime: number;
   readonly endTime: number;
   readonly browserName: string;
+  readonly channel?: string;
   readonly platform?: string;
   readonly wallTime?: number;
   readonly title?: string;
   readonly options: trace.BrowserContextEventOptions;
   readonly pages: PageEntry[];
   readonly actions: ActionTraceEventInContext[];
-  readonly events: trace.EventTraceEvent[];
+  readonly events: (trace.EventTraceEvent | trace.ConsoleMessageTraceEvent)[];
+  readonly stdio: trace.StdioTraceEvent[];
   readonly hasSource: boolean;
   readonly sdkLanguage: Language | undefined;
   readonly testIdAttributeName: string | undefined;
   readonly sources: Map<string, SourceModel>;
+  resources: ResourceSnapshot[];
 
 
   constructor(contexts: ContextEntry[]) {
     contexts.forEach(contextEntry => indexModel(contextEntry));
+    const primaryContext = contexts.find(context => context.isPrimary);
 
-    this.browserName = contexts[0]?.browserName || '';
-    this.sdkLanguage = contexts[0]?.sdkLanguage;
-    this.testIdAttributeName = contexts[0]?.testIdAttributeName;
-    this.platform = contexts[0]?.platform || '';
-    this.title = contexts[0]?.title || '';
-    this.options = contexts[0]?.options || {};
+    this.browserName = primaryContext?.browserName || '';
+    this.sdkLanguage = primaryContext?.sdkLanguage;
+    this.channel = primaryContext?.channel;
+    this.testIdAttributeName = primaryContext?.testIdAttributeName;
+    this.platform = primaryContext?.platform || '';
+    this.title = primaryContext?.title || '';
+    this.options = primaryContext?.options || {};
     this.wallTime = contexts.map(c => c.wallTime).reduce((prev, cur) => Math.min(prev || Number.MAX_VALUE, cur!), Number.MAX_VALUE);
     this.startTime = contexts.map(c => c.startTime).reduce((prev, cur) => Math.min(prev, cur), Number.MAX_VALUE);
     this.endTime = contexts.map(c => c.endTime).reduce((prev, cur) => Math.max(prev, cur), Number.MIN_VALUE);
     this.pages = ([] as PageEntry[]).concat(...contexts.map(c => c.pages));
     this.actions = mergeActions(contexts);
-    this.events = ([] as EventTraceEvent[]).concat(...contexts.map(c => c.events));
+    this.events = ([] as (trace.EventTraceEvent | trace.ConsoleMessageTraceEvent)[]).concat(...contexts.map(c => c.events));
+    this.stdio = ([] as trace.StdioTraceEvent[]).concat(...contexts.map(c => c.stdio));
     this.hasSource = contexts.some(c => c.hasSource);
+    this.resources = [...contexts.map(c => c.resources)].flat();
 
     this.events.sort((a1, a2) => a1.time - a2.time);
+    this.resources.sort((a1, a2) => a1._monotonicTime! - a2._monotonicTime!);
     this.sources = collectSources(this.actions);
+  }
+
+  failedAction() {
+    // This find innermost action for nested ones.
+    return this.actions.findLast(a => a.error);
   }
 }
 
@@ -159,11 +179,32 @@ function mergeActions(contexts: ContextEntry[]) {
   return result;
 }
 
+export function buildActionTree(actions: ActionTraceEventInContext[]): { rootItem: ActionTreeItem, itemMap: Map<string, ActionTreeItem> } {
+  const itemMap = new Map<string, ActionTreeItem>();
+
+  for (const action of actions) {
+    itemMap.set(action.callId, {
+      id: action.callId,
+      parent: undefined,
+      children: [],
+      action,
+    });
+  }
+
+  const rootItem: ActionTreeItem = { id: '', parent: undefined, children: [] };
+  for (const item of itemMap.values()) {
+    const parent = item.action!.parentId ? itemMap.get(item.action!.parentId) || rootItem : rootItem;
+    parent.children.push(item);
+    item.parent = parent;
+  }
+  return { rootItem, itemMap };
+}
+
 export function idForAction(action: ActionTraceEvent) {
   return `${action.pageId || 'none'}:${action.callId}`;
 }
 
-export function context(action: ActionTraceEvent): ContextEntry {
+export function context(action: ActionTraceEvent | trace.EventTraceEvent): ContextEntry {
   return (action as any)[contextSymbol];
 }
 
@@ -178,24 +219,22 @@ export function prevInList(action: ActionTraceEvent): ActionTraceEvent {
 export function stats(action: ActionTraceEvent): { errors: number, warnings: number } {
   let errors = 0;
   let warnings = 0;
-  const c = context(action);
   for (const event of eventsForAction(action)) {
-    if (event.method === 'console') {
-      const { guid } = event.params.message;
-      const type = c.initializers[guid]?.type;
+    if (event.type === 'console') {
+      const type = event.messageType;
       if (type === 'warning')
         ++warnings;
       else if (type === 'error')
         ++errors;
     }
-    if (event.method === 'pageError')
+    if (event.type === 'event' && event.method === 'pageError')
       ++errors;
   }
   return { errors, warnings };
 }
 
-export function eventsForAction(action: ActionTraceEvent): EventTraceEvent[] {
-  let result: EventTraceEvent[] = (action as any)[eventsSymbol];
+export function eventsForAction(action: ActionTraceEvent): (trace.EventTraceEvent | trace.ConsoleMessageTraceEvent)[] {
+  let result: (trace.EventTraceEvent | trace.ConsoleMessageTraceEvent)[] = (action as any)[eventsSymbol];
   if (result)
     return result;
 
@@ -204,19 +243,6 @@ export function eventsForAction(action: ActionTraceEvent): EventTraceEvent[] {
     return event.time >= action.startTime && (!nextAction || event.time < nextAction.startTime);
   });
   (action as any)[eventsSymbol] = result;
-  return result;
-}
-
-export function resourcesForAction(action: ActionTraceEvent): ResourceSnapshot[] {
-  let result: ResourceSnapshot[] = (action as any)[resourcesSymbol];
-  if (result)
-    return result;
-
-  const nextAction = nextInContext(action);
-  result = context(action).resources.filter(resource => {
-    return typeof resource._monotonicTime === 'number' && resource._monotonicTime > action.startTime && (!nextAction || resource._monotonicTime < nextAction.startTime);
-  });
-  (action as any)[resourcesSymbol] = result;
   return result;
 }
 

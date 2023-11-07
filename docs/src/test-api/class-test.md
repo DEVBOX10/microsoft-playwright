@@ -44,7 +44,7 @@ Test function that takes one or two arguments: an object with fixtures and optio
 
 
 
-## method: Test.afterAll
+## method: Test.afterAll#1
 * since: v1.10
 
 Declares an `afterAll` hook that is executed once per worker after all tests.
@@ -64,15 +64,42 @@ test.afterAll(async () => {
 });
 ```
 
-### param: Test.afterAll.hookFunction
+### param: Test.afterAll#1.hookFunction
 * since: v1.10
 - `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
 
 Hook function that takes one or two arguments: an object with worker fixtures and optional [TestInfo].
 
 
+## method: Test.afterAll#2
+* since: v1.38
 
-## method: Test.afterEach
+Declares an `afterAll` hook with a title that is executed once per worker after all tests.
+
+**Usage**
+
+```js
+test.afterAll('Teardown', async () => {
+  console.log('Done with tests');
+  // ...
+});
+```
+
+### param: Test.afterAll#2.title
+* since: v1.38
+- `title` <[string]>
+
+Hook title.
+
+### param: Test.afterAll#2.hookFunction
+* since: v1.38
+- `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
+
+Hook function that takes one or two arguments: an object with worker fixtures and optional [TestInfo].
+
+
+
+## method: Test.afterEach#1
 * since: v1.10
 
 Declares an `afterEach` hook that is executed after each test.
@@ -100,14 +127,50 @@ test('my test', async ({ page }) => {
 });
 ```
 
-### param: Test.afterEach.hookFunction
+### param: Test.afterEach#1.hookFunction
 * since: v1.10
 - `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
 
 Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
 
 
-## method: Test.beforeAll
+## method: Test.afterEach#2
+* since: v1.38
+
+Declares an `afterEach` hook with a title that is executed after each test.
+
+**Usage**
+
+```js title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test.afterEach('Status check', async ({ page }, testInfo) => {
+  console.log(`Finished ${testInfo.title} with status ${testInfo.status}`);
+
+  if (testInfo.status !== testInfo.expectedStatus)
+    console.log(`Did not run as expected, ended up at ${page.url()}`);
+});
+
+test('my test', async ({ page }) => {
+  // ...
+});
+```
+
+### param: Test.afterEach#2.title
+* since: v1.38
+- `title` <[string]>
+
+Hook title.
+
+### param: Test.afterEach#2.hookFunction
+* since: v1.38
+- `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
+
+Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
+
+
+
+## method: Test.beforeAll#1
 * since: v1.10
 
 Declares a `beforeAll` hook that is executed once per worker process before all tests.
@@ -118,7 +181,7 @@ When called in the scope of a test file, runs before all tests in the file. When
 
 Note that worker process is restarted on test failures, and `beforeAll` hook runs again in the new worker. Learn more about [workers and failures](../test-retries.md).
 
-You can use [`method: Test.afterAll`] to teardown any resources set up in `beforeAll`.
+You can use [`method: Test.afterAll#1`] to teardown any resources set up in `beforeAll`.
 
 **Usage**
 
@@ -138,15 +201,47 @@ test('my test', async ({ page }) => {
 });
 ```
 
-### param: Test.beforeAll.hookFunction
+### param: Test.beforeAll#1.hookFunction
 * since: v1.10
 - `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
 
 Hook function that takes one or two arguments: an object with worker fixtures and optional [TestInfo].
 
 
+## method: Test.beforeAll#2
+* since: v1.38
 
-## method: Test.beforeEach
+Declares a `beforeAll` hook with a title that is executed once per worker process before all tests.
+
+**Usage**
+
+```js title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test.beforeAll('Setup', async () => {
+  console.log('Before tests');
+});
+
+test('my test', async ({ page }) => {
+  // ...
+});
+```
+
+### param: Test.beforeAll#2.title
+* since: v1.38
+- `title` <[string]>
+
+Hook title.
+
+### param: Test.beforeAll#2.hookFunction
+* since: v1.38
+- `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
+
+Hook function that takes one or two arguments: an object with worker fixtures and optional [TestInfo].
+
+
+
+## method: Test.beforeEach#1
 * since: v1.10
 
 Declares a `beforeEach` hook that is executed before each test.
@@ -157,7 +252,7 @@ When called in the scope of a test file, runs before each test in the file. When
 
 You can access all the same [Fixtures] as the test function itself, and also the [TestInfo] object that gives a lot of useful information. For example, you can navigate the page before starting the test.
 
-You can use [`method: Test.afterEach`] to teardown any resources set up in `beforeEach`.
+You can use [`method: Test.afterEach#1`] to teardown any resources set up in `beforeEach`.
 
 **Usage**
 
@@ -174,12 +269,44 @@ test('my test', async ({ page }) => {
 });
 ```
 
-### param: Test.beforeEach.hookFunction
+### param: Test.beforeEach#1.hookFunction
 * since: v1.10
 - `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
 
 Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
 
+
+## method: Test.beforeEach#2
+* since: v1.38
+
+Declares a `beforeEach` hook with a title that is executed before each test.
+
+**Usage**
+
+```js title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test.beforeEach('Open start URL', async ({ page }, testInfo) => {
+  console.log(`Running ${testInfo.title}`);
+  await page.goto('https://my.start.url/');
+});
+
+test('my test', async ({ page }) => {
+  expect(page.url()).toBe('https://my.start.url/');
+});
+```
+
+### param: Test.beforeEach#2.title
+* since: v1.38
+- `title` <[string]>
+
+Hook title.
+
+### param: Test.beforeEach#2.hookFunction
+* since: v1.38
+- `hookFunction` <[function]\([Fixtures], [TestInfo]\)>
+
+Hook function that takes one or two arguments: an object with fixtures and optional [TestInfo].
 
 
 
@@ -889,7 +1016,10 @@ Returns information about the currently running test. This method can only be ca
 ```js
 test('example test', async ({ page }) => {
   // ...
-  await test.info().attach('screenshot', { body: await page.screenshot(), contentType: 'image/png' });
+  await test.info().attach('screenshot', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
 });
 ```
 
@@ -1054,7 +1184,7 @@ test('skip in WebKit', async ({ page, browserName }) => {
 });
 ```
 
-Skip from [`method: Test.beforeEach`] hook:
+Skip from [`method: Test.beforeEach#1`] hook:
 
 ```js
 import { test, expect } from '@playwright/test';
@@ -1201,7 +1331,7 @@ Optional description that will be reflected in a test report.
 * since: v1.10
 - returns: <[any]>
 
-Declares a test step.
+Declares a test step that is shown in the report.
 
 **Usage**
 
@@ -1211,6 +1341,14 @@ import { test, expect } from '@playwright/test';
 test('test', async ({ page }) => {
   await test.step('Log in', async () => {
     // ...
+  });
+
+  await test.step('Outer step', async () => {
+    // ...
+    // You can nest steps inside each other.
+    await test.step('Inner step', async () => {
+      // ...
+    });
   });
 });
 ```
@@ -1231,6 +1369,118 @@ test('test', async ({ page }) => {
 });
 ```
 
+**Decorator**
+
+You can use TypeScript method decorators to turn a method into a step.
+Each call to the decorated method will show up as a step in the report.
+
+```js
+function step(target: Function, context: ClassMethodDecoratorContext) {
+  return function replacementMethod(...args: any) {
+    const name = this.constructor.name + '.' + (context.name as string);
+    return test.step(name, async () => {
+      return await target.call(this, ...args);
+    });
+  };
+}
+
+class LoginPage {
+  constructor(readonly page: Page) {}
+
+  @step
+  async login() {
+    const account = { username: 'Alice', password: 's3cr3t' };
+    await this.page.getByLabel('Username or email address').fill(account.username);
+    await this.page.getByLabel('Password').fill(account.password);
+    await this.page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(this.page.getByRole('button', { name: 'View profile and more' })).toBeVisible();
+  }
+}
+
+test('example', async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.login();
+});
+```
+
+**Boxing**
+
+When something inside a step fails, you would usually see the error pointing to the exact action that failed. For example, consider the following login step:
+
+```js
+async function login(page) {
+  await test.step('login', async () => {
+    const account = { username: 'Alice', password: 's3cr3t' };
+    await page.getByLabel('Username or email address').fill(account.username);
+    await page.getByLabel('Password').fill(account.password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('button', { name: 'View profile and more' })).toBeVisible();
+  });
+}
+
+test('example', async ({ page }) => {
+  await page.goto('https://github.com/login');
+  await login(page);
+});
+```
+
+```txt
+Error: Timed out 5000ms waiting for expect(locator).toBeVisible()
+  ... error details omitted ...
+
+   8 |     await page.getByRole('button', { name: 'Sign in' }).click();
+>  9 |     await expect(page.getByRole('button', { name: 'View profile and more' })).toBeVisible();
+     |                                                                               ^
+  10 |   });
+```
+
+As we see above, the test may fail with an error pointing inside the step. If you would like the error to highlight the "login" step instead of its internals, use the `box` option. An error inside a boxed step points to the step call site.
+
+```js
+async function login(page) {
+  await test.step('login', async () => {
+    // ...
+  }, { box: true });  // Note the "box" option here.
+}
+```
+
+```txt
+Error: Timed out 5000ms waiting for expect(locator).toBeVisible()
+  ... error details omitted ...
+
+  14 |   await page.goto('https://github.com/login');
+> 15 |   await login(page);
+     |         ^
+  16 | });
+```
+
+You can also create a TypeScript decorator for a boxed step, similar to a regular step decorator above:
+
+```js
+function boxedStep(target: Function, context: ClassMethodDecoratorContext) {
+  return function replacementMethod(...args: any) {
+    const name = this.constructor.name + '.' + (context.name as string);
+    return test.step(name, async () => {
+      return await target.call(this, ...args);
+    }, { box: true });  // Note the "box" option here.
+  };
+}
+
+class LoginPage {
+  constructor(readonly page: Page) {}
+
+  @boxedStep
+  async login() {
+    // ....
+  }
+}
+
+test('example', async ({ page }) => {
+  const loginPage = new LoginPage(page);
+  await loginPage.login();  // <-- Error will be reported on this line.
+});
+```
+
 ### param: Test.step.title
 * since: v1.10
 - `title` <[string]>
@@ -1244,7 +1494,11 @@ Step name.
 
 Step body.
 
+### option: Test.step.box
+* since: v1.39
+- `box` <boolean>
 
+Whether to box the step in the report. Defaults to `false`. When the step is boxed, errors thrown from the step internals point to the step call site. See below for more details.
 
 ## method: Test.use
 * since: v1.10

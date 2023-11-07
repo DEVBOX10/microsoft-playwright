@@ -85,6 +85,42 @@ it('should filter by regex with quotes', async ({ page }) => {
   await expect(page.locator('div', { hasText: /Hello "world"/ })).toHaveText('Hello "world"');
 });
 
+it('should filter by regex with a single quote', async ({ page }) => {
+  await page.setContent(`<button>let's let's<span>hello</span></button>`);
+  await expect.soft(page.locator('button', { hasText: /let's/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let's/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /let\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /let['abc]s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let['abc]s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /let\\'s/i })).not.toBeVisible();
+  await expect.soft(page.getByRole('button', { name: /let\\'s/i })).not.toBeVisible();
+  await expect.soft(page.locator('button', { hasText: /let's let\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let's let\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /let\'s let's/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let\'s let's/i }).locator('span')).toHaveText('hello');
+
+  await page.setContent(`<button>let\\'s let\\'s<span>hello</span></button>`);
+  await expect.soft(page.locator('button', { hasText: /let\'s/i })).not.toBeVisible();
+  await expect.soft(page.getByRole('button', { name: /let\'s/i })).not.toBeVisible();
+  await expect.soft(page.locator('button', { hasText: /let\\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let\\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /let\\\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let\\\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /let\\'s let\\\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let\\'s let\\\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.locator('button', { hasText: /let\\\'s let\\'s/i }).locator('span')).toHaveText('hello');
+  await expect.soft(page.getByRole('button', { name: /let\\\'s let\\'s/i }).locator('span')).toHaveText('hello');
+
+  await page.setContent(`<button>let's hello</button>`);
+  await expect.soft(page.locator('button', { hasText: /let's/iu })).toHaveText(`let's hello`);
+  await expect.soft(page.getByRole('button', { name: /let's/iu })).toHaveText(`let's hello`);
+});
+
 it('should filter by regex and regexp flags', async ({ page }) => {
   await page.setContent(`<div>Hello "world"</div><div>Hello world</div>`);
   await expect(page.locator('div', { hasText: /hElLo "world"/i })).toHaveText('Hello "world"');
@@ -187,6 +223,21 @@ it('should support locator.or', async ({ page }) => {
   await expect(page.locator('article').or(page.locator('span'))).toHaveText('world');
   await expect(page.locator('div').or(page.locator('article'))).toHaveText('hello');
   await expect(page.locator('span').or(page.locator('article'))).toHaveText('world');
+});
+
+it('should support locator.locator with and/or', async ({ page }) => {
+  await page.setContent(`
+    <div>one <span>two</span> <button>three</button> </div>
+    <span>four</span>
+    <button>five</button>
+  `);
+
+  await expect(page.locator('div').locator(page.locator('button'))).toHaveText(['three']);
+  await expect(page.locator('div').locator(page.locator('button').or(page.locator('span')))).toHaveText(['two', 'three']);
+  await expect(page.locator('button').or(page.locator('span'))).toHaveText(['two', 'three', 'four', 'five']);
+
+  await expect(page.locator('div').locator(page.locator('button').and(page.getByRole('button')))).toHaveText(['three']);
+  await expect(page.locator('button').and(page.getByRole('button'))).toHaveText(['three', 'five']);
 });
 
 it('should allow some, but not all nested frameLocators', async ({ page }) => {

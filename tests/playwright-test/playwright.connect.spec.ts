@@ -21,10 +21,19 @@ test('should work with connectOptions', async ({ runInlineTest }) => {
     'playwright.config.js': `
       module.exports = {
         globalSetup: './global-setup',
+        // outputDir is relative to the config file. Customers can have special characters in the path:
+        // See: https://github.com/microsoft/playwright/issues/24157
+        outputDir: 'Привет',
         use: {
           connectOptions: {
             wsEndpoint: process.env.CONNECT_WS_ENDPOINT,
           },
+          launchOptions: {
+            env: {
+              // Customers can have special characters: https://github.com/microsoft/playwright/issues/24157
+              RANDOM_TEST_SPECIAL: 'Привет',
+            }
+          }
         },
       };
     `,
@@ -91,7 +100,7 @@ test('should throw with bad connectOptions', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.output).toContain('browserType.launch:');
+  expect(result.output).toContain('browserType.connect:');
   expect(result.output).toContain('does-not-exist-bad-domain');
 });
 
@@ -101,7 +110,7 @@ test('should respect connectOptions.timeout', async ({ runInlineTest }) => {
       module.exports = {
         use: {
           connectOptions: {
-            wsEndpoint: 'wss://locahost:5678',
+            wsEndpoint: 'wss://localhost:5678',
             timeout: 1,
           },
         },
@@ -115,7 +124,7 @@ test('should respect connectOptions.timeout', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.output).toContain('browserType.launch: Timeout 1ms exceeded.');
+  expect(result.output).toContain('browserType.connect: Timeout 1ms exceeded.');
 });
 
 test('should print debug log when failed to connect', async ({ runInlineTest }) => {

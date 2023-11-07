@@ -3,6 +3,8 @@ id: test-typescript
 title: "TypeScript"
 ---
 
+## Introduction
+
 Playwright supports TypeScript out of the box. You just write tests in TypeScript, and Playwright will read them, transform to JavaScript and run.
 
 ## tsconfig.json
@@ -11,7 +13,7 @@ Playwright will pick up `tsconfig.json` for each source file it loads. Note that
 
 We recommend setting up a separate `tsconfig.json` in the tests directory so that you can change some preferences specifically for the tests. Here is an example directory structure.
 
-```
+```txt
 src/
     source.ts
 
@@ -88,15 +90,15 @@ The `pretest` script runs typescript on the tests. `test` will run the tests tha
 
 Then `npm run test` will build the tests and run them.
 
-## Transpilation issues
+## Using `import` inside `evaluate()`
 
 Using dynamic imports inside a function passed to various `evaluate()` methods is not supported. This is because Playwright uses `Function.prototype.toString()` to serialize functions, and transpiler will sometimes replace dynamic imports with `require()` calls, which are not valid inside the web page.
 
 To work around this issue, use a string template instead of a function:
 
 ```js
-await page.evaluate(`async () => {
+await page.evaluate(`(async () => {
   const { value } = await import('some-module');
   console.log(value);
-}`);
+})()`);
 ```

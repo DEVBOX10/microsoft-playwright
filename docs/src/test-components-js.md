@@ -1,9 +1,11 @@
 ---
 id: test-components
-title: "Experimental: components"
+title: "Components (experimental)"
 ---
 
 import LiteYouTube from '@site/src/components/LiteYouTube';
+
+## Introduction
 
 Playwright Test can now test your components.
 
@@ -69,22 +71,16 @@ yarn create playwright --ct
 <TabItem value="pnpm">
 
 ```bash
-pnpm dlx create-playwright --ct
+pnpm create playwright --ct
 ```
 
  </TabItem>
-  
+
 </Tabs>
 
 This step creates several files in your workspace:
 
-#### `playwright/index.html`
-
-This file defines an html file that will be used to render components during testing.
-It must contain element with `id="root"`, that's where components are mounted. It must
-also link the script called `playwright/index.{js,ts,jsx,tsx}`.
-
-```html
+```html title="playwright/index.html"
 <html lang="en">
   <body>
     <div id="root"></div>
@@ -93,12 +89,14 @@ also link the script called `playwright/index.{js,ts,jsx,tsx}`.
 </html>
 ```
 
-#### `playwright/index.ts`
+This file defines an html file that will be used to render components during testing.
+It must contain element with `id="root"`, that's where components are mounted. It must
+also link the script called `playwright/index.{js,ts,jsx,tsx}`.
 
 You can include stylesheets, apply theme and inject code into the page where
 component is mounted using this script. It can be either a `.js`, `.ts`, `.jsx` or `.tsx` file.
 
-```js
+```js title="playwright/index.ts"
 // Apply theme here, add anything your component needs at runtime here.
 ```
 
@@ -150,7 +148,7 @@ declare module '*.vue';
 ```
 
 </TabItem>
-  
+
 <TabItem value="svelte">
 
 ```js
@@ -197,13 +195,95 @@ npm run test-ct
 
 Refer to [Playwright config](./test-configuration.md) for configuring your project.
 
+## Test stories
+
+When Playwright Test is used to test web components, tests run in Node.js, while components run in the real browser. This brings together the best of both worlds: components run in the real browser environment, real clicks are triggered, real layout is executed, visual regression is possible. At the same time, test can use all the powers of Node.js as well as all the Playwright Test features. As a result, the same parallel, parametrized tests with the same post-mortem Tracing story are available during component testing.
+
+This however, is introducing a number of limitations:
+
+- You can't pass complex live objects to your component. Only plain JavaScript objects and built-in types like strings, numbers, dates etc. can be passed.
+
+```js
+test('this will work', async ({ mount }) => {
+  const component = await mount(<ProcessViewer process={{ name: 'playwright' }}/>);
+});
+
+test('this will not work', async ({ mount }) => {
+  // `process` is a Node object, we can't pass it to the browser and expect it to work.
+  const component = await mount(<ProcessViewer process={process}/>);
+});
+```
+
+- You can't pass data to your component synchronously in a callback:
+
+```js
+test('this will not work', async ({ mount }) => {
+  // () => 'red' callback lives in Node. If `ColorPicker` component in the browser calls the parameter function
+  // `colorGetter` it won't get result synchronously. It'll be able to get it via await, but that is not how
+  // components are typically built.
+  const component = await mount(<ColorPicker colorGetter={() => 'red'}/>);
+});
+```
+
+Working around these and other limitations is quick and elegant: for every use case of the tested component, create a wrapper of this component designed specifically for test. Not only it will mitigate the limitations, but it will also offer powerful abstractions for testing where you would be able to define environment, theme and other aspects of your component rendering.
+
+Let's say you'd like to test following component:
+
+```js title="input-media.tsx"
+import React from 'react';
+
+export const InputMedia: React.FC<{
+  // Media is a complex browser object we can't send to Node while testing.
+  onChange: (media: Media) => void,
+}> = ({ onChange }) => {
+  return <></> as any;
+};
+```
+
+Create a story file for your component:
+
+```js title="input-media.story.tsx"
+import React from 'react';
+import InputMedia from './import-media';
+
+export const InputMediaForTest: React.FC<{
+  onMediaChange: (mediaName: string) => void,
+}> = ({ onMediaChange }) => {
+  // Instead of sending a complex `media` object to the test, send the media name.
+  return <InputMedia onChange={media => onMediaChange(media.name)} />;
+};
+// Export more stories here.
+```
+
+Then test the component via testing the story:
+
+```js title="input-media.test.spec.tsx"
+test('changes the image', async ({ mount }) => {
+  let mediaSelected: string | null = null;
+
+  const component = await mount(
+    <InputMediaForTest
+      onMediaChange={mediaName => {
+        mediaSelected = mediaName;
+        console.log({ mediaName });
+      }}
+    />
+  );
+  await component
+    .getByTestId('imageInput')
+    .setInputFiles('src/assets/logo.png');
+
+  await expect(component.getByAltText(/selected image/i)).toBeVisible();
+  await expect.poll(() => mediaSelected).toBe('logo.png');
+});
+```
+
+As a result, for every component you'll have a story file that exports all the stories that are actually tested.
+These stories live in the browser and "convert" complex object into the simple objects that can be accessed in the test.
+
 ## Hooks
 
-You can use `beforeMount` and `afterMount` hooks to configure your app. This lets you setup things like your app router, fake server etc. giving you the flexibility you need. You can also pass custom configuration from the `mount` call from a test, which is accessible from the `hooksConfig` fixture.
-
-#### `playwright/index.{js,ts,jsx,tsx}`
-
-This includes any config that needs to be run before or after mounting the component. An example of configuring a router is provided below:
+You can use `beforeMount` and `afterMount` hooks to configure your app. This lets you setup things like your app router, fake server etc. giving you the flexibility you need. You can also pass custom configuration from the `mount` call from a test, which is accessible from the `hooksConfig` fixture. This includes any config that needs to be run before or after mounting the component. An example of configuring a router is provided below:
 
 <Tabs
   defaultValue="react"
@@ -229,8 +309,6 @@ This includes any config that needs to be run before or after mounting the compo
       return <BrowserRouter><App /></BrowserRouter>;
   });
   ```
-
-  #### In your test file:
 
   ```js title="src/pages/ProductsPage.spec.tsx"
   import { test, expect } from '@playwright/experimental-ct-react';
@@ -263,8 +341,6 @@ This includes any config that needs to be run before or after mounting the compo
   });
   ```
 
-  #### In your test file:
-
   ```js title="src/pages/ProductsPage.spec.tsx"
   import { test, expect } from '@playwright/experimental-ct-solid';
   import type { HooksConfig } from '@playwright/test';
@@ -296,8 +372,6 @@ This includes any config that needs to be run before or after mounting the compo
   });
   ```
 
-  #### In your test file:
-
   ```js title="src/pages/ProductsPage.spec.ts"
   import { test, expect } from '@playwright/experimental-ct-vue';
   import type { HooksConfig } from '@playwright/test';
@@ -314,7 +388,7 @@ This includes any config that needs to be run before or after mounting the compo
   </TabItem>
 
   <TabItem value="vue2">
-  
+
   ```js title="playwright/index.ts"
   import { beforeMount, afterMount } from '@playwright/experimental-ct-vue2/hooks';
   import Router from 'vue-router';
@@ -331,7 +405,6 @@ This includes any config that needs to be run before or after mounting the compo
     }
   });
   ```
-   #### In your test file:
 
   ```js title="src/pages/ProductsPage.spec.ts"
   import { test, expect } from '@playwright/experimental-ct-vue2';
@@ -352,9 +425,7 @@ This includes any config that needs to be run before or after mounting the compo
 
 ## Under the hood
 
-When Playwright Test is used to test web components, tests run in Node.js, while components run in the real browser. This brings together the best of both worlds: components run in the real browser environment, real clicks are triggered, real layout is executed, visual regression is possible. At the same time, test can use all the powers of Node.js as well as all the Playwright Test features. As a result, the same parallel, parametrized tests with the same post-mortem Tracing story are available during component testing.
-
-Here is how this is achieved:
+Here is how component testing works:
 
 - Once the tests are executed, Playwright creates a list of components that the tests need.
 - It then compiles a bundle that includes these components and serves it using a local static web server.
@@ -363,29 +434,9 @@ Here is how this is achieved:
 
 Playwright is using [Vite](https://vitejs.dev/) to create the components bundle and serve it.
 
-## Known issues and limitations
+## Frequently asked questions
 
-### Q) I can't import anything other than the components from TSX/JSX/Component files
-
-As per above, you can only import your components from your test file. If you have utility methods or constants in your TSX files, it is advised to extract them into the TS files and import those utility methods and constants from your component files and from your test files. That allows us to not load any of the component code in the Node-based test runner and keep Playwright fast at executing your tests.
-
-### Q) I have a project that already uses Vite. Can I reuse the config?
-
-At this point, Playwright is bundler-agnostic, so it is not reusing your existing Vite config. Your config might have a lot of things we won't be able to reuse. So for now, you would copy your path mappings and other high level settings into the `ctViteConfig` property of Playwright config.
-
-```js
-import { defineConfig } from '@playwright/experimental-ct-react';
-
-export default defineConfig({
-  use: {
-    ctViteConfig: { 
-      // ...
-    },
-  },
-});
-```
-
-### Q) What's the difference between `@playwright/test` and `@playwright/experimental-ct-{react,svelte,vue,solid}`?
+### What's the difference between `@playwright/test` and `@playwright/experimental-ct-{react,svelte,vue,solid}`?
 
 ```js
 test('…', async ({ mount, page, context }) => {
@@ -439,7 +490,7 @@ test('should work', async ({ mount }) => {
 ```
 
 </TabItem>
-  
+
 <TabItem value="svelte">
 
 ```js
@@ -483,32 +534,21 @@ Additionally, it adds some config options you can use in your `playwright-ct.con
 Finally, under the hood, each test re-uses the `context` and `page` fixture as a speed optimization for Component Testing.
 It resets them in between each test so it should be functionally equivalent to `@playwright/test`'s guarantee that you get a new, isolated `context` and `page` fixture per-test.
 
-### Q) Can I use `@playwright/test` and `@playwright/experimental-ct-{react,svelte,vue,solid}`?
+### I have a project that already uses Vite. Can I reuse the config?
 
-Yes. Use a Playwright Config for each and follow their respective guides ([E2E Playwright Test](https://playwright.dev/docs/intro), [Component Tests](https://playwright.dev/docs/test-components))
-
-### Q) Why can't I pass a variable to mount?
-
-This is a [known issue](https://github.com/microsoft/playwright/issues/14401). The following pattern does not work:
+At this point, Playwright is bundler-agnostic, so it is not reusing your existing Vite config. Your config might have a lot of things we won't be able to reuse. So for now, you would copy your path mappings and other high level settings into the `ctViteConfig` property of Playwright config.
 
 ```js
-const app = <App />;
-await mount(app);
+import { defineConfig } from '@playwright/experimental-ct-react';
+
+export default defineConfig({
+  use: {
+    ctViteConfig: {
+      // ...
+    },
+  },
+});
 ```
-
-results in
-
-```
-undefined: TypeError: Cannot read properties of undefined (reading 'map')
-```
-
-while this works:
-
-```js
-await mount(<App />);
-```
-
-### Q) How can I use Vite plugins?
 
 You can specify plugins via Vite config for testing settings. Note that once you start specifying plugins, you are responsible for specifying the framework plugin as well, `vue()` in this case:
 
@@ -557,7 +597,47 @@ export default defineConfig({
 });
 ```
 
-### Q) how can i test components that uses Pinia?
+### How can I use router?
+
+```js title="playwright/index.tsx"
+import { beforeMount, afterMount } from '@playwright/experimental-ct-react/hooks';
+import { BrowserRouter } from 'react-router-dom';
+import '../src/assets/index.css';
+
+export type HooksConfig = {
+  routing?: boolean;
+}
+
+beforeMount<HooksConfig>(async ({ hooksConfig, App }) => {
+  console.log(`Before mount: ${JSON.stringify(hooksConfig)}`);
+
+  if (hooksConfig?.routing)
+     return <BrowserRouter><App /></BrowserRouter>;
+});
+
+afterMount<HooksConfig>(async () => {
+  console.log(`After mount`);
+});
+```
+
+```js title="src/test.spec.tsx"
+import { test, expect } from '@playwright/experimental-ct-react';
+import App from '@/App';
+import type { HooksConfig } from '../playwright';
+
+test('navigate to a page by clicking a link', async ({ page, mount }) => {
+  const component = await mount<HooksConfig>(<App />, {
+    hooksConfig: { routing: true },
+  });
+  await expect(component.getByRole('main')).toHaveText('Login');
+  await expect(page).toHaveURL('/');
+  await component.getByRole('link', { name: 'Dashboard' }).click();
+  await expect(component.getByRole('main')).toHaveText('Dashboard');
+  await expect(page).toHaveURL('/dashboard');
+});
+```
+
+### How can I test components that uses Pinia?
 
 Pinia needs to be initialized in `playwright/index.{js,ts,jsx,tsx}`. If you do this inside a `beforeMount` hook, the `initialState` can be overwritten on a per-test basis:
 
@@ -587,8 +667,6 @@ beforeMount<HooksConfig>(async ({ hooksConfig }) => {
 });
 ```
 
-  #### In your test file:
-
 ```js title="src/pinia.spec.ts"
 import { test, expect } from '@playwright/experimental-ct-vue';
 import type { HooksConfig } from '@playwright/test';
@@ -597,7 +675,7 @@ import Store from './Store.vue';
 test('override initialState ', async ({ mount }) => {
   const component = await mount<HooksConfig>(Store, {
     hooksConfig: {
-      store: { name: 'override initialState' } 
+      store: { name: 'override initialState' }
     }
   });
   await expect(component).toContainText('override initialState');

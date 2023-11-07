@@ -3,6 +3,8 @@ id: navigations
 title: "Navigations"
 ---
 
+## Introduction
+
 Playwright can navigate to URLs and handle navigations caused by the page interactions.
 
 ## Basic navigation
@@ -102,7 +104,7 @@ resources loaded, etc.
 
 At some point in time, you'll stumble upon a use case where Playwright performs
 an action, but nothing seemingly happens. Or you enter some text into the input
-field and will disappear. The most probable reason behind that is a poor page
+field and it will disappear. The most probable reason behind that is a poor page
 [hydration](https://en.wikipedia.org/wiki/Hydration_(web_development)).
 
 When page is hydrated, first, a static version of the page is sent to the browser.

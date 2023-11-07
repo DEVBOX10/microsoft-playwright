@@ -31,7 +31,7 @@ import * as accessibility from './accessibility';
 import { FileChooser } from './fileChooser';
 import type { Progress } from './progress';
 import { ProgressController } from './progress';
-import { assert, isError } from '../utils';
+import { LongStandingScope, assert, isError } from '../utils';
 import { ManualPromise } from '../utils/manualPromise';
 import { debugLogger } from '../common/debugLogger';
 import type { ImageComparatorOptions } from '../utils/comparators';
@@ -43,6 +43,7 @@ import type { TimeoutOptions } from '../common/types';
 import { isInvalidSelectorError } from '../utils/isomorphic/selectorParser';
 import { parseEvaluationResultValue, source } from './isomorphic/utilityScriptSerializers';
 import type { SerializedValue } from './isomorphic/utilityScriptSerializers';
+import { TargetClosedError } from './errors';
 
 export interface PageDelegate {
   readonly rawMouse: input.RawMouse;
@@ -125,9 +126,6 @@ export class Page extends SdkObject {
     Crash: 'crash',
     Download: 'download',
     FileChooser: 'filechooser',
-    // Can't use just 'error' due to node.js special treatment of error events.
-    // @see https://nodejs.org/api/events.html#events_error_events
-    PageError: 'pageerror',
     FrameAttached: 'frameattached',
     FrameDetached: 'framedetached',
     InternalFrameNavigatedToNewDocument: 'internalframenavigatedtonewdocument',
@@ -139,11 +137,10 @@ export class Page extends SdkObject {
 
   private _closedState: 'open' | 'closing' | 'closed' = 'open';
   private _closedPromise = new ManualPromise<void>();
-  private _disconnected = false;
   private _initialized = false;
   private _eventsToEmitAfterInitialized: { event: string | symbol, args: any[] }[] = [];
-  readonly _disconnectedPromise = new ManualPromise<Error>();
-  readonly _crashedPromise = new ManualPromise<Error>();
+  private _crashed = false;
+  readonly openScope = new LongStandingScope();
   readonly _browserContext: BrowserContext;
   readonly keyboard: input.Keyboard;
   readonly mouse: input.Mouse;
@@ -173,6 +170,7 @@ export class Page extends SdkObject {
   // Aiming at 25 fps by default - each frame is 40ms, but we give some slack with 35ms.
   // When throttling for tracing, 200ms between frames, except for 10 frames around the action.
   private _frameThrottler = new FrameThrottler(10, 35, 200);
+  _closeReason: string | undefined;
 
   constructor(delegate: PageDelegate, browserContext: BrowserContext) {
     super(browserContext, 'page');
@@ -279,22 +277,16 @@ export class Page extends SdkObject {
     this.emit(Page.Events.Close);
     this._closedPromise.resolve();
     this.instrumentation.onPageClose(this);
+    this.openScope.close(new TargetClosedError());
   }
 
   _didCrash() {
     this._frameManager.dispose();
     this._frameThrottler.dispose();
     this.emit(Page.Events.Crash);
-    this._crashedPromise.resolve(new Error('Page crashed'));
+    this._crashed = true;
     this.instrumentation.onPageClose(this);
-  }
-
-  _didDisconnect() {
-    this._frameManager.dispose();
-    this._frameThrottler.dispose();
-    assert(!this._disconnected, 'Page disconnected twice');
-    this._disconnected = true;
-    this._disconnectedPromise.resolve(new Error('Page closed'));
+    this.openScope.close(new Error('Page crashed'));
   }
 
   async _onFileChooserOpened(handle: dom.ElementHandle) {
@@ -365,7 +357,7 @@ export class Page extends SdkObject {
   }
 
   async _onBindingCalled(payload: string, context: dom.FrameExecutionContext) {
-    if (this._disconnected || this._closedState === 'closed')
+    if (this._closedState === 'closed')
       return;
     await PageBinding.dispatch(this, payload, context);
   }
@@ -605,13 +597,14 @@ export class Page extends SdkObject {
         this._timeoutSettings.timeout(options));
   }
 
-  async close(metadata: CallMetadata, options?: { runBeforeUnload?: boolean }) {
+  async close(metadata: CallMetadata, options: { runBeforeUnload?: boolean, reason?: string } = {}) {
     if (this._closedState === 'closed')
       return;
-    const runBeforeUnload = !!options && !!options.runBeforeUnload;
+    if (options.reason)
+      this._closeReason = options.reason;
+    const runBeforeUnload = !!options.runBeforeUnload;
     if (this._closedState !== 'closing') {
       this._closedState = 'closing';
-      assert(!this._disconnected, 'Target closed');
       // This might throw if the browser context containing the page closes
       // while we are trying to close the page.
       await this._delegate.closePage(runBeforeUnload).catch(e => debugLogger.log('error', e));
@@ -619,7 +612,7 @@ export class Page extends SdkObject {
     if (!runBeforeUnload)
       await this._closedPromise;
     if (this._ownedContext)
-      await this._ownedContext.close(metadata);
+      await this._ownedContext.close(options);
   }
 
   private _setIsError(error: Error) {
@@ -631,8 +624,12 @@ export class Page extends SdkObject {
     return this._closedState === 'closed';
   }
 
+  hasCrashed() {
+    return this._crashed;
+  }
+
   isClosedOrClosingOrCrashed() {
-    return this._closedState !== 'open' || this._crashedPromise.isDone();
+    return this._closedState !== 'open' || this._crashed;
   }
 
   _addWorker(workerId: string, worker: Worker) {
@@ -692,12 +689,8 @@ export class Page extends SdkObject {
     this._frameThrottler.ack(ack);
   }
 
-  temporarlyDisableTracingScreencastThrottling() {
+  temporarilyDisableTracingScreencastThrottling() {
     this._frameThrottler.recharge();
-  }
-
-  firePageError(error: Error) {
-    this.emit(Page.Events.PageError, error);
   }
 
   async hideHighlight() {
@@ -718,6 +711,7 @@ export class Worker extends SdkObject {
   private _executionContextPromise: Promise<js.ExecutionContext>;
   private _executionContextCallback: (value: js.ExecutionContext) => void;
   _existingExecutionContext: js.ExecutionContext | null = null;
+  readonly openScope = new LongStandingScope();
 
   constructor(parent: SdkObject, url: string) {
     super(parent, 'worker');
@@ -737,8 +731,9 @@ export class Worker extends SdkObject {
 
   didClose() {
     if (this._existingExecutionContext)
-      this._existingExecutionContext.contextDestroyed(new Error('Worker was closed'));
+      this._existingExecutionContext.contextDestroyed('Worker was closed');
     this.emit(Worker.Events.Close, this);
+    this.openScope.close(new Error('Worker closed'));
   }
 
   async evaluateExpression(expression: string, isFunction: boolean | undefined, arg: any): Promise<any> {

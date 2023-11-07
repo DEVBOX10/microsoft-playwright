@@ -27,8 +27,8 @@ import { TimeoutSettings } from '../common/timeoutSettings';
 import { Waiter } from './waiter';
 import { EventEmitter } from 'events';
 import { Connection } from './connection';
-import { isSafeCloseError, kBrowserClosedError } from '../common/errors';
-import { raceAgainstTimeout } from '../utils/timeoutRunner';
+import { isTargetClosedError, TargetClosedError } from './errors';
+import { raceAgainstDeadline } from '../utils/timeoutRunner';
 import type { AndroidServerLauncherImpl } from '../androidServerImpl';
 
 type Direction = 'down' | 'up' | 'left' | 'right';
@@ -76,10 +76,10 @@ export class Android extends ChannelOwner<channels.AndroidChannel> implements ap
       connection.on('close', closePipe);
 
       let device: AndroidDevice;
-      let closeError: string | undefined;
+      let closeError: Error | undefined;
       const onPipeClosed = () => {
         device?._didClose();
-        connection.close(closeError || kBrowserClosedError);
+        connection.close(closeError);
       };
       pipe.on('closed', onPipeClosed);
       connection.onmessage = message => pipe.send({ message }).catch(onPipeClosed);
@@ -88,12 +88,12 @@ export class Android extends ChannelOwner<channels.AndroidChannel> implements ap
         try {
           connection!.dispatch(message);
         } catch (e) {
-          closeError = e.toString();
+          closeError = e;
           closePipe();
         }
       });
 
-      const result = await raceAgainstTimeout(async () => {
+      const result = await raceAgainstDeadline(async () => {
         const playwright = await connection!.initializePlaywright();
         if (!playwright._initializer.preConnectedAndroidDevice) {
           closePipe();
@@ -103,7 +103,7 @@ export class Android extends ChannelOwner<channels.AndroidChannel> implements ap
         device._shouldCloseConnectionOnClose = true;
         device.on(Events.AndroidDevice.Close, closePipe);
         return device;
-      }, deadline ? deadline - monotonicTime() : 0);
+      }, deadline);
       if (!result.timedOut) {
         return result.result;
       } else {
@@ -234,14 +234,18 @@ export class AndroidDevice extends ChannelOwner<channels.AndroidDeviceChannel> i
     return binary;
   }
 
+  async [Symbol.asyncDispose]() {
+    await this.close();
+  }
+
   async close() {
     try {
       if (this._shouldCloseConnectionOnClose)
-        this._connection.close(kBrowserClosedError);
+        this._connection.close();
       else
         await this._channel.close();
     } catch (e) {
-      if (isSafeCloseError(e))
+      if (isTargetClosedError(e))
         return;
       throw e;
     }
@@ -281,7 +285,7 @@ export class AndroidDevice extends ChannelOwner<channels.AndroidDeviceChannel> i
       const waiter = Waiter.createForEvent(this, event);
       waiter.rejectOnTimeout(timeout, `Timeout ${timeout}ms exceeded while waiting for event "${event}"`);
       if (event !== Events.AndroidDevice.Close)
-        waiter.rejectOnEvent(this, Events.AndroidDevice.Close, new Error('Device closed'));
+        waiter.rejectOnEvent(this, Events.AndroidDevice.Close, () => new TargetClosedError());
       const result = await waiter.waitForEvent(this, event, predicate as any);
       waiter.dispose();
       return result;
@@ -306,6 +310,10 @@ export class AndroidSocket extends ChannelOwner<channels.AndroidSocketChannel> i
 
   async close(): Promise<void> {
     await this._channel.close();
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.close();
   }
 }
 

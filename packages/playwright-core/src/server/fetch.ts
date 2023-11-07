@@ -39,6 +39,7 @@ import { ProgressController } from './progress';
 import { Tracing } from './trace/recorder/tracing';
 import type * as types from './types';
 import type { HeadersArray, ProxySettings } from './types';
+import { kMaxCookieExpiresDateInSeconds } from './network';
 
 type FetchRequestOptions = {
   userAgent: string;
@@ -90,6 +91,7 @@ export abstract class APIRequestContext extends SdkObject {
   readonly fetchLog: Map<string, string[]> = new Map();
   protected static allInstances: Set<APIRequestContext> = new Set();
   readonly _activeProgressControllers = new Set<ProgressController>();
+  _closeReason: string | undefined;
 
   static findResponseBody(guid: string): Buffer | undefined {
     for (const request of APIRequestContext.allInstances) {
@@ -169,6 +171,7 @@ export abstract class APIRequestContext extends SdkObject {
       } else {
         if (proxy.username)
           proxyOpts.auth = `${proxy.username}:${proxy.password || ''}`;
+        // TODO: We should use HttpProxyAgent conditional on proxyOpts.protocol instead of always using CONNECT method.
         agent = new HttpsProxyAgent(proxyOpts);
       }
     }
@@ -281,8 +284,15 @@ export abstract class APIRequestContext extends SdkObject {
           progress.log(`  ${name}: ${value}`);
 
         const cookies = this._parseSetCookieHeader(response.url || url.toString(), response.headers['set-cookie']) ;
-        if (cookies.length)
-          await this._addCookies(cookies);
+        if (cookies.length) {
+          try {
+            await this._addCookies(cookies);
+          } catch (e) {
+            // Cookie value is limited by 4096 characters in the browsers. If setCookies failed,
+            // we try setting each cookie individually just in case only some of them are bad.
+            await Promise.all(cookies.map(c => this._addCookies([c]).catch(() => {})));
+          }
+        }
 
         if (redirectStatus.includes(response.statusCode!) && options.maxRedirects >= 0) {
           if (!options.maxRedirects) {
@@ -290,7 +300,7 @@ export abstract class APIRequestContext extends SdkObject {
             request.destroy();
             return;
           }
-          const headers: HeadersObject = { ...options.headers };
+          const headers = { ...options.headers };
           removeHeader(headers, `cookie`);
 
           // HTTP-redirect fetch step 13 (https://fetch.spec.whatwg.org/#http-redirect-fetch)
@@ -306,6 +316,7 @@ export abstract class APIRequestContext extends SdkObject {
             removeHeader(headers, `content-location`);
             removeHeader(headers, `content-type`);
           }
+
 
           const redirectOptions: SendRequestOptions = {
             method,
@@ -330,6 +341,10 @@ export abstract class APIRequestContext extends SdkObject {
               request.destroy();
               return;
             }
+
+            if (headers['host'])
+              headers['host'] = locationURL.host;
+
             notifyRequestFinished();
             fulfill(this._sendRequest(progress, locationURL, redirectOptions, postData));
             request.destroy();
@@ -517,7 +532,7 @@ export class GlobalAPIRequestContext extends APIRequestContext {
     }
     if (options.storageState) {
       this._origins = options.storageState.origins;
-      this._cookieStore.addCookies(options.storageState.cookies);
+      this._cookieStore.addCookies(options.storageState.cookies || []);
     }
     this._options = {
       baseURL: options.baseURL,
@@ -536,7 +551,7 @@ export class GlobalAPIRequestContext extends APIRequestContext {
   }
 
   override async dispose() {
-    await this._tracing.dispose();
+    await this._tracing.flush();
     await this._tracing.deleteTmpTracesDir();
     this._disposeImpl();
   }
@@ -606,13 +621,25 @@ function parseCookie(header: string): channels.NetworkCookie | null {
     switch (name.toLowerCase()) {
       case 'expires':
         const expiresMs = (+new Date(value));
-        if (isFinite(expiresMs))
-          cookie.expires = expiresMs / 1000;
+        // https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.1
+        if (isFinite(expiresMs)) {
+          if (expiresMs <= 0)
+            cookie.expires = 0;
+          else
+            cookie.expires = Math.min(expiresMs / 1000, kMaxCookieExpiresDateInSeconds);
+        }
         break;
       case 'max-age':
         const maxAgeSec = parseInt(value, 10);
-        if (isFinite(maxAgeSec))
-          cookie.expires = Date.now() / 1000 + maxAgeSec;
+        if (isFinite(maxAgeSec)) {
+          // From https://datatracker.ietf.org/doc/html/rfc6265#section-5.2.2
+          // If delta-seconds is less than or equal to zero (0), let expiry-time
+          // be the earliest representable date and time.
+          if (maxAgeSec <= 0)
+            cookie.expires = 0;
+          else
+            cookie.expires = Math.min(Date.now() / 1000 + maxAgeSec, kMaxCookieExpiresDateInSeconds);
+        }
         break;
       case 'domain':
         cookie.domain = value.toLocaleLowerCase() || '';
@@ -646,26 +673,11 @@ function parseCookie(header: string): channels.NetworkCookie | null {
   return cookie;
 }
 
-function isJsonParsable(value: any) {
-  if (typeof value !== 'string')
-    return false;
-  try {
-    JSON.parse(value);
-    return true;
-  } catch (e) {
-    if (e instanceof SyntaxError)
-      return false;
-    else
-      throw e;
-  }
-}
-
 function serializePostData(params: channels.APIRequestContextFetchParams, headers: HeadersObject): Buffer | undefined {
   assert((params.postData ? 1 : 0) + (params.jsonData ? 1 : 0) + (params.formData ? 1 : 0) + (params.multipartData ? 1 : 0) <= 1, `Only one of 'data', 'form' or 'multipart' can be specified`);
   if (params.jsonData !== undefined) {
-    const json = isJsonParsable(params.jsonData) ? params.jsonData : JSON.stringify(params.jsonData);
     setHeader(headers, 'content-type', 'application/json', true);
-    return Buffer.from(json, 'utf8');
+    return Buffer.from(params.jsonData, 'utf8');
   } else if (params.formData) {
     const searchParams = new URLSearchParams();
     for (const { name, value } of params.formData)

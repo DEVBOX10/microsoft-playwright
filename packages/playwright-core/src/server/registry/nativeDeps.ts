@@ -19,7 +19,7 @@
 //     ./utils/linux-browser-dependencies/run.sh ubuntu:20.04
 
 export const deps: any = {
-  'ubuntu18.04': {
+  'ubuntu18.04-x64': {
     tools: [
       'xvfb',
       'fonts-noto-color-emoji',
@@ -181,7 +181,7 @@ export const deps: any = {
     },
   },
 
-  'ubuntu20.04': {
+  'ubuntu20.04-x64': {
     tools: [
       'xvfb',
       'fonts-noto-color-emoji',
@@ -276,6 +276,7 @@ export const deps: any = {
       'libhyphen0',
       'libicu66',
       'libjpeg-turbo8',
+      'libnghttp2-14',
       'libnotify4',
       'libopengl0',
       'libopenjp2-7',
@@ -283,7 +284,6 @@ export const deps: any = {
       'libpango-1.0-0',
       'libpng16-16',
       'libsecret-1-0',
-      'libsoup2.4-1',
       'libvpx6',
       'libwayland-client0',
       'libwayland-egl1',
@@ -364,7 +364,6 @@ export const deps: any = {
       'libpng16.so.16': 'libpng16-16',
       'libsecret-1.so.0': 'libsecret-1-0',
       'libsmime3.so': 'libnss3',
-      'libsoup-2.4.so.1': 'libsoup2.4-1',
       'libvpx.so.6': 'libvpx6',
       'libwayland-client.so.0': 'libwayland-client0',
       'libwayland-egl.so.1': 'libwayland-egl1',
@@ -397,7 +396,7 @@ export const deps: any = {
     },
   },
 
-  'ubuntu22.04': {
+  'ubuntu22.04-x64': {
     tools: [
       'xvfb',
       'fonts-noto-color-emoji',
@@ -466,6 +465,7 @@ export const deps: any = {
       'libxtst6'
     ],
     webkit: [
+      'libsoup-3.0-0',
       'libenchant-2-2',
       'gstreamer1.0-libav',
       'gstreamer1.0-plugins-bad',
@@ -507,7 +507,6 @@ export const deps: any = {
       'libpng16-16',
       'libproxy1v5',
       'libsecret-1-0',
-      'libsoup2.4-1',
       'libwayland-client0',
       'libwayland-egl1',
       'libwayland-server0',
@@ -524,6 +523,7 @@ export const deps: any = {
       'libevent-2.1-7',
     ],
     lib2package: {
+      'libsoup-3.0.so.0': 'libsoup-3.0-0',
       'libasound.so.2': 'libasound2',
       'libatk-1.0.so.0': 'libatk1.0-0',
       'libatk-bridge-2.0.so.0': 'libatk-bridge2.0-0',
@@ -580,7 +580,6 @@ export const deps: any = {
       'libproxy.so.1': 'libproxy1v5',
       'libsecret-1.so.0': 'libsecret-1-0',
       'libsmime3.so': 'libnss3',
-      'libsoup-2.4.so.1': 'libsoup2.4-1',
       'libwayland-client.so.0': 'libwayland-client0',
       'libwayland-egl.so.1': 'libwayland-egl1',
       'libwayland-server.so.0': 'libwayland-server0',
@@ -613,7 +612,7 @@ export const deps: any = {
       'libevent-2.1.so.7': 'libevent-2.1-7',
     },
   },
-  'debian11': {
+  'debian11-x64': {
     tools: [
       'xvfb',
       'fonts-noto-color-emoji',
@@ -714,6 +713,7 @@ export const deps: any = {
       'libjpeg62-turbo',
       'liblcms2-2',
       'libmanette-0.2-0',
+      'libnghttp2-14',
       'libnotify4',
       'libopengl0',
       'libopenjp2-7',
@@ -722,7 +722,6 @@ export const deps: any = {
       'libpng16-16',
       'libproxy1v5',
       'libsecret-1-0',
-      'libsoup2.4-1',
       'libwayland-client0',
       'libwayland-egl1',
       'libwayland-server0',
@@ -797,7 +796,6 @@ export const deps: any = {
       'libproxy.so.1': 'libproxy1v5',
       'libsecret-1.so.0': 'libsecret-1-0',
       'libsmime3.so': 'libnss3',
-      'libsoup-2.4.so.1': 'libsoup2.4-1',
       'libwayland-client.so.0': 'libwayland-client0',
       'libwayland-egl.so.1': 'libwayland-egl1',
       'libwayland-server.so.0': 'libwayland-server0',
@@ -823,48 +821,214 @@ export const deps: any = {
       'libatomic.so.1': 'libatomic1',
       'libevent-2.1.so.7': 'libevent-2.1-7',
     }
-  }
+  },
+  'debian12-x64': {
+    tools: [
+      'xvfb',
+      'fonts-noto-color-emoji',
+      'fonts-unifont',
+      'libfontconfig1',
+      'libfreetype6',
+      'xfonts-scalable',
+      'fonts-liberation',
+      'fonts-ipafont-gothic',
+      'fonts-wqy-zenhei',
+      'fonts-tlwg-loma-otf',
+      'fonts-freefont-ttf',
+    ],
+    chromium: [
+      'libasound2',
+      'libatk-bridge2.0-0',
+      'libatk1.0-0',
+      'libatspi2.0-0',
+      'libcairo2',
+      'libcups2',
+      'libdbus-1-3',
+      'libdrm2',
+      'libgbm1',
+      'libglib2.0-0',
+      'libnspr4',
+      'libnss3',
+      'libpango-1.0-0',
+      'libx11-6',
+      'libxcb1',
+      'libxcomposite1',
+      'libxdamage1',
+      'libxext6',
+      'libxfixes3',
+      'libxkbcommon0',
+      'libxrandr2'
+    ],
+    firefox: [
+      'libasound2',
+      'libatk1.0-0',
+      'libcairo-gobject2',
+      'libcairo2',
+      'libdbus-1-3',
+      'libdbus-glib-1-2',
+      'libfontconfig1',
+      'libfreetype6',
+      'libgdk-pixbuf-2.0-0',
+      'libglib2.0-0',
+      'libgtk-3-0',
+      'libharfbuzz0b',
+      'libpango-1.0-0',
+      'libpangocairo-1.0-0',
+      'libx11-6',
+      'libx11-xcb1',
+      'libxcb-shm0',
+      'libxcb1',
+      'libxcomposite1',
+      'libxcursor1',
+      'libxdamage1',
+      'libxext6',
+      'libxfixes3',
+      'libxi6',
+      'libxrandr2',
+      'libxrender1',
+      'libxtst6'
+    ],
+    webkit: [
+      'libsoup-3.0-0',
+      'gstreamer1.0-libav',
+      'gstreamer1.0-plugins-bad',
+      'gstreamer1.0-plugins-base',
+      'gstreamer1.0-plugins-good',
+      'libatk-bridge2.0-0',
+      'libatk1.0-0',
+      'libcairo2',
+      'libdbus-1-3',
+      'libdrm2',
+      'libegl1',
+      'libenchant-2-2',
+      'libepoxy0',
+      'libevdev2',
+      'libfontconfig1',
+      'libfreetype6',
+      'libgbm1',
+      'libgdk-pixbuf-2.0-0',
+      'libgles2',
+      'libglib2.0-0',
+      'libglx0',
+      'libgstreamer-gl1.0-0',
+      'libgstreamer-plugins-base1.0-0',
+      'libgstreamer1.0-0',
+      'libgtk-3-0',
+      'libgudev-1.0-0',
+      'libharfbuzz-icu0',
+      'libharfbuzz0b',
+      'libhyphen0',
+      'libicu72',
+      'libjpeg62-turbo',
+      'liblcms2-2',
+      'libmanette-0.2-0',
+      'libnotify4',
+      'libopengl0',
+      'libopenjp2-7',
+      'libopus0',
+      'libpango-1.0-0',
+      'libpng16-16',
+      'libproxy1v5',
+      'libsecret-1-0',
+      'libwayland-client0',
+      'libwayland-egl1',
+      'libwayland-server0',
+      'libwebp7',
+      'libwebpdemux2',
+      'libwoff1',
+      'libx11-6',
+      'libxcomposite1',
+      'libxdamage1',
+      'libxkbcommon0',
+      'libxml2',
+      'libxslt1.1',
+      'libatomic1',
+      'libevent-2.1-7',
+    ],
+    lib2package: {
+      'libsoup-3.0.so.0': 'libsoup-3.0-0',
+      'libasound.so.2': 'libasound2',
+      'libatk-1.0.so.0': 'libatk1.0-0',
+      'libatk-bridge-2.0.so.0': 'libatk-bridge2.0-0',
+      'libatspi.so.0': 'libatspi2.0-0',
+      'libcairo.so.2': 'libcairo2',
+      'libcups.so.2': 'libcups2',
+      'libdbus-1.so.3': 'libdbus-1-3',
+      'libdrm.so.2': 'libdrm2',
+      'libgbm.so.1': 'libgbm1',
+      'libgio-2.0.so.0': 'libglib2.0-0',
+      'libglib-2.0.so.0': 'libglib2.0-0',
+      'libgobject-2.0.so.0': 'libglib2.0-0',
+      'libnspr4.so': 'libnspr4',
+      'libnss3.so': 'libnss3',
+      'libnssutil3.so': 'libnss3',
+      'libpango-1.0.so.0': 'libpango-1.0-0',
+      'libsmime3.so': 'libnss3',
+      'libX11.so.6': 'libx11-6',
+      'libxcb.so.1': 'libxcb1',
+      'libXcomposite.so.1': 'libxcomposite1',
+      'libXdamage.so.1': 'libxdamage1',
+      'libXext.so.6': 'libxext6',
+      'libXfixes.so.3': 'libxfixes3',
+      'libxkbcommon.so.0': 'libxkbcommon0',
+      'libXrandr.so.2': 'libxrandr2',
+    }
+  },
 };
 
 deps['ubuntu20.04-arm64'] = {
-  tools: [...deps['ubuntu20.04'].tools],
-  chromium: [...deps['ubuntu20.04'].chromium],
+  tools: [...deps['ubuntu20.04-x64'].tools],
+  chromium: [...deps['ubuntu20.04-x64'].chromium],
   firefox: [
-    ...deps['ubuntu20.04'].firefox,
+    ...deps['ubuntu20.04-x64'].firefox,
   ],
   webkit: [
-    ...deps['ubuntu20.04'].webkit,
+    ...deps['ubuntu20.04-x64'].webkit,
   ],
   lib2package: {
-    ...deps['ubuntu20.04'].lib2package,
+    ...deps['ubuntu20.04-x64'].lib2package,
   },
 };
 
 deps['ubuntu22.04-arm64'] = {
-  tools: [...deps['ubuntu22.04'].tools],
-  chromium: [...deps['ubuntu22.04'].chromium],
+  tools: [...deps['ubuntu22.04-x64'].tools],
+  chromium: [...deps['ubuntu22.04-x64'].chromium],
   firefox: [
-    ...deps['ubuntu22.04'].firefox,
+    ...deps['ubuntu22.04-x64'].firefox,
   ],
   webkit: [
-    ...deps['ubuntu22.04'].webkit,
+    ...deps['ubuntu22.04-x64'].webkit,
   ],
   lib2package: {
-    ...deps['ubuntu22.04'].lib2package,
+    ...deps['ubuntu22.04-x64'].lib2package,
   },
 };
 
 deps['debian11-arm64'] = {
-  tools: [...deps['debian11'].tools],
-  chromium: [...deps['debian11'].chromium],
+  tools: [...deps['debian11-x64'].tools],
+  chromium: [...deps['debian11-x64'].chromium],
   firefox: [
-    ...deps['debian11'].firefox,
+    ...deps['debian11-x64'].firefox,
   ],
   webkit: [
-    ...deps['debian11'].webkit,
+    ...deps['debian11-x64'].webkit,
   ],
   lib2package: {
-    ...deps['debian11'].lib2package,
+    ...deps['debian11-x64'].lib2package,
+  },
+};
+
+deps['debian12-arm64'] = {
+  tools: [...deps['debian12-x64'].tools],
+  chromium: [...deps['debian12-x64'].chromium],
+  firefox: [
+    ...deps['debian12-x64'].firefox,
+  ],
+  webkit: [
+    ...deps['debian12-x64'].webkit,
+  ],
+  lib2package: {
+    ...deps['debian12-x64'].lib2package,
   },
 };
 

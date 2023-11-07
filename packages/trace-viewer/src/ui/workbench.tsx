@@ -18,22 +18,30 @@ import { SplitView } from '@web/components/splitView';
 import * as React from 'react';
 import { ActionList } from './actionList';
 import { CallTab } from './callTab';
-import { ConsoleTab } from './consoleTab';
-import * as modelUtil from './modelUtil';
+import { LogTab } from './logTab';
+import { ErrorsTab, useErrorsTabModel } from './errorsTab';
+import { ConsoleTab, useConsoleTabModel } from './consoleTab';
+import type * as modelUtil from './modelUtil';
 import type { ActionTraceEventInContext, MultiTraceModel } from './modelUtil';
-import { NetworkTab } from './networkTab';
+import { NetworkTab, useNetworkTabModel } from './networkTab';
 import { SnapshotTab } from './snapshotTab';
 import { SourceTab } from './sourceTab';
 import { TabbedPane } from '@web/components/tabbedPane';
 import type { TabbedPaneTabModel } from '@web/components/tabbedPane';
 import { Timeline } from './timeline';
-import './workbench.css';
 import { MetadataView } from './metadataView';
 import { AttachmentsTab } from './attachmentsTab';
+import type { Boundaries } from '../geometry';
+import { InspectorTab } from './inspectorTab';
+import { ToolbarButton } from '@web/components/toolbarButton';
+import { useSetting, msToString } from '@web/uiUtils';
+import type { Entry } from '@trace/har';
+import './workbench.css';
+import { testStatusIcon, testStatusText } from './testUtils';
+import type { UITestStatus } from './testUtils';
 
 export const Workbench: React.FunctionComponent<{
   model?: MultiTraceModel,
-  hideTimelineBars?: boolean,
   hideStackFrames?: boolean,
   showSourcesFirst?: boolean,
   rootDir?: string,
@@ -41,42 +49,98 @@ export const Workbench: React.FunctionComponent<{
   initialSelection?: ActionTraceEventInContext,
   onSelectionChanged?: (action: ActionTraceEventInContext) => void,
   isLive?: boolean,
-  drawer?: 'bottom' | 'right',
-}> = ({ model, hideTimelineBars, hideStackFrames, showSourcesFirst, rootDir, fallbackLocation, initialSelection, onSelectionChanged, isLive, drawer }) => {
+  status?: UITestStatus,
+}> = ({ model, hideStackFrames, showSourcesFirst, rootDir, fallbackLocation, initialSelection, onSelectionChanged, isLive, status }) => {
   const [selectedAction, setSelectedAction] = React.useState<ActionTraceEventInContext | undefined>(undefined);
   const [highlightedAction, setHighlightedAction] = React.useState<ActionTraceEventInContext | undefined>();
+  const [highlightedEntry, setHighlightedEntry] = React.useState<Entry | undefined>();
   const [selectedNavigatorTab, setSelectedNavigatorTab] = React.useState<string>('actions');
-  const [selectedPropertiesTab, setSelectedPropertiesTab] = React.useState<string>(showSourcesFirst ? 'source' : 'call');
+  const [selectedPropertiesTab, setSelectedPropertiesTab] = useSetting<string>('propertiesTab', showSourcesFirst ? 'source' : 'call');
+  const [isInspecting, setIsInspecting] = React.useState(false);
+  const [highlightedLocator, setHighlightedLocator] = React.useState<string>('');
   const activeAction = model ? highlightedAction || selectedAction : undefined;
+  const [selectedTime, setSelectedTime] = React.useState<Boundaries | undefined>();
+  const [sidebarLocation, setSidebarLocation] = useSetting<'bottom' | 'right'>('propertiesSidebarLocation', 'bottom');
 
   const sources = React.useMemo(() => model?.sources || new Map(), [model]);
 
   React.useEffect(() => {
+    setSelectedTime(undefined);
+  }, [model]);
+
+  React.useEffect(() => {
     if (selectedAction && model?.actions.includes(selectedAction))
       return;
-    const failedAction = model?.actions.find(a => a.error);
-    if (initialSelection && model?.actions.includes(initialSelection))
+    const failedAction = model?.failedAction();
+    if (initialSelection && model?.actions.includes(initialSelection)) {
       setSelectedAction(initialSelection);
-    else if (failedAction)
+    } else if (failedAction) {
       setSelectedAction(failedAction);
-    else if (model?.actions.length)
-      setSelectedAction(model.actions[model.actions.length - 1]);
-  }, [model, selectedAction, setSelectedAction, setSelectedPropertiesTab, initialSelection]);
+    } else if (model?.actions.length) {
+      // Select the last non-after hooks item.
+      let index = model.actions.length - 1;
+      for (let i = 0; i < model.actions.length; ++i) {
+        if (model.actions[i].apiName === 'After Hooks' && i) {
+          index = i - 1;
+          break;
+        }
+      }
+      setSelectedAction(model.actions[index]);
+    }
+  }, [model, selectedAction, setSelectedAction, initialSelection]);
 
   const onActionSelected = React.useCallback((action: ActionTraceEventInContext) => {
     setSelectedAction(action);
     onSelectionChanged?.(action);
   }, [setSelectedAction, onSelectionChanged]);
 
-  const { errors, warnings } = activeAction ? modelUtil.stats(activeAction) : { errors: 0, warnings: 0 };
-  const consoleCount = errors + warnings;
-  const networkCount = activeAction ? modelUtil.resourcesForAction(activeAction).length : 0;
+  const selectPropertiesTab = React.useCallback((tab: string) => {
+    setSelectedPropertiesTab(tab);
+    if (tab !== 'inspector')
+      setIsInspecting(false);
+  }, [setSelectedPropertiesTab]);
+
+  const locatorPicked = React.useCallback((locator: string) => {
+    setHighlightedLocator(locator);
+    selectPropertiesTab('inspector');
+  }, [selectPropertiesTab]);
+
+  const consoleModel = useConsoleTabModel(model, selectedTime);
+  const networkModel = useNetworkTabModel(model, selectedTime);
+  const errorsModel = useErrorsTabModel(model);
+  const attachments = React.useMemo(() => {
+    return model?.actions.map(a => a.attachments || []).flat() || [];
+  }, [model]);
+
   const sdkLanguage = model?.sdkLanguage || 'javascript';
 
+  const inspectorTab: TabbedPaneTabModel = {
+    id: 'inspector',
+    title: 'Locator',
+    render: () => <InspectorTab
+      sdkLanguage={sdkLanguage}
+      setIsInspecting={setIsInspecting}
+      highlightedLocator={highlightedLocator}
+      setHighlightedLocator={setHighlightedLocator} />,
+  };
   const callTab: TabbedPaneTabModel = {
     id: 'call',
     title: 'Call',
     render: () => <CallTab action={activeAction} sdkLanguage={sdkLanguage} />
+  };
+  const logTab: TabbedPaneTabModel = {
+    id: 'log',
+    title: 'Log',
+    render: () => <LogTab action={activeAction} isLive={isLive} />
+  };
+  const errorsTab: TabbedPaneTabModel = {
+    id: 'errors',
+    title: 'Errors',
+    errorCount: errorsModel.errors.size,
+    render: () => <ErrorsTab errorsModel={errorsModel} sdkLanguage={sdkLanguage} revealInSource={action => {
+      setSelectedAction(action);
+      selectPropertiesTab('source');
+    }} />
   };
   const sourceTab: TabbedPaneTabModel = {
     id: 'source',
@@ -91,72 +155,131 @@ export const Workbench: React.FunctionComponent<{
   const consoleTab: TabbedPaneTabModel = {
     id: 'console',
     title: 'Console',
-    count: consoleCount,
-    render: () => <ConsoleTab action={activeAction} />
+    count: consoleModel.entries.length,
+    render: () => <ConsoleTab consoleModel={consoleModel} boundaries={boundaries} selectedTime={selectedTime} />
   };
   const networkTab: TabbedPaneTabModel = {
     id: 'network',
     title: 'Network',
-    count: networkCount,
-    render: () => <NetworkTab action={activeAction} />
+    count: networkModel.resources.length,
+    render: () => <NetworkTab boundaries={boundaries} networkModel={networkModel} onEntryHovered={setHighlightedEntry}/>
   };
   const attachmentsTab: TabbedPaneTabModel = {
     id: 'attachments',
     title: 'Attachments',
-    render: () => <AttachmentsTab action={activeAction} />
+    count: attachments.length,
+    render: () => <AttachmentsTab model={model} />
   };
 
-  const tabs: TabbedPaneTabModel[] = showSourcesFirst ? [
-    sourceTab,
-    consoleTab,
-    networkTab,
+  const tabs: TabbedPaneTabModel[] = [
+    inspectorTab,
     callTab,
-    attachmentsTab,
-  ] : [
-    callTab,
+    logTab,
+    errorsTab,
     consoleTab,
     networkTab,
     sourceTab,
     attachmentsTab,
   ];
+  if (showSourcesFirst) {
+    const sourceTabIndex = tabs.indexOf(sourceTab);
+    tabs.splice(sourceTabIndex, 1);
+    tabs.splice(1, 0, sourceTab);
+  }
 
-  return <div className='vbox'>
+  const { boundaries } = React.useMemo(() => {
+    const boundaries = { minimum: model?.startTime || 0, maximum: model?.endTime || 30000 };
+    if (boundaries.minimum > boundaries.maximum) {
+      boundaries.minimum = 0;
+      boundaries.maximum = 30000;
+    }
+    // Leave some nice free space on the right hand side.
+    boundaries.maximum += (boundaries.maximum - boundaries.minimum) / 20;
+    return { boundaries };
+  }, [model]);
+
+  let time: number = 0;
+  if (!isLive && model && model.endTime >= 0)
+    time = model.endTime - model.startTime;
+  else if (model && model.wallTime)
+    time = Date.now() - model.wallTime;
+
+  return <div className='vbox workbench'>
     <Timeline
       model={model}
-      selectedAction={activeAction}
+      boundaries={boundaries}
+      highlightedAction={highlightedAction}
+      highlightedEntry={highlightedEntry}
       onSelected={onActionSelected}
-      hideTimelineBars={hideTimelineBars}
       sdkLanguage={sdkLanguage}
+      selectedTime={selectedTime}
+      setSelectedTime={setSelectedTime}
     />
-    <SplitView sidebarSize={250} orientation={drawer === 'bottom' ? 'vertical' : 'horizontal'}>
-      <SplitView sidebarSize={250} orientation='horizontal' sidebarIsFirst={true}>
-        <SnapshotTab action={activeAction} sdkLanguage={sdkLanguage} testIdAttributeName={model?.testIdAttributeName || 'data-testid'} />
-        <TabbedPane tabs={
-          [
+    <SplitView sidebarSize={250} orientation={sidebarLocation === 'bottom' ? 'vertical' : 'horizontal'} settingName='propertiesSidebar'>
+      <SplitView sidebarSize={250} orientation='horizontal' sidebarIsFirst={true} settingName='actionListSidebar'>
+        <SnapshotTab
+          action={activeAction}
+          sdkLanguage={sdkLanguage}
+          testIdAttributeName={model?.testIdAttributeName || 'data-testid'}
+          isInspecting={isInspecting}
+          setIsInspecting={setIsInspecting}
+          highlightedLocator={highlightedLocator}
+          setHighlightedLocator={locatorPicked} />
+        <TabbedPane
+          tabs={[
             {
               id: 'actions',
               title: 'Actions',
-              count: 0,
-              component: <ActionList
-                sdkLanguage={sdkLanguage}
-                actions={model?.actions || []}
-                selectedAction={model ? selectedAction : undefined}
-                onSelected={onActionSelected}
-                onHighlighted={setHighlightedAction}
-                revealConsole={() => setSelectedPropertiesTab('console')}
-                isLive={isLive}
-              />
+              component: <div className='vbox'>
+                {status && <div className='workbench-run-status'>
+                  <span className={`codicon ${testStatusIcon(status)}`}></span>
+                  <div>{testStatusText(status)}</div>
+                  <div className='spacer'></div>
+                  <div className='workbench-run-duration'>{time ? msToString(time) : ''}</div>
+                </div>}
+                <ActionList
+                  sdkLanguage={sdkLanguage}
+                  actions={model?.actions || []}
+                  selectedAction={model ? selectedAction : undefined}
+                  selectedTime={selectedTime}
+                  setSelectedTime={setSelectedTime}
+                  onSelected={onActionSelected}
+                  onHighlighted={setHighlightedAction}
+                  revealConsole={() => selectPropertiesTab('console')}
+                  isLive={isLive}
+                />
+              </div>
             },
             {
               id: 'metadata',
               title: 'Metadata',
-              count: 0,
               component: <MetadataView model={model}/>
             },
-          ]
-        } selectedTab={selectedNavigatorTab} setSelectedTab={setSelectedNavigatorTab}/>
+          ]}
+          selectedTab={selectedNavigatorTab} setSelectedTab={setSelectedNavigatorTab}/>
       </SplitView>
-      <TabbedPane tabs={tabs} selectedTab={selectedPropertiesTab} setSelectedTab={setSelectedPropertiesTab} />
+      <TabbedPane
+        tabs={tabs}
+        selectedTab={selectedPropertiesTab}
+        setSelectedTab={selectPropertiesTab}
+        leftToolbar={[
+          <ToolbarButton title='Pick locator' icon='target' toggled={isInspecting} onClick={() => {
+            if (!isInspecting)
+              selectPropertiesTab('inspector');
+            setIsInspecting(!isInspecting);
+          }} />
+        ]}
+        rightToolbar={[
+          sidebarLocation === 'bottom' ?
+            <ToolbarButton title='Dock to right' icon='layout-sidebar-right-off' onClick={() => {
+              setSidebarLocation('right');
+            }} /> :
+            <ToolbarButton title='Dock to bottom' icon='layout-panel-off' onClick={() => {
+              setSidebarLocation('bottom');
+            }} />
+        ]}
+        mode={sidebarLocation === 'bottom' ? 'default' : 'select'}
+      />
     </SplitView>
   </div>;
 };

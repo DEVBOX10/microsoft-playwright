@@ -23,9 +23,9 @@ import { BrowserType, kNoXServerRunningError } from '../browserType';
 import type { ConnectionTransport } from '../transport';
 import type { BrowserOptions } from '../browser';
 import type * as types from '../types';
-import { rewriteErrorMessage } from '../../utils/stackTrace';
 import { wrapInASCIIBox } from '../../utils';
 import type { SdkObject } from '../instrumentation';
+import type { ProtocolError } from '../protocolError';
 
 export class WebKit extends BrowserType {
   constructor(parent: SdkObject) {
@@ -40,9 +40,11 @@ export class WebKit extends BrowserType {
     return { ...env, CURL_COOKIE_JAR_PATH: path.join(userDataDir, 'cookiejar.db') };
   }
 
-  _rewriteStartupError(error: Error): Error {
-    if (error.message.includes('cannot open display'))
-      return rewriteErrorMessage(error, '\n' + wrapInASCIIBox(kNoXServerRunningError, 1));
+  _doRewriteStartupLog(error: ProtocolError): ProtocolError {
+    if (!error.logs)
+      return error;
+    if (error.logs.includes('cannot open display'))
+      error.logs = '\n' + wrapInASCIIBox(kNoXServerRunningError, 1);
     return error;
   }
 
@@ -54,7 +56,7 @@ export class WebKit extends BrowserType {
     const { args = [], proxy, headless } = options;
     const userDataDirArg = args.find(arg => arg.startsWith('--user-data-dir'));
     if (userDataDirArg)
-      throw new Error('Pass userDataDir parameter to `browserType.launchPersistentContext(userDataDir, ...)` instead of specifying --user-data-dir argument');
+      throw this._createUserDataDirArgMisuseError('--user-data-dir');
     if (args.find(arg => !arg.startsWith('-')))
       throw new Error('Arguments can not specify page to be opened');
     const webkitArguments = ['--inspector-pipe'];

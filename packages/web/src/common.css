@@ -19,26 +19,11 @@
 }
 
 body {
-  --red: #F44336;
-  --green: #367c39;
-  --purple: #9C27B0;
-  --yellow: #ff9207;
-  --white: #FFFFFF;
-  --blue: #0b7ad5;
   --transparent-blue: #2196F355;
-  --orange: #d24726;
   --light-pink: #ff69b460;
   --gray: #888888;
   --sidebar-width: 250px;
   --box-shadow: rgba(0, 0, 0, 0.133) 0px 1.6px 3.6px 0px, rgba(0, 0, 0, 0.11) 0px 0.3px 0.9px 0px;
-}
-
-body.dark-mode {
-  --green: #28d12f;
-  --yellow: #ff9207;
-  --purple: #dc12ff;
-  --blue: #4dafff;
-  --orange: #ff9800;
 }
 
 html, body {
@@ -57,13 +42,72 @@ html, body {
   display: flex;
 }
 
-body {
+body, dialog {
   background-color: var(--vscode-panel-background);
   color: var(--vscode-foreground);
   font-family: var(--vscode-font-family);
   font-weight: var(--vscode-font-weight);
   font-size: var(--vscode-font-size);
   -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--vscode-textLink-foreground);
+}
+
+dialog {
+  border: none;
+  padding: 0;
+  box-shadow: var(--box-shadow);
+  line-height: 28px;
+  max-width: 400px;
+}
+
+dialog .title {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 5px;
+  height: 32px;
+  background-color: var(--vscode-sideBar-background);
+  max-width: 400px;
+}
+
+dialog .title .codicon {
+  margin-right: 3px;
+}
+
+dialog .body {
+  padding: 10px;
+  text-align: center;
+}
+
+.button {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  margin: 10px;
+  border: none;
+  height: 28px;
+  min-width: 40px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.button:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
 }
 
 * {
@@ -92,6 +136,14 @@ svg {
   position: relative;
 }
 
+.fill {
+   position: absolute;
+   top: 0;
+   right: 0;
+   bottom: 0;
+   left: 0;
+}
+
 .hbox {
   display: flex;
   flex: auto;
@@ -103,11 +155,15 @@ svg {
 }
 
 .codicon-check {
-  color: var(--green);
+  color: var(--vscode-charts-green);
 }
 
 .codicon-error {
-  color: var(--red);
+  color: var(--vscode-errorForeground);
+}
+
+.codicon-warning {
+  color: var(--vscode-list-warningForeground);
 }
 
 .codicon-circle-outline {

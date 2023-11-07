@@ -201,6 +201,34 @@ test('should fallback to *:* when baseurl and paths are specified', async ({ run
   expect(result.output).not.toContain(`Could not`);
 });
 
+test('should use the location of the tsconfig as the paths root when no baseUrl is specified', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'foo/bar/util/b.ts': `
+      export const foo = 42;
+    `,
+    'dir2/tsconfig.json': `{
+      "compilerOptions": {
+        "target": "ES2019",
+        "module": "commonjs",
+        "lib": ["esnext", "dom", "DOM.Iterable"],
+        "paths": {"foo/*": ["../foo/*"]},
+      },
+    }`,
+    'dir2/inner.spec.ts': `
+      // This import should pick up ../foo/bar/util/b due to paths.
+      import { foo } from 'foo/bar/util/b';
+      import { test, expect } from '@playwright/test';
+      test('test', ({}, testInfo) => {
+        expect(foo).toBe(42);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).not.toContain(`Could not`);
+});
+
 test('should respect complex path resolver', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
@@ -504,4 +532,41 @@ test('should support extends in tsconfig.json', async ({ runInlineTest }) => {
 
   expect(result.passed).toBe(1);
   expect(result.exitCode).toBe(0);
+});
+
+test('should import packages with non-index main script through path resolver', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'app/pkg/main.ts': `
+      export const foo = 42;
+    `,
+    'app/pkg/package.json': `
+      { "main": "main.ts" }
+    `,
+    'package.json': `
+      { "name": "example-project" }
+    `,
+    'playwright.config.ts': `
+      export default {};
+    `,
+    'tsconfig.json': `{
+      "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+          "app/*": ["app/*"],
+        },
+      },
+    }`,
+    'example.spec.ts': `
+      import { foo } from 'app/pkg';
+      import { test, expect } from '@playwright/test';
+      test('test', ({}) => {
+        console.log('foo=' + foo);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).not.toContain(`find module`);
+  expect(result.output).toContain(`foo=42`);
 });

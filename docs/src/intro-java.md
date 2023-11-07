@@ -3,6 +3,8 @@ id: intro
 title: "Installation"
 ---
 
+## Introduction
+
 Playwright was created specifically to accommodate the needs of end-to-end testing. Playwright supports all modern rendering engines including Chromium, WebKit, and Firefox. Test on Windows, Linux, and macOS, locally or on CI, headless or headed with native mobile emulation.
 
 Playwright is distributed as a set of [Maven](https://maven.apache.org/what-is-maven.html) modules. The easiest way to use it is to add one dependency to your project's `pom.xml` as described below. If you're not familiar with Maven please refer to its [documentation](https://maven.apache.org/guides/getting-started/maven-in-five-minutes.html).
@@ -86,7 +88,7 @@ With the Example.java and pom.xml above, compile and execute your new program as
 mvn compile exec:java -D exec.mainClass="org.example.App"
 ```
 
-Running it downloads the Playwright package and installs browser binaries for Chromium, Firefox and WebKit. To modify this behavior see [installation parameters](./browsers.md#installing-browsers).
+Running it downloads the Playwright package and installs browser binaries for Chromium, Firefox and WebKit. To modify this behavior see [installation parameters](./browsers.md#install-browsers).
 
 ## First script
 
@@ -110,7 +112,7 @@ public class App {
 }
 ```
 
-By default, Playwright runs the browsers in headless mode. To see the browser UI, pass the `headless=false` flag while launching the browser. You can also use [`option: slowMo`] to slow down execution. Learn more in the debugging tools [section](./debug.md).
+By default, Playwright runs the browsers in headless mode. To see the browser UI, pass the `setHeadless(false)` flag while launching the browser. You can also use [`option: slowMo`] to slow down execution. Learn more in the debugging tools [section](./debug.md).
 
 ```java
 playwright.firefox().launch(new BrowserType.LaunchOptions().setHeadless(false).setSlowMo(50));
@@ -129,7 +131,7 @@ By default browsers launched with Playwright run headless, meaning no browser UI
 - Java 8 or higher.
 - Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
 - MacOS 12 Monterey or MacOS 13 Ventura.
-- Debian 11, Ubuntu 20.04 or Ubuntu 22.04.
+- Debian 11, Debian 12, Ubuntu 20.04 or Ubuntu 22.04.
 
 ## What's next
 

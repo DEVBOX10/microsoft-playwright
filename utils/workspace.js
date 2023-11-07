@@ -33,6 +33,7 @@ class PWPackage {
     this.name = descriptor.name;
     this.path = descriptor.path;
     this.files = descriptor.files;
+    this.noConsistent = descriptor.noConsistent;
     this.packageJSONPath = path.join(this.path, 'package.json');
     this.packageJSON = JSON.parse(fs.readFileSync(this.packageJSONPath, 'utf8'));
     this.isPrivate = !!this.packageJSON.private;
@@ -120,6 +121,10 @@ class Workspace {
         pkg.packageJSON.author = workspacePackageJSON.author;
         pkg.packageJSON.license = workspacePackageJSON.license;
       }
+
+      if (pkg.noConsistent)
+        continue;
+
       for (const otherPackage of this._packages) {
         if (pkgLockEntry.dependencies && pkgLockEntry.dependencies[otherPackage.name])
           pkgLockEntry.dependencies[otherPackage.name] = version;
@@ -145,7 +150,7 @@ const workspace = new Workspace(ROOT_PATH, [
   new PWPackage({
     name: 'playwright',
     path: path.join(ROOT_PATH, 'packages', 'playwright'),
-    // We copy README.md additionally for Playwright so that it looks nice on NPM.
+    // We copy README.md additionally for playwright so that it looks nice on NPM.
     files: [...LICENCE_FILES, 'README.md'],
   }),
   new PWPackage({
@@ -156,7 +161,8 @@ const workspace = new Workspace(ROOT_PATH, [
   new PWPackage({
     name: '@playwright/test',
     path: path.join(ROOT_PATH, 'packages', 'playwright-test'),
-    files: LICENCE_FILES,
+    // We copy README.md additionally for @playwright/test so that it looks nice on NPM.
+    files: [...LICENCE_FILES, 'README.md'],
   }),
   new PWPackage({
     name: 'playwright-webkit',
@@ -171,6 +177,21 @@ const workspace = new Workspace(ROOT_PATH, [
   new PWPackage({
     name: 'playwright-chromium',
     path: path.join(ROOT_PATH, 'packages', 'playwright-chromium'),
+    files: LICENCE_FILES,
+  }),
+  new PWPackage({
+    name: '@playwright/browser-webkit',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-browser-webkit'),
+    files: LICENCE_FILES,
+  }),
+  new PWPackage({
+    name: '@playwright/browser-firefox',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-browser-firefox'),
+    files: LICENCE_FILES,
+  }),
+  new PWPackage({
+    name: '@playwright/browser-chromium',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-browser-chromium'),
     files: LICENCE_FILES,
   }),
   new PWPackage({

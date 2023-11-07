@@ -817,8 +817,8 @@ it.describe('page screenshot animations', () => {
     // Ensure CSS animation is finite.
     expect(await div.evaluate(async el => Number.isFinite(el.getAnimations()[0].effect.getComputedTiming().endTime))).toBe(true);
     await Promise.all([
-      page.screenshot({ animations: 'disabled' }),
       page.waitForEvent('console', msg => msg.text() === 'animationend'),
+      page.screenshot({ animations: 'disabled' }),
     ]);
     expect(await page.evaluate(() => window._EVENTS)).toEqual([
       'onfinish', 'animationend'
@@ -839,4 +839,55 @@ it('should throw if screenshot size is too large', async ({ page, browserName, i
     if (browserName === 'firefox' || (browserName === 'webkit' && !isMac))
       expect(exception.message).toContain('Cannot take screenshot larger than 32767');
   }
+});
+
+it('page screenshot should capture css transform', async function({ page, browserName, isElectron, isAndroid }) {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26447' });
+  it.fixme(browserName === 'webkit');
+  it.fixme(isElectron || isAndroid, 'Returns screenshot of a different size.');
+  await page.setContent(`
+    <style>
+    .container {
+      width: 150px;
+      height: 150px;
+      margin: 75px 0 0 75px;
+      border: none;
+    }
+
+    .cube {
+      width: 100%;
+      height: 100%;
+      perspective: 550px;
+      perspective-origin: 150% 150%;
+    }
+
+    .face {
+      display: block;
+      position: absolute;
+      width: 100px;
+      height: 100px;
+      border: none;
+    }
+
+    .right {
+      background: rgba(196, 0, 0, 0.7);
+      transform: rotateY(70deg);
+    }
+
+    </style>
+    <div class="container">
+      <div class="cube showbf">
+        <div class="face right"></div>
+      </div>
+    </div>
+  `);
+
+  await expect(page).toHaveScreenshot();
+});
+
+it('should capture css box-shadow', async ({ page, isElectron, isAndroid }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21620' });
+  it.fixme(isElectron || isAndroid, 'Returns screenshot of a different size.');
+  await page.setContent(`<div style="box-shadow: red 10px 10px 10px; width: 50px; height: 50px;"></div>`);
+  await expect(page).toHaveScreenshot();
 });

@@ -20,8 +20,9 @@ import type { TraceModelBackend } from '../../packages/trace-viewer/src/traceMod
 import type { StackFrame } from '../../packages/protocol/src/channels';
 import { parseClientSideCallMetadata } from '../../packages/playwright-core/lib/utils/isomorphic/traceUtils';
 import { TraceModel } from '../../packages/trace-viewer/src/traceModel';
-import { MultiTraceModel } from '../../packages/trace-viewer/src/ui/modelUtil';
-import type { ActionTraceEvent, EventTraceEvent, TraceEvent } from '@trace/trace';
+import type { ActionTreeItem } from '../../packages/trace-viewer/src/ui/modelUtil';
+import { buildActionTree, MultiTraceModel } from '../../packages/trace-viewer/src/ui/modelUtil';
+import type { ActionTraceEvent, ConsoleMessageTraceEvent, EventTraceEvent, TraceEvent } from '@trace/trace';
 
 export async function attachFrame(page: Page, frameId: string, url: string): Promise<Frame> {
   const handle = await page.evaluateHandle(async ({ frameId, url }) => {
@@ -50,21 +51,18 @@ export async function verifyViewport(page: Page, width: number, height: number) 
   expect(await page.evaluate('window.innerHeight')).toBe(height);
 }
 
-export function expectedSSLError(browserName: string): string {
-  let expectedSSLError: string;
-  if (browserName === 'chromium') {
-    expectedSSLError = 'net::ERR_CERT_AUTHORITY_INVALID';
-  } else if (browserName === 'webkit') {
-    if (process.platform === 'darwin')
-      expectedSSLError = 'The certificate for this server is invalid';
-    else if (process.platform === 'win32')
-      expectedSSLError = 'SSL peer certificate or SSH remote key was not OK';
+export function expectedSSLError(browserName: string, platform: string): RegExp {
+  if (browserName === 'chromium')
+    return /net::(ERR_CERT_AUTHORITY_INVALID|ERR_CERT_INVALID)/;
+  if (browserName === 'webkit') {
+    if (platform === 'darwin')
+      return /The certificate for this server is invalid/;
+    else if (platform === 'win32')
+      return /SSL peer certificate or SSH remote key was not OK/;
     else
-      expectedSSLError = 'Unacceptable TLS certificate';
-  } else {
-    expectedSSLError = 'SSL_ERROR_UNKNOWN';
+      return /Unacceptable TLS certificate/;
   }
-  return expectedSSLError;
+  return /SSL_ERROR_UNKNOWN/;
 }
 
 export function chromiumVersionLessThan(a: string, b: string) {
@@ -85,7 +83,7 @@ export function suppressCertificateWarning() {
   if (didSuppressUnverifiedCertificateWarning)
     return;
   didSuppressUnverifiedCertificateWarning = true;
-  // Supress one-time warning:
+  // Suppress one-time warning:
   // https://github.com/nodejs/node/blob/1bbe66f432591aea83555d27dd76c55fea040a0d/lib/internal/options.js#L37-L49
   originalEmitWarning = process.emitWarning;
   process.emitWarning = (warning, ...args) => {
@@ -97,7 +95,7 @@ export function suppressCertificateWarning() {
   };
 }
 
-export async function parseTraceRaw(file: string): Promise<{ events: any[], resources: Map<string, Buffer>, actions: string[], stacks: Map<string, StackFrame[]> }> {
+export async function parseTraceRaw(file: string): Promise<{ events: any[], resources: Map<string, Buffer>, actions: string[], actionObjects: ActionTraceEvent[], stacks: Map<string, StackFrame[]> }> {
   const zipFS = new ZipFile(file);
   const resources = new Map<string, Buffer>();
   for (const entry of await zipFS.entries())
@@ -110,14 +108,14 @@ export async function parseTraceRaw(file: string): Promise<{ events: any[], reso
     for (const line of resources.get(traceFile)!.toString().split('\n')) {
       if (line) {
         const event = JSON.parse(line) as TraceEvent;
+        events.push(event);
+
         if (event.type === 'before') {
           const action: ActionTraceEvent = {
             ...event,
             type: 'action',
             endTime: 0,
-            log: []
           };
-          events.push(action);
           actionMap.set(event.callId, action);
         } else if (event.type === 'input') {
           const existing = actionMap.get(event.callId);
@@ -127,11 +125,8 @@ export async function parseTraceRaw(file: string): Promise<{ events: any[], reso
           const existing = actionMap.get(event.callId);
           existing.afterSnapshot = event.afterSnapshot;
           existing.endTime = event.endTime;
-          existing.log = event.log;
           existing.error = event.error;
           existing.result = event.result;
-        } else {
-          events.push(event);
         }
       }
     }
@@ -150,26 +145,30 @@ export async function parseTraceRaw(file: string): Promise<{ events: any[], reso
       stacks.set(key, value);
   }
 
+  const actionObjects = [...actionMap.values()];
+  actionObjects.sort((a, b) => a.startTime - b.startTime);
   return {
     events,
     resources,
-    actions: eventsToActions(events),
+    actions: actionObjects.map(a => a.apiName),
+    actionObjects,
     stacks,
   };
 }
 
-function eventsToActions(events: ActionTraceEvent[]): string[] {
-  // Trace viewer only shows non-internal non-tracing actions.
-  return events.filter(e => e.type === 'action')
-      .sort((a, b) => a.startTime - b.startTime)
-      .map(e => e.apiName);
-}
-
-export async function parseTrace(file: string): Promise<{ resources: Map<string, Buffer>, events: EventTraceEvent[], actions: ActionTraceEvent[], apiNames: string[], traceModel: TraceModel, model: MultiTraceModel }> {
+export async function parseTrace(file: string): Promise<{ resources: Map<string, Buffer>, events: (EventTraceEvent | ConsoleMessageTraceEvent)[], actions: ActionTraceEvent[], apiNames: string[], traceModel: TraceModel, model: MultiTraceModel, actionTree: string[] }> {
   const backend = new TraceBackend(file);
   const traceModel = new TraceModel();
   await traceModel.load(backend, () => {});
   const model = new MultiTraceModel(traceModel.contextEntries);
+  const { rootItem } = buildActionTree(model.actions);
+  const actionTree: string[] = [];
+  const visit = (actionItem: ActionTreeItem, indent: string) => {
+    actionTree.push(`${indent}${actionItem.action?.apiName || actionItem.id}`);
+    for (const child of actionItem.children)
+      visit(child, indent + '  ');
+  };
+  rootItem.children.forEach(a => visit(a, ''));
   return {
     apiNames: model.actions.map(a => a.apiName),
     resources: backend.entries,
@@ -177,6 +176,7 @@ export async function parseTrace(file: string): Promise<{ resources: Map<string,
     events: model.events,
     model,
     traceModel,
+    actionTree,
   };
 }
 

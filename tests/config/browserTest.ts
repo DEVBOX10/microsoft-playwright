@@ -28,7 +28,7 @@ import { parseHar } from '../config/utils';
 export type BrowserTestWorkerFixtures = PageWorkerFixtures & {
   browserVersion: string;
   defaultSameSiteCookieValue: string;
-  allowsThirdParty
+  allowsThirdParty: boolean;
   browserMajorVersion: number;
   browserType: BrowserType;
   isAndroid: boolean;
@@ -53,7 +53,8 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     await run(browser.version());
   }, { scope: 'worker' }],
 
-  browserType: [async ({ playwright, browserName }, run) => {
+  browserType: [async ({ playwright, browserName, mode }, run) => {
+    test.skip(mode.startsWith('service'));
     await run(playwright[browserName]);
   }, { scope: 'worker' }],
 
@@ -91,7 +92,8 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     await run(_contextFactory);
   },
 
-  createUserDataDir: async ({}, run) => {
+  createUserDataDir: async ({ mode }, run) => {
+    test.skip(mode.startsWith('service'));
     const dirs: string[] = [];
     // We do not put user data dir in testOutputPath,
     // because we do not want to upload them as test result artifacts.

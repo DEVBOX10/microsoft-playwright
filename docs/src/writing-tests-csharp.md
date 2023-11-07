@@ -3,6 +3,8 @@ id: writing-tests
 title: "Writing tests"
 ---
 
+## Introduction
+
 Playwright assertions are created specifically for the dynamic web. Checks are automatically retried until the necessary conditions are met. Playwright comes with [auto-wait](./actionability.md) built in meaning it waits for elements to be actionable prior to performing actions. Playwright provides the [Expect](./test-assertions) function to write assertions.
 
 Take a look at the example test below to see how to write a test using using [locators](/locators.md) and web first assertions.
@@ -47,8 +49,10 @@ public class Tests : PageTest
         // Click the get started link.
         await getStarted.ClickAsync();
 
-        // Expects the URL to contain intro.
-        await Expect(Page).ToHaveURLAsync(new Regex(".*intro"));
+        // Expects page to have a heading with the name of Installation.
+        await Expect(page
+            .GetByRole(AriaRole.Heading, new() { Name = "Installation" }))
+            .ToBeVisibleAsync();
     }
 }
 ```

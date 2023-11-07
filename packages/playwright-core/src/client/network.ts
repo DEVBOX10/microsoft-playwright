@@ -23,7 +23,7 @@ import type { Headers, RemoteAddr, SecurityDetails, WaitForEventOptions } from '
 import fs from 'fs';
 import { mime } from '../utilsBundle';
 import { assert, isString, headersObjectToArray, isRegExp } from '../utils';
-import { ManualPromise, ScopedRace } from '../utils/manualPromise';
+import { ManualPromise, LongStandingScope } from '../utils/manualPromise';
 import { Events } from './events';
 import type { Page } from './page';
 import { Waiter } from './waiter';
@@ -33,6 +33,7 @@ import { urlMatches } from '../utils/network';
 import { MultiMap } from '../utils/multimap';
 import { APIResponse } from './fetch';
 import type { Serializable } from '../../types/structs';
+import type { BrowserContext } from './browserContext';
 
 export type NetworkCookie = {
   name: string,
@@ -158,11 +159,6 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
     return this._provisionalHeaders.headers();
   }
 
-  _context() {
-    // TODO: make sure this works for service worker requests.
-    return this.frame().page().context();
-  }
-
   _actualHeaders(): Promise<RawHeaders> {
     if (this._fallbackOverrides.headers)
       return Promise.resolve(RawHeaders._fromHeadersObjectLossy(this._fallbackOverrides.headers));
@@ -202,7 +198,15 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
       assert(this.serviceWorker());
       throw new Error('Service Worker requests do not have an associated frame.');
     }
-    return Frame.from(this._initializer.frame);
+    const frame = Frame.from(this._initializer.frame);
+    if (!frame._page) {
+      throw new Error([
+        'Frame for this navigation request is not available, because the request',
+        'was issued before the frame is created. You can check whether the request',
+        'is a navigation request by calling isNavigationRequest() method.',
+      ].join('\n'));
+    }
+    return frame;
   }
 
   serviceWorker(): Worker | null {
@@ -270,13 +274,15 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
     return this._fallbackOverrides;
   }
 
-  _targetClosedRace(): ScopedRace {
-    return this.serviceWorker()?._closedRace || this.frame()._page?._closedOrCrashedRace || new ScopedRace();
+  _targetClosedScope(): LongStandingScope {
+    const frame = Frame.fromNullable(this._initializer.frame);
+    return this.serviceWorker()?._closedScope || frame?._page?._closedOrCrashedScope || new LongStandingScope();
   }
 }
 
 export class Route extends ChannelOwner<channels.RouteChannel> implements api.Route {
   private _handlingPromise: ManualPromise<boolean> | null = null;
+  _context!: BrowserContext;
 
   static from(route: channels.RouteChannel): Route {
     return (route as any)._object;
@@ -294,7 +300,7 @@ export class Route extends ChannelOwner<channels.RouteChannel> implements api.Ro
     // When page closes or crashes, we catch any potential rejects from this Route.
     // Note that page could be missing when routing popup's initial request that
     // does not have a Page initialized just yet.
-    return this.request()._targetClosedRace().safeRace(promise);
+    return this.request()._targetClosedScope().safeRace(promise);
   }
 
   _startHandling(): Promise<boolean> {
@@ -322,8 +328,7 @@ export class Route extends ChannelOwner<channels.RouteChannel> implements api.Ro
 
   async fetch(options: FallbackOverrides & { maxRedirects?: number, timeout?: number } = {}): Promise<APIResponse> {
     return await this._wrapApiCall(async () => {
-      const context = this.request()._context();
-      return context.request._innerFetch({ request: this.request(), data: options.postData, ...options });
+      return this._context.request._innerFetch({ request: this.request(), data: options.postData, ...options });
     });
   }
 
@@ -522,7 +527,7 @@ export class Response extends ChannelOwner<channels.ResponseChannel> implements 
   }
 
   async finished(): Promise<null> {
-    return this.request()._targetClosedRace().race(this._finishedPromise);
+    return this.request()._targetClosedScope().race(this._finishedPromise);
   }
 
   async body(): Promise<Buffer> {
@@ -605,7 +610,7 @@ export class WebSocket extends ChannelOwner<channels.WebSocketChannel> implement
         waiter.rejectOnEvent(this, Events.WebSocket.Error, new Error('Socket error'));
       if (event !== Events.WebSocket.Close)
         waiter.rejectOnEvent(this, Events.WebSocket.Close, new Error('Socket closed'));
-      waiter.rejectOnEvent(this._page, Events.Page.Close, new Error('Page closed'));
+      waiter.rejectOnEvent(this._page, Events.Page.Close, () => this._page._closeErrorWithReason());
       const result = await waiter.waitForEvent(this, event, predicate as any);
       waiter.dispose();
       return result;

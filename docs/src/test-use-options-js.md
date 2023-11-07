@@ -3,6 +3,8 @@ id: test-use-options
 title: "Test use options"
 ---
 
+## Introduction
+
 In addition to configuring the test runner you can also configure [Emulation](#emulation-options), [Network](#network-options) and [Recording](#recording-options) for the [Browser] or [BrowserContext]. These options are passed to the `use: {}` object in the Playwright config.
 
 ### Basic Options
@@ -106,7 +108,7 @@ export default defineConfig({
   },
 });
 ```
-  
+
 | Option | Description |
 | :- | :- |
 | [`property: TestOptions.acceptDownloads`] | Whether to automatically download all the attachments, defaults to `true`. [Learn more](./downloads.md) about working with downloads. |
@@ -123,7 +125,7 @@ You don't have to configure anything to mock network requests. Just define a cus
 
 ### Recording Options
 
-With Playwright you can capture screenshots, record videos as well as traces of your test. By default these are turned off but you can enable them by setting the `screenshot`, `video` and `trace` options in your `playwright.config.js` file. 
+With Playwright you can capture screenshots, record videos as well as traces of your test. By default these are turned off but you can enable them by setting the `screenshot`, `video` and `trace` options in your `playwright.config.js` file.
 
 Trace files, screenshots and videos will appear in the test output directory, typically `test-results`.
 
@@ -143,7 +145,7 @@ export default defineConfig({
   },
 });
 ```
-  
+
 | Option | Description |
 | :- | :- |
 | [`property: TestOptions.screenshot`] | Capture [screenshots](./screenshots.md) of your test. Options include `'off'`, `'on'` and `'only-on-failure'` |
@@ -204,7 +206,7 @@ export default defineConfig({
 });
 ```
 
-However, most common ones like `headless` or `viewport` are available directly in the `use` section - see [basic options](#basic-options), [emulation](./emulation.md) or [network](#network).
+However, most common ones like `headless` or `viewport` are available directly in the `use` section - see [basic options](#basic-options), [emulation](#emulation-options) or [network](#network-options).
 
 ### Explicit Context Creation and Option Inheritance
 
@@ -224,9 +226,9 @@ export default defineConfig({
 An example test illustrating the initial context options are set:
 
 ```js
-import { test, expect } from '@playwright/test';
-
-test('should inherit use options on context when using built-in browser fixture', async ({ browser }) => {
+test('should inherit use options on context when using built-in browser fixture', async ({
+  browser,
+}) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   expect(await page.evaluate(() => navigator.userAgent)).toBe('some custom ua');

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
+import fs from 'fs';
 import * as childProcess from 'child_process';
 import * as readline from 'readline';
-import * as path from 'path';
 import { isUnderTest } from './';
 import { removeFolders } from './fileUtils';
 
@@ -56,6 +56,17 @@ export async function gracefullyCloseAll() {
   await Promise.all(Array.from(gracefullyCloseSet).map(gracefullyClose => gracefullyClose().catch(e => {})));
 }
 
+export function gracefullyProcessExitDoNotHang(code: number) {
+  // Force exit after 30 seconds.
+  // eslint-disable-next-line no-restricted-properties
+  setTimeout(() => process.exit(code), 30000);
+  // Meanwhile, try to gracefully close all browsers.
+  gracefullyCloseAll().then(() => {
+    // eslint-disable-next-line no-restricted-properties
+    process.exit(code);
+  });
+}
+
 function exitHandler() {
   for (const kill of killSet)
     kill();
@@ -65,10 +76,13 @@ let sigintHandlerCalled = false;
 function sigintHandler() {
   const exitWithCode130 = () => {
     // Give tests a chance to see that launched process did exit and dispatch any async calls.
-    if (isUnderTest())
+    if (isUnderTest()) {
+      // eslint-disable-next-line no-restricted-properties
       setTimeout(() => process.exit(130), 1000);
-    else
+    } else {
+      // eslint-disable-next-line no-restricted-properties
       process.exit(130);
+    }
   };
 
   if (sigintHandlerCalled) {
@@ -186,7 +200,7 @@ export async function launchProcess(options: LaunchProcessOptions): Promise<Laun
     // reentrancy to this function, for example user sends SIGINT second time.
     // In this case, let's forcefully kill the process.
     if (gracefullyClosing) {
-      options.log(`[pid=${spawnedProcess.pid}] <forecefully close>`);
+      options.log(`[pid=${spawnedProcess.pid}] <forcefully close>`);
       killProcess();
       await waitForCleanup;  // Ensure the process is dead and we have cleaned up.
       return;
@@ -229,13 +243,12 @@ export async function launchProcess(options: LaunchProcessOptions): Promise<Laun
   function killProcessAndCleanup() {
     killProcess();
     options.log(`[pid=${spawnedProcess.pid || 'N/A'}] starting temporary directories cleanup`);
-    if (options.tempDirectories.length) {
-      const cleanupProcess = childProcess.spawnSync(process.argv0, [path.join(__dirname, 'processLauncherCleanupEntrypoint.js'), ...options.tempDirectories]);
-      const [stdout, stderr] = [cleanupProcess.stdout.toString(), cleanupProcess.stderr.toString()];
-      if (stdout)
-        options.log(`[pid=${spawnedProcess.pid || 'N/A'}] ${stdout}`);
-      if (stderr)
-        options.log(`[pid=${spawnedProcess.pid || 'N/A'}] ${stderr}`);
+    for (const dir of options.tempDirectories) {
+      try {
+        fs.rmSync(dir, { force: true, recursive: true, maxRetries: 5 });
+      } catch (e) {
+        options.log(`[pid=${spawnedProcess.pid || 'N/A'}] exception while removing ${dir}: ${e}`);
+      }
     }
     options.log(`[pid=${spawnedProcess.pid || 'N/A'}] finished temporary directories cleanup`);
   }

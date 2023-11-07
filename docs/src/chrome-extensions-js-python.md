@@ -3,6 +3,8 @@ id: chrome-extensions
 title: "Chrome extensions"
 ---
 
+## Introduction
+
 :::note
 Extensions only work in Chrome / Chromium launched with a persistent context.
 :::
@@ -15,7 +17,7 @@ const { chromium } = require('playwright');
 (async () => {
   const pathToExtension = require('path').join(__dirname, 'my-extension');
   const userDataDir = '/tmp/test-user-data-dir';
-  const browserContext = await chromium.launchPersistentContext(userDataDir,{
+  const browserContext = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
     args: [
       `--disable-extensions-except=${pathToExtension}`,
@@ -33,13 +35,13 @@ const { chromium } = require('playwright');
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
 path_to_extension = "./my-extension"
 user_data_dir = "/tmp/test-user-data-dir"
 
 
-async def run(playwright):
+async def run(playwright: Playwright):
     context = await playwright.chromium.launch_persistent_context(
         user_data_dir,
         headless=False,
@@ -67,13 +69,13 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
 path_to_extension = "./my-extension"
 user_data_dir = "/tmp/test-user-data-dir"
 
 
-def run(playwright):
+def run(playwright: Playwright):
     context = playwright.chromium.launch_persistent_context(
         user_data_dir,
         headless=False,
@@ -102,7 +104,7 @@ To have the extension loaded when running tests you can use a test fixture to se
 First, add fixtures that will load the extension:
 
 ```js title="fixtures.ts"
-import { test as base, expect, chromium, type BrowserContext } from '@playwright/test';
+import { test as base, chromium, type BrowserContext } from '@playwright/test';
 import path from 'path';
 
 export const test = base.extend<{
@@ -221,7 +223,7 @@ const pathToExtension = path.join(__dirname, 'my-extension');
 const context = await chromium.launchPersistentContext('', {
   headless: false,
   args: [
-    `--headless=new`, // the new headless arg for chrome v109+. Use '--headless=chrome' as arg for browsers v94-108.
+    `--headless=new`,
     `--disable-extensions-except=${pathToExtension}`,
     `--load-extension=${pathToExtension}`,
   ],
@@ -235,7 +237,7 @@ context = playwright.chromium.launch_persistent_context(
     "",
     headless=False,
     args=[
-        "--headless=new", # the new headless arg for chrome v109+. Use '--headless=chrome' as arg for browsers v94-108.
+        "--headless=new",
         f"--disable-extensions-except={path_to_extension}",
         f"--load-extension={path_to_extension}",
     ],

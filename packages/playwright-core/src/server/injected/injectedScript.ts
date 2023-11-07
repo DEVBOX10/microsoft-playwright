@@ -115,6 +115,7 @@ export class InjectedScript {
     this._engines.set('internal:has-not', this._createHasNotEngine());
     this._engines.set('internal:and', { queryAll: () => [] });
     this._engines.set('internal:or', { queryAll: () => [] });
+    this._engines.set('internal:chain', this._createInternalChainEngine());
     this._engines.set('internal:label', this._createInternalLabelEngine());
     this._engines.set('internal:text', this._createTextEngine(true, true));
     this._engines.set('internal:has-text', this._createInternalHasTextEngine());
@@ -206,6 +207,12 @@ export class InjectedScript {
       // We should have handled the capture above.
       throw this.createStacklessError('Internal error: there should not be a capture in the selector.');
     }
+
+    // Workaround so that ":scope" matches the ShadowRoot.
+    // This is, unfortunately, because an ElementHandle can point to any Node (including ShadowRoot/Document/etc),
+    // and not just to an Element, and we support various APIs on ElementHandle like "textContent()".
+    if (root.nodeType === 11 /* Node.DOCUMENT_FRAGMENT_NODE */ && selector.parts.length === 1 && selector.parts[0].name === 'css' && selector.parts[0].source === ':scope')
+      return [root as Element];
 
     this._evaluator.begin();
     try {
@@ -395,6 +402,13 @@ export class InjectedScript {
       if (root.nodeType !== 1 /* Node.ELEMENT_NODE */)
         return [];
       return isElementVisible(root as Element) === Boolean(body) ? [root as Element] : [];
+    };
+    return { queryAll };
+  }
+
+  private _createInternalChainEngine(): SelectorEngine {
+    const queryAll = (root: SelectorRoot, body: NestedSelectorBody) => {
+      return this.querySelectorAll(body.parsed, root);
     };
     return { queryAll };
   }
@@ -810,7 +824,7 @@ export class InjectedScript {
     return 'done';
   }
 
-  setInputFiles(node: Node, payloads: { name: string, mimeType: string, buffer: string }[]) {
+  setInputFiles(node: Node, payloads: { name: string, mimeType: string, buffer: string, lastModifiedMs?: number }[]) {
     if (node.nodeType !== Node.ELEMENT_NODE)
       return 'Node is not of type HTMLElement';
     const element: Element | undefined = node as Element;
@@ -823,7 +837,7 @@ export class InjectedScript {
 
     const files = payloads.map(file => {
       const bytes = Uint8Array.from(atob(file.buffer), c => c.charCodeAt(0));
-      return new File([bytes], file.name, { type: file.mimeType });
+      return new File([bytes], file.name, { type: file.mimeType, lastModified: file.lastModifiedMs });
     });
     const dt = new DataTransfer();
     for (const file of files)
@@ -1119,7 +1133,7 @@ export class InjectedScript {
       bubbles: true,
       cancelable: true,
       detail: callId,
-      composed: false,
+      composed: true,
     });
     for (const element of markedElements)
       element.dispatchEvent(customEvent);
@@ -1192,7 +1206,9 @@ export class InjectedScript {
     {
       // Element state / boolean values.
       let elementState: boolean | 'error:notconnected' | 'error:notcheckbox' | undefined;
-      if (expression === 'to.be.checked') {
+      if (expression === 'to.have.attribute') {
+        elementState = element.hasAttribute(options.expressionArg);
+      } else if (expression === 'to.be.checked') {
         elementState = this.elementState(element, 'checked');
       } else if (expression === 'to.be.unchecked') {
         elementState = this.elementState(element, 'unchecked');
@@ -1233,7 +1249,14 @@ export class InjectedScript {
     {
       // JS property
       if (expression === 'to.have.property') {
-        const received = (element as any)[options.expressionArg];
+        let target = element;
+        const properties = options.expressionArg.split('.');
+        for (let i = 0; i < properties.length - 1; i++) {
+          if (typeof target !== 'object' || !(properties[i] in target))
+            return { received: undefined, matches: false };
+          target = (target as any)[properties[i]];
+        }
+        const received = (target as any)[properties[properties.length - 1]];
         const matches = deepEquals(received, options.expectedValue);
         return { received, matches };
       }
@@ -1263,7 +1286,7 @@ export class InjectedScript {
     {
       // Single text value.
       let received: string | undefined;
-      if (expression === 'to.have.attribute') {
+      if (expression === 'to.have.attribute.value') {
         const value = element.getAttribute(options.expressionArg);
         if (value === null)
           return { received: null, matches: false };

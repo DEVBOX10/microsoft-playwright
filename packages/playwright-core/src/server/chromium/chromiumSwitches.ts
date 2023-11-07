@@ -34,7 +34,8 @@ export const chromiumSwitches = [
   '--disable-extensions',
   // AvoidUnnecessaryBeforeUnloadCheckSync - https://github.com/microsoft/playwright/issues/14047
   // Translate - https://github.com/microsoft/playwright/issues/16126
-  '--disable-features=ImprovedCookieControls,LazyFrameLoading,GlobalMediaControls,DestroyProfileOnBrowserClose,MediaRouter,DialMediaRouteProvider,AcceptCHFrame,AutoExpandDetailsElement,CertificateTransparencyComponentUpdater,AvoidUnnecessaryBeforeUnloadCheckSync,Translate',
+  // HttpsUpgrades - https://github.com/microsoft/playwright/pull/27605
+  '--disable-features=ImprovedCookieControls,LazyFrameLoading,GlobalMediaControls,DestroyProfileOnBrowserClose,MediaRouter,DialMediaRouteProvider,AcceptCHFrame,AutoExpandDetailsElement,CertificateTransparencyComponentUpdater,AvoidUnnecessaryBeforeUnloadCheckSync,Translate,HttpsUpgrades',
   '--allow-pre-commit-input',
   '--disable-hang-monitor',
   '--disable-ipc-flooding-protection',
@@ -49,5 +50,7 @@ export const chromiumSwitches = [
   '--use-mock-keychain',
   // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
   '--no-service-autorun',
-  '--export-tagged-pdf'
+  '--export-tagged-pdf',
+  // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
+  '--disable-search-engine-choice-screen',
 ];

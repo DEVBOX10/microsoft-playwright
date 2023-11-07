@@ -51,7 +51,7 @@ it.describe('snapshots', () => {
     });
     await page.setContent('<link rel="stylesheet" href="style.css"><button>Hello</button>');
     const snapshot = await snapshotter.captureSnapshot(toImpl(page), 'call@1', 'snapshot@call@1');
-    const resource = snapshot.resourceByUrl(`http://localhost:${server.PORT}/style.css`);
+    const resource = snapshot.resourceByUrl(`http://localhost:${server.PORT}/style.css`, 'GET');
     expect(resource).toBeTruthy();
   });
 
@@ -70,6 +70,24 @@ it.describe('snapshots', () => {
     await page.evaluate(() => { (document.styleSheets[0].cssRules[0] as any).style.color = 'blue'; });
     const snapshot2 = await snapshotter.captureSnapshot(toImpl(page), 'call@2', 'snapshot@call@2');
     expect(distillSnapshot(snapshot2)).toBe('<STYLE>button { color: blue; }</STYLE><BUTTON>Hello</BUTTON>');
+  });
+
+  it('should respect CSSOM change through CSSGroupingRule', async ({ page, toImpl, snapshotter }) => {
+    await page.setContent('<style>@media { button { color: red; } }</style><button>Hello</button>');
+    await page.evaluate(() => {
+      window['rule'] = document.styleSheets[0].cssRules[0];
+      void 0;
+    });
+    const snapshot1 = await snapshotter.captureSnapshot(toImpl(page), 'call@1', 'snapshot@call@1');
+    expect(distillSnapshot(snapshot1)).toBe('<STYLE>@media  {\n  button { color: red; }\n}</STYLE><BUTTON>Hello</BUTTON>');
+
+    await page.evaluate(() => { window['rule'].cssRules[0].style.color = 'blue'; });
+    const snapshot2 = await snapshotter.captureSnapshot(toImpl(page), 'call@2', 'snapshot@call@2');
+    expect(distillSnapshot(snapshot2)).toBe('<STYLE>@media  {\n  button { color: blue; }\n}</STYLE><BUTTON>Hello</BUTTON>');
+
+    await page.evaluate(() => { window['rule'].insertRule('button { color: green; }', 1); });
+    const snapshot3 = await snapshotter.captureSnapshot(toImpl(page), 'call@3', 'snapshot@call@3');
+    expect(distillSnapshot(snapshot3)).toBe('<STYLE>@media  {\n  button { color: blue; }\n  button { color: green; }\n}</STYLE><BUTTON>Hello</BUTTON>');
   });
 
   it('should respect node removal', async ({ page, toImpl, snapshotter }) => {
@@ -124,7 +142,7 @@ it.describe('snapshots', () => {
 
     await page.evaluate(() => { (document.styleSheets[0].cssRules[0] as any).style.color = 'blue'; });
     const snapshot2 = await snapshotter.captureSnapshot(toImpl(page), 'call@2', 'snapshot@call@2');
-    const resource = snapshot2.resourceByUrl(`http://localhost:${server.PORT}/style.css`);
+    const resource = snapshot2.resourceByUrl(`http://localhost:${server.PORT}/style.css`, 'GET');
     expect((await snapshotter.resourceContentForTest(resource.response.content._sha1)).toString()).toBe('button { color: blue; }');
   });
 

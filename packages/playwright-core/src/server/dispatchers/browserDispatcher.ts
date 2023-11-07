@@ -24,10 +24,10 @@ import { Dispatcher } from './dispatcher';
 import type { CRBrowser } from '../chromium/crBrowser';
 import type { PageDispatcher } from './pageDispatcher';
 import type { CallMetadata } from '../instrumentation';
-import { serverSideCallMetadata } from '../instrumentation';
 import { BrowserContext } from '../browserContext';
 import { Selectors } from '../selectors';
 import type { BrowserTypeDispatcher } from './browserTypeDispatcher';
+import { ArtifactDispatcher } from './artifactDispatcher';
 
 export class BrowserDispatcher extends Dispatcher<Browser, channels.BrowserChannel, BrowserTypeDispatcher> implements channels.BrowserChannel {
   _type_Browser = true;
@@ -51,11 +51,17 @@ export class BrowserDispatcher extends Dispatcher<Browser, channels.BrowserChann
     return await newContextForReuse(this._object, this, params, null, metadata);
   }
 
-  async close(): Promise<void> {
-    await this._object.close();
+  async stopPendingOperations(params: channels.BrowserStopPendingOperationsParams, metadata: CallMetadata): Promise<channels.BrowserStopPendingOperationsResult> {
+    await this._object.stopPendingOperations(params.reason);
   }
 
-  async killForTests(): Promise<void> {
+  async close(params: channels.BrowserCloseParams, metadata: CallMetadata): Promise<void> {
+    metadata.potentiallyClosesScope = true;
+    await this._object.close(params);
+  }
+
+  async killForTests(_: any, metadata: CallMetadata): Promise<void> {
+    metadata.potentiallyClosesScope = true;
     await this._object.killForTests();
   }
 
@@ -81,7 +87,7 @@ export class BrowserDispatcher extends Dispatcher<Browser, channels.BrowserChann
     if (!this._object.options.isChromium)
       throw new Error(`Tracing is only available in Chromium`);
     const crBrowser = this._object as CRBrowser;
-    return { binary: await crBrowser.stopTracing() };
+    return { artifact: ArtifactDispatcher.from(this, await crBrowser.stopTracing()) };
   }
 }
 
@@ -110,6 +116,10 @@ export class ConnectedBrowserDispatcher extends Dispatcher<Browser, channels.Bro
 
   async newContextForReuse(params: channels.BrowserNewContextForReuseParams, metadata: CallMetadata): Promise<channels.BrowserNewContextForReuseResult> {
     return await newContextForReuse(this._object, this as any as BrowserDispatcher, params, this.selectors, metadata);
+  }
+
+  async stopPendingOperations(params: channels.BrowserStopPendingOperationsParams, metadata: CallMetadata): Promise<channels.BrowserStopPendingOperationsResult> {
+    await this._object.stopPendingOperations(params.reason);
   }
 
   async close(): Promise<void> {
@@ -142,11 +152,11 @@ export class ConnectedBrowserDispatcher extends Dispatcher<Browser, channels.Bro
     if (!this._object.options.isChromium)
       throw new Error(`Tracing is only available in Chromium`);
     const crBrowser = this._object as CRBrowser;
-    return { binary: await crBrowser.stopTracing() };
+    return { artifact: ArtifactDispatcher.from(this, await crBrowser.stopTracing()) };
   }
 
   async cleanupContexts() {
-    await Promise.all(Array.from(this._contexts).map(context => context.close(serverSideCallMetadata())));
+    await Promise.all(Array.from(this._contexts).map(context => context.close({ reason: 'Global context cleanup (connection terminated)' })));
   }
 }
 

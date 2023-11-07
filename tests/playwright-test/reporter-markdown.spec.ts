@@ -62,17 +62,19 @@ test('simple report', async ({ runInlineTest }) => {
   const { exitCode } = await runInlineTest(files);
   expect(exitCode).toBe(1);
   const reportFile = await fs.promises.readFile(test.info().outputPath('report.md'));
-  expect(reportFile.toString()).toBe(`:x: <b>failed: 2</b>
- - a.test.js:6:11 › failing 1
- - b.test.js:6:11 › failing 2
+  expect(reportFile.toString()).toContain(`**2 failed**
+:x: a.test.js:6:11 › failing 1
+:x: b.test.js:6:11 › failing 2
 
-:warning: <b>flaky: 2</b>
- - a.test.js:9:11 › flaky 1
- - c.test.js:6:11 › flaky 2
+<details>
+<summary><b>2 flaky</b></summary>
+:warning: a.test.js:9:11 › flaky 1 <br/>
+:warning: c.test.js:6:11 › flaky 2 <br/>
 
-:ballot_box_with_check: <b>skipped: 3</b>
+</details>
 
-:white_check_mark: <b>passed: 3</b>
+**3 passed, 3 skipped**
+:heavy_check_mark::heavy_check_mark::heavy_check_mark:
 `);
 });
 
@@ -94,8 +96,62 @@ test('custom report file', async ({ runInlineTest }) => {
   const { exitCode } = await runInlineTest(files);
   expect(exitCode).toBe(0);
   const reportFile = await fs.promises.readFile(test.info().outputPath('my-report.md'));
-  expect(reportFile.toString()).toBe(`:x: <b>failed: 0</b>
+  expect(reportFile.toString()).toBe(`**1 passed**
+:heavy_check_mark::heavy_check_mark::heavy_check_mark:
+`);
+});
 
-:white_check_mark: <b>passed: 1</b>
+test('report error without snippet', async ({ runInlineTest }) => {
+  const files = {
+    'playwright.config.ts': `
+      module.exports = {
+        retries: 1,
+        reporter: 'markdown',
+      };
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('math 1', async ({}) => {
+        const e = new Error('My error');
+        e.stack = null;
+        throw e;
+      });
+    `,
+  };
+
+  await runInlineTest(files);
+  const reportFile = await fs.promises.readFile(test.info().outputPath('report.md'));
+  expect(reportFile.toString()).toContain(`**1 failed**
+:x: a.test.js:3:11 › math 1
+
+**0 passed**
+:heavy_check_mark::heavy_check_mark::heavy_check_mark:
+`);
+});
+
+test('report with worker error', async ({ runInlineTest }) => {
+  const files = {
+    'playwright.config.ts': `
+      module.exports = {
+        retries: 1,
+        reporter: 'markdown',
+      };
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      throw new Error('My error 1');
+    `,
+    'b.test.js': `
+      import { test, expect } from '@playwright/test';
+      throw new Error('My error 2');
+    `,
+  };
+
+  const { exitCode } = await runInlineTest(files);
+  expect(exitCode).toBe(1);
+  const reportFile = await fs.promises.readFile(test.info().outputPath('report.md'));
+  expect(reportFile.toString()).toContain(`**3 fatal errors, not part of any test**
+**0 passed**
+:heavy_check_mark::heavy_check_mark::heavy_check_mark:
 `);
 });

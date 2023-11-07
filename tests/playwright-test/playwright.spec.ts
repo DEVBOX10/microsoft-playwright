@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, parseTestRunnerOutput } from './playwright-test-fixtures';
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
@@ -187,7 +187,6 @@ test('should respect context options in various contexts', async ({ runInlineTes
       import fs from 'fs';
       import os from 'os';
       import path from 'path';
-      import rimraf from 'rimraf';
 
       import { test, expect } from '@playwright/test';
       test.use({ locale: 'fr-FR' });
@@ -228,7 +227,7 @@ test('should respect context options in various contexts', async ({ runInlineTes
         expect(await page.evaluate(() => navigator.language)).toBe('fr-FR');
 
         await context.close();
-        rimraf.sync(dir);
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
       });
 
       test('another browser', async ({ playwright, browserName }) => {
@@ -255,7 +254,6 @@ test('should respect headless in launchPersistent', async ({ runInlineTest }) =>
       import fs from 'fs';
       import os from 'os';
       import path from 'path';
-      import rimraf from 'rimraf';
 
       import { test, expect } from '@playwright/test';
 
@@ -265,7 +263,7 @@ test('should respect headless in launchPersistent', async ({ runInlineTest }) =>
         const page = context.pages()[0];
         expect(await page.evaluate(() => navigator.userAgent)).not.toContain('Headless');
         await context.close();
-        rimraf.sync(dir);
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
       });
     `,
   }, { workers: 1 });
@@ -328,10 +326,7 @@ test('should report error and pending operations on timeout', async ({ runInline
       import { test, expect } from '@playwright/test';
       test('timedout', async ({ page }) => {
         await page.setContent('<div>Click me</div>');
-        await Promise.all([
-          page.getByText('Missing').click(),
-          page.getByText('More missing').textContent(),
-        ]);
+        await page.getByText('Missing').click();
       });
     `,
   }, { workers: 1, timeout: 2000 });
@@ -339,11 +334,8 @@ test('should report error and pending operations on timeout', async ({ runInline
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Pending operations:');
-  expect(result.output).toContain('- locator.click at a.test.ts:6:37');
-  expect(result.output).toContain('- locator.textContent at a.test.ts:7:42');
-  expect(result.output).toContain('waiting for');
-  expect(result.output).toContain(`7 |           page.getByText('More missing').textContent(),`);
+  expect(result.output).toContain('Error: locator.click: Test timeout of 2000ms exceeded.');
+  expect(result.output).toContain('a.test.ts:5:41');
 });
 
 test('should report error on timeout with shared page', async ({ runInlineTest }) => {
@@ -409,8 +401,8 @@ test('should not report waitForEventInfo as pending', async ({ runInlineTest }) 
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Pending operations:');
-  expect(result.output).toContain('- page.click at a.test.ts:6:20');
+  expect(result.output).toContain('page.click');
+  expect(result.output).toContain('a.test.ts:6:20');
   expect(result.output).not.toContain('- page.waitForLoadState');
 });
 
@@ -431,10 +423,10 @@ test('should throw when using page in beforeAll', async ({ runInlineTest }) => {
   expect(result.output).toContain(`Error: "context" and "page" fixtures are not supported in "beforeAll"`);
 });
 
-test('should report click error on sigint', async ({ runInlineTest }) => {
+test('should report click error on sigint', async ({ interactWithTestRunner }) => {
   test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
 
-  const result = await runInlineTest({
+  const testProcess = await interactWithTestRunner({
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
       test('timedout', async ({ page }) => {
@@ -445,9 +437,13 @@ test('should report click error on sigint', async ({ runInlineTest }) => {
         await promise;
       });
     `,
-  }, { workers: 1 }, {}, { sendSIGINTAfter: 1 });
+  }, { workers: 1 });
+  await testProcess.waitForOutput('%%SEND-SIGINT%%');
+  process.kill(-testProcess.process.pid!, 'SIGINT');
+  const { exitCode } = await testProcess.exited;
+  expect(exitCode).toBe(130);
 
-  expect(result.exitCode).toBe(130);
+  const result = parseTestRunnerOutput(testProcess.output);
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(0);
   expect(result.interrupted).toBe(1);
@@ -798,27 +794,55 @@ test('should use actionTimeout for APIRequestContext', async ({ runInlineTest, s
   expect(result.passed).toBe(3);
 });
 
-test('should cancel apiRequests if test will timeout', async ({ runInlineTest, server }) => {
-  server.setRoute('/stall', (req, res) => {});
+test('should save trace in two APIRequestContexts', async ({ runInlineTest, server }) => {
   const result = await runInlineTest({
     'playwright.config.js': `
       module.exports = {
-        timeout: 1000,
+        timeout: 5000,
         use: {
-          baseURL: '${server.PREFIX}',
+          trace: 'on',
         }
       };
     `,
     'a.test.ts': `
-      import { test, expect } from '@playwright/test';
-      test('pass', async ({ request }) => {
-        await request.get('/stall')
-      });
+      import { test, request, BrowserContext, Page, APIRequestContext } from '@playwright/test';
+
+      test.describe('Example', () => {
+        let firstContext: APIRequestContext;
+        let secondContext: APIRequestContext;
+        let context: BrowserContext;
+        let page: Page;
+
+        test.beforeAll(async () => {
+          firstContext = await request.newContext({ baseURL: 'http://example.com' });
+          secondContext = await request.newContext({ baseURL: 'http://example.com' });
+        });
+
+        test.afterAll(async () => {
+          console.log('afterAll start');
+          await firstContext.dispose();
+          console.log('afterAll middle');
+          await secondContext.dispose();
+          console.log('afterAll end');
+        });
+
+        test.describe('inner tests', () => {
+          test.beforeAll(async ({ browser }) => {
+            context = await browser.newContext();
+            page = await context.newPage();
+            await page.goto('${server.EMPTY_PAGE}');
+          });
+
+          test.afterAll(async () => {
+            await page.close();
+            await context.close();
+          });
+
+          test('test', async () => {});
+        });
+      })
     `,
   }, { workers: 1 });
-  expect(result.exitCode).toBe(1);
-  expect(result.passed).toBe(0);
-  expect(result.failed).toBe(1);
-  expect(result.output).toContain('apiRequestContext.get: Request context disposed.');
-  expect(result.output).toContain('Test timeout of 1000ms exceeded.');
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
 });

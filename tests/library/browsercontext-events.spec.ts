@@ -45,7 +45,7 @@ test('console event should work in popup 2', async ({ page, browserName }) => {
 
   const [, message, popup] = await Promise.all([
     page.evaluate(async () => {
-      const win = window.open('javascript:console.log("hello")');
+      const win = window.open('javascript:console.log("hello")')!;
       await new Promise(f => setTimeout(f, 0));
       win.close();
     }),
@@ -62,7 +62,7 @@ test('console event should work in immediately closed popup', async ({ page, bro
 
   const [, message, popup] = await Promise.all([
     page.evaluate(async () => {
-      const win = window.open();
+      const win = window.open()!;
       (win as any).console.log('hello');
       win.close();
     }),
@@ -120,9 +120,9 @@ test('dialog event should work in popup 2', async ({ page, browserName }) => {
   await promise;
 });
 
-test('dialog event should work in immdiately closed popup', async ({ page }) => {
+test('dialog event should work in immediately closed popup', async ({ page }) => {
   const promise = page.evaluate(async () => {
-    const win = window.open();
+    const win = window.open()!;
     const result = (win as any).prompt('hey?');
     win.close();
     return result;
@@ -159,4 +159,13 @@ test('dialog event should work with inline script tag', async ({ page, server })
   await dialog.accept('hello');
   await promise;
   await expect.poll(() => popup.evaluate('window.result')).toBe('hello');
+});
+
+test('weberror event should work', async ({ page }) => {
+  const [webError] = await Promise.all([
+    page.context().waitForEvent('weberror'),
+    page.setContent('<script>throw new Error("boom")</script>'),
+  ]);
+  expect(webError.page()).toBe(page);
+  expect(webError.error().stack).toContain('boom');
 });

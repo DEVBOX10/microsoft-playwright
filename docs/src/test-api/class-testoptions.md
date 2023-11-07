@@ -475,7 +475,7 @@ export default defineConfig({
 });
 ```
 
-Learn more about [automatic screenshots](../test-configuration.md#automatic-screenshots).
+Learn more about [automatic screenshots](../test-use-options.md#recording-options).
 
 ## property: TestOptions.storageState = %%-js-python-context-option-storage-state-%%
 * since: v1.10
@@ -489,6 +489,21 @@ export default defineConfig({
   use: {
     storageState: 'storage-state.json',
   },
+});
+```
+
+**Details**
+
+When storage state is set up in the config, it is possible to reset storage state for a file:
+
+```js title="not-signed-in.spec.ts"
+import { test } from '@playwright/test';
+
+// Reset storage state for this file to avoid being authenticated
+test.use({ storageState: { cookies: [], origins: [] } });
+
+test('not signed in test', async ({ page }) => {
+  // ...
 });
 ```
 
@@ -554,7 +569,7 @@ export default defineConfig({
 });
 ```
 
-Learn more about [recording trace](../test-configuration.md#record-test-trace).
+Learn more about [recording trace](../test-use-options.md#recording-options).
 
 ## property: TestOptions.userAgent = %%-context-option-useragent-%%
 * since: v1.10
@@ -599,7 +614,7 @@ export default defineConfig({
 });
 ```
 
-Learn more about [recording video](../test-configuration.md#record-video).
+Learn more about [recording video](../test-use-options.md#recording-options).
 
 ## property: TestOptions.viewport = %%-context-option-viewport-%%
 * since: v1.10

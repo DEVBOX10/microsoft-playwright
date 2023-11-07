@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { cssEscape, escapeForAttributeSelector, escapeForTextSelector, normalizeWhiteSpace } from '../../utils/isomorphic/stringUtils';
+import { cssEscape, escapeForAttributeSelector, escapeForTextSelector, normalizeWhiteSpace, quoteCSSAttributeValue } from '../../utils/isomorphic/stringUtils';
 import { closestCrossShadow, isInsideScope, parentElementOrShadowHost } from './domUtils';
 import type { InjectedScript } from './injectedScript';
 import { getAriaRole, getElementAccessibleName, beginAriaCaches, endAriaCaches } from './roleUtils';
@@ -60,18 +60,36 @@ const kCSSTagNameScore = 530;
 const kNthScore = 10000;
 const kCSSFallbackScore = 10000000;
 
+const kScoreThresholdForTextExpect = 1000;
+
 export type GenerateSelectorOptions = {
   testIdAttributeName: string;
   omitInternalEngines?: boolean;
   root?: Element | Document;
+  forTextExpect?: boolean;
 };
 
 export function generateSelector(injectedScript: InjectedScript, targetElement: Element, options: GenerateSelectorOptions): { selector: string, elements: Element[] } {
   injectedScript._evaluator.begin();
   beginAriaCaches();
   try {
-    targetElement = closestCrossShadow(targetElement, 'button,select,input,[role=button],[role=checkbox],[role=radio],a,[role=link]', options.root) || targetElement;
-    const targetTokens = generateSelectorFor(injectedScript, targetElement, options);
+    let targetTokens: SelectorToken[];
+    if (options.forTextExpect) {
+      targetTokens = cssFallback(injectedScript, targetElement.ownerDocument.documentElement, options);
+      for (let element: Element | undefined = targetElement; element; element = parentElementOrShadowHost(element)) {
+        const tokens = generateSelectorFor(injectedScript, element, options);
+        if (!tokens)
+          continue;
+        const score = combineScores(tokens);
+        if (score <= kScoreThresholdForTextExpect) {
+          targetTokens = tokens;
+          break;
+        }
+      }
+    } else {
+      targetElement = closestCrossShadow(targetElement, 'button,select,input,[role=button],[role=checkbox],[role=radio],a,[role=link]', options.root) || targetElement;
+      targetTokens = generateSelectorFor(injectedScript, targetElement, options) || cssFallback(injectedScript, targetElement, options);
+    }
     const selector = joinTokens(targetTokens);
     const parsedSelector = injectedScript.parseSelector(selector);
     return {
@@ -91,7 +109,7 @@ function filterRegexTokens(textCandidates: SelectorToken[][]): SelectorToken[][]
   return textCandidates.filter(c => c[0].selector[0] !== '/');
 }
 
-function generateSelectorFor(injectedScript: InjectedScript, targetElement: Element, options: GenerateSelectorOptions): SelectorToken[] {
+function generateSelectorFor(injectedScript: InjectedScript, targetElement: Element, options: GenerateSelectorOptions): SelectorToken[] | null {
   if (options.root && !isInsideScope(options.root, targetElement))
     throw new Error(`Target element must belong to the root's subtree`);
 
@@ -170,17 +188,17 @@ function generateSelectorFor(injectedScript: InjectedScript, targetElement: Elem
     return value;
   };
 
-  return calculateCached(targetElement, true) || cssFallback(injectedScript, targetElement, options);
+  return calculate(targetElement, !options.forTextExpect);
 }
 
 function buildNoTextCandidates(injectedScript: InjectedScript, element: Element, options: GenerateSelectorOptions): SelectorToken[] {
   const candidates: SelectorToken[] = [];
 
-  // CSS selectors are applicale to elements via locator() and iframes via frameLocator().
+  // CSS selectors are applicable to elements via locator() and iframes via frameLocator().
   {
     for (const attr of ['data-testid', 'data-test-id', 'data-test']) {
       if (attr !== options.testIdAttributeName && element.getAttribute(attr))
-        candidates.push({ engine: 'css', selector: `[${attr}=${quoteAttributeValue(element.getAttribute(attr)!)}]`, score: kOtherTestIdScore });
+        candidates.push({ engine: 'css', selector: `[${attr}=${quoteCSSAttributeValue(element.getAttribute(attr)!)}]`, score: kOtherTestIdScore });
     }
 
     const idAttr = element.getAttribute('id');
@@ -193,12 +211,12 @@ function buildNoTextCandidates(injectedScript: InjectedScript, element: Element,
   if (element.nodeName === 'IFRAME') {
     for (const attribute of ['name', 'title']) {
       if (element.getAttribute(attribute))
-        candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[${attribute}=${quoteAttributeValue(element.getAttribute(attribute)!)}]`, score: kIframeByAttributeScore });
+        candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[${attribute}=${quoteCSSAttributeValue(element.getAttribute(attribute)!)}]`, score: kIframeByAttributeScore });
     }
 
     // Locate by testId via CSS selector.
     if (element.getAttribute(options.testIdAttributeName))
-      candidates.push({ engine: 'css', selector: `[${options.testIdAttributeName}=${quoteAttributeValue(element.getAttribute(options.testIdAttributeName)!)}]`, score: kTestIdScore });
+      candidates.push({ engine: 'css', selector: `[${options.testIdAttributeName}=${quoteCSSAttributeValue(element.getAttribute(options.testIdAttributeName)!)}]`, score: kTestIdScore });
 
     penalizeScoreForLength([candidates]);
     return candidates;
@@ -227,22 +245,12 @@ function buildNoTextCandidates(injectedScript: InjectedScript, element: Element,
   if (ariaRole && !['none', 'presentation'].includes(ariaRole))
     candidates.push({ engine: 'internal:role', selector: ariaRole, score: kRoleWithoutNameScore });
 
-  if (element.getAttribute('alt') && ['APPLET', 'AREA', 'IMG', 'INPUT'].includes(element.nodeName)) {
-    candidates.push({ engine: 'internal:attr', selector: `[alt=${escapeForAttributeSelector(element.getAttribute('alt')!, false)}]`, score: kAltTextScore });
-    candidates.push({ engine: 'internal:attr', selector: `[alt=${escapeForAttributeSelector(element.getAttribute('alt')!, true)}]`, score: kAltTextScoreExact });
-  }
-
   if (element.getAttribute('name') && ['BUTTON', 'FORM', 'FIELDSET', 'FRAME', 'IFRAME', 'INPUT', 'KEYGEN', 'OBJECT', 'OUTPUT', 'SELECT', 'TEXTAREA', 'MAP', 'META', 'PARAM'].includes(element.nodeName))
-    candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[name=${quoteAttributeValue(element.getAttribute('name')!)}]`, score: kCSSInputTypeNameScore });
-
-  if (element.getAttribute('title')) {
-    candidates.push({ engine: 'internal:attr', selector: `[title=${escapeForAttributeSelector(element.getAttribute('title')!, false)}]`, score: kTitleScore });
-    candidates.push({ engine: 'internal:attr', selector: `[title=${escapeForAttributeSelector(element.getAttribute('title')!, true)}]`, score: kTitleScoreExact });
-  }
+    candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[name=${quoteCSSAttributeValue(element.getAttribute('name')!)}]`, score: kCSSInputTypeNameScore });
 
   if (['INPUT', 'TEXTAREA'].includes(element.nodeName) && element.getAttribute('type') !== 'hidden') {
     if (element.getAttribute('type'))
-      candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[type=${quoteAttributeValue(element.getAttribute('type')!)}]`, score: kCSSInputTypeNameScore });
+      candidates.push({ engine: 'css', selector: `${cssEscape(element.nodeName.toLowerCase())}[type=${quoteCSSAttributeValue(element.getAttribute('type')!)}]`, score: kCSSInputTypeNameScore });
   }
 
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(element.nodeName) && element.getAttribute('type') !== 'hidden')
@@ -257,6 +265,16 @@ function buildTextCandidates(injectedScript: InjectedScript, element: Element, i
     return [];
   const candidates: SelectorToken[][] = [];
 
+  if (element.getAttribute('title')) {
+    candidates.push([{ engine: 'internal:attr', selector: `[title=${escapeForAttributeSelector(element.getAttribute('title')!, false)}]`, score: kTitleScore }]);
+    candidates.push([{ engine: 'internal:attr', selector: `[title=${escapeForAttributeSelector(element.getAttribute('title')!, true)}]`, score: kTitleScoreExact }]);
+  }
+
+  if (element.getAttribute('alt') && ['APPLET', 'AREA', 'IMG', 'INPUT'].includes(element.nodeName)) {
+    candidates.push([{ engine: 'internal:attr', selector: `[alt=${escapeForAttributeSelector(element.getAttribute('alt')!, false)}]`, score: kAltTextScore }]);
+    candidates.push([{ engine: 'internal:attr', selector: `[alt=${escapeForAttributeSelector(element.getAttribute('alt')!, true)}]`, score: kAltTextScoreExact }]);
+  }
+
   const fullText = normalizeWhiteSpace(elementText(injectedScript._evaluator._cacheText, element).full);
   const text = fullText.substring(0, 80);
   if (text) {
@@ -265,7 +283,7 @@ function buildTextCandidates(injectedScript: InjectedScript, element: Element, i
       candidates.push([{ engine: 'internal:text', selector: escaped, score: kTextScore }]);
       candidates.push([{ engine: 'internal:text', selector: escapeForTextSelector(text, true), score: kTextScoreExact }]);
     }
-    const cssToken: SelectorToken = { engine: 'css', selector: element.nodeName.toLowerCase(), score: kCSSTagNameScore };
+    const cssToken: SelectorToken = { engine: 'css', selector: cssEscape(element.nodeName.toLowerCase()), score: kCSSTagNameScore };
     candidates.push([cssToken, { engine: 'internal:has-text', selector: escaped, score: kTextScore }]);
     if (fullText.length <= 80)
       candidates.push([cssToken, { engine: 'internal:has-text', selector: '/^' + escapeRegExp(fullText) + '$/', score: kTextScoreRegex }]);
@@ -353,15 +371,11 @@ function cssFallback(injectedScript: InjectedScript, targetElement: Element, opt
       if (!bestTokenForLevel)
         bestTokenForLevel = token;
     } else if (!bestTokenForLevel) {
-      bestTokenForLevel = nodeName;
+      bestTokenForLevel = cssEscape(nodeName);
     }
     tokens.unshift(bestTokenForLevel);
   }
   return makeStrict(uniqueCSSSelector()!);
-}
-
-function quoteAttributeValue(text: string): string {
-  return `"${cssEscape(text).replace(/\\ /g, ' ')}"`;
 }
 
 function penalizeScoreForLength(groups: SelectorToken[][]) {

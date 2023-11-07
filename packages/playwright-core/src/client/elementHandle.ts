@@ -152,9 +152,10 @@ export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements
       throw new Error('Cannot set input files to detached element');
     const converted = await convertInputFiles(files, frame.page().context());
     if (converted.files) {
+      debugLogger.log('api', 'setting input buffers');
       await this._elementChannel.setInputFiles({ files: converted.files, ...options });
     } else {
-      debugLogger.log('api', 'switching to large files mode');
+      debugLogger.log('api', 'setting input file paths');
       await this._elementChannel.setInputFilePaths({ ...converted, ...options });
     }
   }
@@ -262,45 +263,66 @@ type InputFilesList = {
   localPaths?: string[];
   streams?: channels.WritableStreamChannel[];
 };
+
+const filePayloadSizeLimit = 50 * 1024 * 1024;
+
+function filePayloadExceedsSizeLimit(payloads: FilePayload[]) {
+  return payloads.reduce((size, item) => size + (item.buffer ? item.buffer.byteLength : 0), 0) >= filePayloadSizeLimit;
+}
+
+async function filesExceedSizeLimit(files: string[]) {
+  const sizes = await Promise.all(files.map(async file => (await fs.promises.stat(file)).size));
+  return sizes.reduce((total, size) => total + size, 0) >= filePayloadSizeLimit;
+}
+
+async function readFilesIntoBuffers(items: string[]): Promise<SetInputFilesFiles> {
+  const filePayloads: SetInputFilesFiles = await Promise.all((items as string[]).map(async item => {
+    return {
+      name: path.basename(item),
+      buffer: await fs.promises.readFile(item),
+      lastModifiedMs: (await fs.promises.stat(item)).mtimeMs,
+    };
+  }));
+  return filePayloads;
+}
+
 export async function convertInputFiles(files: string | FilePayload | string[] | FilePayload[], context: BrowserContext): Promise<InputFilesList> {
   const items: (string | FilePayload)[] = Array.isArray(files) ? files.slice() : [files];
 
-  const sizeLimit = 50 * 1024 * 1024;
-  const totalBufferSizeExceedsLimit = items.reduce((size, item) => size + ((typeof item === 'object' && item.buffer) ? item.buffer.byteLength : 0), 0) > sizeLimit;
-  if (totalBufferSizeExceedsLimit)
-    throw new Error('Cannot set buffer larger than 50Mb, please write it to a file and pass its path instead.');
+  if (items.some(item => typeof item === 'string')) {
+    if (!items.every(item => typeof item === 'string'))
+      throw new Error('File paths cannot be mixed with buffers');
 
-  const stats = await Promise.all(items.filter(isString).map(item => fs.promises.stat(item as string)));
-  const totalFileSizeExceedsLimit = stats.reduce((acc, stat) => acc + stat.size, 0) > sizeLimit;
-  if (totalFileSizeExceedsLimit) {
     if (context._connection.isRemote()) {
-      const streams: channels.WritableStreamChannel[] = await Promise.all(items.map(async item => {
-        assert(isString(item));
-        const { writableStream: stream } = await context._channel.createTempFile({ name: path.basename(item) });
-        const writable = WritableStream.from(stream);
-        await pipelineAsync(fs.createReadStream(item), writable.stream());
-        return stream;
-      }));
-      return { streams };
+      if (context._isLocalBrowserOnServer()) {
+        const streams: channels.WritableStreamChannel[] = await Promise.all((items as string[]).map(async item => {
+          const lastModifiedMs = (await fs.promises.stat(item)).mtimeMs;
+          const { writableStream: stream } = await context._channel.createTempFile({ name: path.basename(item), lastModifiedMs });
+          const writable = WritableStream.from(stream);
+          await pipelineAsync(fs.createReadStream(item), writable.stream());
+          return stream;
+        }));
+        return { streams };
+      }
+      if (await filesExceedSizeLimit(items as string[]))
+        throw new Error('Cannot transfer files larger than 50Mb to a browser not co-located with the server');
+      return { files: await readFilesIntoBuffers(items as string[]) };
     }
-    return { localPaths: items.map(f => path.resolve(f as string)) as string[] };
+    if (context._isLocalBrowserOnServer())
+      return { localPaths: items.map(f => path.resolve(f as string)) as string[] };
+    if (await filesExceedSizeLimit(items as string[]))
+      throw new Error('Cannot transfer files larger than 50Mb to a browser not co-located with the server');
+    return { files: await readFilesIntoBuffers(items as string[]) };
   }
 
-  const filePayloads: SetInputFilesFiles = await Promise.all(items.map(async item => {
-    if (typeof item === 'string') {
-      return {
-        name: path.basename(item),
-        buffer: await fs.promises.readFile(item)
-      };
-    } else {
-      return {
-        name: item.name,
-        mimeType: item.mimeType,
-        buffer: item.buffer,
-      };
-    }
-  }));
-  return { files: filePayloads };
+  const payloads = items as FilePayload[];
+  if (filePayloadExceedsSizeLimit(payloads)) {
+    let error = 'Cannot set buffer larger than 50Mb';
+    if (context._isLocalBrowserOnServer())
+      error += ', please write it to a file and pass its path instead.';
+    throw new Error(error);
+  }
+  return { files: payloads };
 }
 
 export function determineScreenshotType(options: { path?: string, type?: 'png' | 'jpeg' }): 'png' | 'jpeg' | undefined {

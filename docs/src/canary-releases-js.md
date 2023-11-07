@@ -3,6 +3,8 @@ id: canary-releases
 title: "Canary releases"
 ---
 
+## Introduction
+
 Playwright for Node.js has a canary releases system.
 
 It permits you to **test new unreleased features** instead of waiting for a full release. They get released daily on the `next` NPM tag of Playwright.
@@ -16,8 +18,7 @@ Using a canary release in production might seem risky, but in practice, it's not
 A canary release passes all automated tests and is used to test e.g. the HTML report, Trace Viewer, or Playwright Inspector with end-to-end tests.
 
 :::
-
-```
+```txt
 npm install -D @playwright/test@next
 ```
 
@@ -33,7 +34,7 @@ You can see on [npm](https://www.npmjs.com/package/@playwright/test?activeTab=ve
 
 ## Using a Canary Release
 
-```
+```txt
 npm install -D @playwright/test@next
 ```
 

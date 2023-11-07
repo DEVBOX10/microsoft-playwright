@@ -2,9 +2,6 @@
 id: extensibility
 title: "Extensibility"
 ---
-
-<!-- TOC -->
-
 ## Custom selector engines
 
 Playwright supports custom selector engines, registered with [`method: Selectors.register`].
@@ -26,8 +23,11 @@ Selectors must be registered before creating the page.
 
 An example of registering selector engine that queries elements based on a tag name:
 
-```js
-import { test, expect } from '@playwright/test';
+
+```js title="baseTest.ts"
+import { test as base } from '@playwright/test';
+
+export { expect } from '@playwright/test';
 
 // Must be a function that evaluates to a selector engine instance.
 const createTagNameEngine = () => ({
@@ -42,11 +42,18 @@ const createTagNameEngine = () => ({
   }
 });
 
-// Register selectors before any page is created.
-test.beforeAll(async ({ playwright }) => {
-  // Register the engine. Selectors will be prefixed with "tag=".
-  await playwright.selectors.register('tag', createTagNameEngine);
+export const test = base.extend<{}, { selectorRegistration: void }>({
+  // Register selectors once per worker.
+  selectorRegistration: [async ({ playwright }, use) => {
+    // Register the engine. Selectors will be prefixed with "tag=".
+    await playwright.selectors.register('tag', createTagNameEngine);
+    await use();
+  }, { scope: 'worker', auto: true }],
 });
+```
+
+```js title="example.spec.ts"
+import { test, expect } from './baseTest';
 
 test('selector engine test', async ({ page }) => {
   // Now we can use 'tag=' selectors.
@@ -145,4 +152,30 @@ page.locator("tag=div").get_by_text("click me").click()
 
 # we can use it in any methods supporting selectors.
 button_count = page.locator("tag=button").count()
+```
+
+```csharp
+// Register the engine. Selectors will be prefixed with "tag=".
+// The script is evaluated in the page context.
+await playwright.Selectors.Register("tag", new() {
+  Script = @"
+  // Must evaluate to a selector engine instance.
+  {
+    // Returns the first element matching given selector in the root's subtree.
+    query(root, selector) {
+      return root.querySelector(selector);
+    },
+
+    // Returns all elements matching given selector in the root's subtree.
+    queryAll(root, selector) {
+      return Array.from(root.querySelectorAll(selector));
+    }
+  }"
+});
+
+// Now we can use "tag=" selectors.
+await page.Locator("tag=button").ClickAsync();
+
+// We can combine it with built-in locators.
+await page.Locator("tag=div").GetByText("Click me").ClickAsync();
 ```

@@ -94,6 +94,12 @@ Emitted when Browser context gets closed. This might happen because of one of th
 * Browser application is closed or crashed.
 * The [`method: Browser.close`] method was called.
 
+### option: BrowserContext.close.reason
+* since: v1.40
+- `reason` <[string]>
+
+The reason to be reported to the operations interrupted by the context closure.
+
 ## event: BrowserContext.console
 * since: v1.34
 * langs:
@@ -238,6 +244,13 @@ Console.WriteLine(await popup.EvaluateAsync<string>("location.href"));
 Use [`method: Page.waitForLoadState`] to wait until the page gets to a particular state (you should not need it in most
 cases).
 :::
+
+## event: BrowserContext.webError
+* since: v1.38
+- argument: <[WebError]>
+
+Emitted when exception is unhandled in any of the pages in this
+context. To listen for errors from a particular page, use [`event: Page.pageError`] instead.
 
 ## event: BrowserContext.request
 * since: v1.12
@@ -582,11 +595,11 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
-    browser = await webkit.launch(headless=false)
+    browser = await webkit.launch(headless=False)
     context = await browser.new_context()
     await context.expose_binding("pageURL", lambda source: source["page"].url)
     page = await context.new_page()
@@ -608,11 +621,11 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
-    browser = webkit.launch(headless=false)
+    browser = webkit.launch(headless=False)
     context = browser.new_context()
     context.expose_binding("pageURL", lambda source: source["page"].url)
     page = context.new_page()
@@ -768,7 +781,9 @@ const crypto = require('crypto');
 (async () => {
   const browser = await webkit.launch({ headless: false });
   const context = await browser.newContext();
-  await context.exposeFunction('sha256', text => crypto.createHash('sha256').update(text).digest('hex'));
+  await context.exposeFunction('sha256', text =>
+    crypto.createHash('sha256').update(text).digest('hex'),
+  );
   const page = await context.newPage();
   await page.setContent(`
     <script>
@@ -824,15 +839,15 @@ public class Example {
 ```python async
 import asyncio
 import hashlib
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-def sha256(text):
+def sha256(text: str) -> str:
     m = hashlib.sha256()
     m.update(bytes(text, "utf8"))
     return m.hexdigest()
 
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = await webkit.launch(headless=False)
     context = await browser.new_context()
@@ -859,13 +874,13 @@ asyncio.run(main())
 import hashlib
 from playwright.sync_api import sync_playwright
 
-def sha256(text):
+def sha256(text: str) -> str:
     m = hashlib.sha256()
     m.update(bytes(text, "utf8"))
     return m.hexdigest()
 
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = webkit.launch(headless=False)
     context = browser.new_context()
@@ -968,7 +983,6 @@ The [origin] to grant permissions to, e.g. "https://example.com".
 
 ## async method: BrowserContext.newCDPSession
 * since: v1.11
-* langs: js, python, csharp
 - returns: <[CDPSession]>
 
 :::note
@@ -1191,7 +1205,7 @@ How often a route should be used. By default it will be used every time.
 ## async method: BrowserContext.routeFromHAR
 * since: v1.23
 
-If specified the network requests that are made in the context will be served from the HAR file. Read more about [Replaying from HAR](../network.md#replaying-from-har).
+If specified the network requests that are made in the context will be served from the HAR file. Read more about [Replaying from HAR](../mock.md#replaying-from-har).
 
 Playwright will not serve requests intercepted by Service Worker from the HAR file. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using request interception by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
 

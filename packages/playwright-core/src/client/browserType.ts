@@ -25,8 +25,7 @@ import type { ChildProcess } from 'child_process';
 import { envObjectToArray } from './clientHelper';
 import { assert, headersObjectToArray, monotonicTime } from '../utils';
 import type * as api from '../../types/types';
-import { kBrowserClosedError } from '../common/errors';
-import { raceAgainstTimeout } from '../utils/timeoutRunner';
+import { raceAgainstDeadline } from '../utils/timeoutRunner';
 import type { Playwright } from './playwright';
 
 export interface BrowserServerLauncher {
@@ -51,7 +50,6 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
   _defaultContextTimeout?: number;
   _defaultContextNavigationTimeout?: number;
   private _defaultLaunchOptions?: LaunchOptions;
-  private _defaultConnectOptions?: ConnectOptions;
 
   static from(browserType: channels.BrowserTypeChannel): BrowserType {
     return (browserType as any)._object;
@@ -71,9 +69,6 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     assert(!(options as any).userDataDir, 'userDataDir option is not supported in `browserType.launch`. Use `browserType.launchPersistentContext` instead');
     assert(!(options as any).port, 'Cannot specify a port without launching as a server.');
 
-    if (this._defaultConnectOptions)
-      return await this._connectInsteadOfLaunching(this._defaultConnectOptions, options);
-
     const logger = options.logger || this._defaultLaunchOptions?.logger;
     options = { ...this._defaultLaunchOptions, ...options };
     const launchOptions: channels.BrowserTypeLaunchParams = {
@@ -86,19 +81,6 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       const browser = Browser.from((await this._channel.launch(launchOptions)).browser);
       this._didLaunchBrowser(browser, options, logger);
       return browser;
-    });
-  }
-
-  private async _connectInsteadOfLaunching(connectOptions: ConnectOptions, launchOptions: LaunchOptions): Promise<Browser> {
-    return this._connect({
-      wsEndpoint: connectOptions.wsEndpoint,
-      headers: {
-        'x-playwright-launch-options': JSON.stringify({ ...this._defaultLaunchOptions, ...launchOptions }),
-        ...connectOptions.headers,
-      },
-      _exposeNetwork: connectOptions._exposeNetwork,
-      slowMo: connectOptions.slowMo,
-      timeout: connectOptions.timeout ?? 3 * 60 * 1000, // 3 minutes
     });
   }
 
@@ -148,7 +130,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       const connectParams: channels.LocalUtilsConnectParams = {
         wsEndpoint: params.wsEndpoint,
         headers,
-        exposeNetwork: params._exposeNetwork,
+        exposeNetwork: params.exposeNetwork ?? params._exposeNetwork,
         slowMo: params.slowMo,
         timeout: params.timeout,
       };
@@ -161,7 +143,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       connection.on('close', closePipe);
 
       let browser: Browser;
-      let closeError: string | undefined;
+      let closeError: Error | undefined;
       const onPipeClosed = () => {
         // Emulate all pages, contexts and the browser closing upon disconnect.
         for (const context of browser?.contexts() || []) {
@@ -170,7 +152,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
           context._onClose();
         }
         browser?._didClose();
-        connection.close(closeError || kBrowserClosedError);
+        connection.close(closeError);
       };
       pipe.on('closed', onPipeClosed);
       connection.onmessage = message => pipe.send({ message }).catch(onPipeClosed);
@@ -179,12 +161,12 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
         try {
           connection!.dispatch(message);
         } catch (e) {
-          closeError = e.toString();
+          closeError = e;
           closePipe();
         }
       });
 
-      const result = await raceAgainstTimeout(async () => {
+      const result = await raceAgainstDeadline(async () => {
         // For tests.
         if ((params as any).__testHookBeforeCreateBrowser)
           await (params as any).__testHookBeforeCreateBrowser();
@@ -201,7 +183,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
         browser._connectHeaders = connectHeaders;
         browser.on(Events.Browser.Disconnected, closePipe);
         return browser;
-      }, deadline ? deadline - monotonicTime() : 0);
+      }, deadline);
       if (!result.timedOut) {
         return result.result;
       } else {

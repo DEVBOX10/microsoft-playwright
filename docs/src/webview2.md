@@ -3,6 +3,8 @@ id: webview2
 title: "WebView2"
 ---
 
+## Introduction
+
 The following will explain how to use Playwright with [Microsoft Edge WebView2](https://docs.microsoft.com/en-us/microsoft-edge/webview2/). WebView2 is a WinForms control, which will use Microsoft Edge under the hood to render web content. It is a part of the Microsoft Edge browser and is available on Windows 10 and Windows 11. Playwright can be used to automate WebView2 applications and can be used to test web content in WebView2. For connecting to WebView2, Playwright uses [`method: BrowserType.connectOverCDP`] which connects to it via the Chrome DevTools Protocol (CDP).
 
 ## Overview
@@ -75,13 +77,20 @@ import os from 'os';
 import path from 'path';
 import childProcess from 'child_process';
 
-const EXECUTABLE_PATH = path.join(__dirname, '../../webview2-app/bin/Debug/net6.0-windows/webview2.exe');
+const EXECUTABLE_PATH = path.join(
+    __dirname,
+    '../../webview2-app/bin/Debug/net6.0-windows/webview2.exe',
+);
 
 export const test = base.extend({
   browser: async ({ playwright }, use, testInfo) => {
     const cdpPort = 10000 + testInfo.workerIndex;
-    fs.accessSync(EXECUTABLE_PATH, fs.constants.X_OK); // Make sure that the executable exists and is executable
-    const userDataDir = path.join(fs.realpathSync.native(os.tmpdir()), `playwright-webview2-tests/user-data-dir-${testInfo.workerIndex}`);
+    // Make sure that the executable exists and is executable
+    fs.accessSync(EXECUTABLE_PATH, fs.constants.X_OK);
+    const userDataDir = path.join(
+        fs.realpathSync.native(os.tmpdir()),
+        `playwright-webview2-tests/user-data-dir-${testInfo.workerIndex}`,
+    );
     const webView2Process = childProcess.spawn(EXECUTABLE_PATH, [], {
       shell: true,
       env: {

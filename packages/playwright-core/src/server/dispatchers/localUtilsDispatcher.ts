@@ -26,7 +26,7 @@ import { Dispatcher } from './dispatcher';
 import { yazl, yauzl } from '../../zipBundle';
 import { ZipFile } from '../../utils/zipFile';
 import type * as har from '@trace/har';
-import type { HeadersArray } from '../types';
+import type { HeadersArray, Devices } from '../types';
 import { JsonPipeDispatcher } from '../dispatchers/jsonPipeDispatcher';
 import { WebSocketTransport } from '../transport';
 import { SocksInterceptor } from '../socksInterceptor';
@@ -53,7 +53,12 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
 
   constructor(scope: RootDispatcher, playwright: Playwright) {
     const localUtils = new SdkObject(playwright, 'localUtils', 'localUtils');
-    super(scope, localUtils, 'LocalUtils', {});
+    const descriptors = require('../deviceDescriptors') as Devices;
+    const deviceDescriptors = Object.entries(descriptors)
+        .map(([name, descriptor]) => ({ name, descriptor }));
+    super(scope, localUtils, 'LocalUtils', {
+      deviceDescriptors,
+    });
     this._type_LocalUtils = true;
   }
 
@@ -102,7 +107,9 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
       // New file, just compress the entries.
       await fs.promises.mkdir(path.dirname(params.zipFile), { recursive: true });
       zipFile.end(undefined, () => {
-        zipFile.outputStream.pipe(fs.createWriteStream(params.zipFile)).on('close', () => promise.resolve());
+        zipFile.outputStream.pipe(fs.createWriteStream(params.zipFile))
+            .on('close', () => promise.resolve())
+            .on('error', error => promise.reject(error));
       });
       await promise;
       await this._deleteStackSession(params.stacksId);
@@ -132,7 +139,7 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
               zipFile.outputStream.pipe(fs.createWriteStream(params.zipFile)).on('close', () => {
                 fs.promises.unlink(tempFile).then(() => {
                   promise.resolve();
-                });
+                }).catch(error => promise.reject(error));
               });
             });
           }

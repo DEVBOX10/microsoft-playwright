@@ -16,9 +16,10 @@
  */
 
 import type { BrowserOptions } from '../browser';
+import path from 'path';
 import { Browser } from '../browser';
 import { assertBrowserContextIsNotOwned, BrowserContext, verifyGeolocation } from '../browserContext';
-import { assert } from '../../utils';
+import { assert, createGuid } from '../../utils';
 import * as network from '../network';
 import type { PageBinding, PageDelegate, Worker } from '../page';
 import { Page } from '../page';
@@ -27,19 +28,20 @@ import type { Dialog } from '../dialog';
 import type { ConnectionTransport } from '../transport';
 import type * as types from '../types';
 import type * as channels from '@protocol/channels';
-import type { CRSession } from './crConnection';
+import type { CRSession, CDPSession } from './crConnection';
 import { ConnectionEvents, CRConnection } from './crConnection';
 import { CRPage } from './crPage';
-import { readProtocolStream } from './crProtocolHelper';
+import { saveProtocolStream } from './crProtocolHelper';
 import type { Protocol } from './protocol';
 import type { CRDevTools } from './crDevTools';
 import { CRServiceWorker } from './crServiceWorker';
 import type { SdkObject } from '../instrumentation';
+import { Artifact } from '../artifact';
 
 export class CRBrowser extends Browser {
   readonly _connection: CRConnection;
   _session: CRSession;
-  private _clientRootSessionPromise: Promise<CRSession> | null = null;
+  private _clientRootSessionPromise: Promise<CDPSession> | null = null;
   readonly _contexts = new Map<string, CRBrowserContext>();
   _crPages = new Map<string, CRPage>();
   _backgroundPages = new Map<string, CRPage>();
@@ -48,7 +50,6 @@ export class CRBrowser extends Browser {
   private _version = '';
 
   private _tracingRecording = false;
-  private _tracingPath: string | null = '';
   private _tracingClient: CRSession | undefined;
   private _userAgent: string = '';
 
@@ -58,6 +59,8 @@ export class CRBrowser extends Browser {
     const connection = new CRConnection(transport, options.protocolLogger, options.browserLogsCollector);
     const browser = new CRBrowser(parent, connection, options);
     browser._devtools = devtools;
+    if (browser.isClank())
+      browser._isCollocatedWithServer = false;
     const session = connection.rootSession;
     if ((options as any).__testHookOnConnectToBrowser)
       await (options as any).__testHookOnConnectToBrowser();
@@ -90,7 +93,7 @@ export class CRBrowser extends Browser {
     super(parent, options);
     this._connection = connection;
     this._session = this._connection.rootSession;
-    this._connection.on(ConnectionEvents.Disconnected, () => this._didClose());
+    this._connection.on(ConnectionEvents.Disconnected, () => this._didDisconnect());
     this._session.on('Target.attachedToTarget', this._onAttachedToTarget.bind(this));
     this._session.on('Target.detachedFromTarget', this._onDetachedFromTarget.bind(this));
     this._session.on('Browser.downloadWillBegin', this._onDownloadWillBegin.bind(this));
@@ -148,7 +151,7 @@ export class CRBrowser extends Browser {
   _onAttachedToTarget({ targetInfo, sessionId, waitingForDebugger }: Protocol.Target.attachedToTargetPayload) {
     if (targetInfo.type === 'browser')
       return;
-    const session = this._connection.session(sessionId)!;
+    const session = this._session.createChildSession(sessionId);
     assert(targetInfo.browserContextId, 'targetInfo: ' + JSON.stringify(targetInfo, null, 2));
     let context = this._contexts.get(targetInfo.browserContextId) || null;
     if (!context) {
@@ -165,12 +168,7 @@ export class CRBrowser extends Browser {
     const treatOtherAsPage = targetInfo.type === 'other' && process.env.PW_CHROMIUM_ATTACH_TO_OTHER;
 
     if (!context || (targetInfo.type === 'other' && !treatOtherAsPage)) {
-      if (waitingForDebugger) {
-        // Ideally, detaching should resume any target, but there is a bug in the backend.
-        session._sendMayFail('Runtime.runIfWaitingForDebugger').then(() => {
-          this._session._sendMayFail('Target.detachFromTarget', { sessionId });
-        });
-      }
+      session.detach().catch(() => {});
       return;
     }
 
@@ -203,15 +201,10 @@ export class CRBrowser extends Browser {
     // One example of a side effect: upon shared worker restart, we receive
     // Inspector.targetReloadedAfterCrash and backend waits for Runtime.runIfWaitingForDebugger
     // from any attached client. If we do not resume, shared worker will stall.
-    //
-    // Ideally, detaching should resume any target, but there is a bug in the backend,
-    // so we must Runtime.runIfWaitingForDebugger first.
-    session._sendMayFail('Runtime.runIfWaitingForDebugger').then(() => {
-      this._session._sendMayFail('Target.detachFromTarget', { sessionId });
-    });
+    session.detach().catch(() => {});
   }
 
-  _onDetachedFromTarget(payload: Protocol.Target.detachFromTargetParameters) {
+  _onDetachedFromTarget(payload: Protocol.Target.detachedFromTargetPayload) {
     const targetId = payload.targetId!;
     const crPage = this._crPages.get(targetId);
     if (crPage) {
@@ -231,6 +224,19 @@ export class CRBrowser extends Browser {
       serviceWorker.didClose();
       return;
     }
+  }
+
+  private _didDisconnect() {
+    for (const crPage of this._crPages.values())
+      crPage.didClose();
+    this._crPages.clear();
+    for (const backgroundPage of this._backgroundPages.values())
+      backgroundPage.didClose();
+    this._backgroundPages.clear();
+    for (const serviceWorker of this._serviceWorkers.values())
+      serviceWorker.didClose();
+    this._serviceWorkers.clear();
+    this._didClose();
   }
 
   private _findOwningPage(frameId: string) {
@@ -265,18 +271,18 @@ export class CRBrowser extends Browser {
     if (payload.state === 'completed')
       this._downloadFinished(payload.guid, '');
     if (payload.state === 'canceled')
-      this._downloadFinished(payload.guid, 'canceled');
+      this._downloadFinished(payload.guid, this._closeReason || 'canceled');
   }
 
   async _closePage(crPage: CRPage) {
     await this._session.send('Target.closeTarget', { targetId: crPage._targetId });
   }
 
-  async newBrowserCDPSession(): Promise<CRSession> {
+  async newBrowserCDPSession(): Promise<CDPSession> {
     return await this._connection.createBrowserSession();
   }
 
-  async startTracing(page?: Page, options: { path?: string; screenshots?: boolean; categories?: string[]; } = {}) {
+  async startTracing(page?: Page, options: { screenshots?: boolean; categories?: string[]; } = {}) {
     assert(!this._tracingRecording, 'Cannot start recording trace while already recording trace.');
     this._tracingClient = page ? (page._delegate as CRPage)._mainFrameSession._client : this._session;
 
@@ -287,7 +293,6 @@ export class CRBrowser extends Browser {
       'disabled-by-default-v8.cpu_profiler', 'disabled-by-default-v8.cpu_profiler.hires'
     ];
     const {
-      path = null,
       screenshots = false,
       categories = defaultCategories,
     } = options;
@@ -295,7 +300,6 @@ export class CRBrowser extends Browser {
     if (screenshots)
       categories.push('disabled-by-default-devtools.screenshot');
 
-    this._tracingPath = path;
     this._tracingRecording = true;
     await this._tracingClient.send('Tracing.start', {
       transferMode: 'ReturnAsStream',
@@ -303,22 +307,25 @@ export class CRBrowser extends Browser {
     });
   }
 
-  async stopTracing(): Promise<Buffer> {
+  async stopTracing(): Promise<Artifact> {
     assert(this._tracingClient, 'Tracing was not started.');
     const [event] = await Promise.all([
       new Promise(f => this._tracingClient!.once('Tracing.tracingComplete', f)),
       this._tracingClient.send('Tracing.end')
     ]);
-    const result = await readProtocolStream(this._tracingClient, (event as any).stream!, this._tracingPath);
+    const tracingPath = path.join(this.options.artifactsDir, createGuid() + '.crtrace');
+    await saveProtocolStream(this._tracingClient, (event as any).stream!, tracingPath);
     this._tracingRecording = false;
-    return result;
+    const artifact = new Artifact(this, tracingPath);
+    artifact.reportFinished();
+    return artifact;
   }
 
   isConnected(): boolean {
     return !this._connection._closed;
   }
 
-  async _clientRootSession(): Promise<CRSession> {
+  async _clientRootSession(): Promise<CDPSession> {
     if (!this._clientRootSessionPromise)
       this._clientRootSessionPromise = this._connection.createBrowserSession();
     return this._clientRootSessionPromise;
@@ -341,9 +348,9 @@ export class CRBrowserContext extends BrowserContext {
   override async _initialize() {
     assert(!Array.from(this._browser._crPages.values()).some(page => page._browserContext === this));
     const promises: Promise<any>[] = [super._initialize()];
-    if (this._browser.options.name !== 'electron' && this._browser.options.name !== 'clank') {
+    if (this._browser.options.name !== 'electron' && this._browser.options.name !== 'clank' && this._options.acceptDownloads !== 'internal-browser-default') {
       promises.push(this._browser._session.send('Browser.setDownloadBehavior', {
-        behavior: this._options.acceptDownloads ? 'allowAndName' : 'deny',
+        behavior: this._options.acceptDownloads === 'accept' ? 'allowAndName' : 'deny',
         browserContextId: this._browserContextId,
         downloadPath: this._browser.options.downloadsPath,
         eventsEnabled: true,
@@ -505,7 +512,7 @@ export class CRBrowserContext extends BrowserContext {
       await (sw as CRServiceWorker).updateRequestInterception();
   }
 
-  async doClose() {
+  async doClose(reason: string | undefined) {
     // Headful chrome cannot dispose browser context with opened 'beforeunload'
     // dialogs, so we should close all that are currently opened.
     // We also won't get new ones since `Target.disposeBrowserContext` does not trigger
@@ -520,7 +527,7 @@ export class CRBrowserContext extends BrowserContext {
     if (!this._browserContextId) {
       await Promise.all(this._crPages().map(crPage => crPage._mainFrameSession._stopVideoRecording()));
       // Closing persistent context should close the browser.
-      await this._browser.close();
+      await this._browser.close({ reason });
       return;
     }
 
@@ -532,7 +539,7 @@ export class CRBrowserContext extends BrowserContext {
       // When closing a browser context, service workers are shutdown
       // asynchronously and we get detached from them later.
       // To avoid the wrong order of notifications, we manually fire
-      // "close" event here and forget about the serivce worker.
+      // "close" event here and forget about the service worker.
       serviceWorker.didClose();
       this._browser._serviceWorkers.delete(targetId);
     }
@@ -577,7 +584,7 @@ export class CRBrowserContext extends BrowserContext {
     return Array.from(this._browser._serviceWorkers.values()).filter(serviceWorker => serviceWorker._browserContext === this);
   }
 
-  async newCDPSession(page: Page | Frame): Promise<CRSession> {
+  async newCDPSession(page: Page | Frame): Promise<CDPSession> {
     let targetId: string | null = null;
     if (page instanceof Page) {
       targetId = (page._delegate as CRPage)._targetId;
@@ -590,7 +597,6 @@ export class CRBrowserContext extends BrowserContext {
     }
 
     const rootSession = await this._browser._clientRootSession();
-    const { sessionId } = await rootSession.send('Target.attachToTarget', { targetId, flatten: true });
-    return this._browser._connection.session(sessionId)!;
+    return rootSession.attachToTarget(targetId);
   }
 }

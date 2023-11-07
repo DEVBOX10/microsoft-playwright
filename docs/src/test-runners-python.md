@@ -3,6 +3,8 @@ id: test-runners
 title: "Pytest Plugin Reference"
 ---
 
+## Introduction
+
 Playwright provides a [Pytest](https://docs.pytest.org/en/stable/) plugin to write end-to-end tests. To get started with it, refer to the [getting started guide](./intro.md).
 
 ## Usage
@@ -24,6 +26,9 @@ addopts = --headed --browser firefox
 
 ## CLI arguments
 
+Note that CLI arguments are only applied to the default `browser`, `context` and `page` fixtures.
+If you create a browser, a context or a page with the API call like [`method: Browser.newContext`], the CLI arguments are not applied.
+
 - `--headed`: Run tests in headed mode (default: headless).
 - `--browser`: Run tests in a different browser `chromium`, `firefox`, or `webkit`. It can be specified multiple times (default: `chromium`).
 - `--browser-channel` [Browser channel](./browsers.md) to be used.
@@ -33,6 +38,7 @@ addopts = --headed --browser firefox
 - `--tracing` Whether to record a [trace](./trace-viewer.md) for each test. `on`, `off`, or `retain-on-failure` (default: `off`).
 - `--video` Whether to record video for each test. `on`, `off`, or `retain-on-failure` (default: `off`).
 - `--screenshot` Whether to automatically capture a screenshot after each test. `on`, `off`, or `only-on-failure` (default: `off`).
+- `--full-page-screenshot` Whether to take a full page screenshot on failure. By default, only the viewport is captured. Requires `--screenshot` to be enabled (default: `off`).
 
 ## Fixtures
 
@@ -40,6 +46,7 @@ This plugin configures Playwright-specific [fixtures for pytest](https://docs.py
 
 ```py
 def test_my_app_is_working(fixture_name):
+    pass
     # Test using fixture_name
     # ...
 ```
@@ -62,6 +69,17 @@ def test_my_app_is_working(fixture_name):
 
 - `browser_type_launch_args`: Override launch arguments for [`method: BrowserType.launch`]. It should return a Dict.
 - `browser_context_args`: Override the options for [`method: Browser.newContext`]. It should return a Dict.
+
+Its also possible to override the context options ([`method: Browser.newContext`]) for a single test by using the `browser_context_args` marker:
+
+```python
+import pytest
+
+@pytest.mark.browser_context_args(timezone_id="Europe/Berlin", locale="en-GB")
+def test_browser_context_args(page):
+    assert page.evaluate("window.navigator.userAgent") == "Europe/Berlin"
+    assert page.evaluate("window.navigator.languages") == ["de-DE"]
+```
 
 ## Parallelism: Running Multiple Tests at Once
 
@@ -98,7 +116,7 @@ Run tests with slow mo with the `--slowmo` argument.
 pytest --slowmo 100
 ```
 
-Slows down Playwright operations by 100 milliseconds. 
+Slows down Playwright operations by 100 milliseconds.
 
 ### Skip test by browser
 

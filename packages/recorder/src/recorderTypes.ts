@@ -18,11 +18,16 @@ import type { Language } from '../../playwright-core/src/utils/isomorphic/locato
 
 export type Point = { x: number, y: number };
 
-export type Mode = 'inspecting' | 'recording' | 'none';
+export type Mode = 'inspecting' | 'recording' | 'none' | 'assertingText' | 'recording-inspecting';
 
 export type EventData = {
-  event: 'clear' | 'resume' | 'step' | 'pause' | 'setMode' | 'selectorUpdated' | 'fileChanged';
+  event: 'clear' | 'resume' | 'step' | 'pause' | 'setMode' | 'selectorUpdated' | 'fileChanged' | 'setOverlayVisible';
   params: any;
+};
+
+export type OverlayState = {
+  position: Point;
+  visible: boolean;
 };
 
 export type UIState = {
@@ -31,6 +36,7 @@ export type UIState = {
   actionSelector?: string;
   language: 'javascript' | 'python' | 'java' | 'csharp' | 'jsonl';
   testIdAttributeName: string;
+  overlay: OverlayState;
 };
 
 export type CallLogStatus = 'in-progress' | 'done' | 'error' | 'paused';
@@ -74,6 +80,7 @@ declare global {
     playwrightSetMode: (mode: Mode) => void;
     playwrightSetPaused: (paused: boolean) => void;
     playwrightSetSources: (sources: Source[]) => void;
+    playwrightSetOverlayVisible: (visible: boolean) => void;
     playwrightUpdateLogs: (callLogs: CallLog[]) => void;
     playwrightSetFileIfNeeded: (file: string) => void;
     playwrightSetSelector: (selector: string, focus?: boolean) => void;

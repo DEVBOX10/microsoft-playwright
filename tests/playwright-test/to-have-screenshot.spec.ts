@@ -283,6 +283,7 @@ test('should support clip option for page', async ({ runInlineTest }, testInfo) 
       });
     `
   });
+  expect(fs.existsSync(testInfo.outputPath('test-results', 'a-is-a-test'))).toBe(false);
   expect(result.exitCode).toBe(0);
 });
 
@@ -597,7 +598,7 @@ test('should write missing expectations locally twice and attach them', async ({
 
   expect(result.output).toContain('Here we are!');
 
-  const stackLines = result.output.split('\n').filter(line => line.includes('    at ')).filter(line => !line.includes(testInfo.outputPath()));
+  const stackLines = result.output.split('\n').filter(line => line.includes('    at ')).filter(line => !line.includes('a.spec.js'));
   expect(result.output).toContain('a.spec.js:5');
   expect(stackLines.length).toBe(0);
 
@@ -1040,7 +1041,7 @@ test('should attach expected/actual/diff when sizes are different', async ({ run
     {
       name: 'snapshot-expected.png',
       contentType: 'image/png',
-      path: 'a-is-a-test/snapshot-expected.png'
+      path: 'to-have-screenshot-should-attach-expected-actual-diff-when-sizes-are-different-playwright-test/__screenshots__/a.spec.js/snapshot.png',
     },
     {
       name: 'snapshot-actual.png',

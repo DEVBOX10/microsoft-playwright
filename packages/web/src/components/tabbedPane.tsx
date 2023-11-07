@@ -20,8 +20,9 @@ import * as React from 'react';
 
 export interface TabbedPaneTabModel {
   id: string;
-  title: string | JSX.Element;
+  title: string;
   count?: number;
+  errorCount?: number;
   component?: React.ReactElement;
   render?: () => React.ReactElement;
 }
@@ -31,29 +32,59 @@ export const TabbedPane: React.FunctionComponent<{
   leftToolbar?: React.ReactElement[],
   rightToolbar?: React.ReactElement[],
   selectedTab: string,
-  setSelectedTab: (tab: string) => void
-}> = ({ tabs, selectedTab, setSelectedTab, leftToolbar, rightToolbar }) => {
-  return <div className='tabbed-pane'>
+  setSelectedTab: (tab: string) => void,
+  dataTestId?: string,
+  mode?: 'default' | 'select',
+}> = ({ tabs, selectedTab, setSelectedTab, leftToolbar, rightToolbar, dataTestId, mode }) => {
+  if (!mode)
+    mode = 'default';
+  return <div className='tabbed-pane' data-testid={dataTestId}>
     <div className='vbox'>
-      <Toolbar>{[
-        ...leftToolbar || [],
-        ...tabs.map(tab => (
-          <TabbedPaneTab
-            id={tab.id}
-            title={tab.title}
-            count={tab.count}
-            selected={selectedTab === tab.id}
-            onSelect={setSelectedTab}
-          ></TabbedPaneTab>)),
-        <div className='spacer'></div>,
-        ...rightToolbar || [],
-      ]}</Toolbar>
+      <Toolbar>
+        { leftToolbar && <div style={{ flex: 'none', display: 'flex', margin: '0 4px', alignItems: 'center' }}>
+          {...leftToolbar}
+        </div>}
+        {mode === 'default' && <div style={{ flex: 'auto', display: 'flex', height: '100%', overflow: 'hidden' }}>
+          {[...tabs.map(tab => (
+            <TabbedPaneTab
+              id={tab.id}
+              title={tab.title}
+              count={tab.count}
+              errorCount={tab.errorCount}
+              selected={selectedTab === tab.id}
+              onSelect={setSelectedTab}
+            ></TabbedPaneTab>)),
+          ]}
+        </div>}
+        {mode === 'select' && <div style={{ flex: 'auto', display: 'flex', height: '100%', overflow: 'hidden' }}>
+          <select style={{ width: '100%', background: 'none', cursor: 'pointer' }} onChange={e => {
+            setSelectedTab(tabs[e.currentTarget.selectedIndex].id);
+          }}>
+            {tabs.map(tab => {
+              let suffix = '';
+              if (tab.count === 1)
+                suffix = ' 🔵';
+              else if (tab.count)
+                suffix = ` 🔵✖️${tab.count}`;
+              if (tab.errorCount === 1)
+                suffix = ` 🔴`;
+              else if (tab.errorCount)
+                suffix = ` 🔴✖️${tab.errorCount}`;
+              return <option value={tab.id} selected={tab.id === selectedTab}>{tab.title}{suffix}</option>;
+            })}
+          </select>
+        </div>}
+        {rightToolbar && <div style={{ flex: 'none', display: 'flex', alignItems: 'center' }}>
+          {...rightToolbar}
+        </div>}
+      </Toolbar>
       {
         tabs.map(tab => {
+          const className = 'tab-content tab-' + tab.id;
           if (tab.component)
-            return <div key={tab.id} className='tab-content' style={{ display: selectedTab === tab.id ? 'inherit' : 'none' }}>{tab.component}</div>;
+            return <div key={tab.id} className={className} style={{ display: selectedTab === tab.id ? 'inherit' : 'none' }}>{tab.component}</div>;
           if (selectedTab === tab.id)
-            return <div key={tab.id} className='tab-content'>{tab.render!()}</div>;
+            return <div key={tab.id} className={className}>{tab.render!()}</div>;
         })
       }
     </div>
@@ -62,15 +93,18 @@ export const TabbedPane: React.FunctionComponent<{
 
 export const TabbedPaneTab: React.FunctionComponent<{
   id: string,
-  title: string | JSX.Element,
+  title: string,
   count?: number,
+  errorCount?: number,
   selected?: boolean,
   onSelect: (id: string) => void
-}> = ({ id, title, count, selected, onSelect }) => {
+}> = ({ id, title, count, errorCount, selected, onSelect }) => {
   return <div className={'tabbed-pane-tab ' + (selected ? 'selected' : '')}
     onClick={() => onSelect(id)}
+    title={title}
     key={id}>
     <div className='tabbed-pane-tab-label'>{title}</div>
-    <div className='tabbed-pane-tab-count'>{count || ''}</div>
+    {!!count && <div className='tabbed-pane-tab-counter'>{count}</div>}
+    {!!errorCount && <div className='tabbed-pane-tab-counter error'>{errorCount}</div>}
   </div>;
 };
