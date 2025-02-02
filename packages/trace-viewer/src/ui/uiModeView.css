@@ -18,6 +18,15 @@
   background-color: var(--vscode-sideBar-background);
 }
 
+.ui-mode-sidebar > .settings-toolbar {
+  border-top: 1px solid var(--vscode-panel-border);
+  cursor: pointer;
+}
+
+.ui-mode-sidebar > .settings-view {
+  margin: 0 0 8px 23px;
+}
+
 .ui-mode-sidebar input[type=search] {
   flex: auto;
 }
@@ -28,28 +37,6 @@
 
 .ui-mode-sidebar .toolbar-button:not([disabled]) .codicon-debug-stop {
   color: var(--vscode-debugIcon-stopForeground);
-}
-
-.ui-mode-list-item {
-  flex: auto;
-}
-
-.ui-mode-list-item-title {
-  flex: auto;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-
-.ui-mode-list-item-time {
-  flex: none;
-  color: var(--vscode-editorCodeLens-foreground);
-  margin: 0 4px;
-  user-select: none;
-}
-
-.list-view-entry.selected .ui-mode-list-item-time,
-.list-view-entry.highlighted .ui-mode-list-item-time {
-  display: none;
 }
 
 .ui-mode .section-title {
@@ -74,13 +61,25 @@
 }
 
 .ui-mode .disconnected {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: auto;
+  flex-direction: column;
+  background-color: var(--vscode-editor-background);
   position: absolute;
   top: 0;
-  left: 0;
   right: 0;
   bottom: 0;
+  left: 0;
   z-index: 1000;
-  background-color: rgba(0, 0, 0, 0.5);
+  line-height: 24px;
+}
+
+.disconnected .title {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 30px;
 }
 
 .status-line {
@@ -99,10 +98,6 @@
   text-overflow: ellipsis;
 }
 
-.list-view-entry:not(.highlighted):not(.selected) .toolbar-button:not(.toggled) {
-  display: none;
-}
-
 .ui-mode-sidebar input[type=search] {
   flex: auto;
   padding: 0 5px;
@@ -112,60 +107,4 @@
   border: none;
   color: var(--vscode-input-foreground);
   background-color: var(--vscode-input-background);
-}
-
-.filters {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  margin: 2px 0;
-}
-
-.filter-list {
-  padding: 0 10px 10px 10px;
-  user-select: none;
-}
-
-.filter-title,
-.filter-summary {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  user-select: none;
-  cursor: pointer;
-}
-
-.filter-label {
-  color: var(--vscode-disabledForeground);
-}
-
-.filter-summary {
-  line-height: 24px;
-  margin-left: 24px;
-}
-
-.filter-summary .filter-label {
-  margin-left: 5px;
-}
-
-.filter-entry {
-  line-height: 24px;
-}
-
-.filter-entry label {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.filter-entry input {
-  flex: none;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.filter-entry label div {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }

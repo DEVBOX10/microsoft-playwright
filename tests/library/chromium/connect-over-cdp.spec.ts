@@ -21,7 +21,7 @@ import fs from 'fs';
 import { getUserAgent } from '../../../packages/playwright-core/lib/utils/userAgent';
 import { suppressCertificateWarning } from '../../config/utils';
 
-test.skip(({ mode }) => mode.startsWith('service'));
+test.skip(({ mode }) => mode === 'service2');
 
 test('should connect to an existing cdp session', async ({ browserType, mode }, testInfo) => {
   const port = 9339 + testInfo.workerIndex;
@@ -35,6 +35,33 @@ test('should connect to an existing cdp session', async ({ browserType, mode }, 
     const contexts = cdpBrowser.contexts();
     expect(contexts.length).toBe(1);
     await cdpBrowser.close();
+  } finally {
+    await browserServer.close();
+  }
+});
+
+test('should use logger in default context', async ({ browserType }, testInfo) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28813' });
+  const port = 9339 + testInfo.workerIndex;
+  const browserServer = await browserType.launch({
+    args: ['--remote-debugging-port=' + port]
+  });
+  try {
+    const log = [];
+    const browser = await browserType.connectOverCDP({
+      endpointURL: `http://127.0.0.1:${port}/`,
+      logger: {
+        log: (name, severity, message) => log.push({ name, severity, message }),
+        isEnabled: (name, severity) => severity !== 'verbose'
+      }
+    });
+    const page = await browser.contexts()[0].newPage();
+    await page.setContent('<button>Button</button>');
+    await page.click('button');
+    await browser.close();
+    expect(log.length > 0).toBeTruthy();
+    expect(log.filter(item => item.message.includes('page.setContent')).length > 0).toBeTruthy();
+    expect(log.filter(item => item.message.includes('page.click')).length > 0).toBeTruthy();
   } finally {
     await browserServer.close();
   }
@@ -229,9 +256,9 @@ test('should send extra headers with connect request', async ({ browserType, ser
   }
   {
     const [request] = await Promise.all([
-      server.waitForWebSocketConnectionRequest(),
+      server.waitForRequest('/json/version/'),
       browserType.connectOverCDP({
-        endpointURL: `ws://localhost:${server.PORT}/ws`,
+        endpointURL: `http://localhost:${server.PORT}`,
         headers: {
           'User-Agent': 'Playwright',
           'foo': 'bar',
@@ -382,13 +409,13 @@ test('should connect to an existing cdp session when passed as a first argument'
   }
 });
 
-test('should use proxy with connectOverCDP', async ({ browserType, server, mode }, testInfo) => {
+test('should use proxy with connectOverCDP', async ({ browserType, server }, testInfo) => {
   server.setRoute('/target.html', async (req, res) => {
     res.end('<html><title>Served by the proxy</title></html>');
   });
   const port = 9339 + testInfo.workerIndex;
   const browserServer = await browserType.launch({
-    args: ['--remote-debugging-port=' + port, ...(process.platform === 'win32' ? ['--proxy-server=some-value'] : [])]
+    args: ['--remote-debugging-port=' + port]
   });
   try {
     const cdpBrowser = await browserType.connectOverCDP(`http://127.0.0.1:${port}/`);
@@ -499,4 +526,14 @@ test('setInputFiles should preserve lastModified timestamp', async ({ browserTyp
   } finally {
     await browserServer.close();
   }
+});
+
+test('should print custom ws close error', async ({ browserType, server }) => {
+  server.onceWebSocketConnection((ws, request) => {
+    ws.on('message', message => {
+      ws.close(4123, 'Oh my!');
+    });
+  });
+  const error = await browserType.connectOverCDP(`ws://localhost:${server.PORT}/ws`).catch(e => e);
+  expect(error.message).toContain(`Browser logs:\n\nOh my!\n`);
 });

@@ -26,7 +26,7 @@ import { Dispatcher } from './dispatcher';
 import { yazl, yauzl } from '../../zipBundle';
 import { ZipFile } from '../../utils/zipFile';
 import type * as har from '@trace/har';
-import type { HeadersArray, Devices } from '../types';
+import type { HeadersArray } from '../types';
 import { JsonPipeDispatcher } from '../dispatchers/jsonPipeDispatcher';
 import { WebSocketTransport } from '../transport';
 import { SocksInterceptor } from '../socksInterceptor';
@@ -40,6 +40,7 @@ import type http from 'http';
 import type { Playwright } from '../playwright';
 import { SdkObject } from '../../server/instrumentation';
 import { serializeClientSideCallMetadata } from '../../utils';
+import { deviceDescriptors as descriptors }  from '../deviceDescriptors';
 
 export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.LocalUtilsChannel, RootDispatcher> implements channels.LocalUtilsChannel {
   _type_LocalUtils: boolean;
@@ -53,7 +54,6 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
 
   constructor(scope: RootDispatcher, playwright: Playwright) {
     const localUtils = new SdkObject(playwright, 'localUtils', 'localUtils');
-    const descriptors = require('../deviceDescriptors') as Devices;
     const deviceDescriptors = Object.entries(descriptors)
         .map(([name, descriptor]) => ({ name, descriptor }));
     super(scope, localUtils, 'LocalUtils', {
@@ -230,9 +230,9 @@ export class LocalUtilsDispatcher extends Dispatcher<{ guid: string }, channels.
       pipe.on('message', message => {
         transport.send(message);
       });
-      transport.onclose = () => {
+      transport.onclose = (reason?: string) => {
         socksInterceptor?.cleanup();
-        pipe.wasClosed();
+        pipe.wasClosed(reason);
       };
       pipe.on('close', () => transport.close());
       return { pipe, headers: transport.headers };
@@ -348,8 +348,17 @@ class HarBackend {
           continue;
         if (method === 'POST' && postData && candidate.request.postData) {
           const buffer = await this._loadContent(candidate.request.postData);
-          if (!buffer.equals(postData))
-            continue;
+          if (!buffer.equals(postData)) {
+            const boundary = multipartBoundary(headers);
+            if (!boundary)
+              continue;
+            const candidataBoundary = multipartBoundary(candidate.request.headers);
+            if (!candidataBoundary)
+              continue;
+            // Try to match multipart/form-data ignroing boundary as it changes between requests.
+            if (postData.toString().replaceAll(boundary, '') !== buffer.toString().replaceAll(candidataBoundary, ''))
+              continue;
+          }
         }
         entries.push(candidate);
       }
@@ -436,4 +445,14 @@ export async function urlToWSEndpoint(progress: Progress|undefined, endpointURL:
   wsUrl.pathname += wsEndpointPath;
   wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
   return wsUrl.toString();
+}
+
+function multipartBoundary(headers: HeadersArray) {
+  const contentType = headers.find(h => h.name.toLowerCase() === 'content-type');
+  if (!contentType?.value.includes('multipart/form-data'))
+    return undefined;
+  const boundary = contentType.value.match(/boundary=(\S+)/);
+  if (boundary)
+    return boundary[1];
+  return undefined;
 }

@@ -1,13 +1,12 @@
 # class: BrowserContext
 * since: v1.8
-* extends: [EventEmitter]
 
 BrowserContexts provide a way to operate multiple independent browser sessions.
 
 If a page opens another page, e.g. with a `window.open` call, the popup will belong to the parent page's browser
 context.
 
-Playwright allows creating "incognito" browser contexts with [`method: Browser.newContext`] method. "Incognito" browser
+Playwright allows creating isolated non-persistent browser contexts with [`method: Browser.newContext`] method. Non-persistent browser
 contexts don't write any browsing data to disk.
 
 ```js
@@ -64,7 +63,6 @@ await context.CloseAsync();
 
 ## event: BrowserContext.backgroundPage
 * since: v1.11
-* langs: js, python
 - argument: <[Page]>
 
 :::note
@@ -72,6 +70,12 @@ Only works with Chromium browser's persistent context.
 :::
 
 Emitted when new background page is created in the context.
+
+```java
+context.onBackgroundPage(backgroundPage -> {
+  System.out.println(backgroundPage.url());
+});
+```
 
 ```js
 const backgroundPage = await context.waitForEvent('backgroundpage');
@@ -84,6 +88,20 @@ background_page = await context.wait_for_event("backgroundpage")
 ```python sync
 background_page = context.wait_for_event("backgroundpage")
 ```
+
+```csharp
+context.BackgroundPage += (_, backgroundPage) =>
+{
+    Console.WriteLine(backgroundPage.Url);
+};
+
+```
+
+## property: BrowserContext.clock
+* since: v1.45
+- type: <[Clock]>
+
+Playwright has ability to mock clock and passage of time.
 
 ## event: BrowserContext.close
 * since: v1.8
@@ -106,7 +124,7 @@ The reason to be reported to the operations interrupted by the context closure.
   - alias-java: consoleMessage
 - argument: <[ConsoleMessage]>
 
-Emitted when JavaScript within the page calls one of console API methods, e.g. `console.log` or `console.dir`. Also emitted if the page throws an error or a warning.
+Emitted when JavaScript within the page calls one of console API methods, e.g. `console.log` or `console.dir`.
 
 The arguments passed into `console.log` and the page are available on the [ConsoleMessage] event handler argument.
 
@@ -186,7 +204,10 @@ context.on("dialog", lambda dialog: dialog.accept())
 ```
 
 ```csharp
-context.Dialog += (_, dialog) => dialog.AcceptAsync();
+Context.Dialog += async (_, dialog) =>
+{
+    await dialog.AcceptAsync();
+};
 ```
 
 :::note
@@ -202,7 +223,7 @@ also fire for popup pages. See also [`event: Page.popup`] to receive events abou
 
 The earliest moment that page is available is when it has navigated to the initial url. For example, when opening a
 popup with `window.open('http://example.com')`, this event will fire when the network request to "http://example.com" is
-done and its response has started loading in the popup.
+done and its response has started loading in the popup. If you would like to route/listen to this network request, use [`method: BrowserContext.route`] and [`event: BrowserContext.request`] respectively instead of similar methods on the [Page].
 
 ```js
 const newPagePromise = context.waitForEvent('page');
@@ -335,17 +356,13 @@ await context.AddCookiesAsync(new[] { cookie1, cookie2 });
 - `cookies` <[Array]<[Object]>>
   - `name` <[string]>
   - `value` <[string]>
-  - `url` ?<[string]> either url or domain / path are required. Optional.
-  - `domain` ?<[string]> either url or domain / path are required Optional.
-  - `path` ?<[string]> either url or domain / path are required Optional.
+  - `url` ?<[string]> Either url or domain / path are required. Optional.
+  - `domain` ?<[string]> For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com". Either url or domain / path are required. Optional.
+  - `path` ?<[string]> Either url or domain / path are required Optional.
   - `expires` ?<[float]> Unix time in seconds. Optional.
   - `httpOnly` ?<[boolean]> Optional.
   - `secure` ?<[boolean]> Optional.
   - `sameSite` ?<[SameSiteAttribute]<"Strict"|"Lax"|"None">> Optional.
-
-Adds cookies to the browser context.
-
-For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com".
 
 ## async method: BrowserContext.addInitScript
 * since: v1.8
@@ -390,7 +407,7 @@ browser_context.add_init_script(path="preload.js")
 ```
 
 ```csharp
-await context.AddInitScriptAsync(scriptPath: "preload.js");
+await Context.AddInitScriptAsync(scriptPath: "preload.js");
 ```
 
 :::note
@@ -438,7 +455,6 @@ Script to be evaluated in all pages in the browser context. Optional.
 
 ## method: BrowserContext.backgroundPages
 * since: v1.11
-* langs: js, python
 - returns: <[Array]<[Page]>>
 
 :::note
@@ -456,7 +472,71 @@ Returns the browser instance of the context. If it was launched as a persistent 
 ## async method: BrowserContext.clearCookies
 * since: v1.8
 
-Clears context cookies.
+Removes cookies from context. Accepts optional filter.
+
+**Usage**
+
+```js
+await context.clearCookies();
+await context.clearCookies({ name: 'session-id' });
+await context.clearCookies({ domain: 'my-origin.com' });
+await context.clearCookies({ domain: /.*my-origin\.com/ });
+await context.clearCookies({ path: '/api/v1' });
+await context.clearCookies({ name: 'session-id', domain: 'my-origin.com' });
+```
+
+
+```java
+context.clearCookies();
+context.clearCookies(new BrowserContext.ClearCookiesOptions().setName("session-id"));
+context.clearCookies(new BrowserContext.ClearCookiesOptions().setDomain("my-origin.com"));
+context.clearCookies(new BrowserContext.ClearCookiesOptions().setPath("/api/v1"));
+context.clearCookies(new BrowserContext.ClearCookiesOptions()
+                         .setName("session-id")
+                         .setDomain("my-origin.com"));
+```
+
+```python async
+await context.clear_cookies()
+await context.clear_cookies(name="session-id")
+await context.clear_cookies(domain="my-origin.com")
+await context.clear_cookies(path="/api/v1")
+await context.clear_cookies(name="session-id", domain="my-origin.com")
+```
+
+```python sync
+context.clear_cookies()
+context.clear_cookies(name="session-id")
+context.clear_cookies(domain="my-origin.com")
+context.clear_cookies(path="/api/v1")
+context.clear_cookies(name="session-id", domain="my-origin.com")
+```
+
+```csharp
+await context.ClearCookiesAsync();
+await context.ClearCookiesAsync(new() { Name = "session-id" });
+await context.ClearCookiesAsync(new() { Domain = "my-origin.com" });
+await context.ClearCookiesAsync(new() { Path = "/api/v1" });
+await context.ClearCookiesAsync(new() { Name = "session-id", Domain = "my-origin.com" });
+```
+
+### option: BrowserContext.clearCookies.name
+* since: v1.43
+- `name` <[string]|[RegExp]>
+
+Only removes cookies with the given name.
+
+### option: BrowserContext.clearCookies.domain
+* since: v1.43
+- `domain` <[string]|[RegExp]>
+
+Only removes cookies with the given domain.
+
+### option: BrowserContext.clearCookies.path
+* since: v1.43
+- `path` <[string]|[RegExp]>
+
+Only removes cookies with the given path.
 
 ## async method: BrowserContext.clearPermissions
 * since: v1.8
@@ -575,7 +655,7 @@ import com.microsoft.playwright.*;
 public class Example {
   public static void main(String[] args) {
     try (Playwright playwright = Playwright.create()) {
-      BrowserType webkit = playwright.webkit()
+      BrowserType webkit = playwright.webkit();
       Browser browser = webkit.launch(new BrowserType.LaunchOptions().setHeadless(false));
       BrowserContext context = browser.newContext();
       context.exposeBinding("pageURL", (source, args) -> source.page().url());
@@ -663,83 +743,6 @@ await page.SetContentAsync("<script>\n" +
 await page.GetByRole(AriaRole.Button).ClickAsync();
 ```
 
-An example of passing an element handle:
-
-```js
-await context.exposeBinding('clicked', async (source, element) => {
-  console.log(await element.textContent());
-}, { handle: true });
-await page.setContent(`
-  <script>
-    document.addEventListener('click', event => window.clicked(event.target));
-  </script>
-  <div>Click me</div>
-  <div>Or click me</div>
-`);
-```
-
-```java
-context.exposeBinding("clicked", (source, args) -> {
-  ElementHandle element = (ElementHandle) args[0];
-  System.out.println(element.textContent());
-  return null;
-}, new BrowserContext.ExposeBindingOptions().setHandle(true));
-page.setContent("" +
-  "<script>\n" +
-  "  document.addEventListener('click', event => window.clicked(event.target));\n" +
-  "</script>\n" +
-  "<div>Click me</div>\n" +
-  "<div>Or click me</div>\n");
-```
-
-```python async
-async def print(source, element):
-    print(await element.text_content())
-
-await context.expose_binding("clicked", print, handle=true)
-await page.set_content("""
-  <script>
-    document.addEventListener('click', event => window.clicked(event.target));
-  </script>
-  <div>Click me</div>
-  <div>Or click me</div>
-""")
-```
-
-```python sync
-def print(source, element):
-    print(element.text_content())
-
-context.expose_binding("clicked", print, handle=true)
-page.set_content("""
-  <script>
-    document.addEventListener('click', event => window.clicked(event.target));
-  </script>
-  <div>Click me</div>
-  <div>Or click me</div>
-""")
-```
-
-```csharp
-var result = new TaskCompletionSource<string>();
-var page = await Context.NewPageAsync();
-await Context.ExposeBindingAsync("clicked", async (BindingSource _, IJSHandle t) =>
-{
-    return result.TrySetResult(await t.AsElement().TextContentAsync());
-});
-
-await page.SetContentAsync("<script>\n" +
-  "  document.addEventListener('click', event => window.clicked(event.target));\n" +
-  "</script>\n" +
-  "<div>Click me</div>\n" +
-  "<div>Or click me</div>\n");
-
-await page.ClickAsync("div");
-// Note: it makes sense to await the result here, because otherwise, the context
-//  gets closed and the binding function will throw an exception.
-Assert.AreEqual("Click me", await result.Task);
-```
-
 ### param: BrowserContext.exposeBinding.name
 * since: v1.8
 - `name` <[string]>
@@ -754,6 +757,7 @@ Callback function that will be called in the Playwright's context.
 
 ### option: BrowserContext.exposeBinding.handle
 * since: v1.8
+* deprecated: This option will be removed in the future.
 - `handle` <[boolean]>
 
 Whether to pass the argument as a handle, instead of passing by value. When passing a handle, only one argument is
@@ -809,8 +813,9 @@ import java.util.Base64;
 public class Example {
   public static void main(String[] args) {
     try (Playwright playwright = Playwright.create()) {
-      BrowserType webkit = playwright.webkit()
+      BrowserType webkit = playwright.webkit();
       Browser browser = webkit.launch(new BrowserType.LaunchOptions().setHeadless(false));
+      BrowserContext context = browser.newContext();
       context.exposeFunction("sha256", args -> {
         String text = (String) args[0];
         MessageDigest crypto;
@@ -958,22 +963,28 @@ specified.
 * since: v1.8
 - `permissions` <[Array]<[string]>>
 
-A permission or an array of permissions to grant. Permissions can be one of the following values:
-* `'geolocation'`
-* `'midi'`
-* `'midi-sysex'` (system-exclusive midi)
-* `'notifications'`
-* `'camera'`
-* `'microphone'`
-* `'background-sync'`
-* `'ambient-light-sensor'`
+A list of permissions to grant.
+
+:::danger
+Supported permissions differ between browsers, and even between different versions of the same browser. Any permission may stop working after an update.
+:::
+
+Here are some permissions that may be supported by some browsers:
 * `'accelerometer'`
-* `'gyroscope'`
-* `'magnetometer'`
-* `'accessibility-events'`
+* `'ambient-light-sensor'`
+* `'background-sync'`
+* `'camera'`
 * `'clipboard-read'`
 * `'clipboard-write'`
+* `'geolocation'`
+* `'gyroscope'`
+* `'magnetometer'`
+* `'microphone'`
+* `'midi-sysex'` (system-exclusive midi)
+* `'midi'`
+* `'notifications'`
 * `'payment-handler'`
+* `'storage-access'`
 
 ### option: BrowserContext.grantPermissions.origin
 * since: v1.8
@@ -1009,6 +1020,20 @@ Creates a new page in the browser context.
 - returns: <[Array]<[Page]>>
 
 Returns all open pages in the context.
+
+## async method: BrowserContext.removeAllListeners
+* since: v1.47
+* langs: js
+
+Removes all the listeners of the given type (or all registered listeners if no type given).
+Allows to wait for async listeners to complete or to ignore subsequent errors from these listeners.
+
+### param: BrowserContext.removeAllListeners.type
+* since: v1.47
+- `type` ?<[string]>
+
+### option: BrowserContext.removeAllListeners.behavior = %%-remove-all-listeners-options-behavior-%%
+* since: v1.47
 
 ## property: BrowserContext.request
 * since: v1.16
@@ -1120,11 +1145,11 @@ await browser.CloseAsync();
 It is possible to examine the request to decide the route action. For example, mocking all requests that contain some post data, and leaving all other requests as is:
 
 ```js
-await context.route('/api/**', route => {
+await context.route('/api/**', async route => {
   if (route.request().postData().includes('my-string'))
-    route.fulfill({ body: 'mocked-data' });
+    await route.fulfill({ body: 'mocked-data' });
   else
-    route.continue();
+    await route.continue();
 });
 ```
 
@@ -1138,16 +1163,16 @@ context.route("/api/**", route -> {
 ```
 
 ```python async
-def handle_route(route):
+async def handle_route(route: Route):
   if ("my-string" in route.request.post_data):
-    route.fulfill(body="mocked-data")
+    await route.fulfill(body="mocked-data")
   else:
-    route.continue_()
+    await route.continue_()
 await context.route("/api/**", handle_route)
 ```
 
 ```python sync
-def handle_route(route):
+def handle_route(route: Route):
   if ("my-string" in route.request.post_data):
     route.fulfill(body="mocked-data")
   else:
@@ -1159,7 +1184,7 @@ context.route("/api/**", handle_route)
 await page.RouteAsync("/api/**", async r =>
 {
     if (r.Request.PostData.Contains("my-string"))
-        await r.FulfillAsync(body: "mocked-data");
+        await r.FulfillAsync(new() { Body = "mocked-data" });
     else
         await r.ContinueAsync();
 });
@@ -1179,7 +1204,7 @@ Enabling routing disables http cache.
 - `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]>
 
 A glob pattern, regex pattern or predicate receiving [URL] to match while routing.
-When a [`option: baseURL`] via the context options was provided and the passed URL is a path,
+When a [`option: Browser.newContext.baseURL`] via the context options was provided and the passed URL is a path,
 it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
 
 ### param: BrowserContext.route.handler
@@ -1247,6 +1272,99 @@ When set to `minimal`, only record information necessary for routing from HAR. T
 
 Optional setting to control resource content management. If `attach` is specified, resources are persisted as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file.
 
+
+## async method: BrowserContext.routeWebSocket
+* since: v1.48
+
+This method allows to modify websocket connections that are made by any page in the browser context.
+
+Note that only `WebSocket`s created after this method was called will be routed. It is recommended to call this method before creating any pages.
+
+**Usage**
+
+Below is an example of a simple handler that blocks some websocket messages.
+See [WebSocketRoute] for more details and examples.
+
+```js
+await context.routeWebSocket('/ws', async ws => {
+  ws.routeSend(message => {
+    if (message === 'to-be-blocked')
+      return;
+    ws.send(message);
+  });
+  await ws.connect();
+});
+```
+
+```java
+context.routeWebSocket("/ws", ws -> {
+  ws.routeSend(message -> {
+    if ("to-be-blocked".equals(message))
+      return;
+    ws.send(message);
+  });
+  ws.connect();
+});
+```
+
+```python async
+def message_handler(ws: WebSocketRoute, message: Union[str, bytes]):
+  if message == "to-be-blocked":
+    return
+  ws.send(message)
+
+async def handler(ws: WebSocketRoute):
+  ws.route_send(lambda message: message_handler(ws, message))
+  await ws.connect()
+
+await context.route_web_socket("/ws", handler)
+```
+
+```python sync
+def message_handler(ws: WebSocketRoute, message: Union[str, bytes]):
+  if message == "to-be-blocked":
+    return
+  ws.send(message)
+
+def handler(ws: WebSocketRoute):
+  ws.route_send(lambda message: message_handler(ws, message))
+  ws.connect()
+
+context.route_web_socket("/ws", handler)
+```
+
+```csharp
+await context.RouteWebSocketAsync("/ws", async ws => {
+  ws.RouteSend(message => {
+    if (message == "to-be-blocked")
+      return;
+    ws.Send(message);
+  });
+  await ws.ConnectAsync();
+});
+```
+
+### param: BrowserContext.routeWebSocket.url
+* since: v1.48
+- `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]>
+
+Only WebSockets with the url matching this pattern will be routed. A string pattern can be relative to the [`option: Browser.newContext.baseURL`] context option.
+
+### param: BrowserContext.routeWebSocket.handler
+* since: v1.48
+* langs: js, python
+- `handler` <[function]\([WebSocketRoute]\): [Promise<any>|any]>
+
+Handler function to route the WebSocket.
+
+### param: BrowserContext.routeWebSocket.handler
+* since: v1.48
+* langs: csharp, java
+- `handler` <[function]\([WebSocketRoute]\)>
+
+Handler function to route the WebSocket.
+
+
 ## method: BrowserContext.serviceWorkers
 * since: v1.11
 * langs: js, python
@@ -1294,7 +1412,7 @@ This setting will change the default maximum time for all the methods accepting 
 * since: v1.8
 - `timeout` <[float]>
 
-Maximum time in milliseconds
+Maximum time in milliseconds. Pass `0` to disable timeout.
 
 ## async method: BrowserContext.setExtraHTTPHeaders
 * since: v1.8
@@ -1407,6 +1525,14 @@ Returns storage state for this browser context, contains current cookies and loc
 ## property: BrowserContext.tracing
 * since: v1.12
 - type: <[Tracing]>
+
+## async method: BrowserContext.unrouteAll
+* since: v1.41
+
+Removes all routes created with [`method: BrowserContext.route`] and [`method: BrowserContext.routeFromHAR`].
+
+### option: BrowserContext.unrouteAll.behavior = %%-unroute-all-options-behavior-%%
+* since: v1.41
 
 ## async method: BrowserContext.unroute
 * since: v1.8

@@ -21,7 +21,7 @@ export class PortTransport {
 
   constructor(port: MessagePort, handler: (method: string, params: any) => Promise<any>) {
     this._port = port;
-    port.onmessage = async event => {
+    port.addEventListener('message', async event => {
       const message = event.data;
       const { id, ackId, method, params, result } = message;
       if (id) {
@@ -33,17 +33,33 @@ export class PortTransport {
       if (ackId) {
         const callback = this._callbacks.get(ackId);
         this._callbacks.delete(ackId);
+        this._resetRef();
         callback?.(result);
         return;
       }
-    };
+    });
+    // Make sure to unref **after** adding a 'message' event listener.
+    // https://nodejs.org/api/worker_threads.html#portref
+    this._resetRef();
   }
 
   async send(method: string, params: any) {
     return await new Promise<any>(f => {
       const id = ++this._lastId;
       this._callbacks.set(id, f);
+      this._resetRef();
       this._port.postMessage({ id, method, params });
     });
+  }
+
+  private _resetRef() {
+    if (this._callbacks.size) {
+      // When we are waiting for a response, ref the port to prevent this process from exiting.
+      (this._port as any).ref();
+    } else {
+      // When we are not waiting for a response, unref the port to prevent this process
+      // from hanging forever.
+      (this._port as any).unref();
+    }
   }
 }

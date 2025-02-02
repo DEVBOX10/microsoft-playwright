@@ -28,7 +28,7 @@ export class RunServer implements PlaywrightServer {
   _wsEndpoint!: string;
 
   async start(childProcess: CommonFixtures['childProcess'], mode?: 'extension' | 'default', env?: NodeJS.ProcessEnv) {
-    const command = ['node', path.join(__dirname, '..', '..', 'packages', 'playwright-core', 'lib', 'cli', 'cli.js'), 'run-server'];
+    const command = ['node', path.join(__dirname, '..', '..', 'packages', 'playwright-core', 'cli.js'), 'run-server'];
     if (mode === 'extension')
       command.push('--mode=extension');
     this._process = childProcess({
@@ -68,6 +68,7 @@ export type RemoteServerOptions = {
   exitOnWarning?: boolean;
   inCluster?: boolean;
   url?: string;
+  startStopAndRunHttp?: boolean;
 };
 
 export class RemoteServer implements PlaywrightServer {
@@ -79,7 +80,7 @@ export class RemoteServer implements PlaywrightServer {
   _browser: Browser | undefined;
   _wsEndpoint!: string;
 
-  async _start(childProcess: CommonFixtures['childProcess'], browserType: BrowserType, remoteServerOptions: RemoteServerOptions = {}) {
+  async _start(childProcess: CommonFixtures['childProcess'], browserType: BrowserType, channel: string, remoteServerOptions: RemoteServerOptions = {}) {
     this._browserType = browserType;
     const browserOptions = (browserType as any)._defaultLaunchOptions;
     // Copy options to prevent a large JSON string when launching subprocess.
@@ -91,14 +92,21 @@ export class RemoteServer implements PlaywrightServer {
       handleSIGINT: true,
       handleSIGTERM: true,
       handleSIGHUP: true,
-      executablePath: browserOptions.channel ? undefined : browserOptions.executablePath || browserType.executablePath(),
+      executablePath: browserOptions.channel ? undefined : browserOptions.executablePath,
       logger: undefined,
     };
     const options = {
       browserTypeName: browserType.name(),
+      channel,
       launchOptions,
       ...remoteServerOptions,
     };
+    if ('bidi' === browserType.name()) {
+      if (channel.toLocaleLowerCase().includes('firefox'))
+        options.browserTypeName = '_bidiFirefox';
+      else
+        options.browserTypeName = '_bidiChromium';
+    }
     this._process = childProcess({
       command: ['node', path.join(__dirname, 'remote-server-impl.js'), JSON.stringify(options)],
       env: { ...process.env, PWTEST_UNDER_TEST: '1' },
@@ -148,6 +156,10 @@ export class RemoteServer implements PlaywrightServer {
 
   async childExitCode() {
     return await this._process.exitCode;
+  }
+
+  async childSignal() {
+    return (await this._process.exited).signal;
   }
 
   async close() {

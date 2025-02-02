@@ -19,8 +19,8 @@ import { EventEmitter } from 'events';
 import { assert } from '../../utils';
 import type { ConnectionTransport, ProtocolRequest, ProtocolResponse } from '../transport';
 import type { Protocol } from './protocol';
-import type { RecentLogsCollector } from '../../common/debugLogger';
-import { debugLogger } from '../../common/debugLogger';
+import type { RecentLogsCollector } from '../../utils/debugLogger';
+import { debugLogger } from '../../utils/debugLogger';
 import type { ProtocolLogger } from '../types';
 import { helper } from '../helper';
 import { ProtocolError } from '../protocolError';
@@ -31,7 +31,7 @@ export const kBrowserCloseMessageId = -9999;
 
 // We emulate kPageProxyMessageReceived message to unify it with Browser.pageProxyCreated
 // and Browser.pageProxyDestroyed for easier management.
-export const kPageProxyMessageReceived = 'kPageProxyMessageReceived';
+export const kPageProxyMessageReceived = Symbol('kPageProxyMessageReceived');
 export type PageProxyMessageReceivedPayload = { pageProxyId: string, message: any };
 
 export class WKConnection {
@@ -78,11 +78,11 @@ export class WKConnection {
     this.browserSession.dispatchMessage(message);
   }
 
-  _onClose() {
+  _onClose(reason?: string) {
     this._closed = true;
     this._transport.onmessage = undefined;
     this._transport.onclose = undefined;
-    this._browserDisconnectedLogs = helper.formatBrowserLogs(this._browserLogsCollector.recentLogs());
+    this._browserDisconnectedLogs = helper.formatBrowserLogs(this._browserLogsCollector.recentLogs(), reason);
     this.browserSession.dispose();
     this._onDisconnect();
   }

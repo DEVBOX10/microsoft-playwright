@@ -39,19 +39,19 @@ Optional error code. Defaults to `failed`, could be one of the following:
   - alias-java: resume
   - alias-python: continue_
 
-Continues route's request with optional overrides.
+Sends route's request to the network with optional overrides.
 
 **Usage**
 
 ```js
-await page.route('**/*', (route, request) => {
+await page.route('**/*', async (route, request) => {
   // Override headers
   const headers = {
     ...request.headers(),
     foo: 'foo-value', // set "foo" header
     bar: undefined, // remove "bar" header
   };
-  route.continue({ headers });
+  await route.continue({ headers });
 });
 ```
 
@@ -92,17 +92,19 @@ page.route("**/*", handle)
 ```
 
 ```csharp
-await page.RouteAsync("**/*", route =>
+await page.RouteAsync("**/*", async route =>
 {
     var headers = new Dictionary<string, string>(route.Request.Headers) { { "foo", "bar" } };
     headers.Remove("origin");
-    route.ContinueAsync(headers);
+    await route.ContinueAsync(new() { Headers = headers });
 });
 ```
 
 **Details**
 
-Note that any overrides such as [`option: url`] or [`option: headers`] only apply to the request being routed. If this request results in a redirect, overrides will not be applied to the new redirected request. If you want to propagate a header through redirects, use the combination of [`method: Route.fetch`] and [`method: Route.fulfill`] instead.
+The [`option: headers`] option applies to both the routed request and any redirects it initiates. However, [`option: url`], [`option: method`], and [`option: postData`] only apply to the original request and are not carried over to redirected requests.
+
+[`method: Route.continue`] will immediately send the request to the network, other matching handlers won't be invoked. Use [`method: Route.fallback`] If you want next matching handler in the chain to be invoked.
 
 ### option: Route.continue.url
 * since: v1.8
@@ -146,25 +148,27 @@ If set changes the request HTTP headers. Header values will be converted to a st
 ## async method: Route.fallback
 * since: v1.23
 
+Continues route's request with optional overrides. The method is similar to [`method: Route.continue`] with the difference that other matching handlers will be invoked before sending the request.
+
+**Usage**
+
 When several routes match the given pattern, they run in the order opposite to their registration.
 That way the last registered route can always override all the previous ones. In the example below,
 request will be handled by the bottom-most handler first, then it'll fall back to the previous one and
 in the end will be aborted by the first registered route.
 
-**Usage**
-
 ```js
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   // Runs last.
-  route.abort();
+  await route.abort();
 });
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   // Runs second.
-  route.fallback();
+  await route.fallback();
 });
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   // Runs first.
-  route.fallback();
+  await route.fallback();
 });
 ```
 
@@ -220,9 +224,9 @@ GET requests vs POST requests as in the example below.
 
 ```js
 // Handle GET requests.
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   if (route.request().method() !== 'GET') {
-    route.fallback();
+    await route.fallback();
     return;
   }
   // Handling GET only.
@@ -230,9 +234,9 @@ await page.route('**/*', route => {
 });
 
 // Handle POST requests.
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   if (route.request().method() !== 'POST') {
-    route.fallback();
+    await route.fallback();
     return;
   }
   // Handling POST only.
@@ -264,17 +268,17 @@ page.route("**/*", route -> {
 
 ```python async
 # Handle GET requests.
-def handle_get(route):
+async def handle_get(route):
     if route.request.method != "GET":
-        route.fallback()
+        await route.fallback()
         return
   # Handling GET only.
   # ...
 
 # Handle POST requests.
-def handle_post(route):
+async def handle_post(route):
     if route.request.method != "POST":
-        route.fallback()
+        await route.fallback()
         return
   # Handling POST only.
   # ...
@@ -330,14 +334,14 @@ One can also modify request while falling back to the subsequent handler, that w
 route handler can modify url, method, headers and postData of the request.
 
 ```js
-await page.route('**/*', (route, request) => {
+await page.route('**/*', async (route, request) => {
   // Override headers
   const headers = {
     ...request.headers(),
     foo: 'foo-value', // set "foo" header
     bar: undefined, // remove "bar" header
   };
-  route.fallback({ headers });
+  await route.fallback({ headers });
 });
 ```
 
@@ -378,13 +382,15 @@ page.route("**/*", handle)
 ```
 
 ```csharp
-await page.RouteAsync("**/*", route =>
+await page.RouteAsync("**/*", async route =>
 {
     var headers = new Dictionary<string, string>(route.Request.Headers) { { "foo", "foo-value" } };
     headers.Remove("bar");
-    route.FallbackAsync(headers);
+    await route.FallbackAsync(new() { Headers = headers });
 });
 ```
+
+Use [`method: Route.continue`] to immediately send the request to the network, other matching handlers won't be invoked in that case.
 
 ### option: Route.fallback.url
 * since: v1.23
@@ -503,6 +509,12 @@ If set changes the request URL. New URL must have same protocol as original one.
 Maximum number of request redirects that will be followed automatically. An error will be thrown if the number is exceeded.
 Defaults to `20`. Pass `0` to not follow redirects.
 
+### option: Route.fetch.maxRetries
+* since: v1.46
+- `maxRetries` <[int]>
+
+Maximum number of times network errors should be retried. Currently only `ECONNRESET` error is retried. Does not retry based on HTTP response codes. An error will be thrown if the limit is exceeded. Defaults to `0` - no retries.
+
 ### option: Route.fetch.timeout
 * since: v1.33
 - `timeout` <[float]>
@@ -554,8 +566,8 @@ Fulfills route's request with given response.
 An example of fulfilling all requests with 404 responses:
 
 ```js
-await page.route('**/*', route => {
-  route.fulfill({
+await page.route('**/*', async route => {
+  await route.fulfill({
     status: 404,
     contentType: 'text/plain',
     body: 'Not Found!'

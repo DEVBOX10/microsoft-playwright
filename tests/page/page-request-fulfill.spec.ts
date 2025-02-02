@@ -18,6 +18,7 @@
 import { test as base, expect } from './pageTest';
 import fs from 'fs';
 import type * as har from '../../packages/trace/src/har';
+import type { Route } from 'playwright-core';
 
 const it = base.extend<{
   // We access test servers at 10.0.2.2 from inside the browser on Android,
@@ -77,6 +78,47 @@ it('should work with status code 422', async ({ page, server }) => {
   expect(await page.evaluate(() => document.body.textContent)).toBe('Yo, page!');
 });
 
+it('should fulfill with unuassigned status codes', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30773' });
+  let fulfillPromiseCallback;
+  const fulfillPromise = new Promise<Error|undefined>(f => fulfillPromiseCallback = f);
+  await page.route('**/data.json', route => {
+    fulfillPromiseCallback(route.fulfill({
+      status: 430,
+      body: 'Yo, page!'
+    }).catch(e => e));
+  });
+  await page.goto(server.EMPTY_PAGE);
+  const response = await page.evaluate(async url => {
+    const { status, statusText } = await fetch(url);
+    return { status, statusText };
+  }, server.PREFIX + '/data.json');
+  const error = await fulfillPromise;
+  expect(error).toBe(undefined);
+  expect(response.status).toBe(430);
+  expect(response.statusText).toBe('Unknown');
+});
+
+it('should not throw if request was cancelled by the page', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
+  let interceptCallback;
+  const interceptPromise = new Promise<Route>(f => interceptCallback = f);
+  await page.route('**/data.json', route => interceptCallback(route));
+  await page.goto(server.EMPTY_PAGE);
+  page.evaluate(url => {
+    globalThis.controller = new AbortController();
+    return fetch(url, { signal: globalThis.controller.signal });
+  }, server.PREFIX + '/data.json').catch(() => {});
+  const route = await interceptPromise;
+  const failurePromise = page.waitForEvent('requestfailed');
+  await page.evaluate(() => globalThis.controller.abort());
+  const cancelledRequest = await failurePromise;
+  expect(cancelledRequest.failure()).toBeTruthy();
+  expect(cancelledRequest.failure().errorText).toMatch(/cancelled|aborted/i);
+  await route.fulfill({ status: 200 }); // Should not throw.
+});
+
 it('should allow mocking binary responses', async ({ page, server, browserName, headless, asset, isAndroid, mode }) => {
   it.skip(browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
   it.skip(isAndroid);
@@ -98,10 +140,10 @@ it('should allow mocking binary responses', async ({ page, server, browserName, 
   expect(await img.screenshot()).toMatchSnapshot('mock-binary-response.png');
 });
 
-it('should allow mocking svg with charset', async ({ page, server, browserName, headless, isAndroid, isElectron, mode }) => {
+it('should allow mocking svg with charset', async ({ page, server, browserName, headless, isAndroid, isElectron, electronMajorVersion }) => {
   it.skip(browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
   it.skip(isAndroid);
-  it.skip(isElectron, 'Protocol error (Storage.getCookies): Browser context management is not supported');
+  it.skip(isElectron && electronMajorVersion < 30, 'Protocol error (Storage.getCookies): Browser context management is not supported');
 
   await page.route('**/*', route => {
     void route.fulfill({
@@ -211,8 +253,8 @@ it('should include the origin header', async ({ page, server, isAndroid }) => {
   expect(interceptedRequest.headers()['origin']).toEqual(server.PREFIX);
 });
 
-it('should fulfill with global fetch result', async ({ playwright, page, server, isElectron, rewriteAndroidLoopbackURL }) => {
-  it.fixme(isElectron, 'error: Browser context management is not supported.');
+it('should fulfill with global fetch result', async ({ playwright, page, server, isElectron, electronMajorVersion, rewriteAndroidLoopbackURL }) => {
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
   await page.route('**/*', async route => {
     const request = await playwright.request.newContext();
     const response = await request.get(rewriteAndroidLoopbackURL(server.PREFIX + '/simple.json'));
@@ -223,8 +265,8 @@ it('should fulfill with global fetch result', async ({ playwright, page, server,
   expect(await response.json()).toEqual({ 'foo': 'bar' });
 });
 
-it('should fulfill with fetch result', async ({ page, server, isElectron, rewriteAndroidLoopbackURL }) => {
-  it.fixme(isElectron, 'error: Browser context management is not supported.');
+it('should fulfill with fetch result', async ({ page, server, isElectron, electronMajorVersion, rewriteAndroidLoopbackURL }) => {
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
   await page.route('**/*', async route => {
     const response = await page.request.get(rewriteAndroidLoopbackURL(server.PREFIX + '/simple.json'));
     void route.fulfill({ response });
@@ -234,8 +276,8 @@ it('should fulfill with fetch result', async ({ page, server, isElectron, rewrit
   expect(await response.json()).toEqual({ 'foo': 'bar' });
 });
 
-it('should fulfill with fetch result and overrides', async ({ page, server, isElectron, rewriteAndroidLoopbackURL }) => {
-  it.fixme(isElectron, 'error: Browser context management is not supported.');
+it('should fulfill with fetch result and overrides', async ({ page, server, isElectron, electronMajorVersion, rewriteAndroidLoopbackURL }) => {
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
   await page.route('**/*', async route => {
     const response = await page.request.get(rewriteAndroidLoopbackURL(server.PREFIX + '/simple.json'));
     void route.fulfill({
@@ -253,8 +295,8 @@ it('should fulfill with fetch result and overrides', async ({ page, server, isEl
   expect(await response.json()).toEqual({ 'foo': 'bar' });
 });
 
-it('should fetch original request and fulfill', async ({ page, server, isElectron, isAndroid }) => {
-  it.fixme(isElectron, 'error: Browser context management is not supported.');
+it('should fetch original request and fulfill', async ({ page, server, isElectron, electronMajorVersion, isAndroid }) => {
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
   it.skip(isAndroid, 'The internal Android localhost (10.0.0.2) != the localhost on the host');
   await page.route('**/*', async route => {
     const response = await page.request.fetch(route.request());
@@ -267,10 +309,12 @@ it('should fetch original request and fulfill', async ({ page, server, isElectro
   expect(await page.title()).toEqual('Woof-Woof');
 });
 
-it('should fulfill with multiple set-cookie', async ({ page, server, isElectron }) => {
-  it.fixme(isElectron, 'Electron 14+ is required');
+it('should fulfill with multiple set-cookie', async ({ page, server, isElectron, electronMajorVersion, isAndroid }) => {
+  it.skip(isElectron && electronMajorVersion < 14, 'Electron 14+ is required');
+  it.skip(isAndroid, 'Android does not have an isolated context per test, so we get cookies from other tests');
+
   const cookies = ['a=b', 'c=d'];
-  await page.route('**/empty.html', async route => {
+  await page.route('**/multiple-set-cookie.html', async route => {
     void route.fulfill({
       status: 200,
       headers: {
@@ -281,7 +325,7 @@ it('should fulfill with multiple set-cookie', async ({ page, server, isElectron 
       body: ''
     });
   });
-  const response = await page.goto(server.EMPTY_PAGE);
+  const response = await page.goto(server.PREFIX + '/multiple-set-cookie.html');
   expect((await page.evaluate(() => document.cookie)).split(';').map(s => s.trim()).sort()).toEqual(cookies);
   expect(await response.headerValue('X-Header-1')).toBe('v1');
   expect(await response.headerValue('X-Header-2')).toBe('v2');
@@ -396,4 +440,48 @@ it('should fulfill json', async ({ page, server }) => {
   expect(response.status()).toBe(201);
   expect(response.headers()['content-type']).toBe('application/json');
   expect(body).toBe(JSON.stringify({ bar: 'baz' }));
+});
+
+it('should fulfill with gzip and readback', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29261' },
+}, async ({ page, server, isAndroid, isElectron, electronMajorVersion }) => {
+  it.skip(isAndroid, 'The internal Android localhost (10.0.0.2) != the localhost on the host');
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
+  server.enableGzip('/one-style.html');
+  await page.route('**/one-style.html', async route => {
+    const response = await route.fetch();
+    expect(response.headers()['content-encoding']).toBe('gzip');
+    await route.fulfill({ response });
+  });
+
+  const response = await page.goto(server.PREFIX + '/one-style.html');
+  await expect(page.locator('div')).toHaveText('hello, world!');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 192, 203)');
+  expect(await response.text()).toContain(`<div>hello, world!</div>`);
+});
+
+it('should not go to the network for fulfilled requests body', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30760' },
+}, async ({ page, server, browserName }) => {
+  await page.route('**/one-style.css', async route => {
+    return route.fulfill({
+      status: 404,
+      contentType: 'text/plain',
+      body: 'Not Found! (mocked)',
+    });
+  });
+
+  let serverHit = false;
+  server.setRoute('/one-style.css', (req, res) => {
+    serverHit = true;
+    res.setHeader('Content-Type', 'text/css');
+    res.end('body { background-color: green; }');
+  });
+
+  const responsePromise = page.waitForResponse('**/one-style.css');
+  await page.goto(server.PREFIX + '/one-style.html');
+  const response = await responsePromise;
+  const body = await response.body();
+  expect(body).toBeTruthy();
+  expect(serverHit).toBe(false);
 });

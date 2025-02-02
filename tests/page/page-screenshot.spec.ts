@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-import { test as it, expect } from './pageTest';
+import os from 'os';
+import { test as it, expect, rafraf } from './pageTest';
 import { verifyViewport, attachFrame } from '../config/utils';
 import type { Route } from 'playwright-core';
 import path from 'path';
@@ -220,6 +221,17 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-grid-fullpage.png');
   });
 
+  it('should take fullPage screenshots and mask elements outside of it', async ({ page, server }) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30770' });
+    await page.setViewportSize({ width: 500, height: 500 });
+    await page.goto(server.PREFIX + '/grid.html');
+    const screenshot = await page.screenshot({
+      fullPage: true,
+      mask: [page.locator('.box').nth(144)],
+    });
+    expect(screenshot).toMatchSnapshot('screenshot-grid-fullpage-mask-outside-viewport.png');
+  });
+
   it('should restore viewport after fullPage screenshot', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/grid.html');
@@ -268,18 +280,22 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-clip-odd-size.png');
   });
 
-  it('should work for canvas', async ({ page, server, isElectron, isMac }) => {
+  it('should work for canvas', async ({ page, server, isElectron, isMac, isLinux, macVersion, browserName, isHeadlessShell, headless }) => {
     it.fixme(isElectron && isMac, 'Fails on the bots');
+    it.fixme(browserName === 'webkit' && isLinux && !headless, 'WebKit has slightly different corners on gtk4.');
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/screenshots/canvas.html');
     const screenshot = await page.screenshot();
-    expect(screenshot).toMatchSnapshot('screenshot-canvas.png');
+    if ((!isHeadlessShell && browserName === 'chromium' && isMac && os.arch() === 'arm64' && macVersion >= 14) ||
+        (browserName === 'webkit' && isLinux && os.arch() === 'x64'))
+      expect(screenshot).toMatchSnapshot('screenshot-canvas-with-accurate-corners.png');
+    else
+      expect(screenshot).toMatchSnapshot('screenshot-canvas.png');
   });
 
-  it('should capture canvas changes', async ({ page, isElectron, browserName, isMac, isWebView2 }) => {
+  it('should capture canvas changes', async ({ page, isElectron, browserName, isMac }) => {
     it.fixme(browserName === 'webkit' && isMac, 'https://github.com/microsoft/playwright/issues/8796,https://github.com/microsoft/playwright/issues/16180');
     it.skip(isElectron);
-    it.skip(isWebView2);
     await page.goto('data:text/html,<canvas></canvas>');
     await page.evaluate(() => {
       const canvas = document.querySelector('canvas');
@@ -308,8 +324,10 @@ it.describe('page screenshot', () => {
     }
   });
 
-  it('should work for webgl', async ({ page, server, browserName, channel, browserMajorVersion }) => {
+  it('should work for webgl', async ({ page, server, browserName, platform }) => {
     it.fixme(browserName === 'firefox');
+    it.fixme(browserName === 'chromium' && platform === 'darwin' && os.arch() === 'arm64', 'SwiftShader is not available on macOS-arm64 - https://github.com/microsoft/playwright/issues/28216');
+    it.skip(browserName === 'webkit' && platform === 'darwin' && os.arch() === 'x64', 'Modernizr uses WebGL which is not available on Intel macOS - https://bugs.webkit.org/show_bug.cgi?id=278277');
 
     await page.setViewportSize({ width: 640, height: 480 });
     await page.goto(server.PREFIX + '/screenshots/webgl.html');
@@ -543,16 +561,38 @@ it.describe('page screenshot', () => {
         maskColor: '#00FF00',
       })).toMatchSnapshot('mask-color-should-work.png');
     });
+
+    it('should hide elements based on attr', async ({ page, server }) => {
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto(server.PREFIX + '/grid.html');
+      await page.locator('div').nth(5).evaluate(element => {
+        element.setAttribute('data-test-screenshot', 'hide');
+      });
+      expect(await page.screenshot({
+        style: `[data-test-screenshot="hide"] {
+          visibility: hidden;
+        }`
+      })).toMatchSnapshot('hide-should-work.png');
+      const visibility = await page.locator('div').nth(5).evaluate(element => element.style.visibility);
+      expect(visibility).toBe('');
+    });
+
+    it('should remove elements based on attr', async ({ page, server }) => {
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto(server.PREFIX + '/grid.html');
+      await page.locator('div').nth(5).evaluate(element => {
+        element.setAttribute('data-test-screenshot', 'remove');
+      });
+      expect(await page.screenshot({
+        style: `[data-test-screenshot="remove"] {
+          display: none;
+        }`
+      })).toMatchSnapshot('remove-should-work.png');
+      const display = await page.locator('div').nth(5).evaluate(element => element.style.display);
+      expect(display).toBe('');
+    });
   });
 });
-
-async function rafraf(page) {
-  // Do a double raf since single raf does not
-  // actually guarantee a new animation frame.
-  await page.evaluate(() => new Promise(x => {
-    requestAnimationFrame(() => requestAnimationFrame(x));
-  }));
-}
 
 declare global {
   interface Window {
@@ -658,7 +698,7 @@ it.describe('page screenshot animations', () => {
     expect(comparePNGs(buffer1, buffer2, { maxDiffPixels: 50 })).not.toBe(null);
   });
 
-  it('should fire transitionend for finite transitions', async ({ page, server }) => {
+  it('should fire transitionend for finite transitions', async ({ page, server, browserName, platform }) => {
     await page.goto(server.PREFIX + '/css-transition.html');
     const div = page.locator('div');
     await div.evaluate(el => {
@@ -684,14 +724,14 @@ it.describe('page screenshot animations', () => {
     expect(await page.evaluate(() => window['__TRANSITION_END'])).toBe(true);
   });
 
-  it('should capture screenshots after layoutchanges in transitionend event', async ({ page, server }) => {
+  it('should capture screenshots after layoutchanges in transitionend event', async ({ page, server, browserName, platform }) => {
     await page.goto(server.PREFIX + '/css-transition.html');
     const div = page.locator('div');
     await div.evaluate(el => {
       el.addEventListener('transitionend', () => {
-        const time = Date.now();
+        const time = window.builtinDate.now();
         // Block main thread for 200ms, emulating heavy layout.
-        while (Date.now() - time < 200) ;
+        while (window.builtinDate.now() - time < 200) {}
         const h1 = document.createElement('h1');
         h1.textContent = 'woof-woof';
         document.body.append(h1);
@@ -823,6 +863,33 @@ it.describe('page screenshot animations', () => {
     expect(await page.evaluate(() => window._EVENTS)).toEqual([
       'onfinish', 'animationend'
     ]);
+  });
+
+  it('should wait for fonts to load', async ({ page, server, isWindows, isAndroid }) => {
+    it.fixme(isWindows, 'This requires a windows-specific test expectations. https://github.com/microsoft/playwright/issues/12707');
+    it.skip(isAndroid, 'Different viewport');
+    await page.setViewportSize({ width: 500, height: 500 });
+    const fontRequestPromise = new Promise<any>(resolve => {
+      // Stall font loading.
+      server.setRoute('/webfont/iconfont.woff2', (request, response) => {
+        resolve({ request, response });
+      });
+    });
+    await page.goto(server.PREFIX + '/webfont/webfont.html', {
+      waitUntil: 'domcontentloaded', // 'load' will not happen if webfont is pending
+    });
+
+    // Make sure screenshot times out while webfont is stalled.
+    const error = await page.screenshot({ timeout: 200, }).catch(e => e);
+    expect(error.message).toContain('waiting for fonts to load...');
+    expect(error.message).toContain('Timeout 200ms exceeded');
+
+    const fontRequest = await fontRequestPromise;
+    server.serveFile(fontRequest.request, fontRequest.response);
+    const iconsScreenshot = await page.screenshot();
+    expect(iconsScreenshot).toMatchSnapshot('screenshot-web-font.png', {
+      maxDiffPixels: 50,
+    });
   });
 });
 

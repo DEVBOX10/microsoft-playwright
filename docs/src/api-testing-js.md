@@ -16,8 +16,6 @@ A few examples where it may come in handy:
 
 All of that could be achieved via [APIRequestContext] methods.
 
-<!-- TOC3 -->
-
 ## Writing API Test
 
 [APIRequestContext] can send all kinds of HTTP(S) requests over network.
@@ -43,6 +41,24 @@ export default defineConfig({
       // Add authorization token to all requests.
       // Assuming personal access token available in the environment.
       'Authorization': `token ${process.env.API_TOKEN}`,
+    },
+  }
+});
+```
+
+**Proxy configuration**
+
+If your tests need to run behind a proxy, you can specify this in the config and the `request` fixture
+will pick it up automatically:
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  use: {
+    proxy: {
+      server: 'http://my-proxy:8080',
+      username: 'user',
+      password: 'secret'
     },
   }
 });
@@ -313,7 +329,7 @@ test('context request will share cookie storage with its browser context', async
       [name, value])
     )).toEqual(responseCookies);
 
-    route.fulfill({
+    await route.fulfill({
       response,
       headers: { ...responseHeaders, foo: 'bar' },
     });
@@ -357,7 +373,7 @@ test('global context request has isolated cookie storage', async ({
         new Map(contextCookies2.map(({ name, value }) => [name, value]))
     ).toEqual(responseCookies);
 
-    route.fulfill({
+    await route.fulfill({
       response,
       headers: { ...responseHeaders, foo: 'bar' },
     });

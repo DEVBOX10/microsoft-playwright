@@ -23,6 +23,7 @@
   cursor: text;
   user-select: none;
   margin-left: 10px;
+  overflow-x: clip;
 }
 
 .timeline-divider {
@@ -68,6 +69,7 @@
   bottom: 0;
   left: 0;
   right: 0;
+  pointer-events: none;
 }
 
 .timeline-bar {
@@ -93,6 +95,11 @@
 
 .timeline-bar.network {
   --action-color: var(--vscode-charts-blue);
+  --action-background-color: #1a85ff66;
+}
+
+.timeline-bar.console-message {
+  --action-color: var(--vscode-charts-purple);
   --action-background-color: #1a85ff66;
 }
 

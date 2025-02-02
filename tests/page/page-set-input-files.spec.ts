@@ -20,7 +20,6 @@ import { attachFrame } from '../config/utils';
 
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import formidable from 'formidable';
 
 it('should upload the file', async ({ page, server, asset }) => {
@@ -37,9 +36,117 @@ it('should upload the file', async ({ page, server, asset }) => {
   }, input)).toBe('contents of the file');
 });
 
-it('should upload large file', async ({ page, server, browserName, isMac, isAndroid, mode }, testInfo) => {
-  it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
+it('should upload a folder', async ({ page, server, browserName, headless, browserMajorVersion, isAndroid, macVersion, isMac }) => {
   it.skip(isAndroid);
+  it.skip(browserName === 'webkit' && isMac && macVersion <= 12, 'WebKit on macOS-12 is frozen');
+
+  await page.goto(server.PREFIX + '/input/folderupload.html');
+  const input = await page.$('input');
+  const dir = path.join(it.info().outputDir, 'file-upload-test');
+  {
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(path.join(dir, 'file1.txt'), 'file1 content');
+    await fs.promises.writeFile(path.join(dir, 'file2'), 'file2 content');
+    await fs.promises.mkdir(path.join(dir, 'sub-dir'));
+    await fs.promises.writeFile(path.join(dir, 'sub-dir', 'really.txt'), 'sub-dir file content');
+  }
+  await input.setInputFiles(dir);
+  expect(new Set(await page.evaluate(e => [...e.files].map(f => f.webkitRelativePath), input))).toEqual(new Set([
+    // Note: this did not work before Chrome 127, see https://issues.chromium.org/issues/345393164.
+    'file-upload-test/sub-dir/really.txt',
+    'file-upload-test/file1.txt',
+    'file-upload-test/file2',
+  ]));
+  const webkitRelativePaths = await page.evaluate(e => [...e.files].map(f => f.webkitRelativePath), input);
+  for (let i = 0; i < webkitRelativePaths.length; i++) {
+    const content = await input.evaluate((e, i) => {
+      const reader = new FileReader();
+      const promise = new Promise(fulfill => reader.onload = fulfill);
+      reader.readAsText(e.files[i]);
+      return promise.then(() => reader.result);
+    }, i);
+    expect(content).toEqual(fs.readFileSync(path.join(dir, '..', webkitRelativePaths[i])).toString());
+  }
+});
+
+it('should upload a folder and throw for multiple directories', async ({ page, server, isAndroid, browserName, macVersion, isMac }) => {
+  it.skip(isAndroid);
+  it.skip(browserName === 'webkit' && isMac && macVersion <= 12, 'WebKit on macOS-12 is frozen');
+
+  await page.goto(server.PREFIX + '/input/folderupload.html');
+  const input = await page.$('input');
+  const dir = path.join(it.info().outputDir, 'file-upload-test');
+  {
+    await fs.promises.mkdir(path.join(dir, 'folder1'), { recursive: true });
+    await fs.promises.writeFile(path.join(dir, 'folder1', 'file1.txt'), 'file1 content');
+    await fs.promises.mkdir(path.join(dir, 'folder2'), { recursive: true });
+    await fs.promises.writeFile(path.join(dir, 'folder2', 'file2.txt'), 'file2 content');
+  }
+  await expect(input.setInputFiles([
+    path.join(dir, 'folder1'),
+    path.join(dir, 'folder2'),
+  ])).rejects.toThrow('Multiple directories are not supported');
+});
+
+it('should throw if a directory and files are passed', async ({ page, server, isAndroid, browserName, macVersion, isMac }) => {
+  it.skip(isAndroid);
+  it.skip(browserName === 'webkit' && isMac && macVersion <= 12, 'WebKit on macOS-12 is frozen');
+
+  await page.goto(server.PREFIX + '/input/folderupload.html');
+  const input = await page.$('input');
+  const dir = path.join(it.info().outputDir, 'file-upload-test');
+  {
+    await fs.promises.mkdir(path.join(dir, 'folder1'), { recursive: true });
+    await fs.promises.writeFile(path.join(dir, 'folder1', 'file1.txt'), 'file1 content');
+  }
+  await expect(input.setInputFiles([
+    path.join(dir, 'folder1'),
+    path.join(dir, 'folder1', 'file1.txt'),
+  ])).rejects.toThrow('File paths must be all files or a single directory');
+});
+
+it('should throw when uploading a folder in a normal file upload input', async ({ page, server, isAndroid, browserName, macVersion, isMac }) => {
+  it.skip(isAndroid);
+  it.skip(browserName === 'webkit' && isMac && macVersion <= 12, 'WebKit on macOS-12 is frozen');
+
+  await page.goto(server.PREFIX + '/input/fileupload.html');
+  const input = await page.$('input');
+  const dir = path.join(it.info().outputDir, 'file-upload-test');
+  {
+    await fs.promises.mkdir(path.join(dir), { recursive: true });
+    await fs.promises.writeFile(path.join(dir, 'file1.txt'), 'file1 content');
+  }
+  await expect(input.setInputFiles(dir)).rejects.toThrow('File input does not support directories, pass individual files instead');
+});
+
+it('should throw when uploading a file in a directory upload input', async ({ page, server, isAndroid, asset, browserName, macVersion, isMac }) => {
+  it.skip(isAndroid);
+  it.skip(browserName === 'webkit' && isMac && macVersion <= 12, 'WebKit on macOS-12 is frozen');
+
+  await page.goto(server.PREFIX + '/input/folderupload.html');
+  const input = await page.$('input');
+  await expect(input.setInputFiles(asset('file to upload.txt'))).rejects.toThrow('[webkitdirectory] input requires passing a path to a directory');
+});
+
+it('should upload a file after popup', async ({ page, server, asset }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29923' });
+  await page.goto(server.PREFIX + '/input/fileupload.html');
+  {
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.evaluate(() => window['__popup'] = window.open('about:blank')),
+    ]);
+    await popup.close();
+  }
+  const filePath = path.relative(process.cwd(), asset('file-to-upload.txt'));
+  const input = await page.$('input');
+  await input.setInputFiles(filePath);
+  expect(await page.evaluate(e => e.files[0].name, input)).toBe('file-to-upload.txt');
+});
+
+it('should upload large file', async ({ page, server, isAndroid, isWebView2, mode }, testInfo) => {
+  it.skip(isAndroid);
+  it.skip(isWebView2);
   it.skip(mode.startsWith('service'));
   it.slow();
 
@@ -87,9 +194,17 @@ it('should upload large file', async ({ page, server, browserName, isMac, isAndr
   await Promise.all([uploadFile, file1.filepath].map(fs.promises.unlink));
 });
 
-it('should upload multiple large files', async ({ page, server, browserName, isMac, isAndroid, mode }, testInfo) => {
-  it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
+it('should throw an error if the file does not exist', async ({ page, server, asset }) => {
+  await page.goto(server.PREFIX + '/input/fileupload.html');
+  const input = await page.$('input');
+  const error = await input.setInputFiles('i actually do not exist.txt').catch(e => e);
+  expect(error.message).toContain('ENOENT: no such file or directory');
+  expect(error.message).toContain('i actually do not exist.txt');
+});
+
+it('should upload multiple large files', async ({ page, server, isAndroid, isWebView2, mode }, testInfo) => {
   it.skip(isAndroid);
+  it.skip(isWebView2);
   it.skip(mode.startsWith('service'));
   it.slow();
 
@@ -127,9 +242,9 @@ it('should upload multiple large files', async ({ page, server, browserName, isM
   await Promise.all(uploadFiles.map(path => fs.promises.unlink(path)));
 });
 
-it('should upload large file with relative path', async ({ page, server, browserName, isMac, isAndroid, mode }, testInfo) => {
-  it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
+it('should upload large file with relative path', async ({ page, server, isAndroid, isWebView2, mode }, testInfo) => {
   it.skip(isAndroid);
+  it.skip(isWebView2);
   it.skip(mode.startsWith('service'));
   it.slow();
 
@@ -231,8 +346,7 @@ it('should emit event via prepend', async ({ page, server }) => {
   expect(chooser).toBeTruthy();
 });
 
-it('should emit event for iframe', async ({ page, server, browserName }) => {
-  it.skip(browserName === 'firefox');
+it('should emit event for iframe', async ({ page, server }) => {
   const frame = await attachFrame(page, 'frame1', server.EMPTY_PAGE);
   await frame.setContent(`<input type=file>`);
   const [chooser] = await Promise.all([
@@ -372,7 +486,7 @@ it('should prioritize exact timeout over default timeout', async ({ page, playwr
 it('should work with no timeout', async ({ page, server }) => {
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser', { timeout: 0 }),
-    page.evaluate(() => setTimeout(() => {
+    page.evaluate(() => window.builtinSetTimeout(() => {
       const el = document.createElement('input');
       el.type = 'file';
       el.click();
@@ -528,6 +642,41 @@ it('should emit input and change events', async ({ page, asset }) => {
   expect(events.length).toBe(2);
   expect(events[0].type).toBe('input');
   expect(events[1].type).toBe('change');
+});
+
+it('input event.composed should be true and cross shadow dom boundary', async ({ page, server, asset }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28726' });
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`<body><script>
+  const div = document.createElement('div');
+  const shadowRoot = div.attachShadow({mode: 'open'});
+  shadowRoot.innerHTML = '<input type=file></input>';
+  document.body.appendChild(div);
+</script></body>`);
+  await page.locator('body').evaluate(select => {
+    (window as any).firedBodyEvents = [];
+    for (const event of ['input', 'change']) {
+      select.addEventListener(event, e => {
+        (window as any).firedBodyEvents.push(e.type + ':' + e.composed);
+      }, false);
+    }
+  });
+
+  await page.locator('input').evaluate(select => {
+    (window as any).firedEvents = [];
+    for (const event of ['input', 'change']) {
+      select.addEventListener(event, e => {
+        (window as any).firedEvents.push(e.type + ':' + e.composed);
+      }, false);
+    }
+  });
+  await page.locator('input').setInputFiles({
+    name: 'test.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('this is a test')
+  });
+  expect(await page.evaluate(() => window['firedEvents'])).toEqual(['input:true', 'change:false']);
+  expect(await page.evaluate(() => window['firedBodyEvents'])).toEqual(['input:true']);
 });
 
 it('should work for single file pick', async ({ page, server }) => {

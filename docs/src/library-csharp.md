@@ -5,7 +5,7 @@ title: "Getting started - Library"
 
 ## Introduction
 
-Playwright can either be used with the [NUnit](./test-runners.md#nunit) or [MSTest](./test-runners.md#mstest), or as a Playwright Library (this guide). If you are working on an application that utilizes Playwright capabilities or you are using Playwright with another test runner, read on.
+Playwright can either be used with the [MSTest, NUnit, or xUnit base classes](./test-runners.md) or as a Playwright Library (this guide). If you are working on an application that utilizes Playwright capabilities or you are using Playwright with another test runner, read on.
 
 ## Usage
 
@@ -20,7 +20,7 @@ cd PlaywrightDemo
 dotnet add package Microsoft.Playwright
 # Build the project
 dotnet build
-# Install required browsers - replace netX with actual output folder name, e.g. net6.0.
+# Install required browsers - replace netX with actual output folder name, e.g. net8.0.
 pwsh bin/Debug/netX/playwright.ps1 install
 
 # If the pwsh command does not work (throws TypeNotFound), make sure to use an up-to-date version of PowerShell.
@@ -48,7 +48,7 @@ Now run it.
 dotnet run
 ```
 
-By default, Playwright runs the browsers in headless mode. To see the browser UI, pass the `Headless = false` flag while launching the browser. You can also use [`option: slowMo`] to slow down execution. Learn more in the debugging tools [section](./debug.md).
+By default, Playwright runs the browsers in headless mode. To see the browser UI, set [`option: BrowserType.launch.headless`] option to `false`. You can also use [`option: BrowserType.launch.slowMo`] to slow down execution. Learn more in the debugging tools [section](./debug.md).
 
 ```csharp
 await using var browser = await playwright.Firefox.LaunchAsync(new()
@@ -65,6 +65,9 @@ You can do the following to leverage Playwright's web-first assertions when you 
 ```csharp
 using Microsoft.Playwright;
 using static Microsoft.Playwright.Assertions;
+
+// Change the default 5 seconds timeout if you'd like.
+SetDefaultExpectTimeout(10_000);
 
 using var playwright = await Playwright.CreateAsync();
 await using var browser = await playwright.Chromium.LaunchAsync();

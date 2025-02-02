@@ -21,7 +21,7 @@ Playwright's inspection and routing of requests made by Service Workers are **ex
 
 Set the `PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS` environment variable to `1` (or any other value) to enable the feature. Only Chrome/Chromium are currently supported.
 
-If you're using (or are interested in using this this feature), please comment on [this issue](https://github.com/microsoft/playwright/issues/15684) letting us know your use case.
+If you're using (or are interested in using this feature), please comment on [this issue](https://github.com/microsoft/playwright/issues/15684) letting us know your use case.
 
 ## Service Worker Fetch
 
@@ -137,10 +137,12 @@ self.addEventListener('fetch', event => {
       (async () => {
         // 1. Try to first serve directly from caches
         const response = await caches.match(event.request);
-        if (response) return response;
+        if (response)
+          return response;
 
         // 2. Re-write request for /foo to /bar
-        if (event.request.url.endsWith('foo')) return fetch('./bar');
+        if (event.request.url.endsWith('foo'))
+          return fetch('./bar');
 
         // 3. Prevent tracker.js from being retrieved, and returns a placeholder response
         if (event.request.url.endsWith('tracker.js')) {

@@ -15,6 +15,7 @@
  */
 
 import type { AttributeSelectorPart } from '../../utils/isomorphic/selectorParser';
+import { normalizeWhiteSpace } from '../../utils/isomorphic/stringUtils';
 import { getAriaLabelledByElements } from './roleUtils';
 
 export function matchesComponentAttribute(obj: any, attr: AttributeSelectorPart) {
@@ -56,22 +57,24 @@ export function shouldSkipForTextMatching(element: Element | ShadowRoot) {
   return element.nodeName === 'SCRIPT' || element.nodeName === 'NOSCRIPT' || element.nodeName === 'STYLE' || document.head && document.head.contains(element);
 }
 
-export type ElementText = { full: string, immediate: string[] };
+export type ElementText = { full: string, normalized: string, immediate: string[] };
 export type TextMatcher = (text: ElementText) => boolean;
 
 export function elementText(cache: Map<Element | ShadowRoot, ElementText>, root: Element | ShadowRoot): ElementText {
   let value = cache.get(root);
   if (value === undefined) {
-    value = { full: '', immediate: [] };
+    value = { full: '', normalized: '', immediate: [] };
     if (!shouldSkipForTextMatching(root)) {
       let currentImmediate = '';
       if ((root instanceof HTMLInputElement) && (root.type === 'submit' || root.type === 'button')) {
-        value = { full: root.value, immediate: [root.value] };
+        value = { full: root.value, normalized: normalizeWhiteSpace(root.value), immediate: [root.value] };
       } else {
         for (let child = root.firstChild; child; child = child.nextSibling) {
           if (child.nodeType === Node.TEXT_NODE) {
             value.full += child.nodeValue || '';
             currentImmediate += child.nodeValue || '';
+          } else if (child.nodeType === Node.COMMENT_NODE) {
+            continue;
           } else {
             if (currentImmediate)
               value.immediate.push(currentImmediate);
@@ -84,6 +87,8 @@ export function elementText(cache: Map<Element | ShadowRoot, ElementText>, root:
           value.immediate.push(currentImmediate);
         if ((root as Element).shadowRoot)
           value.full += elementText(cache, (root as Element).shadowRoot!).full;
+        if (value.full)
+          value.normalized = normalizeWhiteSpace(value.full);
       }
     }
     cache.set(root, value);
@@ -111,7 +116,7 @@ export function getElementLabels(textCache: Map<Element | ShadowRoot, ElementTex
     return labels.map(label => elementText(textCache, label));
   const ariaLabel = element.getAttribute('aria-label');
   if (ariaLabel !== null && !!ariaLabel.trim())
-    return [{ full: ariaLabel, immediate: [ariaLabel] }];
+    return [{ full: ariaLabel, normalized: normalizeWhiteSpace(ariaLabel), immediate: [ariaLabel] }];
 
   // https://html.spec.whatwg.org/multipage/forms.html#category-label
   const isNonHiddenInput = element.nodeName === 'INPUT' && (element as HTMLInputElement).type !== 'hidden';

@@ -18,13 +18,12 @@ import { BrowserContext } from '../../browserContext';
 import { Page } from '../../page';
 import type { RegisteredListener } from '../../../utils/eventsHelper';
 import { eventsHelper } from '../../../utils/eventsHelper';
-import { debugLogger } from '../../../common/debugLogger';
+import { debugLogger } from '../../../utils/debugLogger';
 import type { Frame } from '../../frames';
 import type { SnapshotData } from './snapshotterInjected';
 import { frameSnapshotStreamer } from './snapshotterInjected';
 import { calculateSha1, createGuid, monotonicTime } from '../../../utils';
 import type { FrameSnapshot } from '@trace/snapshot';
-import type { ElementHandle } from '../../dom';
 import { mime } from '../../../utilsBundle';
 
 export type SnapshotterBlob = {
@@ -86,7 +85,8 @@ export class Snapshotter {
       eventsHelper.addEventListener(this._context, BrowserContext.Events.Page, this._onPage.bind(this)),
     ];
 
-    const initScript = `(${frameSnapshotStreamer})("${this._snapshotStreamer}")`;
+    const { javaScriptEnabled } = this._context._options;
+    const initScript = `(${frameSnapshotStreamer})("${this._snapshotStreamer}", ${javaScriptEnabled || javaScriptEnabled === undefined})`;
     await this._context.addInitScript(initScript);
     await this._runInAllFrames(initScript);
   }
@@ -104,20 +104,9 @@ export class Snapshotter {
     eventsHelper.removeEventListeners(this._eventListeners);
   }
 
-  async captureSnapshot(page: Page, callId: string, snapshotName: string, element?: ElementHandle): Promise<void> {
+  async captureSnapshot(page: Page, callId: string, snapshotName: string): Promise<void> {
     // Prepare expression synchronously.
     const expression = `window["${this._snapshotStreamer}"].captureSnapshot(${JSON.stringify(snapshotName)})`;
-
-    // In a best-effort manner, without waiting for it, mark target element.
-    element?.callFunctionNoReply((element: Element, callId: string) => {
-      const customEvent = new CustomEvent('__playwright_target__', {
-        bubbles: true,
-        cancelable: true,
-        detail: callId,
-        composed: true,
-      });
-      element.dispatchEvent(customEvent);
-    }, callId);
 
     // In each frame, in a non-stalling manner, capture the snapshots.
     const snapshots = page.frames().map(async frame => {
@@ -136,6 +125,7 @@ export class Snapshotter {
         html: data.html,
         viewport: data.viewport,
         timestamp: monotonicTime(),
+        wallTime: data.wallTime,
         collectionTime: data.collectionTime,
         resourceOverrides: [],
         isMainFrame: page.mainFrame() === frame

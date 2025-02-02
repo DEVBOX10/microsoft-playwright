@@ -25,21 +25,23 @@ export const Main: React.FC = ({
   const [paused, setPaused] = React.useState(false);
   const [log, setLog] = React.useState(new Map<string, CallLog>());
   const [mode, setMode] = React.useState<Mode>('none');
-  const [overlayVisible, setOverlayVisible] = React.useState<boolean>(true);
 
   window.playwrightSetMode = setMode;
-  window.playwrightSetSources = setSources;
+  window.playwrightSetSources = React.useCallback((sources: Source[]) => {
+    setSources(sources);
+    window.playwrightSourcesEchoForTest = sources;
+  }, []);
   window.playwrightSetPaused = setPaused;
-  window.playwrightSetOverlayVisible = setOverlayVisible;
   window.playwrightUpdateLogs = callLogs => {
-    const newLog = new Map<string, CallLog>(log);
-    for (const callLog of callLogs) {
-      callLog.reveal = !log.has(callLog.id);
-      newLog.set(callLog.id, callLog);
-    }
-    setLog(newLog);
+    setLog(log => {
+      const newLog = new Map<string, CallLog>(log);
+      for (const callLog of callLogs) {
+        callLog.reveal = !log.has(callLog.id);
+        newLog.set(callLog.id, callLog);
+      }
+      return newLog;
+    });
   };
 
-  window.playwrightSourcesEchoForTest = sources;
-  return <Recorder sources={sources} paused={paused} log={log} mode={mode} overlayVisible={overlayVisible}/>;
+  return <Recorder sources={sources} paused={paused} log={log} mode={mode} />;
 };

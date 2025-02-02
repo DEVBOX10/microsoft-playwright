@@ -17,7 +17,7 @@ import path from 'path';
 import net from 'net';
 
 import { colors, debug } from 'playwright-core/lib/utilsBundle';
-import { raceAgainstDeadline, launchProcess, httpRequest, monotonicTime } from 'playwright-core/lib/utils';
+import { raceAgainstDeadline, launchProcess, monotonicTime, isURLAvailable } from 'playwright-core/lib/utils';
 
 import type { FullConfig } from '../../types/testReporter';
 import type { TestRunnerPlugin } from '.';
@@ -30,6 +30,7 @@ export type WebServerPluginOptions = {
   url?: string;
   ignoreHTTPSErrors?: boolean;
   timeout?: number;
+  gracefulShutdown?: { signal: 'SIGINT' | 'SIGTERM', timeout?: number };
   reuseExistingServer?: boolean;
   cwd?: string;
   env?: { [key: string]: string; };
@@ -73,7 +74,9 @@ export class WebServerPlugin implements TestRunnerPlugin {
   }
 
   public async teardown() {
+    debugWebServer(`Terminating the WebServer`);
     await this._killProcess?.();
+    debugWebServer(`Terminated the WebServer`);
   }
 
   private async _startProcess(): Promise<void> {
@@ -90,7 +93,7 @@ export class WebServerPlugin implements TestRunnerPlugin {
     }
 
     debugWebServer(`Starting WebServer process ${this._options.command}...`);
-    const { launchedProcess, kill } = await launchProcess({
+    const { launchedProcess, gracefullyClose } = await launchProcess({
       command: this._options.command,
       env: {
         ...DEFAULT_ENVIRONMENT_VARIABLES,
@@ -100,24 +103,43 @@ export class WebServerPlugin implements TestRunnerPlugin {
       cwd: this._options.cwd,
       stdio: 'stdin',
       shell: true,
-      // Reject to indicate that we cannot close the web server gracefully
-      // and should fallback to non-graceful shutdown.
-      attemptToGracefullyClose: () => Promise.reject(),
+      attemptToGracefullyClose: async () => {
+        if (process.platform === 'win32')
+          throw new Error('Graceful shutdown is not supported on Windows');
+        if (!this._options.gracefulShutdown)
+          throw new Error('skip graceful shutdown');
+
+        const { signal, timeout = 0 } = this._options.gracefulShutdown;
+
+        // proper usage of SIGINT is to send it to the entire process group, see https://www.cons.org/cracauer/sigint.html
+        // there's no such convention for SIGTERM, so we decide what we want. signaling the process group for consistency.
+        process.kill(-launchedProcess.pid!, signal);
+
+        return new Promise<void>((resolve, reject) => {
+          const timer = timeout !== 0
+            ? setTimeout(() => reject(new Error(`process didn't close gracefully within timeout`)), timeout)
+            : undefined;
+          launchedProcess.once('close', (...args) => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      },
       log: () => {},
       onExit: code => processExitedReject(new Error(code ? `Process from config.webServer was not able to start. Exit code: ${code}` : 'Process from config.webServer exited early.')),
       tempDirectories: [],
     });
-    this._killProcess = kill;
+    this._killProcess = gracefullyClose;
 
     debugWebServer(`Process started`);
 
-    launchedProcess.stderr!.on('data', line => {
+    launchedProcess.stderr!.on('data', data => {
       if (debugWebServer.enabled || (this._options.stderr === 'pipe' || !this._options.stderr))
-        this._reporter!.onStdErr?.(colors.dim('[WebServer] ') + line.toString());
+        this._reporter!.onStdErr?.(prefixOutputLines(data.toString()));
     });
-    launchedProcess.stdout!.on('data', line => {
+    launchedProcess.stdout!.on('data', data => {
       if (debugWebServer.enabled || this._options.stdout === 'pipe')
-        this._reporter!.onStdOut?.(colors.dim('[WebServer] ') + line.toString());
+        this._reporter!.onStdOut?.(prefixOutputLines(data.toString()));
     });
   }
 
@@ -155,37 +177,6 @@ async function isPortUsed(port: number): Promise<boolean> {
   return await innerIsPortUsed('127.0.0.1') || await innerIsPortUsed('::1');
 }
 
-async function isURLAvailable(url: URL, ignoreHTTPSErrors: boolean, onStdErr: ReporterV2['onStdErr']) {
-  let statusCode = await httpStatusCode(url, ignoreHTTPSErrors, onStdErr);
-  if (statusCode === 404 && url.pathname === '/') {
-    const indexUrl = new URL(url);
-    indexUrl.pathname = '/index.html';
-    statusCode = await httpStatusCode(indexUrl, ignoreHTTPSErrors, onStdErr);
-  }
-  return statusCode >= 200 && statusCode < 404;
-}
-
-async function httpStatusCode(url: URL, ignoreHTTPSErrors: boolean, onStdErr: ReporterV2['onStdErr']): Promise<number> {
-  return new Promise(resolve => {
-    debugWebServer(`HTTP GET: ${url}`);
-    httpRequest({
-      url: url.toString(),
-      headers: { Accept: '*/*' },
-      rejectUnauthorized: !ignoreHTTPSErrors
-    }, res => {
-      res.resume();
-      const statusCode = res.statusCode ?? 0;
-      debugWebServer(`HTTP Status: ${statusCode}`);
-      resolve(statusCode);
-    }, error => {
-      if ((error as NodeJS.ErrnoException).code === 'DEPTH_ZERO_SELF_SIGNED_CERT')
-        onStdErr?.(`[WebServer] Self-signed certificate detected. Try adding ignoreHTTPSErrors: true to config.webServer.`);
-      debugWebServer(`Error while checking if ${url} is available: ${error.message}`);
-      resolve(0);
-    });
-  });
-}
-
 async function waitFor(waitFn: () => Promise<boolean>, cancellationToken: { canceled: boolean }) {
   const logScale = [100, 250, 500];
   while (!cancellationToken.canceled) {
@@ -201,7 +192,7 @@ async function waitFor(waitFn: () => Promise<boolean>, cancellationToken: { canc
 function getIsAvailableFunction(url: string, checkPortOnly: boolean, ignoreHTTPSErrors: boolean, onStdErr: ReporterV2['onStdErr']) {
   const urlObject = new URL(url);
   if (!checkPortOnly)
-    return () => isURLAvailable(urlObject, ignoreHTTPSErrors, onStdErr);
+    return () => isURLAvailable(urlObject, ignoreHTTPSErrors, debugWebServer, onStdErr);
   const port = urlObject.port;
   return () => isPortUsed(+port);
 }
@@ -230,3 +221,14 @@ export const webServerPluginsForConfig = (config: FullConfigInternal): TestRunne
 
   return webServerPlugins;
 };
+
+function prefixOutputLines(output: string) {
+  const lastIsNewLine = output[output.length - 1] === '\n';
+  let lines = output.split('\n');
+  if (lastIsNewLine)
+    lines.pop();
+  lines = lines.map(line => colors.dim('[WebServer] ') + line);
+  if (lastIsNewLine)
+    lines.push('');
+  return lines.join('\n');
+}

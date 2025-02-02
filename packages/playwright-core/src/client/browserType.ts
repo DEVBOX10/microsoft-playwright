@@ -88,7 +88,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     if (!this._serverLauncher)
       throw new Error('Launching server is not supported');
     options = { ...this._defaultLaunchOptions, ...options };
-    return this._serverLauncher.launchServer(options);
+    return await this._serverLauncher.launchServer(options);
   }
 
   async launchPersistentContext(userDataDir: string, options: LaunchPersistentContextOptions = {}): Promise<BrowserContext> {
@@ -116,9 +116,9 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
   connect(wsEndpoint: string, options?: api.ConnectOptions): Promise<api.Browser>;
   async connect(optionsOrWsEndpoint: string | (api.ConnectOptions & { wsEndpoint: string }), options?: api.ConnectOptions): Promise<Browser>{
     if (typeof optionsOrWsEndpoint === 'string')
-      return this._connect({ ...options, wsEndpoint: optionsOrWsEndpoint });
+      return await this._connect({ ...options, wsEndpoint: optionsOrWsEndpoint });
     assert(optionsOrWsEndpoint.wsEndpoint, 'options.wsEndpoint is required');
-    return this._connect(optionsOrWsEndpoint);
+    return await this._connect(optionsOrWsEndpoint);
   }
 
   async _connect(params: ConnectOptions): Promise<Browser> {
@@ -143,25 +143,31 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       connection.on('close', closePipe);
 
       let browser: Browser;
-      let closeError: Error | undefined;
-      const onPipeClosed = () => {
+      let closeError: string | undefined;
+      const onPipeClosed = (reason?: string) => {
         // Emulate all pages, contexts and the browser closing upon disconnect.
         for (const context of browser?.contexts() || []) {
           for (const page of context.pages())
             page._onClose();
           context._onClose();
         }
-        browser?._didClose();
-        connection.close(closeError);
+        connection.close(reason || closeError);
+        // Give a chance to any API call promises to reject upon page/context closure.
+        // This happens naturally when we receive page.onClose and browser.onClose from the server
+        // in separate tasks. However, upon pipe closure we used to dispatch them all synchronously
+        // here and promises did not have a chance to reject.
+        // The order of rejects vs closure is a part of the API contract and our test runner
+        // relies on it to attribute rejections to the right test.
+        setTimeout(() => browser?._didClose(), 0);
       };
-      pipe.on('closed', onPipeClosed);
-      connection.onmessage = message => pipe.send({ message }).catch(onPipeClosed);
+      pipe.on('closed', params => onPipeClosed(params.reason));
+      connection.onmessage = message => this._wrapApiCall(() => pipe.send({ message }).catch(() => onPipeClosed()), /* isInternal */ true);
 
       pipe.on('message', ({ message }) => {
         try {
           connection!.dispatch(message);
         } catch (e) {
-          closeError = e;
+          closeError = String(e);
           closePipe();
         }
       });
@@ -181,7 +187,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
         this._didLaunchBrowser(browser, {}, logger);
         browser._shouldCloseConnectionOnClose = true;
         browser._connectHeaders = connectHeaders;
-        browser.on(Events.Browser.Disconnected, closePipe);
+        browser.on(Events.Browser.Disconnected, () => this._wrapApiCall(() => closePipe(), /* isInternal */ true));
         return browser;
       }, deadline);
       if (!result.timedOut) {
@@ -193,14 +199,14 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     });
   }
 
-  connectOverCDP(options: api.ConnectOverCDPOptions  & { wsEndpoint?: string }): Promise<api.Browser>;
-  connectOverCDP(endpointURL: string, options?: api.ConnectOverCDPOptions): Promise<api.Browser>;
-  connectOverCDP(endpointURLOrOptions: (api.ConnectOverCDPOptions & { wsEndpoint?: string })|string, options?: api.ConnectOverCDPOptions) {
+  async connectOverCDP(options: api.ConnectOverCDPOptions  & { wsEndpoint?: string }): Promise<api.Browser>;
+  async connectOverCDP(endpointURL: string, options?: api.ConnectOverCDPOptions): Promise<api.Browser>;
+  async connectOverCDP(endpointURLOrOptions: (api.ConnectOverCDPOptions & { wsEndpoint?: string })|string, options?: api.ConnectOverCDPOptions) {
     if (typeof endpointURLOrOptions === 'string')
-      return this._connectOverCDP(endpointURLOrOptions, options);
+      return await this._connectOverCDP(endpointURLOrOptions, options);
     const endpointURL = 'endpointURL' in endpointURLOrOptions ? endpointURLOrOptions.endpointURL : endpointURLOrOptions.wsEndpoint;
     assert(endpointURL, 'Cannot connect over CDP without wsEndpoint.');
-    return this.connectOverCDP(endpointURL, endpointURLOrOptions);
+    return await this.connectOverCDP(endpointURL, endpointURLOrOptions);
   }
 
   async _connectOverCDP(endpointURL: string, params: api.ConnectOverCDPOptions = {}): Promise<Browser>  {
@@ -216,7 +222,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     const browser = Browser.from(result.browser);
     this._didLaunchBrowser(browser, {}, params.logger);
     if (result.defaultContext)
-      await this._didCreateContext(BrowserContext.from(result.defaultContext), {}, {}, undefined);
+      await this._didCreateContext(BrowserContext.from(result.defaultContext), {}, {}, params.logger);
     return browser;
   }
 
@@ -235,11 +241,11 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       context.setDefaultTimeout(this._defaultContextTimeout);
     if (this._defaultContextNavigationTimeout !== undefined)
       context.setDefaultNavigationTimeout(this._defaultContextNavigationTimeout);
-    await this._instrumentation.onDidCreateBrowserContext(context);
+    await this._instrumentation.runAfterCreateBrowserContext(context);
   }
 
   async _willCloseContext(context: BrowserContext) {
     this._contexts.delete(context);
-    await this._instrumentation.onWillCloseBrowserContext(context);
+    await this._instrumentation.runBeforeCloseBrowserContext(context);
   }
 }

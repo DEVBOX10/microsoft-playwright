@@ -19,6 +19,7 @@ import { ChannelOwner } from './channelOwner';
 import { parseSerializedValue, serializeValue } from '../protocol/serializers';
 import type * as api from '../../types/types';
 import type * as structs from '../../types/structs';
+import { isTargetClosedError } from './errors';
 
 export class JSHandle<T = any> extends ChannelOwner<channels.JSHandleChannel> implements api.JSHandle {
   private _preview: string;
@@ -68,14 +69,13 @@ export class JSHandle<T = any> extends ChannelOwner<channels.JSHandleChannel> im
   }
 
   async dispose() {
-    return await this._channel.dispose();
-  }
-
-  async _objectCount() {
-    return this._wrapApiCall(async () => {
-      const { count } = await this._channel.objectCount();
-      return count;
-    });
+    try {
+      await this._channel.dispose();
+    } catch (e) {
+      if (isTargetClosedError(e))
+        return;
+      throw e;
+    }
   }
 
   override toString(): string {

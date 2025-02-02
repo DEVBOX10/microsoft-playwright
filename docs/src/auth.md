@@ -15,7 +15,7 @@ We recommend to create `playwright/.auth` directory and add it to your `.gitigno
 
 ```bash tab=bash-bash
 mkdir -p playwright/.auth
-echo "\nplaywright/.auth" >> .gitignore
+echo $'\nplaywright/.auth' >> .gitignore
 ```
 
 ```batch tab=bash-batch
@@ -47,8 +47,9 @@ Create `tests/auth.setup.ts` that will prepare authenticated browser state for a
 
 ```js title="tests/auth.setup.ts"
 import { test as setup, expect } from '@playwright/test';
+import path from 'path';
 
-const authFile = 'playwright/.auth/user.json';
+const authFile = path.join(__dirname, '../playwright/.auth/user.json');
 
 setup('authenticate', async ({ page }) => {
   // Perform authentication steps. Replace these actions with your own.
@@ -112,6 +113,15 @@ test('test', async ({ page }) => {
   // page is authenticated
 });
 ```
+
+Note that you need to delete the stored state when it expires. If you don't need to keep the state between test runs, write the browser state under [`property: TestProject.outputDir`], which is automatically cleaned up before every test run.
+
+### Authenticating in UI mode
+* langs: js
+
+UI mode will not run the `setup` project by default to improve testing speed. We recommend to authenticate by manually running the `auth.setup.ts` from time to time, whenever existing authentication expires.
+
+First [enable the `setup` project in the filters](./test-ui-mode#filtering-tests), then click the triangle button next to `auth.setup.ts` file, and then disable the `setup` project in the filters again.
 
 
 ## Moderate: one account per parallel worker
@@ -222,7 +232,7 @@ await page.goto('https://github.com/login')
 # Interact with login form
 await page.get_by_label("Username or email address").fill("username")
 await page.get_by_label("Password").fill("password")
-await page.page.get_by_role("button", name="Sign in").click()
+await page.get_by_role("button", name="Sign in").click()
 # Continue with the test
 ```
 
@@ -256,7 +266,7 @@ existing authentication state instead.
 Playwright provides a way to reuse the signed-in state in the tests. That way you can log
 in only once and then skip the log in step for all of the tests.
 
-Web apps use cookie-based or token-based authentication, where authenticated state is stored as [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) or in [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage). Playwright provides [browserContext.storageState([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-storage-state) method that can be used to retrieve storage state from authenticated contexts and then create new contexts with pre-populated state.
+Web apps use cookie-based or token-based authentication, where authenticated state is stored as [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) or in [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage). Playwright provides [`method: BrowserContext.storageState`] method that can be used to retrieve storage state from authenticated contexts and then create new contexts with prepopulated state.
 
 Cookies and local storage state can be used across different browsers. They depend on your application's authentication model: some apps might require both cookies and local storage.
 
@@ -289,15 +299,16 @@ context = browser.new_context(storage_state="state.json")
 
 ```csharp
 // Save storage state into the file.
+// Tests are executed in <TestProject>\bin\Debug\netX.0\ therefore relative path is used to reference playwright/.auth created in project root
 await context.StorageStateAsync(new()
 {
-    Path = "state.json"
+    Path = "../../../playwright/.auth/state.json"
 });
 
 // Create a new context with the saved storage state.
 var context = await browser.NewContextAsync(new()
 {
-    StorageStatePath = "state.json"
+    StorageStatePath = "../../../playwright/.auth/state.json"
 });
 ```
 
@@ -457,6 +468,8 @@ test.describe(() => {
 });
 ```
 
+See also about [authenticating in the UI mode](#authenticating-in-ui-mode).
+
 ### Testing multiple roles together
 * langs: js
 
@@ -575,7 +588,7 @@ Reusing authenticated state covers [cookies](https://developer.mozilla.org/en-US
 ```js
 // Get session storage and store as env variable
 const sessionStorage = await page.evaluate(() => JSON.stringify(sessionStorage));
-fs.writeFileSync('playwright/.auth/session.json', JSON.stringify(sessionStorage), 'utf-8');
+fs.writeFileSync('playwright/.auth/session.json', sessionStorage, 'utf-8');
 
 // Set session storage in a new context
 const sessionStorage = JSON.parse(fs.readFileSync('playwright/.auth/session.json', 'utf-8'));

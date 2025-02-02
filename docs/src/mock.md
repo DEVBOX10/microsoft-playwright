@@ -41,7 +41,7 @@ async def test_mock_the_fruit_api(page: Page):
     await page.goto("https://demo.playwright.dev/api-mocking")
 
     # Assert that the Strawberry fruit is visible
-    await page.get_by_text("Strawberry").to_be_visible()
+    await expect(page.get_by_text("Strawberry")).to_be_visible()
 ```
 
 ```python sync
@@ -58,7 +58,7 @@ def test_mock_the_fruit_api(page: Page):
     page.goto("https://demo.playwright.dev/api-mocking")
 
     # Assert that the Strawberry fruit is visible
-    page.get_by_text("Strawberry").to_be_visible()
+    expect(page.get_by_text("Strawberry")).to_be_visible()
 ```
 
 ```csharp
@@ -109,7 +109,7 @@ Sometimes, it is essential to make an API request, but the response needs to be 
 allow for reproducible testing. In that case, instead of mocking the request, one
 can perform the request and fulfill it with the modified response.
 
-In the example below we intercept the call to the fruit API and add a new fruit called 'playwright', to the data. We then go to the url and assert that this data is there:
+In the example below we intercept the call to the fruit API and add a new fruit called 'Loquat', to the data. We then go to the url and assert that this data is there:
 
 
 ```js
@@ -118,7 +118,7 @@ test('gets the json from api and adds a new fruit', async ({ page }) => {
   await page.route('*/**/api/v1/fruits', async route => {
     const response = await route.fetch();
     const json = await response.json();
-    json.push({ name: 'Playwright', id: 100 });
+    json.push({ name: 'Loquat', id: 100 });
     // Fulfill using the original response, while patching the response body
     // with the given JSON object.
     await route.fulfill({ response, json });
@@ -128,85 +128,85 @@ test('gets the json from api and adds a new fruit', async ({ page }) => {
   await page.goto('https://demo.playwright.dev/api-mocking');
 
   // Assert that the new fruit is visible
-  await expect(page.getByText('Playwright', { exact: true })).toBeVisible();
+  await expect(page.getByText('Loquat', { exact: true })).toBeVisible();
 });
 ```
 
 ```python async
 async def test_gets_the_json_from_api_and_adds_a_new_fruit(page: Page):
     async def handle(route: Route):
-        response = await route.fulfill()
+        response = await route.fetch()
         json = await response.json()
-        json.append({ "name": "Playwright", "id": 100})
+        json.append({ "name": "Loquat", "id": 100})
         # Fulfill using the original response, while patching the response body
         # with the given JSON object.
         await route.fulfill(response=response, json=json)
 
-    await page.route("https://dog.ceo/api/breeds/list/all", handle)
+    await page.route("https://demo.playwright.dev/api-mocking/api/v1/fruits", handle)
 
     # Go to the page
     await page.goto("https://demo.playwright.dev/api-mocking")
 
     # Assert that the new fruit is visible
-    await page.get_by_text("Playwright", exact=True).to_be_visible()
+    await expect(page.get_by_text("Loquat", exact=True)).to_be_visible()
 ```
 
 ```python sync
 def test_gets_the_json_from_api_and_adds_a_new_fruit(page: Page):
     def handle(route: Route):
-        response = route.fulfill()
+        response = route.fetch()
         json = response.json()
-        json.append({ "name": "Playwright", "id": 100})
+        json.append({ "name": "Loquat", "id": 100})
         # Fulfill using the original response, while patching the response body
         # with the given JSON object.
         route.fulfill(response=response, json=json)
 
-    page.route("https://dog.ceo/api/breeds/list/all", handle)
+    page.route("https://demo.playwright.dev/api-mocking/api/v1/fruits", handle)
 
     # Go to the page
     page.goto("https://demo.playwright.dev/api-mocking")
 
     # Assert that the new fruit is visible
-    page.get_by_text("Playwright", exact=True).to_be_visible()
+    expect(page.get_by_text("Loquat", exact=True)).to_be_visible()
 ```
 
 ```csharp
 await page.RouteAsync("*/**/api/v1/fruits", async (route) => {
     var response = await route.FetchAsync();
     var fruits = await response.JsonAsync<Fruit[]>();
-    fruits.Add(new Fruit() { Name = "Playwright", Id = 100 });
+    fruits.Add(new Fruit() { Name = "Loquat", Id = 100 });
     // Fulfill using the original response, while patching the response body
     // with the given JSON object.
     await route.FulfillAsync(new ()
     {
       Response = response,
-      Json = json
+      Json = fruits
     });
   }
 );
 // Go to the page
 await page.GotoAsync("https://demo.playwright.dev/api-mocking");
 
-// Assert that the Strawberry fruit is visible
-await Expect(page.GetByTextAsync("Playwright", new () { Exact = true })).ToBeVisibleAsync();
+// Assert that the Loquat fruit is visible
+await Expect(page.GetByTextAsync("Loquat", new () { Exact = true })).ToBeVisibleAsync();
 ```
 
 ```java
 page.route("*/**/api/v1/fruits", route -> {
   Response response = route.fetch();
   byte[] json = response.body();
-  parsed = new Gson().fromJson(json, JsonObject.class)
-  parsed.add(new JsonObject().add("name", "Playwright").add("id", 100));
+  JsonObject parsed = new Gson().fromJson(new String(json), JsonObject.class);
+  parsed.add(new JsonObject().add("name", "Loquat").add("id", 100));
   // Fulfill using the original response, while patching the response body
   // with the given JSON object.
-  route.fulfill(new Route.FulfillOptions().setResponse(response).setBody(json.toString()));
+  route.fulfill(new Route.FulfillOptions().setResponse(response).setBody(parsed.toString()));
 });
 
 // Go to the page
-page.goto("https://demo.playwright.dev/api-mocking");
+page.navigate("https://demo.playwright.dev/api-mocking");
 
-// Assert that the Strawberry fruit is visible
-assertThat(page.getByText("Playwright", new Page.GetByTextOptions().setExact(true))).isVisible();
+// Assert that the Loquat fruit is visible
+assertThat(page.getByText("Loquat", new Page.GetByTextOptions().setExact(true))).isVisible();
 ```
 
 In the trace of our test we can see that the API was called and the response was modified.
@@ -249,7 +249,7 @@ test('records or updates the HAR file', async ({ page }) => {
 ```
 
 ```python async
-async def records_or_updates_the_har_file(page: Page):
+async def test_records_or_updates_the_har_file(page: Page):
     # Get the response from the HAR file
     await page.route_from_har("./hars/fruit.har", url="*/**/api/v1/fruits", update=True)
 
@@ -261,7 +261,7 @@ async def records_or_updates_the_har_file(page: Page):
 ```
 
 ```python sync
-def records_or_updates_the_har_file(page: Page):
+def test_records_or_updates_the_har_file(page: Page):
     # Get the response from the HAR file
     page.route_from_har("./hars/fruit.har", url="*/**/api/v1/fruits", update=True)
 
@@ -288,13 +288,13 @@ await Expect(page.GetByText("Strawberry")).ToBeVisibleAsync();
 
 ```java
 // Get the response from the HAR file
-page.routeFromHAR("./hars/fruit.har", new RouteFromHAROptions()
+page.routeFromHAR(Path.of("./hars/fruit.har"), new RouteFromHAROptions()
   .setUrl("*/**/api/v1/fruits")
   .setUpdate(true)
 );
 
 // Go to the page
-page.goto("https://demo.playwright.dev/api-mocking");
+page.navigate("https://demo.playwright.dev/api-mocking");
 
 // Assert that the fruit is visible
 assertThat(page.getByText("Strawberry")).isVisible();
@@ -347,7 +347,7 @@ async def test_gets_the_json_from_har_and_checks_the_new_fruit_has_been_added(pa
     await page.goto("https://demo.playwright.dev/api-mocking")
 
     # Assert that the Playwright fruit is visible
-    await page.get_by_text("Playwright", exact=True).to_be_visible()
+    await expect(page.get_by_text("Playwright", exact=True)).to_be_visible()
 ```
 
 ```python sync
@@ -361,7 +361,7 @@ def test_gets_the_json_from_har_and_checks_the_new_fruit_has_been_added(page: Pa
     page.goto("https://demo.playwright.dev/api-mocking")
 
     # Assert that the Playwright fruit is visible
-    page.get_by_text("Playwright", exact=True).to_be_visible()
+    expect(page.get_by_text("Playwright", exact=True)).to_be_visible()
 ```
 
 ```csharp
@@ -386,16 +386,17 @@ await page.ExpectByTextAsync("Playwright", new() { Exact = true }).ToBeVisibleAs
 // Replay API requests from HAR.
 // Either use a matching response from the HAR,
 // or abort the request if nothing matches.
-page.routeFromHAR("./hars/fruit.har", new RouteFromHAROptions()
+page.routeFromHAR(Path.of("./hars/fruit.har"), new RouteFromHAROptions()
   .setUrl("*/**/api/v1/fruits")
   .setUpdate(false)
 );
 
 // Go to the page
-page.goto("https://demo.playwright.dev/api-mocking");
+page.navigate("https://demo.playwright.dev/api-mocking");
 
 // Assert that the Playwright fruit is visible
-assertThat(page.getByText("Playwright", new Page.GetByTextOptions().setExact(true))).isVisible();
+assertThat(page.getByText("Playwright", new Page.GetByTextOptions()
+  .setExact(true))).isVisible();
 ```
 In the trace of our test we can see that the route was fulfilled from the HAR file and the API was not called.
 ![trace showing the HAR file being used](https://github.com/microsoft/playwright/assets/13063165/1bd7ab66-ea4f-43c2-a4e5-ca17d4837ff1)
@@ -425,7 +426,7 @@ mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="op
 
 ```bash python
 # Save API requests from example.com as "example.har" archive.
-playwright open --save-har=example.har --save-har-glob="**/api/**" https://example.coms
+playwright open --save-har=example.har --save-har-glob="**/api/**" https://example.com
 ```
 
 ```bash csharp
@@ -434,3 +435,122 @@ pwsh bin/Debug/netX/playwright.ps1 open --save-har=example.har --save-har-glob="
 ```
 
 Read more about [advanced networking](./network.md).
+
+## Mock WebSockets
+
+The following code will intercept WebSocket connections and mock entire communcation over the WebSocket, instead of connecting to the server. This example responds to a `"request"` with a `"response"`.
+
+```js
+await page.routeWebSocket('wss://example.com/ws', ws => {
+  ws.onMessage(message => {
+    if (message === 'request')
+      ws.send('response');
+  });
+});
+```
+
+```java
+page.routeWebSocket("wss://example.com/ws", ws -> {
+  ws.onMessage(frame -> {
+    if ("request".equals(frame.text()))
+      ws.send("response");
+  });
+});
+```
+
+```python async
+def message_handler(ws: WebSocketRoute, message: Union[str, bytes]):
+  if message == "request":
+    ws.send("response")
+
+await page.route_web_socket("wss://example.com/ws", lambda ws: ws.on_message(
+    lambda message: message_handler(ws, message)
+))
+```
+
+```python sync
+def message_handler(ws: WebSocketRoute, message: Union[str, bytes]):
+  if message == "request":
+    ws.send("response")
+
+page.route_web_socket("wss://example.com/ws", lambda ws: ws.on_message(
+    lambda message: message_handler(ws, message)
+))
+```
+
+```csharp
+await page.RouteWebSocketAsync("wss://example.com/ws", ws => {
+  ws.OnMessage(frame => {
+    if (frame.Text == "request")
+      ws.Send("response");
+  });
+});
+```
+
+Alternatively, you may want to connect to the actual server, but intercept messages in-between and modify or block them. Here is an example that modifies some of the messages sent by the page to the server, and leaves the rest unmodified.
+
+```js
+await page.routeWebSocket('wss://example.com/ws', ws => {
+  const server = ws.connectToServer();
+  ws.onMessage(message => {
+    if (message === 'request')
+      server.send('request2');
+    else
+      server.send(message);
+  });
+});
+```
+
+```java
+page.routeWebSocket("wss://example.com/ws", ws -> {
+  WebSocketRoute server = ws.connectToServer();
+  ws.onMessage(frame -> {
+    if ("request".equals(frame.text()))
+      server.send("request2");
+    else
+      server.send(frame.text());
+  });
+});
+```
+
+```python async
+def message_handler(server: WebSocketRoute, message: Union[str, bytes]):
+  if message == "request":
+    server.send("request2")
+  else:
+    server.send(message)
+
+def handler(ws: WebSocketRoute):
+  server = ws.connect_to_server()
+  ws.on_message(lambda message: message_handler(server, message))
+
+await page.route_web_socket("wss://example.com/ws", handler)
+```
+
+```python sync
+def message_handler(server: WebSocketRoute, message: Union[str, bytes]):
+  if message == "request":
+    server.send("request2")
+  else:
+    server.send(message)
+
+def handler(ws: WebSocketRoute):
+  server = ws.connect_to_server()
+  ws.on_message(lambda message: message_handler(server, message))
+
+page.route_web_socket("wss://example.com/ws", handler)
+```
+
+```csharp
+await page.RouteWebSocketAsync("wss://example.com/ws", ws => {
+  var server = ws.ConnectToServer();
+  ws.OnMessage(frame => {
+    if (frame.Text == "request")
+      server.Send("request2");
+    else
+      server.Send(frame.Text);
+  });
+});
+```
+
+For more details, see [WebSocketRoute].

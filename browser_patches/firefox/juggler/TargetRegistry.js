@@ -4,7 +4,6 @@
 
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {Preferences} = ChromeUtils.import("resource://gre/modules/Preferences.jsm");
 const {ContextualIdentityService} = ChromeUtils.import("resource://gre/modules/ContextualIdentityService.jsm");
 const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
@@ -21,6 +20,8 @@ const ALL_PERMISSIONS = [
   'geo',
   'desktop-notification',
 ];
+
+let globalTabAndWindowActivationChain = Promise.resolve();
 
 class DownloadInterceptor {
   constructor(registry) {
@@ -115,6 +116,7 @@ class TargetRegistry {
     this._browserToTarget = new Map();
     this._browserIdToTarget = new Map();
 
+    this._proxiesWithClashingAuthCacheKeys = new Set();
     this._browserProxy = null;
 
     // Cleanup containers from previous runs (if any)
@@ -233,12 +235,50 @@ class TargetRegistry {
       onOpenWindow(win);
   }
 
+  // Firefox uses nsHttpAuthCache to cache authentication to the proxy.
+  // If we're provided with a single proxy with a multiple different authentications, then
+  // we should clear the nsHttpAuthCache on every request.
+  shouldBustHTTPAuthCacheForProxy(proxy) {
+    return this._proxiesWithClashingAuthCacheKeys.has(proxy);
+  }
+
+  _updateProxiesWithSameAuthCacheAndDifferentCredentials() {
+    const proxyIdToCredentials = new Map();
+    const allProxies = [...this._browserContextIdToBrowserContext.values()].map(bc => bc._proxy).filter(Boolean);
+    if (this._browserProxy)
+      allProxies.push(this._browserProxy);
+    const proxyAuthCacheKeyAndProxy = allProxies.map(proxy => [
+      JSON.stringify({
+        type: proxy.type,
+        host: proxy.host,
+        port: proxy.port,
+      }),
+      proxy,
+    ]);
+    this._proxiesWithClashingAuthCacheKeys.clear();
+
+    proxyAuthCacheKeyAndProxy.sort(([cacheKey1], [cacheKey2]) => cacheKey1 < cacheKey2 ? -1 : 1);
+    for (let i = 0; i < proxyAuthCacheKeyAndProxy.length - 1; ++i) {
+      const [cacheKey1, proxy1] = proxyAuthCacheKeyAndProxy[i];
+      const [cacheKey2, proxy2] = proxyAuthCacheKeyAndProxy[i + 1];
+      if (cacheKey1 !== cacheKey2)
+        continue;
+      if (proxy1.username === proxy2.username && proxy1.password === proxy2.password)
+        continue;
+      // `proxy1` and `proxy2` have the same caching key, but serve different credentials.
+      // We have to bust HTTP Auth Cache everytime there's a request that will use either of the proxies.
+      this._proxiesWithClashingAuthCacheKeys.add(proxy1);
+      this._proxiesWithClashingAuthCacheKeys.add(proxy2);
+    }
+  }
+
   async cancelDownload(options) {
     this._downloadInterceptor.cancelDownload(options.uuid);
   }
 
   setBrowserProxy(proxy) {
     this._browserProxy = proxy;
+    this._updateProxiesWithSameAuthCacheAndDifferentCredentials();
   }
 
   getProxyInfo(channel) {
@@ -353,7 +393,8 @@ class PageTarget {
     this._videoRecordingInfo = undefined;
     this._screencastRecordingInfo = undefined;
     this._dialogs = new Map();
-    this.forcedColors = 'no-override';
+    this.forcedColors = 'none';
+    this.disableCache = false;
     this.mediumOverride = '';
     this.crossProcessCookie = {
       initScripts: [],
@@ -366,7 +407,7 @@ class PageTarget {
       onLocationChange: (aWebProgress, aRequest, aLocation) => this._onNavigated(aLocation),
     };
     this._eventListeners = [
-      helper.addObserver(this._updateModalDialogs.bind(this), 'tabmodal-dialog-loaded'),
+      helper.addObserver(this._updateModalDialogs.bind(this), 'common-dialog-loaded'),
       helper.addProgressListener(tab.linkedBrowser, navigationListener, Ci.nsIWebProgress.NOTIFY_LOCATION),
       helper.addEventListener(this._linkedBrowser, 'DOMModalDialogClosed', event => this._updateModalDialogs()),
       helper.addEventListener(this._linkedBrowser, 'WillChangeBrowserRemoteness', event => this._willChangeBrowserRemoteness()),
@@ -385,7 +426,7 @@ class PageTarget {
     const tabBrowser = ownerWindow.gBrowser;
     // Serialize all tab-switching commands per tabbed browser
     // to disallow concurrent tab switching.
-    const result = (tabBrowser.__serializedChain ?? Promise.resolve()).then(async () => {
+    const result = globalTabAndWindowActivationChain.then(async () => {
       this._window.focus();
       if (tabBrowser.selectedTab !== this._tab) {
         const promise = helper.awaitEvent(ownerWindow, 'TabSwitchDone');
@@ -400,7 +441,7 @@ class PageTarget {
         notificationsPopup?.style.removeProperty('pointer-events');
       }
     });
-    tabBrowser.__serializedChain = result.catch(error => { /* swallow errors to keep chain running */ });
+    globalTabAndWindowActivationChain = result.catch(error => { /* swallow errors to keep chain running */ });
     return result;
   }
 
@@ -459,6 +500,25 @@ class PageTarget {
     this.updateColorSchemeOverride(browsingContext);
     this.updateReducedMotionOverride(browsingContext);
     this.updateForcedColorsOverride(browsingContext);
+    this.updateForceOffline(browsingContext);
+    this.updateCacheDisabled(browsingContext);
+  }
+
+  updateForceOffline(browsingContext = undefined) {
+    (browsingContext || this._linkedBrowser.browsingContext).forceOffline = this._browserContext.forceOffline;
+  }
+
+  setCacheDisabled(disabled) {
+    this.disableCache = disabled;
+    this.updateCacheDisabled();
+  }
+
+  updateCacheDisabled(browsingContext = this._linkedBrowser.browsingContext) {
+    const enableFlags = Ci.nsIRequest.LOAD_NORMAL;
+    const disableFlags = Ci.nsIRequest.LOAD_BYPASS_CACHE |
+                  Ci.nsIRequest.INHIBIT_CACHING;
+
+    browsingContext.defaultLoadFlags = (this._browserContext.disableCache || this.disableCache) ? disableFlags : enableFlags;
   }
 
   updateTouchOverride(browsingContext = undefined) {
@@ -478,7 +538,7 @@ class PageTarget {
   }
 
   _updateModalDialogs() {
-    const prompts = new Set(this._linkedBrowser.tabModalPromptBox ? this._linkedBrowser.tabModalPromptBox.listPrompts() : []);
+    const prompts = new Set(this._linkedBrowser.tabDialogBox.getContentDialogManager().dialogs.map(dialog => dialog.frameContentWindow.Dialog));
     for (const dialog of this._dialogs.values()) {
       if (!prompts.has(dialog.prompt())) {
         this._dialogs.delete(dialog.id());
@@ -575,7 +635,8 @@ class PageTarget {
   }
 
   updateForcedColorsOverride(browsingContext = undefined) {
-    (browsingContext || this._linkedBrowser.browsingContext).forcedColorsOverride = (this.forcedColors !== 'no-override' ? this.forcedColors : this._browserContext.forcedColors) || 'no-override';
+    const isActive = this.forcedColors === 'active' || this._browserContext.forcedColors === 'active';
+    (browsingContext || this._linkedBrowser.browsingContext).forcedColorsOverride = isActive ? 'active' : 'none';
   }
 
   async setInterceptFileChooserDialog(enabled) {
@@ -798,8 +859,8 @@ function fromProtocolReducedMotion(reducedMotion) {
 function fromProtocolForcedColors(forcedColors) {
   if (forcedColors === 'active' || forcedColors === 'none')
     return forcedColors;
-  if (forcedColors === null)
-    return undefined;
+  if (!forcedColors)
+    return 'none';
   throw new Error('Unknown forced colors: ' + forcedColors);
 }
 
@@ -830,8 +891,10 @@ class BrowserContext {
     this.defaultUserAgent = null;
     this.defaultPlatform = null;
     this.touchOverride = false;
+    this.forceOffline = false;
+    this.disableCache = false;
     this.colorScheme = 'none';
-    this.forcedColors = 'no-override';
+    this.forcedColors = 'none';
     this.reducedMotion = 'none';
     this.videoRecordingOptions = undefined;
     this.crossProcessCookie = {
@@ -883,12 +946,14 @@ class BrowserContext {
     }
     this._registry._browserContextIdToBrowserContext.delete(this.browserContextId);
     this._registry._userContextIdToBrowserContext.delete(this.userContextId);
+    this._registry._updateProxiesWithSameAuthCacheAndDifferentCredentials();
   }
 
   setProxy(proxy) {
     // Clear AuthCache.
     Services.obs.notifyObservers(null, "net:clear-active-logins");
     this._proxy = proxy;
+    this._registry._updateProxiesWithSameAuthCacheAndDifferentCredentials();
   }
 
   setIgnoreHTTPSErrors(ignoreHTTPSErrors) {
@@ -923,6 +988,18 @@ class BrowserContext {
     this.touchOverride = touchOverride;
     for (const page of this.pages)
       page.updateTouchOverride();
+  }
+
+  setForceOffline(forceOffline) {
+    this.forceOffline = forceOffline;
+    for (const page of this.pages)
+      page.updateForceOffline();
+  }
+
+  setCacheDisabled(disabled) {
+    this.disableCache = disabled;
+    for (const page of this.pages)
+      page.updateCacheDisabled();
   }
 
   async setDefaultViewport(viewport) {

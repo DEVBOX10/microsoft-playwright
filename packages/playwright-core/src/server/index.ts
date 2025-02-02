@@ -19,7 +19,6 @@ export {
   registry,
   registryDirectory,
   Registry,
-  installDefaultBrowsersForNpmInstall,
   installBrowsersForNpmInstall,
   writeDockerVersion } from './registry';
 
@@ -29,6 +28,6 @@ export { createPlaywright } from './playwright';
 
 export type { DispatcherScope } from './dispatchers/dispatcher';
 export type { Playwright } from './playwright';
-export { openTraceInBrowser, openTraceViewerApp } from './trace/viewer/traceViewer';
+export { openTraceInBrowser, openTraceViewerApp, runTraceViewerApp, startTraceViewerServer, installRootRedirect } from './trace/viewer/traceViewer';
 export { serverSideCallMetadata } from './instrumentation';
 export { SocksProxy } from '../common/socksProxy';

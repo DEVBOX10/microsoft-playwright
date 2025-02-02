@@ -16,13 +16,13 @@ Playwright Trace Viewer is a GUI tool that lets you explore recorded Playwright 
 - [How to open and view the trace](/trace-viewer-intro.md#opening-the-trace)
 
 <LiteYouTube
-    id="lfxjs--9ZQs"
+    id="yP6AnTxC34s"
     title="Viewing Playwright Traces"
 />
 
 ## Recording a Trace
 
-By default the [playwright.config](/test-configuration.md#record-test-trace) file will contain the configuration needed to create a `trace.zip` file for each test. Traces are setup to run `on-first-retry` meaning they will be run on the first retry of a failed test. Also `retries` are set to 2 when running on CI and 0 locally. This means the traces will be recorded on the first retry of a failed test but not on the first run and not on the second retry.
+By default the [playwright.config](./trace-viewer.md#tracing-on-ci) file will contain the configuration needed to create a `trace.zip` file for each test. Traces are setup to run `on-first-retry` meaning they will be run on the first retry of a failed test. Also `retries` are set to 2 when running on CI and 0 locally. This means the traces will be recorded on the first retry of a failed test but not on the first run and not on the second retry.
 
 ```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
@@ -37,7 +37,7 @@ export default defineConfig({
 
 To learn more about available options to record a trace check out our detailed guide on [Trace Viewer](/trace-viewer.md).
 
-Traces are normally run in a Continuous Integration(CI) environment, because locally you can use [UI Mode](/test-ui-mode.md) for developing and debugging tests. However should you want to run traces locally without using [UI Mode](/test-ui-mode.md), you can force tracing to be on with `--trace on`.
+Traces are normally run in a Continuous Integration(CI) environment, because locally you can use [UI Mode](/test-ui-mode.md) for developing and debugging tests. However, if you want to run traces locally without using [UI Mode](/test-ui-mode.md), you can force tracing to be on with `--trace on`.
 
 ```bash
 npx playwright test --trace on
@@ -45,7 +45,7 @@ npx playwright test --trace on
 
 ## Opening the HTML report
 
-The HTML report shows you a report of all your tests that have been ran and on which browsers as well as how long they took. Tests can be filtered by passed tests, failed, flakey or skipped tests. You can also search for a particular test. Clicking on a test will open the detailed view where you can see more information on your tests such as the errors, the test steps and the trace.
+The HTML report shows you a report of all your tests that have been run and on which browsers as well as how long they took. Tests can be filtered by passed tests, failed, flaky or skipped tests. You can also search for a particular test. Clicking on a test will open the detailed view where you can see more information on your tests such as the errors, the test steps and the trace.
 
 ```bash
 npx playwright show-report

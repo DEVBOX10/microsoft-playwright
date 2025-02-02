@@ -101,7 +101,8 @@ Playwright can emulate various devices by specifying `setDeviceScaleFactor`, `se
 The viewport is included in the device but you can override it for some tests with [`method: Page.setViewportSize`].
 
 ```js tab=js-test title="playwright.config.ts"
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
+
 export default defineConfig({
   projects: [
     {
@@ -187,7 +188,7 @@ page.setViewportSize(1600, 1200);
 // Emulate high-DPI
 BrowserContext context = browser.newContext(new Browser.NewContextOptions()
   .setViewportSize(2560, 1440)
-  .setDeviceScaleFactor(2);
+  .setDeviceScaleFactor(2));
 ```
 
 ```python async
@@ -245,7 +246,7 @@ await using var context = await browser.NewContextAsync(new()
 Whether the meta viewport tag is taken into account and touch events are enabled.
 
 ```js title="playwright.config.ts"
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   projects: [
@@ -282,7 +283,7 @@ context = browser.new_context(
 ```csharp
 await using var context = await browser.NewContextAsync(new()
 {
-    IsMobile = new IsMoble() { false }
+    IsMobile = false
 });
 ```
 
@@ -377,7 +378,7 @@ const context = await browser.newContext({
 
 ```java
 BrowserContext context = browser.newContext(new Browser.NewContextOptions()
-  .setPermissions(Arrays.asList("notifications"));
+  .setPermissions(Arrays.asList("notifications")));
 ```
 
 ```python async
@@ -557,7 +558,7 @@ await context.SetGeolocationAsync(new Geolocation() { Longitude = 48.858455, Lat
 **Note** you can only change geolocation for all pages in the context.
 ## Color Scheme and Media
 
-Emulate the users `"colorScheme"`. Supported values are 'light', 'dark', 'no-preference'. You can also emulate the media type with [`method: Page.emulateMedia`].
+Emulate the users `"colorScheme"`. Supported values are 'light' and 'dark'. You can also emulate the media type with [`method: Page.emulateMedia`].
 
 ```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
@@ -780,16 +781,16 @@ BrowserContext context = browser.newContext(new Browser.NewContextOptions()
 
 ```python async
 context = await browser.new_context(
-  javaScript_enabled=False
+  java_script_enabled=False
 )
 ```
 
 ```python sync
 context = browser.new_context(
-  javaScript_enabled=False
+  java_script_enabled=False
 )
 ```
 
 ```csharp
-var context = await browser.NewContextAsync(new() { JavaScriptEnabled = true });
+var context = await browser.NewContextAsync(new() { JavaScriptEnabled = false });
 ```

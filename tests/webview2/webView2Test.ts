@@ -30,12 +30,14 @@ export const webView2Test = baseTest.extend<TraceViewerFixtures>(traceViewerFixt
   browserMajorVersion: [({ browserVersion }, use) => use(Number(browserVersion.split('.')[0])), { scope: 'worker' }],
   isAndroid: [false, { scope: 'worker' }],
   isElectron: [false, { scope: 'worker' }],
+  electronMajorVersion: [0, { scope: 'worker' }],
   isWebView2: [true, { scope: 'worker' }],
+  isHeadlessShell: [false, { scope: 'worker' }],
 
   browser: [async ({ playwright }, use, testInfo) => {
     const cdpPort = 10000 + testInfo.workerIndex;
     const spawnedProcess = new TestChildProcess({
-      command: [path.join(__dirname, 'webview2-app/bin/Debug/net6.0-windows/webview2.exe')],
+      command: [path.join(__dirname, 'webview2-app/bin/Debug/net8.0-windows/webview2.exe')],
       shell: true,
       env: {
         ...process.env,

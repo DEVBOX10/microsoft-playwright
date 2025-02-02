@@ -38,7 +38,10 @@ it('should work @smoke', async ({ page, browserName }) => {
 it('should emit same log twice', async ({ page }) => {
   const messages = [];
   page.on('console', m => messages.push(m.text()));
-  await page.evaluate(() => { for (let i = 0; i < 2; ++i) console.log('hello'); });
+  await page.evaluate(() => {
+    for (let i = 0; i < 2; ++i)
+      console.log('hello');
+  });
   expect(messages).toEqual(['hello', 'hello']);
 });
 
@@ -94,9 +97,9 @@ it('should format the message correctly with time/timeLog/timeEnd', async ({ pag
   page.on('console', msg => messages.push(msg));
   await page.evaluate(async () => {
     console.time('foo time');
-    await new Promise(x => setTimeout(x, 100));
+    await new Promise(x => window.builtinSetTimeout(x, 100));
     console.timeLog('foo time');
-    await new Promise(x => setTimeout(x, 100));
+    await new Promise(x => window.builtinSetTimeout(x, 100));
     console.timeEnd('foo time');
   });
   expect(messages.length).toBe(2);

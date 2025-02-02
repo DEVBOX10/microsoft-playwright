@@ -25,7 +25,8 @@ const launchOptions = (channel: string) => {
 
 test('should print the correct imports and context options', async ({ runCLI, channel, browserName }) => {
   const cli = runCLI(['--target=python', emptyHTML]);
-  const expectedResult = `from playwright.sync_api import Playwright, sync_playwright, expect
+  const expectedResult = `import re
+from playwright.sync_api import Playwright, sync_playwright, expect
 
 
 def run(playwright: Playwright) -> None:
@@ -36,7 +37,8 @@ def run(playwright: Playwright) -> None:
 
 test('should print the correct context options for custom settings', async ({ runCLI, channel, browserName }) => {
   const cli = runCLI(['--color-scheme=light', '--target=python', emptyHTML]);
-  const expectedResult = `from playwright.sync_api import Playwright, sync_playwright, expect
+  const expectedResult = `import re
+from playwright.sync_api import Playwright, sync_playwright, expect
 
 
 def run(playwright: Playwright) -> None:
@@ -49,7 +51,8 @@ test('should print the correct context options when using a device', async ({ br
   test.skip(browserName !== 'chromium');
 
   const cli = runCLI(['--device=Pixel 2', '--target=python', emptyHTML]);
-  const expectedResult = `from playwright.sync_api import Playwright, sync_playwright, expect
+  const expectedResult = `import re
+from playwright.sync_api import Playwright, sync_playwright, expect
 
 
 def run(playwright: Playwright) -> None:
@@ -62,7 +65,8 @@ test('should print the correct context options when using a device and additiona
   test.skip(browserName !== 'webkit');
 
   const cli = runCLI(['--color-scheme=light', '--device=iPhone 11', '--target=python', emptyHTML]);
-  const expectedResult = `from playwright.sync_api import Playwright, sync_playwright, expect
+  const expectedResult = `import re
+from playwright.sync_api import Playwright, sync_playwright, expect
 
 
 def run(playwright: Playwright) -> None:
@@ -78,7 +82,8 @@ test('should save the codegen output to a file if specified', async ({ runCLI, c
   });
   await cli.waitForCleanExit();
   const content = fs.readFileSync(tmpFile);
-  expect(content.toString()).toBe(`from playwright.sync_api import Playwright, sync_playwright, expect
+  expect(content.toString()).toBe(`import re
+from playwright.sync_api import Playwright, sync_playwright, expect
 
 
 def run(playwright: Playwright) -> None:
@@ -103,7 +108,8 @@ test('should print load/save storage_state', async ({ runCLI, channel, browserNa
   const saveFileName = testInfo.outputPath('save.json');
   await fs.promises.writeFile(loadFileName, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
   const cli = runCLI([`--load-storage=${loadFileName}`, `--save-storage=${saveFileName}`, '--target=python', emptyHTML]);
-  const expectedResult1 = `from playwright.sync_api import Playwright, sync_playwright, expect
+  const expectedResult1 = `import re
+from playwright.sync_api import Playwright, sync_playwright, expect
 
 
 def run(playwright: Playwright) -> None:
@@ -122,4 +128,26 @@ with sync_playwright() as playwright:
     run(playwright)
 `;
   await cli.waitFor(expectedResult2);
+});
+
+test('should work with --save-har', async ({ runCLI }, testInfo) => {
+  const harFileName = testInfo.outputPath('har.har');
+  const expectedResult = `context.route_from_har(${JSON.stringify(harFileName)})`;
+  const cli = runCLI(['--target=python-async', `--save-har=${harFileName}`], {
+    autoExitWhen: expectedResult,
+  });
+  await cli.waitForCleanExit();
+  const json = JSON.parse(fs.readFileSync(harFileName, 'utf-8'));
+  expect(json.log.creator.name).toBe('Playwright');
+});
+
+test('should work with --save-har and --save-har-glob', async ({ runCLI }, testInfo) => {
+  const harFileName = testInfo.outputPath('har.har');
+  const expectedResult = `context.route_from_har(${JSON.stringify(harFileName)}, url="**/*.js")`;
+  const cli = runCLI(['--target=python-async', `--save-har=${harFileName}`, '--save-har-glob=**/*.js'], {
+    autoExitWhen: expectedResult,
+  });
+  await cli.waitForCleanExit();
+  const json = JSON.parse(fs.readFileSync(harFileName, 'utf-8'));
+  expect(json.log.creator.name).toBe('Playwright');
 });

@@ -23,9 +23,6 @@ import { JSHandleDispatcher, serializeResult, parseArgument } from './jsHandleDi
 import type { JSHandleDispatcherParentScope } from './jsHandleDispatcher';
 import { FrameDispatcher } from './frameDispatcher';
 import type { CallMetadata } from '../instrumentation';
-import type { WritableStreamDispatcher } from './writableStreamDispatcher';
-import { assert } from '../../utils';
-import path from 'path';
 import { BrowserContextDispatcher } from './browserContextDispatcher';
 import { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
 
@@ -64,6 +61,10 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
   async contentFrame(params: channels.ElementHandleContentFrameParams, metadata: CallMetadata): Promise<channels.ElementHandleContentFrameResult> {
     const frame = await this._elementHandle.contentFrame();
     return { frame: frame ? FrameDispatcher.from(this._browserContextDispatcher(), frame) : undefined };
+  }
+
+  async generateLocatorString(params: channels.ElementHandleGenerateLocatorStringParams, metadata: CallMetadata): Promise<channels.ElementHandleGenerateLocatorStringResult> {
+    return { value: await this._elementHandle.generateLocatorString() };
   }
 
   async getAttribute(params: channels.ElementHandleGetAttributeParams, metadata: CallMetadata): Promise<channels.ElementHandleGetAttributeResult> {
@@ -151,19 +152,7 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
   }
 
   async setInputFiles(params: channels.ElementHandleSetInputFilesParams, metadata: CallMetadata): Promise<void> {
-    return await this._elementHandle.setInputFiles(metadata, { files: params.files }, params);
-  }
-
-  async setInputFilePaths(params: channels.ElementHandleSetInputFilePathsParams, metadata: CallMetadata): Promise<void> {
-    let { localPaths } = params;
-    if (!localPaths) {
-      if (!params.streams)
-        throw new Error('Neither localPaths nor streams is specified');
-      localPaths = params.streams.map(c => (c as WritableStreamDispatcher).path());
-    }
-    for (const p of localPaths)
-      assert(path.isAbsolute(p) && path.resolve(p) === p, 'Paths provided to localPaths must be absolute and fully resolved.');
-    return await this._elementHandle.setInputFiles(metadata, { localPaths }, params);
+    return await this._elementHandle.setInputFiles(metadata, params);
   }
 
   async focus(params: channels.ElementHandleFocusParams, metadata: CallMetadata): Promise<void> {

@@ -24,7 +24,7 @@ const basicTestTree = {
     test('passes', () => {});
     test('fails', () => { expect(1).toBe(2); });
     test.describe('suite', () => {
-      test('inner passes', () => {});
+      test('inner passes', { tag: '@smoke' }, () => {});
       test('inner fails', () => { expect(1).toBe(2); });
     });
   `,
@@ -43,6 +43,32 @@ test('should filter by title', async ({ runUITest }) => {
       ▼ ◯ suite
           ◯ inner passes
           ◯ inner fails
+  `);
+});
+
+test('should filter by explicit tags', async ({ runUITest }) => {
+  const { page } = await runUITest(basicTestTree);
+  await page.getByPlaceholder('Filter').fill('@smoke inner');
+  await expect.poll(dumpTestTree(page)).toBe(`
+    ▼ ◯ a.test.ts
+      ▼ ◯ suite
+          ◯ inner passes
+  `);
+});
+
+test('should display native tags and filter by them on click', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('p', () => {});
+      test('pwt', { tag: '@smoke' }, () => {});
+  `,
+  });
+  await page.locator('.ui-mode-tree-item-title').getByText('smoke').click();
+  await expect(page.getByPlaceholder('Filter')).toHaveValue('@smoke');
+  await expect.poll(dumpTestTree(page)).toBe(`
+    ▼ ◯ a.test.ts
+        ◯ pwt
   `);
 });
 
@@ -202,4 +228,20 @@ test('should filter skipped', async ({ runUITest, createLatch }) => {
     ▼ ⊘ a.test.ts
         ⊘ fails
   `);
+});
+
+test('should only show tests selected with --grep', async ({ runUITest }) => {
+  const { page } = await runUITest(basicTestTree, undefined, {
+    additionalArgs: ['--grep', 'fails'],
+  });
+  await expect.poll(dumpTestTree(page)).toContain('fails');
+  await expect.poll(dumpTestTree(page)).not.toContain('passes');
+});
+
+test('should not show tests filtered with --grep-invert', async ({ runUITest }) => {
+  const { page } = await runUITest(basicTestTree, undefined, {
+    additionalArgs: ['--grep-invert', 'fails'],
+  });
+  await expect.poll(dumpTestTree(page)).toContain('passes');
+  await expect.poll(dumpTestTree(page)).not.toContain('fails');
 });

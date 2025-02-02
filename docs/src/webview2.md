@@ -79,7 +79,7 @@ import childProcess from 'child_process';
 
 const EXECUTABLE_PATH = path.join(
     __dirname,
-    '../../webview2-app/bin/Debug/net6.0-windows/webview2.exe',
+    '../../webview2-app/bin/Debug/net8.0-windows/webview2.exe',
 );
 
 export const test = base.extend({
@@ -148,7 +148,7 @@ public class WebView2Process {
   public int cdpPort;
   private Path _dataDir;
   private Process _process;
-  private Path _executablePath = Path.of("../webview2-app/bin/Debug/net6.0-windows/webview2.exe");
+  private Path _executablePath = Path.of("../webview2-app/bin/Debug/net8.0-windows/webview2.exe");
 
   public WebView2Process() throws IOException {
     cdpPort = nextFreePort();
@@ -268,7 +268,7 @@ EXECUTABLE_PATH = (
     / "webview2-app"
     / "bin"
     / "Debug"
-    / "net6.0-windows"
+    / "net8.0-windows"
     / "webview2.exe"
 )
 
@@ -347,28 +347,28 @@ def test_webview2(page: Page):
 
 ```csharp
 // WebView2Test.cs
-using System.Text.RegularExpressions;
-using Microsoft.Playwright.NUnit;
-using Microsoft.Playwright;
 using System.Diagnostics;
+using Microsoft.Playwright;
+using Microsoft.Playwright.MSTest;
 
-namespace dotnet_nunit;
+namespace PlaywrightTests;
 
-public class WebView2Test : PlaywrightTest
+[TestClass]
+public class ExampleTest : PlaywrightTest
 {
     public IBrowser Browser { get; internal set; } = null!;
     public IBrowserContext Context { get; internal set; } = null!;
     public IPage Page { get; internal set; } = null!;
     private Process? _webView2Process = null;
     private string _userDataDir = null!;
-    private string _executablePath = Path.Join(Directory.GetCurrentDirectory(), @"..\..\..\..\webview2-app\bin\Debug\net6.0-windows\webview2.exe");
+    private string _executablePath = Path.Join(Directory.GetCurrentDirectory(), @"..\..\..\..\webview2-app\bin\Debug\net8.0-windows\webview2.exe");
 
-    [SetUp]
-    public async Task BrowserSetUp()
+    [TestInitialize]
+    public async Task BrowserTestInitialize()
     {
         var cdpPort = 10000 + WorkerIndex;
         Assert.IsTrue(File.Exists(_executablePath), "Make sure that the executable exists");
-        _userDataDir = Path.Join(Path.GetTempPath(), $"playwright-webview2-tests/user-data-dir-{TestContext.CurrentContext.WorkerId}");
+        _userDataDir = Path.Join(Path.GetTempPath(), $"playwright-webview2-tests/user-data-dir-{WorkerIndex}");
         // WebView2 does some lazy cleanups on shutdown so we can't clean it up after each test
         if (Directory.Exists(_userDataDir))
         {
@@ -401,8 +401,8 @@ public class WebView2Test : PlaywrightTest
         Page = Context.Pages[0];
     }
 
-    [TearDown]
-    public async Task BrowserTearDown()
+    [TestCleanup]
+    public async Task BrowserTestCleanup()
     {
         _webView2Process!.Kill(true);
         await Browser.CloseAsync();
@@ -412,14 +412,15 @@ public class WebView2Test : PlaywrightTest
 
 ```csharp
 // UnitTest1.cs
-using Microsoft.Playwright.NUnit;
+using Microsoft.Playwright;
+using Microsoft.Playwright.MSTest;
 
-namespace dotnet_nunit;
+namespace PlaywrightTests;
 
-[Parallelizable(ParallelScope.Self)]
-public class Tests : WebView2Test
+[TestClass]
+public class ExampleTest : WebView2Test
 {
-    [Test]
+    [TestMethod]
     public async Task HomepageHasPlaywrightInTitleAndGetStartedLinkLinkingtoTheIntroPage()
     {
         await Page.GotoAsync("https://playwright.dev");

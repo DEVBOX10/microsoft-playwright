@@ -167,7 +167,6 @@ it('should report network activity', async function({ page, server, browserName,
 
 it('should report network activity on worker creation', async function({ page, server, browserName, browserMajorVersion }) {
   it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
-  // Chromium needs waitForDebugger enabled for this one.
   await page.goto(server.EMPTY_PAGE);
   const url = server.PREFIX + '/one-style.css';
   const requestPromise = page.waitForRequest(url);
@@ -180,6 +179,19 @@ it('should report network activity on worker creation', async function({ page, s
   expect(request.url()).toBe(url);
   expect(response.request()).toBe(request);
   expect(response.ok()).toBe(true);
+});
+
+it('should report worker script as network request', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33107' },
+}, async function({ page, server }) {
+  await page.goto(server.EMPTY_PAGE);
+  const [request1, request2] = await Promise.all([
+    page.waitForEvent('request', r => r.url().includes('worker.js')),
+    page.waitForEvent('requestfinished', r => r.url().includes('worker.js')),
+    page.evaluate(() => (window as any).w = new Worker('/worker/worker.js')),
+  ]);
+  expect.soft(request1.url()).toBe(server.PREFIX + '/worker/worker.js');
+  expect.soft(request1).toBe(request2);
 });
 
 it('should dispatch console messages when page has workers', async function({ page, server }) {
@@ -223,4 +235,36 @@ it('should report and intercept network from nested worker', async function({ pa
   await expect.poll(() => workers.length).toBe(2);
 
   await expect.poll(() => messages).toEqual(['{"foo":"not bar"}', '{"foo":"not bar"}']);
+});
+
+it('should support extra http headers', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31747' }
+}, async ({ page, server }) => {
+  await page.setExtraHTTPHeaders({ foo: 'bar' });
+  const [worker, request1] = await Promise.all([
+    page.waitForEvent('worker'),
+    server.waitForRequest('/worker/worker.js'),
+    page.goto(server.PREFIX + '/worker/worker.html'),
+  ]);
+  const [request2] = await Promise.all([
+    server.waitForRequest('/one-style.css'),
+    worker.evaluate(url => fetch(url), server.PREFIX + '/one-style.css'),
+  ]);
+  expect(request1.headers['foo']).toBe('bar');
+  expect(request2.headers['foo']).toBe('bar');
+});
+
+it('should support offline', async ({ page, server, browserName }) => {
+  it.fixme(browserName === 'firefox');
+  it.fixme(browserName === 'webkit', 'flaky on all platforms');
+
+  const [worker] = await Promise.all([
+    page.waitForEvent('worker'),
+    page.goto(server.PREFIX + '/worker/worker.html'),
+  ]);
+  await page.context().setOffline(true);
+  await expect.poll(() =>  worker.evaluate(() => navigator.onLine)).toBe(false);
+  expect(await worker.evaluate(() => fetch('/one-style.css').catch(e => 'error'))).toBe('error');
+  await page.context().setOffline(false);
+  await expect.poll(() =>  worker.evaluate(() => navigator.onLine)).toBe(true);
 });

@@ -536,7 +536,7 @@ export module Protocol {
     /**
      * Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>).
      */
-    export type PseudoId = "first-line"|"first-letter"|"highlight"|"marker"|"before"|"after"|"selection"|"backdrop"|"scrollbar"|"scrollbar-thumb"|"scrollbar-button"|"scrollbar-track"|"scrollbar-track-piece"|"scrollbar-corner"|"resizer";
+    export type PseudoId = "first-line"|"first-letter"|"grammar-error"|"highlight"|"marker"|"before"|"after"|"selection"|"backdrop"|"spelling-error"|"target-text"|"view-transition"|"view-transition-group"|"view-transition-image-pair"|"view-transition-old"|"view-transition-new"|"-webkit-scrollbar"|"-webkit-resizer"|"-webkit-scrollbar-thumb"|"-webkit-scrollbar-button"|"-webkit-scrollbar-track"|"-webkit-scrollbar-track-piece"|"-webkit-scrollbar-corner";
     /**
      * Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>).
      */
@@ -1237,7 +1237,7 @@ export module Protocol {
     /**
      * The type of rendering context backing the canvas element.
      */
-    export type ContextType = "canvas-2d"|"offscreen-canvas-2d"|"bitmaprenderer"|"webgl"|"webgl2";
+    export type ContextType = "canvas-2d"|"offscreen-canvas-2d"|"bitmaprenderer"|"offscreen-bitmaprenderer"|"webgl"|"offscreen-webgl"|"webgl2"|"offscreen-webgl2";
     export type ProgramType = "compute"|"render";
     export type ShaderType = "compute"|"fragment"|"vertex";
     /**
@@ -1256,6 +1256,10 @@ export module Protocol {
        * 2D
        */
       desynchronized?: boolean;
+      /**
+       * 2D
+       */
+      willReadFrequently?: boolean;
       /**
        * WebGL, WebGL2
        */
@@ -1569,7 +1573,7 @@ export module Protocol {
     /**
      * The reason the console is being cleared.
      */
-    export type ClearReason = "console-api"|"main-frame-navigation";
+    export type ClearReason = "console-api"|"frontend"|"main-frame-navigation";
     /**
      * Logging channel.
      */
@@ -1737,6 +1741,14 @@ export module Protocol {
     export type clearMessagesParameters = {
     }
     export type clearMessagesReturnValue = {
+    }
+    /**
+     * Control whether calling <code>console.clear()</code> has an effect in Web Inspector. Defaults to true.
+     */
+    export type setConsoleClearAPIEnabledParameters = {
+      enable: boolean;
+    }
+    export type setConsoleClearAPIEnabledReturnValue = {
     }
     /**
      * List of the different message sources that are non-default logging channels.
@@ -2110,6 +2122,10 @@ export module Protocol {
        * Array of <code>DOMNode</code> ids of any children marked as selected.
        */
       selectedChildNodeIds?: NodeId[];
+      /**
+       * On / off state of switch form controls.
+       */
+      switchState?: "off"|"on";
     }
     /**
      * A structure holding an RGBA color.
@@ -2209,6 +2225,123 @@ export module Protocol {
     export interface Styleable {
       nodeId: NodeId;
       pseudoId?: CSS.PseudoId;
+    }
+    /**
+     * A structure holding media element statistics and configurations.
+     */
+    export interface MediaStats {
+      audio?: AudioMediaStats;
+      video?: VideoMediaStats;
+      /**
+       * The ratio between physical screen pixels and CSS pixels.
+       */
+      devicePixelRatio?: number;
+      /**
+       * The viewport size occupied by the media element.
+       */
+      viewport?: ViewportSize;
+      quality?: VideoPlaybackQuality;
+      /**
+       * The source type of the media element.
+       */
+      source?: string;
+    }
+    /**
+     * A structure holding media element's audio-specific statistics and configurations.
+     */
+    export interface AudioMediaStats {
+      /**
+       * The data rate of the primary audio track in bits/s.
+       */
+      bitrate: number;
+      /**
+       * The codec string of the primary audio track. (E.g., "hvc1.1.6.L123.B0")
+       */
+      codec: string;
+      /**
+       * A human readable version of the `codec` parameter.
+       */
+      humanReadableCodecString: string;
+      /**
+       * The number of audio channels in the primary audio track.
+       */
+      numberOfChannels: number;
+      /**
+       * The sample rate of the primary audio track in hertz.
+       */
+      sampleRate: number;
+    }
+    /**
+     * A structure holding media element's audio-specific statistics and configurations.
+     */
+    export interface VideoMediaStats {
+      /**
+       * The data rate of the video track in bits/s.
+       */
+      bitrate: number;
+      /**
+       * The codec string of the video track. (E.g., "hvc1.1.6.L123.B0")
+       */
+      codec: string;
+      /**
+       * A human readable version of the `codec` parameter.
+       */
+      humanReadableCodecString: string;
+      colorSpace: VideoColorSpace;
+      /**
+       * The nominal frame rate of video track in frames per second.
+       */
+      framerate: number;
+      /**
+       * The native height of the video track in CSS pixels
+       */
+      height: number;
+      /**
+       * The native width of the video track in CSS pixels
+       */
+      width: number;
+    }
+    /**
+     * WebCodecs VideoColorSpace
+     */
+    export interface VideoColorSpace {
+      /**
+       * A flag indicating whether the colorspace is Full range (true) or Video range (false)
+       */
+      fullRange?: boolean;
+      /**
+       * The matrix specification of the colorspace
+       */
+      matrix?: string;
+      /**
+       * The color primaries specification of the colorspace
+       */
+      primaries?: string;
+      /**
+       * The transfer function specification of the colorspace
+       */
+      transfer?: string;
+    }
+    /**
+     * A count of frames enqueued for display by the media element, and a subset count of dropped and display composited frames.
+     */
+    export interface VideoPlaybackQuality {
+      /**
+       * The number of frames of the total which were composited by the display.
+       */
+      displayCompositedVideoFrames: number;
+      /**
+       * The number of frames of the total which were dropped without being displayed.
+       */
+      droppedVideoFrames: number;
+      /**
+       * The total number of frames enqueued for display by the media element.
+       */
+      totalVideoFrames: number;
+    }
+    export interface ViewportSize {
+      width: number;
+      height: number;
     }
     /**
      * Data to construct File object.
@@ -3215,6 +3348,21 @@ export module Protocol {
       allow: boolean;
     }
     export type setAllowEditingUserAgentShadowTreesReturnValue = {
+    }
+    /**
+     * Returns media stats for the selected node.
+     */
+    export type getMediaStatsParameters = {
+      /**
+       * Id of the node to retrieve mediastats for.
+       */
+      nodeId: NodeId;
+    }
+    export type getMediaStatsReturnValue = {
+      /**
+       * An interleaved array of node attribute names and values.
+       */
+      mediaStats: MediaStats;
     }
     /**
      * Returns node description.
@@ -4304,19 +4452,23 @@ might return multiple quads for inline nodes.
       savedResultIndex?: number;
     }
     /**
-     * Sets whether the given URL should be in the list of blackboxed scripts, which are ignored when pausing/stepping/debugging.
+     * Sets whether the given URL should be in the list of blackboxed scripts, which are ignored when pausing.
      */
     export type setShouldBlackboxURLParameters = {
       url: string;
       shouldBlackbox: boolean;
       /**
-       * If true, <code>url</code> is case sensitive.
+       * If <code>true</code>, <code>url</code> is case sensitive.
        */
       caseSensitive?: boolean;
       /**
-       * If true, treat <code>url</code> as regular expression.
+       * If <code>true</code>, treat <code>url</code> as regular expression.
        */
       isRegex?: boolean;
+      /**
+       * If provided, limits where in the script the debugger will skip pauses. Expected structure is a repeated <code>[startLine, startColumn, endLine, endColumn]</code>. Ignored if <code>shouldBlackbox</code> is <code>false</code>.
+       */
+      sourceRanges?: number[];
     }
     export type setShouldBlackboxURLReturnValue = {
     }
@@ -4439,6 +4591,14 @@ might return multiple quads for inline nodes.
     export type resetPermissionsParameters = {
     }
     export type resetPermissionsReturnValue = {
+    }
+    /**
+     * Overrides window.orientation with provided value.
+     */
+    export type setOrientationOverrideParameters = {
+      angle?: number;
+    }
+    export type setOrientationOverrideReturnValue = {
     }
   }
   
@@ -4857,6 +5017,23 @@ might return multiple quads for inline nodes.
      * UTC time in seconds, counted from January 1, 1970.
      */
     export type TimeSinceEpoch = number;
+    /**
+     * Touch point.
+     */
+    export interface TouchPoint {
+      /**
+       * X coordinate of the event relative to the main frame's viewport in CSS pixels.
+       */
+      x: number;
+      /**
+       * Y coordinate of the event relative to the main frame's viewport in CSS pixels.
+       */
+      y: number;
+      /**
+       * Identifier used to track touch sources between events, must be unique within an event.
+       */
+      id: number;
+    }
     
     
     /**
@@ -5012,6 +5189,26 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
       modifiers?: number;
     }
     export type dispatchTapEventReturnValue = {
+    }
+    /**
+     * Dispatches a touch event to the page.
+     */
+    export type dispatchTouchEventParameters = {
+      /**
+       * Type of the touch event.
+       */
+      type: "touchStart"|"touchMove"|"touchEnd"|"touchCancel";
+      /**
+       * Bit field representing pressed modifier keys. Alt=1, Ctrl=2, Meta/Command=4, Shift=8
+(default: 0).
+       */
+      modifiers?: number;
+      /**
+       * List of touch points
+       */
+      touchPoints?: TouchPoint[];
+    }
+    export type dispatchTouchEventReturnValue = {
     }
   }
   
@@ -6313,7 +6510,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     /**
      * List of settings able to be overridden by WebInspector.
      */
-    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled"|"PointerLockEnabled"|"NotificationsEnabled"|"FullScreenEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled";
+    export type Setting = "PrivateClickMeasurementDebugModeEnabled"|"AuthorAndUserStylesEnabled"|"ICECandidateFilteringEnabled"|"ITPDebugModeEnabled"|"ImagesEnabled"|"MediaCaptureRequiresSecureConnection"|"MockCaptureDevicesEnabled"|"NeedsSiteSpecificQuirks"|"ScriptEnabled"|"ShowDebugBorders"|"ShowRepaintCounter"|"WebSecurityEnabled"|"DeviceOrientationEventEnabled"|"SpeechRecognitionEnabled"|"PointerLockEnabled"|"NotificationsEnabled"|"FullScreenEnabled"|"InputTypeMonthEnabled"|"InputTypeWeekEnabled"|"FixedBackgroundsPaintRelativeToDocument";
     /**
      * A user preference that can be overriden by Web Inspector, like an accessibility preference.
      */
@@ -6492,6 +6689,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
        * Cookie Same-Site policy.
        */
       sameSite: CookieSameSitePolicy;
+      /**
+       * Cookie partition key. If null and partitioned property is true, then key must be computed.
+       */
+      partitionKey?: string;
     }
     /**
      * Accessibility Node
@@ -6876,6 +7077,10 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
      */
     export type setCookieParameters = {
       cookie: Cookie;
+      /**
+       * If true, then cookie's partition key should be set.
+       */
+      shouldPartition?: boolean;
     }
     export type setCookieReturnValue = {
     }
@@ -7206,14 +7411,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     export type crashParameters = {
     }
     export type crashReturnValue = {
-    }
-    /**
-     * Overrides window.orientation with provided value.
-     */
-    export type setOrientationOverrideParameters = {
-      angle?: number;
-    }
-    export type setOrientationOverrideReturnValue = {
     }
     /**
      * Ensures that the scroll regions are up to date.
@@ -7693,7 +7890,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     /**
      * The type of the recording.
      */
-    export type Type = "canvas-2d"|"offscreen-canvas-2d"|"canvas-bitmaprenderer"|"canvas-webgl"|"canvas-webgl2";
+    export type Type = "canvas-2d"|"offscreen-canvas-2d"|"canvas-bitmaprenderer"|"offscreen-canvas-bitmaprenderer"|"canvas-webgl"|"offscreen-canvas-webgl"|"canvas-webgl2"|"offscreen-canvas-webgl2";
     export type Initiator = "frontend"|"console"|"auto-capture";
     /**
      * Information about the initial state of the recorded object.
@@ -9256,6 +9453,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Console.enable": Console.enableParameters;
     "Console.disable": Console.disableParameters;
     "Console.clearMessages": Console.clearMessagesParameters;
+    "Console.setConsoleClearAPIEnabled": Console.setConsoleClearAPIEnabledParameters;
     "Console.getLoggingChannels": Console.getLoggingChannelsParameters;
     "Console.setLoggingChannelLevel": Console.setLoggingChannelLevelParameters;
     "DOM.getDocument": DOM.getDocumentParameters;
@@ -9305,6 +9503,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.focus": DOM.focusParameters;
     "DOM.setInspectedNode": DOM.setInspectedNodeParameters;
     "DOM.setAllowEditingUserAgentShadowTrees": DOM.setAllowEditingUserAgentShadowTreesParameters;
+    "DOM.getMediaStats": DOM.getMediaStatsParameters;
     "DOM.describeNode": DOM.describeNodeParameters;
     "DOM.scrollIntoViewIfNeeded": DOM.scrollIntoViewIfNeededParameters;
     "DOM.getContentQuads": DOM.getContentQuadsParameters;
@@ -9363,6 +9562,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Emulation.setActiveAndFocused": Emulation.setActiveAndFocusedParameters;
     "Emulation.grantPermissions": Emulation.grantPermissionsParameters;
     "Emulation.resetPermissions": Emulation.resetPermissionsParameters;
+    "Emulation.setOrientationOverride": Emulation.setOrientationOverrideParameters;
     "Heap.enable": Heap.enableParameters;
     "Heap.disable": Heap.disableParameters;
     "Heap.gc": Heap.gcParameters;
@@ -9381,6 +9581,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Input.dispatchMouseEvent": Input.dispatchMouseEventParameters;
     "Input.dispatchWheelEvent": Input.dispatchWheelEventParameters;
     "Input.dispatchTapEvent": Input.dispatchTapEventParameters;
+    "Input.dispatchTouchEvent": Input.dispatchTouchEventParameters;
     "Inspector.enable": Inspector.enableParameters;
     "Inspector.disable": Inspector.disableParameters;
     "Inspector.initialized": Inspector.initializedParameters;
@@ -9445,7 +9646,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.createUserWorld": Page.createUserWorldParameters;
     "Page.setBypassCSP": Page.setBypassCSPParameters;
     "Page.crash": Page.crashParameters;
-    "Page.setOrientationOverride": Page.setOrientationOverrideParameters;
     "Page.updateScrollingState": Page.updateScrollingStateParameters;
     "Playwright.enable": Playwright.enableParameters;
     "Playwright.disable": Playwright.disableParameters;
@@ -9565,6 +9765,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Console.enable": Console.enableReturnValue;
     "Console.disable": Console.disableReturnValue;
     "Console.clearMessages": Console.clearMessagesReturnValue;
+    "Console.setConsoleClearAPIEnabled": Console.setConsoleClearAPIEnabledReturnValue;
     "Console.getLoggingChannels": Console.getLoggingChannelsReturnValue;
     "Console.setLoggingChannelLevel": Console.setLoggingChannelLevelReturnValue;
     "DOM.getDocument": DOM.getDocumentReturnValue;
@@ -9614,6 +9815,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "DOM.focus": DOM.focusReturnValue;
     "DOM.setInspectedNode": DOM.setInspectedNodeReturnValue;
     "DOM.setAllowEditingUserAgentShadowTrees": DOM.setAllowEditingUserAgentShadowTreesReturnValue;
+    "DOM.getMediaStats": DOM.getMediaStatsReturnValue;
     "DOM.describeNode": DOM.describeNodeReturnValue;
     "DOM.scrollIntoViewIfNeeded": DOM.scrollIntoViewIfNeededReturnValue;
     "DOM.getContentQuads": DOM.getContentQuadsReturnValue;
@@ -9672,6 +9874,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Emulation.setActiveAndFocused": Emulation.setActiveAndFocusedReturnValue;
     "Emulation.grantPermissions": Emulation.grantPermissionsReturnValue;
     "Emulation.resetPermissions": Emulation.resetPermissionsReturnValue;
+    "Emulation.setOrientationOverride": Emulation.setOrientationOverrideReturnValue;
     "Heap.enable": Heap.enableReturnValue;
     "Heap.disable": Heap.disableReturnValue;
     "Heap.gc": Heap.gcReturnValue;
@@ -9690,6 +9893,7 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Input.dispatchMouseEvent": Input.dispatchMouseEventReturnValue;
     "Input.dispatchWheelEvent": Input.dispatchWheelEventReturnValue;
     "Input.dispatchTapEvent": Input.dispatchTapEventReturnValue;
+    "Input.dispatchTouchEvent": Input.dispatchTouchEventReturnValue;
     "Inspector.enable": Inspector.enableReturnValue;
     "Inspector.disable": Inspector.disableReturnValue;
     "Inspector.initialized": Inspector.initializedReturnValue;
@@ -9754,7 +9958,6 @@ the top of the viewport and Y increases as it proceeds towards the bottom of the
     "Page.createUserWorld": Page.createUserWorldReturnValue;
     "Page.setBypassCSP": Page.setBypassCSPReturnValue;
     "Page.crash": Page.crashReturnValue;
-    "Page.setOrientationOverride": Page.setOrientationOverrideReturnValue;
     "Page.updateScrollingState": Page.updateScrollingStateReturnValue;
     "Playwright.enable": Playwright.enableReturnValue;
     "Playwright.disable": Playwright.disableReturnValue;

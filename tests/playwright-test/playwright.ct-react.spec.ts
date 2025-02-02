@@ -14,16 +14,11 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
-
-const playwrightConfig = `
-  import { defineConfig } from '@playwright/experimental-ct-react';
-  export default defineConfig({ projects: [{name: 'foo'}] });
-`;
+import { test, expect, playwrightCtConfigText } from './playwright-test-fixtures';
 
 test('should work with TSX', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': `
     `,
@@ -47,7 +42,7 @@ test('should work with TSX', async ({ runInlineTest }) => {
 
 test('should work with JSX', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.js"></script>`,
     'playwright/index.js': `
     `,
@@ -73,7 +68,7 @@ test('should work with JSX', async ({ runInlineTest }) => {
 
 test('should work with JSX in JS', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.js"></script>`,
     'playwright/index.js': `
     `,
@@ -99,7 +94,7 @@ test('should work with JSX in JS', async ({ runInlineTest }) => {
 
 test('should work with JSX in JS and in JSX', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.js"></script>`,
     'playwright/index.js': `
     `,
@@ -136,7 +131,7 @@ test('should work with JSX in JS and in JSX', async ({ runInlineTest }) => {
 
 test('should work with stray TSX import', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': `
     `,
@@ -167,7 +162,7 @@ test('should work with stray TSX import', async ({ runInlineTest }) => {
 
 test('should work with stray JSX import', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.js"></script>`,
     'playwright/index.js': `
     `,
@@ -196,9 +191,9 @@ test('should work with stray JSX import', async ({ runInlineTest }) => {
   expect(result.passed).toBe(1);
 });
 
-test.fixme('should work with stray JS import', async ({ runInlineTest }) => {
+test('should work with stray JS import', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.js"></script>`,
     'playwright/index.js': `
     `,
@@ -229,7 +224,7 @@ test.fixme('should work with stray JS import', async ({ runInlineTest }) => {
 
 test('should work with JSX in variable', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.js"></script>`,
     'playwright/index.js': `
     `,
@@ -255,9 +250,60 @@ test('should work with JSX in variable', async ({ runInlineTest }) => {
   expect(result.passed).toBe(1);
 });
 
+test('should pass "key" attribute from JSX in variable', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': playwrightCtConfigText,
+    'playwright/index.html': `<script type="module" src="./index.js"></script>`,
+    'playwright/index.js': `
+    `,
+
+    'src/container.jsx': `
+      import { useState } from 'react';
+      export function Container({ children }) {
+        const [index, setIndex] = useState(0);
+        return (
+          <div onClick={() => setIndex((index + 1) % children.length)}>
+            {children[index]}
+          </div>
+        );
+      }
+    `,
+
+    'src/button.jsx': `
+      import { useState } from 'react';
+      export function Button({ value }) {
+        const [state, setState] = useState(value);
+        return <button onClick={() => setState(state + 1)}>{state}</button>;
+      }
+    `,
+
+    'src/index.test.jsx': `
+      import { test, expect } from '@playwright/experimental-ct-react';
+      import { Button } from './button';
+      import { Container } from './container';
+
+      test('key should tear down and recreate component', async ({ mount }) => {
+        const component = await mount(
+          <Container>
+            <Button key='a' value={1} />
+            <Button key='b' value={10} />
+          </Container>
+        );
+        const button = component.getByRole('button');
+        await expect(button).toHaveText("1");
+        await button.click();
+        await expect(button).toHaveText("10");
+      });
+    `,
+  }, { workers: 1 });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
 test('should return root locator for fragments', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.js"></script>`,
     'playwright/index.js': ``,
 
@@ -283,7 +329,7 @@ test('should return root locator for fragments', async ({ runInlineTest }) => {
 
 test('should respect default property values', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': ``,
     'src/label.tsx': `
@@ -307,7 +353,7 @@ test('should respect default property values', async ({ runInlineTest }) => {
 
 test('should bundle public folder', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': `
     `,
@@ -340,7 +386,7 @@ test('should bundle public folder', async ({ runInlineTest }) => {
 
 test('should work with property expressions in JSX', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'playwright.config.ts': playwrightConfig,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': `
     `,
@@ -420,7 +466,8 @@ test('should handle the vite host config', async ({ runInlineTest }) => {
 
       test('pass component', async ({ page, mount }) => {
         const component = await mount(<Component />);
-        await expect(page).toHaveURL('http://127.0.0.1:3100/');
+        const host = await page.evaluate(() => window.location.hostname);
+        await expect(host).toBe('127.0.0.1');
       });
     `,
   }, { workers: 1 });
@@ -456,6 +503,94 @@ test('should prioritize the vite host config over the baseUrl config', async ({ 
         await expect(page).toHaveURL('http://127.0.0.1:8080/');
       });
     `,
+  }, { workers: 1 });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should normalize children', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': playwrightCtConfigText,
+    'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
+    'playwright/index.ts': ``,
+    'src/component.tsx': `
+      import React from 'react';
+      export const OneChild: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
+        React.Children.only(children);
+        return <>{children}</>;
+      };
+      export const OtherComponent: React.FC = () => <p>othercomponent</p>;   
+    `,
+
+    'src/component.spec.tsx': `
+      import { test, expect } from '@playwright/experimental-ct-react';
+      import { OneChild, OtherComponent } from './component';
+
+      test("can pass an HTML element to OneChild", async ({ mount }) => {
+        const component = await mount(<OneChild><p>child</p></OneChild>);
+        await expect(component).toHaveText("child");
+      });
+      
+      test("can pass another component to OneChild", async ({ mount }) => {
+        const component = await mount(<OneChild><OtherComponent /></OneChild>);
+        await expect(component).toHaveText("othercomponent");
+      });
+    `,
+  }, { workers: 1 });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(2);
+});
+
+test('should allow props children', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': playwrightCtConfigText,
+    'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
+    'playwright/index.ts': ``,
+    'src/component.spec.tsx': `
+      import { test, expect } from '@playwright/experimental-ct-react';
+
+      test("renders children from props object", async ({ mount, page }) => {
+        const props = { children: 'test' };
+        await mount(<button {...props} />);
+        await expect(page.getByText('test')).toBeVisible();
+      });
+    `,
+  }, { workers: 1 });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should allow import from shared file', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': playwrightCtConfigText,
+    'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
+    'playwright/index.ts': ``,
+    'src/component.tsx': `
+      export const Component = (props: { content: string }) => {
+        return <div>{props.content}</div>
+      };
+    `,
+    'src/component.shared.tsx': `
+      export const componentMock = { content: 'This is a content.' };
+    `,
+    'src/component.render.tsx': `
+      import {Component} from './component';
+      import {componentMock} from './component.shared';
+      export const ComponentTest = () => {
+        return <Component content={componentMock.content} />;
+      };
+    `,
+    'src/component.spec.tsx': `
+      import { expect, test } from '@playwright/experimental-ct-react';
+      import { ComponentTest } from './component.render';
+      import { componentMock } from './component.shared';
+      test('component renders', async ({ mount }) => {
+        const component = await mount(<ComponentTest />);
+        await expect(component).toContainText(componentMock.content)
+      })`
   }, { workers: 1 });
 
   expect(result.exitCode).toBe(0);

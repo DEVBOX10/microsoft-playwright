@@ -109,7 +109,7 @@ it('should fall back to context.route', async ({ browser, server }) => {
   await context.close();
 });
 
-it('should support Set-Cookie header', async ({ contextFactory, server, browserName, defaultSameSiteCookieValue }) => {
+it('should support Set-Cookie header', async ({ contextFactory, defaultSameSiteCookieValue }) => {
   const context = await contextFactory();
   const page = await context.newPage();
   await page.route('https://example.com/', (route, request) => {
@@ -152,7 +152,7 @@ it('should ignore secure Set-Cookie header for insecure requests', async ({ cont
   expect(await context.cookies()).toEqual([]);
 });
 
-it('should use Set-Cookie header in future requests', async ({ contextFactory, server, browserName, defaultSameSiteCookieValue }) => {
+it('should use Set-Cookie header in future requests', async ({ contextFactory, server, defaultSameSiteCookieValue }) => {
   const context = await contextFactory();
   const page = await context.newPage();
 
@@ -206,6 +206,25 @@ it('should support the times parameter with route matching', async ({ context, p
   await page.goto(server.EMPTY_PAGE);
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toHaveLength(1);
+});
+
+it('should work if handler with times parameter was removed from another handler', async ({ context, page, server }) => {
+  const intercepted = [];
+  const handler = async route => {
+    intercepted.push('first');
+    void route.continue();
+  };
+  await context.route('**/*', handler, { times: 1 });
+  await context.route('**/*', async route => {
+    intercepted.push('second');
+    await context.unroute('**/*', handler);
+    await route.fallback();
+  });
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+  intercepted.length = 0;
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
 });
 
 it('should support async handler w/ times', async ({ context, page, server }) => {

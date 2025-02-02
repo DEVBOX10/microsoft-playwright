@@ -21,7 +21,7 @@ import { test as it, expect } from './pageTest';
 async function routeIframe(page: Page) {
   await page.route('**/empty.html', route => {
     route.fulfill({
-      body: '<iframe src="iframe.html"></iframe>',
+      body: '<iframe src="iframe.html" name="frame1"></iframe>',
       contentType: 'text/html'
     }).catch(() => {});
   });
@@ -98,7 +98,7 @@ it('should work for $ and $$', async ({ page, server }) => {
 it('should wait for frame', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const error = await page.locator('body').frameLocator('iframe').locator('span').click({ timeout: 1000 }).catch(e => e);
-  expect(error.message).toContain(`waiting for locator('body').frameLocator('iframe')`);
+  expect(error.message).toContain(`waiting for locator('body').locator('iframe').contentFrame()`);
 });
 
 it('should wait for frame 2', async ({ page, server }) => {
@@ -267,4 +267,54 @@ it('wait for hidden should succeed when frame is not in dom', async ({ page }) =
   await button.waitFor({ state: 'detached', timeout: 1000 });
   const error = await button.waitFor({ state: 'attached', timeout: 1000 }).catch(e => e);
   expect(error.message).toContain('Timeout 1000ms exceeded');
+});
+
+it('should work with COEP/COOP/CORP isolated iframe', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28082' });
+  it.fixme(browserName === 'firefox');
+  await page.route('**/empty.html', route => {
+    return route.fulfill({
+      body: `<iframe src="https://${server.CROSS_PROCESS_PREFIX}/btn.html" allow="cross-origin-isolated; fullscreen" sandbox="allow-same-origin allow-scripts allow-popups" ></iframe>`,
+      contentType: 'text/html',
+      headers: {
+        'cross-origin-embedder-policy': 'require-corp',
+        'cross-origin-opener-policy': 'same-origin',
+        'cross-origin-resource-policy': 'cross-origin',
+      }
+    });
+  });
+  await page.route('**/btn.html', route => {
+    return route.fulfill({
+      body: '<button onclick="window.__clicked=true">Click target</button>',
+      contentType: 'text/html',
+      headers: {
+        'cross-origin-embedder-policy': 'require-corp',
+        'cross-origin-opener-policy': 'same-origin',
+        'cross-origin-resource-policy': 'cross-origin',
+      }
+    });
+  });
+  await page.goto(server.EMPTY_PAGE);
+  await page.frameLocator('iframe').getByRole('button').click();
+  expect(await page.frames()[1].evaluate(() => window['__clicked'])).toBe(true);
+});
+
+it('locator.contentFrame should work', async ({ page, server }) => {
+  await routeIframe(page);
+  await page.goto(server.EMPTY_PAGE);
+  const locator = page.locator('iframe');
+  const frameLocator = locator.contentFrame();
+  const button = frameLocator.locator('button');
+  expect(await button.innerText()).toBe('Hello iframe');
+  await expect(button).toHaveText('Hello iframe');
+  await button.click();
+});
+
+it('frameLocator.owner should work', async ({ page, server }) => {
+  await routeIframe(page);
+  await page.goto(server.EMPTY_PAGE);
+  const frameLocator = page.frameLocator('iframe');
+  const locator = frameLocator.owner();
+  await expect(locator).toBeVisible();
+  expect(await locator.getAttribute('name')).toBe('frame1');
 });

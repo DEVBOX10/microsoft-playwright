@@ -14,26 +14,7 @@
  * limitations under the License.
  */
 
-import type {
-  TestType,
-  PlaywrightTestArgs,
-  PlaywrightTestConfig as BasePlaywrightTestConfig,
-  PlaywrightTestOptions,
-  PlaywrightWorkerArgs,
-  PlaywrightWorkerOptions,
-  Locator,
-} from 'playwright/test';
-import type { JsonObject } from '@playwright/experimental-ct-core/types/component';
-import type { InlineConfig } from 'vite';
-
-export type PlaywrightTestConfig<T = {}, W = {}> = Omit<BasePlaywrightTestConfig<T, W>, 'use'> & {
-  use?: BasePlaywrightTestConfig<T, W>['use'] & {
-    ctPort?: number;
-    ctTemplateDir?: string;
-    ctCacheDir?: string;
-    ctViteConfig?: InlineConfig | (() => Promise<InlineConfig>);
-  };
-};
+import type { TestType, Locator } from '@playwright/experimental-ct-core';
 
 type ComponentSlot = string | string[];
 type ComponentSlots = Record<string, ComponentSlot> & { default?: ComponentSlot };
@@ -42,22 +23,22 @@ type ComponentEvents = Record<string, Function>;
 
 // Copied from: https://github.com/vuejs/language-tools/blob/master/packages/vue-component-type-helpers/index.d.ts#L10-L13
 type ComponentProps<T> =
-	T extends new () => { $props: infer P; } ? NonNullable<P> :
+	T extends new (...angs: any) => { $props: infer P; } ? NonNullable<P> :
 	T extends (props: infer P, ...args: any) => any ? P :
 	{};
 
-export interface MountOptions<HooksConfig extends JsonObject, Component> {
+export interface MountOptions<HooksConfig, Component> {
   props?: ComponentProps<Component>;
   slots?: ComponentSlots;
   on?: ComponentEvents;
   hooksConfig?: HooksConfig;
 }
 
-export interface MountOptionsJsx<HooksConfig extends JsonObject> {
+export interface MountOptionsJsx<HooksConfig> {
   hooksConfig?: HooksConfig;
 }
 
-interface MountResult<Component> extends Locator {
+export interface MountResult<Component> extends Locator {
   unmount(): Promise<void>;
   update(options: {
     props?: Partial<ComponentProps<Component>>;
@@ -66,29 +47,20 @@ interface MountResult<Component> extends Locator {
   }): Promise<void>;
 }
 
-interface MountResultJsx extends Locator {
+export interface MountResultJsx extends Locator {
   unmount(): Promise<void>;
   update(component: JSX.Element): Promise<void>;
 }
 
-export interface ComponentFixtures {
-  mount<HooksConfig extends JsonObject>(
+export const test: TestType<{
+  mount<HooksConfig>(
     component: JSX.Element,
-    options: MountOptionsJsx<HooksConfig>
+    options?: MountOptionsJsx<HooksConfig>
   ): Promise<MountResultJsx>;
-  mount<HooksConfig extends JsonObject, Component = unknown>(
+  mount<HooksConfig, Component = unknown>(
     component: Component,
     options?: MountOptions<HooksConfig, Component>
   ): Promise<MountResult<Component>>;
-}
+}>;
 
-export const test: TestType<
-  PlaywrightTestArgs & PlaywrightTestOptions & ComponentFixtures,
-  PlaywrightWorkerArgs & PlaywrightWorkerOptions
->;
-
-export function defineConfig(config: PlaywrightTestConfig): PlaywrightTestConfig;
-export function defineConfig<T>(config: PlaywrightTestConfig<T>): PlaywrightTestConfig<T>;
-export function defineConfig<T, W>(config: PlaywrightTestConfig<T, W>): PlaywrightTestConfig<T, W>;
-
-export { expect, devices } from 'playwright/test';
+export { defineConfig, PlaywrightTestConfig, expect, devices } from '@playwright/experimental-ct-core';

@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-import type { WriteStream } from 'tty';
-import type { EnvProducedPayload, ProcessInitParams, TtyParams } from './ipc';
+import type { EnvProducedPayload, ProcessInitParams, TestInfoErrorImpl } from './ipc';
 import { startProfiling, stopProfiling } from 'playwright-core/lib/utils';
-import type { TestInfoError } from '../../types/test';
-import { execArgvWithoutExperimentalLoaderOptions, serializeError } from '../util';
+import { serializeError } from '../util';
+import { registerESMLoader } from './esmLoaderHost';
+import { execArgvWithoutExperimentalLoaderOptions } from '../transform/esmUtils';
 
 export type ProtocolRequest = {
   id: number;
@@ -28,7 +28,7 @@ export type ProtocolRequest = {
 
 export type ProtocolResponse = {
   id?: number;
-  error?: TestInfoError;
+  error?: TestInfoErrorImpl;
   method?: string;
   params?: any;
   result?: any;
@@ -43,16 +43,21 @@ export class ProcessRunner {
   }
 }
 
-let closed = false;
+let gracefullyCloseCalled = false;
+let forceExitInitiated = false;
 
 sendMessageToParent({ method: 'ready' });
 
-process.on('disconnect', gracefullyCloseAndExit);
+process.on('disconnect', () => gracefullyCloseAndExit(true));
 process.on('SIGINT', () => {});
 process.on('SIGTERM', () => {});
 
 // Clear execArgv immediately, so that the user-code does not inherit our loader.
 process.execArgv = execArgvWithoutExperimentalLoaderOptions();
+
+// Node.js >= 20
+if (process.env.PW_TS_ESM_LOADER_ON)
+  registerESMLoader();
 
 let processRunner: ProcessRunner | undefined;
 let processName: string | undefined;
@@ -61,8 +66,6 @@ const startingEnv = { ...process.env };
 process.on('message', async (message: any) => {
   if (message.method === '__init__') {
     const { processParams, runnerParams, runnerScript } = message.params as { processParams: ProcessInitParams, runnerParams: any, runnerScript: string };
-    setTtyParams(process.stdout, processParams.stdoutParams);
-    setTtyParams(process.stderr, processParams.stderrParams);
     void startProfiling();
     const { create } = require(runnerScript);
     processRunner = create(runnerParams) as ProcessRunner;
@@ -73,7 +76,7 @@ process.on('message', async (message: any) => {
     const keys = new Set([...Object.keys(process.env), ...Object.keys(startingEnv)]);
     const producedEnv: EnvProducedPayload = [...keys].filter(key => startingEnv[key] !== process.env[key]).map(key => [key, process.env[key] ?? null]);
     sendMessageToParent({ method: '__env_produced__', params: producedEnv });
-    await gracefullyCloseAndExit();
+    await gracefullyCloseAndExit(false);
     return;
   }
   if (message.method === '__dispatch__') {
@@ -89,19 +92,24 @@ process.on('message', async (message: any) => {
   }
 });
 
-async function gracefullyCloseAndExit() {
-  if (closed)
-    return;
-  closed = true;
-  // Force exit after 30 seconds.
-  // eslint-disable-next-line no-restricted-properties
-  setTimeout(() => process.exit(0), 30000);
-  // Meanwhile, try to gracefully shutdown.
-  await processRunner?.gracefullyClose().catch(() => {});
-  if (processName)
-    await stopProfiling(processName).catch(() => {});
-  // eslint-disable-next-line no-restricted-properties
-  process.exit(0);
+const kForceExitTimeout = +(process.env.PWTEST_FORCE_EXIT_TIMEOUT || 30000);
+
+async function gracefullyCloseAndExit(forceExit: boolean) {
+  if (forceExit && !forceExitInitiated) {
+    forceExitInitiated = true;
+    // Force exit after 30 seconds.
+    // eslint-disable-next-line no-restricted-properties
+    setTimeout(() => process.exit(0), kForceExitTimeout);
+  }
+  if (!gracefullyCloseCalled) {
+    gracefullyCloseCalled = true;
+    // Meanwhile, try to gracefully shutdown.
+    await processRunner?.gracefullyClose().catch(() => {});
+    if (processName)
+      await stopProfiling(processName).catch(() => {});
+    // eslint-disable-next-line no-restricted-properties
+    process.exit(0);
+  }
 }
 
 function sendMessageToParent(message: { method: string, params?: any }) {
@@ -110,19 +118,4 @@ function sendMessageToParent(message: { method: string, params?: any }) {
   } catch (e) {
     // Can throw when closing.
   }
-}
-
-function setTtyParams(stream: WriteStream, params: TtyParams) {
-  stream.isTTY = true;
-  if (params.rows)
-    stream.rows = params.rows;
-  if (params.columns)
-    stream.columns = params.columns;
-  stream.getColorDepth = () => params.colorDepth;
-  stream.hasColors = ((count = 16) => {
-    // count is optional and the first argument may actually be env.
-    if (typeof count !== 'number')
-      count = 16;
-    return count <= 2 ** params.colorDepth;
-  })as any;
 }

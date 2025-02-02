@@ -15,15 +15,14 @@
  */
 
 import type {
-  TestType,
+  TestType as BaseTestType,
   PlaywrightTestArgs,
   PlaywrightTestConfig as BasePlaywrightTestConfig,
   PlaywrightTestOptions,
   PlaywrightWorkerArgs,
   PlaywrightWorkerOptions,
-  Locator,
+  BrowserContext,
 } from 'playwright/test';
-import type { JsonObject } from './types/component';
 import type { InlineConfig } from 'vite';
 
 export type PlaywrightTestConfig<T = {}, W = {}> = Omit<BasePlaywrightTestConfig<T, W>, 'use'> & {
@@ -35,32 +34,25 @@ export type PlaywrightTestConfig<T = {}, W = {}> = Omit<BasePlaywrightTestConfig
   };
 };
 
-export interface MountOptions<HooksConfig extends JsonObject> {
-  hooksConfig?: HooksConfig;
+interface RequestHandler {
+  run(args: { request: Request, requestId?: string, resolutionContext?: { baseUrl?: string } }): Promise<{ response?: Response } | null>;
 }
 
-interface MountResult extends Locator {
-  unmount(): Promise<void>;
-  update(component: JSX.Element): Promise<void>;
+export interface RouterFixture {
+  route(...args: Parameters<BrowserContext['route']>): Promise<void>;
+  use(...handlers: RequestHandler[]): Promise<void>;
 }
 
-export interface ComponentFixtures {
-  mount<HooksConfig extends JsonObject>(
-    component: JSX.Element,
-    options?: MountOptions<HooksConfig>
-  ): Promise<MountResult>;
-}
-
-export const test: TestType<
-  PlaywrightTestArgs & PlaywrightTestOptions & ComponentFixtures,
+export type TestType<ComponentFixtures> = BaseTestType<
+  PlaywrightTestArgs & PlaywrightTestOptions & ComponentFixtures & { router: RouterFixture },
   PlaywrightWorkerArgs & PlaywrightWorkerOptions
 >;
 
-/**
- * Defines Playwright config
- */
 export function defineConfig(config: PlaywrightTestConfig): PlaywrightTestConfig;
 export function defineConfig<T>(config: PlaywrightTestConfig<T>): PlaywrightTestConfig<T>;
 export function defineConfig<T, W>(config: PlaywrightTestConfig<T, W>): PlaywrightTestConfig<T, W>;
+export function defineConfig(config: PlaywrightTestConfig, ...configs: PlaywrightTestConfig[]): PlaywrightTestConfig;
+export function defineConfig<T>(config: PlaywrightTestConfig<T>, ...configs: PlaywrightTestConfig<T>[]): PlaywrightTestConfig<T>;
+export function defineConfig<T, W>(config: PlaywrightTestConfig<T, W>, ...configs: PlaywrightTestConfig<T, W>[]): PlaywrightTestConfig<T, W>;
 
-export { expect, devices } from 'playwright/test';
+export { expect, devices, Locator } from 'playwright/test';

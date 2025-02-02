@@ -14,14 +14,14 @@ test('status becomes submitted', async ({ page }) => {
 ```
 
 ```java
-...
+// ...
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
 public class TestLocator {
-  ...
+  // ...
   @Test
   void statusBecomesSubmitted() {
-    ...
+    // ...
     page.getByRole(AriaRole.BUTTON).click();
     assertThat(page.locator(".status")).hasText("Submitted");
   }
@@ -47,21 +47,19 @@ def test_status_becomes_submitted(page: Page) -> None:
 ```
 
 ```csharp
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using Microsoft.Playwright.NUnit;
-using NUnit.Framework;
+using Microsoft.Playwright;
+using Microsoft.Playwright.MSTest;
 
 namespace PlaywrightTests;
 
-[TestFixture]
+[TestClass]
 public class ExampleTests : PageTest
 {
-    [Test]
+    [TestMethod]
     public async Task StatusBecomesSubmitted()
     {
-        // ..
-        await Page.GetByRole(AriaRole.Button).ClickAsync();
+        // ...
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Sign In" }).ClickAsync();
         await Expect(Page.Locator(".status")).ToHaveTextAsync("Submitted");
     }
 }
@@ -211,11 +209,8 @@ The opposite of [`method: LocatorAssertions.toContainText`].
 
 Expected substring or RegExp or a list of those.
 
-### option: LocatorAssertions.NotToContainText.ignoreCase
+### option: LocatorAssertions.NotToContainText.ignoreCase = %%-assertions-ignore-case-%%
 * since: v1.23
-- `ignoreCase` <[boolean]>
-
-Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression flag if specified.
 
 ### option: LocatorAssertions.NotToContainText.useInnerText
 * since: v1.18
@@ -225,6 +220,63 @@ Whether to use `element.innerText` instead of `element.textContent` when retriev
 
 ### option: LocatorAssertions.NotToContainText.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.18
+
+
+## async method: LocatorAssertions.NotToHaveAccessibleDescription
+* since: v1.44
+* langs: python
+
+The opposite of [`method: LocatorAssertions.toHaveAccessibleDescription`].
+
+### param: LocatorAssertions.NotToHaveAccessibleDescription.name
+* since: v1.44
+- `description` <[string]|[RegExp]>
+
+Expected accessible description.
+
+### option: LocatorAssertions.NotToHaveAccessibleDescription.ignoreCase = %%-assertions-ignore-case-%%
+* since: v1.44
+
+### option: LocatorAssertions.NotToHaveAccessibleDescription.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.44
+
+## async method: LocatorAssertions.NotToHaveAccessibleErrorMessage
+* since: v1.50
+* langs: python
+
+The opposite of [`method: LocatorAssertions.toHaveAccessibleErrorMessage`].
+
+### param: LocatorAssertions.NotToHaveAccessibleErrorMessage.errorMessage
+* since: v1.50
+- `errorMessage` <[string]|[RegExp]>
+
+Expected accessible error message.
+
+### option: LocatorAssertions.NotToHaveAccessibleErrorMessage.ignoreCase = %%-assertions-ignore-case-%%
+* since: v1.50
+
+### option: LocatorAssertions.NotToHaveAccessibleErrorMessage.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.50
+
+
+## async method: LocatorAssertions.NotToHaveAccessibleName
+* since: v1.44
+* langs: python
+
+The opposite of [`method: LocatorAssertions.toHaveAccessibleName`].
+
+### param: LocatorAssertions.NotToHaveAccessibleName.name
+* since: v1.44
+- `name` <[string]|[RegExp]>
+
+Expected accessible name.
+
+### option: LocatorAssertions.NotToHaveAccessibleName.ignoreCase = %%-assertions-ignore-case-%%
+* since: v1.44
+
+### option: LocatorAssertions.NotToHaveAccessibleName.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.44
+
 
 ## async method: LocatorAssertions.NotToHaveAttribute
 * since: v1.20
@@ -243,6 +295,9 @@ Attribute name.
 - `value` <[string]|[RegExp]>
 
 Expected attribute value.
+
+### option: LocatorAssertions.NotToHaveAttribute.ignoreCase = %%-assertions-ignore-case-%%
+* since: v1.40
 
 ### option: LocatorAssertions.NotToHaveAttribute.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.18
@@ -334,6 +389,23 @@ Property value.
 ### option: LocatorAssertions.NotToHaveJSProperty.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.18
 
+
+## async method: LocatorAssertions.NotToHaveRole
+* since: v1.44
+* langs: python
+
+The opposite of [`method: LocatorAssertions.toHaveRole`].
+
+### param: LocatorAssertions.NotToHaveRole.role = %%-get-by-role-to-have-role-role-%%
+* since: v1.44
+
+### option: LocatorAssertions.NotToHaveRole.timeout = %%-js-assertions-timeout-%%
+* since: v1.44
+
+### option: LocatorAssertions.NotToHaveRole.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.44
+
+
 ## async method: LocatorAssertions.NotToHaveText
 * since: v1.20
 * langs: python
@@ -346,11 +418,8 @@ The opposite of [`method: LocatorAssertions.toHaveText`].
 
 Expected string or RegExp or a list of those.
 
-### option: LocatorAssertions.NotToHaveText.ignoreCase
+### option: LocatorAssertions.NotToHaveText.ignoreCase = %%-assertions-ignore-case-%%
 * since: v1.23
-- `ignoreCase` <[boolean]>
-
-Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression flag if specified.
 
 ### option: LocatorAssertions.NotToHaveText.useInnerText
 * since: v1.18
@@ -391,13 +460,30 @@ Expected options currently selected.
 ### option: LocatorAssertions.NotToHaveValues.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.23
 
+## async method: LocatorAssertions.NotToMatchAriaSnapshot
+* since: v1.49
+* langs: python
+
+The opposite of [`method: LocatorAssertions.toMatchAriaSnapshot`].
+
+### param: LocatorAssertions.NotToMatchAriaSnapshot.expected
+* since: v1.49
+- `expected` <string>
+
+### option: LocatorAssertions.NotToMatchAriaSnapshot.timeout = %%-js-assertions-timeout-%%
+* since: v1.49
+
+### option: LocatorAssertions.NotToMatchAriaSnapshot.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.49
+
+
 
 ## async method: LocatorAssertions.toBeAttached
 * since: v1.33
 * langs:
   - alias-java: isAttached
 
-Ensures that [Locator] points to an [attached](../actionability.md#attached) DOM node.
+Ensures that [Locator] points to an element that is [connected](https://developer.mozilla.org/en-US/docs/Web/API/Node/isConnected) to a Document or a ShadowRoot.
 
 **Usage**
 
@@ -472,6 +558,16 @@ await Expect(locator).ToBeCheckedAsync();
 ### option: LocatorAssertions.toBeChecked.checked
 * since: v1.18
 - `checked` <[boolean]>
+
+Provides state to assert for. Asserts for input to be checked by default.
+This option can't be used when [`option: LocatorAssertions.toBeChecked.indeterminate`] is set to true.
+
+### option: LocatorAssertions.toBeChecked.indeterminate
+* since: v1.50
+- `indeterminate` <[boolean]>
+
+Asserts that the element is in the indeterminate (mixed) state. Only supported for checkboxes and radio buttons.
+This option can't be true when [`option: LocatorAssertions.toBeChecked.checked`] is provided.
 
 ### option: LocatorAssertions.toBeChecked.timeout = %%-js-assertions-timeout-%%
 * since: v1.18
@@ -650,7 +746,7 @@ expect(locator).to_be_enabled()
 
 ```csharp
 var locator = Page.Locator("button.submit");
-await Expect(locator).toBeEnabledAsync();
+await Expect(locator).ToBeEnabledAsync();
 ```
 
 ### option: LocatorAssertions.toBeEnabled.enabled
@@ -831,7 +927,7 @@ element should intersect viewport at any positive ratio. Defaults to `0`.
 * langs:
   - alias-java: isVisible
 
-Ensures that [Locator] points to an [attached](../actionability.md#attached) and [visible](../actionability.md#visible) DOM node.
+Ensures that [Locator] points to an attached and [visible](../actionability.md#visible) DOM node.
 
 To check that at least one element from the list is visible, use [`method: Locator.first`].
 
@@ -857,10 +953,10 @@ await expect(
 assertThat(page.getByText("Welcome")).isVisible();
 
 // At least one item in the list is visible.
-asserThat(page.getByTestId("todo-item").first()).isVisible();
+assertThat(page.getByTestId("todo-item").first()).isVisible();
 
 // At least one of the two elements is visible, possibly both.
-asserThat(
+assertThat(
   page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Sign in"))
     .or(page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Sign up")))
     .first()
@@ -927,7 +1023,12 @@ await Expect(
 * langs:
   - alias-java: containsText
 
-Ensures the [Locator] points to an element that contains the given text. You can use regular expressions for the value as well.
+Ensures the [Locator] points to an element that contains the given text. All nested elements will be considered when computing the text content of the element. You can use regular expressions for the value as well.
+
+**Details**
+
+When `expected` parameter is a string, Playwright will normalize whitespaces and line breaks both in the actual text and
+in the expected string before matching. When regular expression is used, the actual text is matched as is.
 
 **Usage**
 
@@ -1078,11 +1179,8 @@ Expected substring or RegExp or a list of those.
 
 Expected substring or RegExp or a list of those.
 
-### option: LocatorAssertions.toContainText.ignoreCase
+### option: LocatorAssertions.toContainText.ignoreCase = %%-assertions-ignore-case-%%
 * since: v1.23
-- `ignoreCase` <[boolean]>
-
-Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression flag if specified.
 
 ### option: LocatorAssertions.toContainText.useInnerText
 * since: v1.18
@@ -1095,6 +1193,157 @@ Whether to use `element.innerText` instead of `element.textContent` when retriev
 
 ### option: LocatorAssertions.toContainText.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.18
+
+
+## async method: LocatorAssertions.toHaveAccessibleDescription
+* since: v1.44
+* langs:
+  - alias-java: hasAccessibleDescription
+
+Ensures the [Locator] points to an element with a given [accessible description](https://w3c.github.io/accname/#dfn-accessible-description).
+
+**Usage**
+
+```js
+const locator = page.getByTestId('save-button');
+await expect(locator).toHaveAccessibleDescription('Save results to disk');
+```
+
+```java
+Locator locator = page.getByTestId("save-button");
+assertThat(locator).hasAccessibleDescription("Save results to disk");
+```
+
+```python async
+locator = page.get_by_test_id("save-button")
+await expect(locator).to_have_accessible_description("Save results to disk")
+```
+
+```python sync
+locator = page.get_by_test_id("save-button")
+expect(locator).to_have_accessible_description("Save results to disk")
+```
+
+```csharp
+var locator = Page.GetByTestId("save-button");
+await Expect(locator).ToHaveAccessibleDescriptionAsync("Save results to disk");
+```
+
+### param: LocatorAssertions.toHaveAccessibleDescription.description
+* since: v1.44
+- `description` <[string]|[RegExp]>
+
+Expected accessible description.
+
+### option: LocatorAssertions.toHaveAccessibleDescription.timeout = %%-js-assertions-timeout-%%
+* since: v1.44
+
+### option: LocatorAssertions.toHaveAccessibleDescription.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.44
+
+### option: LocatorAssertions.toHaveAccessibleDescription.ignoreCase = %%-assertions-ignore-case-%%
+* since: v1.44
+
+
+## async method: LocatorAssertions.toHaveAccessibleErrorMessage
+* since: v1.50
+* langs:
+  - alias-java: hasAccessibleErrorMessage
+
+Ensures the [Locator] points to an element with a given [aria errormessage](https://w3c.github.io/aria/#aria-errormessage).
+
+**Usage**
+
+```js
+const locator = page.getByTestId('username-input');
+await expect(locator).toHaveAccessibleErrorMessage('Username is required.');
+```
+
+```java
+Locator locator = page.getByTestId("username-input");
+assertThat(locator).hasAccessibleErrorMessage("Username is required.");
+```
+
+```python async
+locator = page.get_by_test_id("username-input")
+await expect(locator).to_have_accessible_error_message("Username is required.")
+```
+
+```python sync
+locator = page.get_by_test_id("username-input")
+expect(locator).to_have_accessible_error_message("Username is required.")
+```
+
+```csharp
+var locator = Page.GetByTestId("username-input");
+await Expect(locator).ToHaveAccessibleErrorMessageAsync("Username is required.");
+```
+
+### param: LocatorAssertions.toHaveAccessibleErrorMessage.errorMessage
+* since: v1.50
+- `errorMessage` <[string]|[RegExp]>
+
+Expected accessible error message.
+
+### option: LocatorAssertions.toHaveAccessibleErrorMessage.timeout = %%-js-assertions-timeout-%%
+* since: v1.50
+
+### option: LocatorAssertions.toHaveAccessibleErrorMessage.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.50
+
+### option: LocatorAssertions.toHaveAccessibleErrorMessage.ignoreCase = %%-assertions-ignore-case-%%
+* since: v1.50
+
+
+## async method: LocatorAssertions.toHaveAccessibleName
+* since: v1.44
+* langs:
+  - alias-java: hasAccessibleName
+
+Ensures the [Locator] points to an element with a given [accessible name](https://w3c.github.io/accname/#dfn-accessible-name).
+
+**Usage**
+
+```js
+const locator = page.getByTestId('save-button');
+await expect(locator).toHaveAccessibleName('Save to disk');
+```
+
+```java
+Locator locator = page.getByTestId("save-button");
+assertThat(locator).hasAccessibleName("Save to disk");
+```
+
+```python async
+locator = page.get_by_test_id("save-button")
+await expect(locator).to_have_accessible_name("Save to disk")
+```
+
+```python sync
+locator = page.get_by_test_id("save-button")
+expect(locator).to_have_accessible_name("Save to disk")
+```
+
+```csharp
+var locator = Page.GetByTestId("save-button");
+await Expect(locator).ToHaveAccessibleNameAsync("Save to disk");
+```
+
+### param: LocatorAssertions.toHaveAccessibleName.name
+* since: v1.44
+- `name` <[string]|[RegExp]>
+
+Expected accessible name.
+
+### option: LocatorAssertions.toHaveAccessibleName.timeout = %%-js-assertions-timeout-%%
+* since: v1.44
+
+### option: LocatorAssertions.toHaveAccessibleName.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.44
+
+### option: LocatorAssertions.toHaveAccessibleName.ignoreCase = %%-assertions-ignore-case-%%
+* since: v1.44
+
 
 ## async method: LocatorAssertions.toHaveAttribute
 * since: v1.20
@@ -1151,11 +1400,8 @@ Expected attribute value.
 ### option: LocatorAssertions.toHaveAttribute.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.18
 
-### option: LocatorAssertions.toHaveAttribute.ignoreCase = %%-js-assertions-timeout-%%
+### option: LocatorAssertions.toHaveAttribute.ignoreCase = %%-assertions-ignore-case-%%
 * since: v1.40
-- `ignoreCase` <[boolean]>
-
-Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression flag if specified.
 
 ## async method: LocatorAssertions.toHaveAttribute#2
 * since: v1.39
@@ -1185,49 +1431,48 @@ Attribute name.
 * langs:
   - alias-java: hasClass
 
-Ensures the [Locator] points to an element with given CSS classes. This needs to be a full match
-or using a relaxed regular expression.
+Ensures the [Locator] points to an element with given CSS classes. When a string is provided, it must fully match the element's `class` attribute. To match individual classes or perform partial matches, use a regular expression:
 
 **Usage**
 
 ```html
-<div class='selected row' id='component'></div>
+<div class='middle selected row' id='component'></div>
 ```
 
 ```js
 const locator = page.locator('#component');
-await expect(locator).toHaveClass(/selected/);
-await expect(locator).toHaveClass('selected row');
+await expect(locator).toHaveClass('middle selected row');
+await expect(locator).toHaveClass(/(^|\s)selected(\s|$)/);
 ```
 
 ```java
-assertThat(page.locator("#component")).hasClass(Pattern.compile("selected"));
-assertThat(page.locator("#component")).hasClass("selected row");
+assertThat(page.locator("#component")).hasClass(Pattern.compile("(^|\\s)selected(\\s|$)"));
+assertThat(page.locator("#component")).hasClass("middle selected row");
 ```
 
 ```python async
 from playwright.async_api import expect
 
 locator = page.locator("#component")
-await expect(locator).to_have_class(re.compile(r"selected"))
-await expect(locator).to_have_class("selected row")
+await expect(locator).to_have_class(re.compile(r"(^|\\s)selected(\\s|$)"))
+await expect(locator).to_have_class("middle selected row")
 ```
 
 ```python sync
 from playwright.sync_api import expect
 
 locator = page.locator("#component")
-expect(locator).to_have_class(re.compile(r"selected"))
-expect(locator).to_have_class("selected row")
+expect(locator).to_have_class(re.compile(r"(^|\\s)selected(\\s|$)"))
+expect(locator).to_have_class("middle selected row")
 ```
 
 ```csharp
 var locator = Page.Locator("#component");
-await Expect(locator).ToHaveClassAsync(new Regex("selected"));
-await Expect(locator).ToHaveClassAsync("selected row");
+await Expect(locator).ToHaveClassAsync(new Regex("(^|\\s)selected(\\s|$)"));
+await Expect(locator).ToHaveClassAsync("middle selected row");
 ```
 
-Note that if array is passed as an expected value, entire lists of elements can be asserted:
+When an array is passed, the method asserts that the list of elements located matches the corresponding list of expected class values. Each element's class attribute is matched against the corresponding string or regular expression in the array:
 
 ```js
 const locator = page.locator('list > .component');
@@ -1493,6 +1738,53 @@ Property value.
 ### option: LocatorAssertions.toHaveJSProperty.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.18
 
+
+## async method: LocatorAssertions.toHaveRole
+* since: v1.44
+* langs:
+  - alias-java: hasRole
+
+Ensures the [Locator] points to an element with a given [ARIA role](https://www.w3.org/TR/wai-aria-1.2/#roles).
+
+Note that role is matched as a string, disregarding the ARIA role hierarchy. For example, asserting  a superclass role `"checkbox"` on an element with a subclass role `"switch"` will fail.
+
+**Usage**
+
+```js
+const locator = page.getByTestId('save-button');
+await expect(locator).toHaveRole('button');
+```
+
+```java
+Locator locator = page.getByTestId("save-button");
+assertThat(locator).hasRole(AriaRole.BUTTON);
+```
+
+```python async
+locator = page.get_by_test_id("save-button")
+await expect(locator).to_have_role("button")
+```
+
+```python sync
+locator = page.get_by_test_id("save-button")
+expect(locator).to_have_role("button")
+```
+
+```csharp
+var locator = Page.GetByTestId("save-button");
+await Expect(locator).ToHaveRoleAsync(AriaRole.Button);
+```
+
+### param: LocatorAssertions.toHaveRole.role = %%-get-by-role-to-have-role-role-%%
+* since: v1.44
+
+### option: LocatorAssertions.toHaveRole.timeout = %%-js-assertions-timeout-%%
+* since: v1.44
+
+### option: LocatorAssertions.toHaveRole.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.44
+
+
 ## async method: LocatorAssertions.toHaveScreenshot#1
 * since: v1.23
 * langs: js
@@ -1529,6 +1821,9 @@ Snapshot name.
 
 ### option: LocatorAssertions.toHaveScreenshot#1.maskColor = %%-screenshot-option-mask-color-%%
 * since: v1.35
+
+### option: LocatorAssertions.toHaveScreenshot#1.stylePath = %%-screenshot-option-style-path-%%
+* since: v1.41
 
 ### option: LocatorAssertions.toHaveScreenshot#1.omitBackground = %%-screenshot-option-omit-background-%%
 * since: v1.23
@@ -1576,6 +1871,9 @@ Note that screenshot assertions only work with Playwright test runner.
 ### option: LocatorAssertions.toHaveScreenshot#2.maskColor = %%-screenshot-option-mask-color-%%
 * since: v1.35
 
+### option: LocatorAssertions.toHaveScreenshot#2.stylePath = %%-screenshot-option-style-path-%%
+* since: v1.41
+
 ### option: LocatorAssertions.toHaveScreenshot#2.omitBackground = %%-screenshot-option-omit-background-%%
 * since: v1.23
 
@@ -1596,7 +1894,12 @@ Note that screenshot assertions only work with Playwright test runner.
 * langs:
   - alias-java: hasText
 
-Ensures the [Locator] points to an element with the given text. You can use regular expressions for the value as well.
+Ensures the [Locator] points to an element with the given text. All nested elements will be considered when computing the text content of the element. You can use regular expressions for the value as well.
+
+**Details**
+
+When `expected` parameter is a string, Playwright will normalize whitespaces and line breaks both in the actual text and
+in the expected string before matching. When regular expression is used, the actual text is matched as is.
 
 **Usage**
 
@@ -1747,11 +2050,8 @@ Expected string or RegExp or a list of those.
 
 Expected string or RegExp or a list of those.
 
-### option: LocatorAssertions.toHaveText.ignoreCase
+### option: LocatorAssertions.toHaveText.ignoreCase = %%-assertions-ignore-case-%%
 * since: v1.23
-- `ignoreCase` <[boolean]>
-
-Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression flag if specified.
 
 ### option: LocatorAssertions.toHaveText.useInnerText
 * since: v1.18
@@ -1842,7 +2142,7 @@ await expect(locator).toHaveValues([/R/, /G/]);
 ```
 
 ```java
-page.locator("id=favorite-colors").selectOption(["R", "G"]);
+page.locator("id=favorite-colors").selectOption(new String[]{"R", "G"});
 assertThat(page.locator("id=favorite-colors")).hasValues(new Pattern[] { Pattern.compile("R"), Pattern.compile("G") });
 ```
 
@@ -1897,3 +2197,91 @@ Expected options currently selected.
 ### option: LocatorAssertions.toHaveValues.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.23
 
+
+## async method: LocatorAssertions.toMatchAriaSnapshot
+* since: v1.49
+* langs:
+  - alias-java: matchesAriaSnapshot
+
+Asserts that the target element matches the given [accessibility snapshot](../aria-snapshots.md).
+
+**Usage**
+
+```js
+await page.goto('https://demo.playwright.dev/todomvc/');
+await expect(page.locator('body')).toMatchAriaSnapshot(`
+  - heading "todos"
+  - textbox "What needs to be done?"
+`);
+```
+
+```python async
+await page.goto("https://demo.playwright.dev/todomvc/")
+await expect(page.locator('body')).to_match_aria_snapshot('''
+  - heading "todos"
+  - textbox "What needs to be done?"
+''')
+```
+
+```python sync
+page.goto("https://demo.playwright.dev/todomvc/")
+expect(page.locator('body')).to_match_aria_snapshot('''
+  - heading "todos"
+  - textbox "What needs to be done?"
+''')
+```
+
+```csharp
+await page.GotoAsync("https://demo.playwright.dev/todomvc/");
+await Expect(page.Locator("body")).ToMatchAriaSnapshotAsync(@"
+  - heading ""todos""
+  - textbox ""What needs to be done?""
+");
+```
+
+```java
+page.navigate("https://demo.playwright.dev/todomvc/");
+assertThat(page.locator("body")).matchesAriaSnapshot("""
+  - heading "todos"
+  - textbox "What needs to be done?"
+""");
+```
+
+### param: LocatorAssertions.toMatchAriaSnapshot.expected
+* since: v1.49
+- `expected` <string>
+
+### option: LocatorAssertions.toMatchAriaSnapshot.timeout = %%-js-assertions-timeout-%%
+* since: v1.49
+
+### option: LocatorAssertions.toMatchAriaSnapshot.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.49
+
+## async method: LocatorAssertions.toMatchAriaSnapshot#2
+* since: v1.50
+* langs: js
+
+Asserts that the target element matches the given [accessibility snapshot](../aria-snapshots.md).
+
+Snapshot is stored in a separate `.yml` file in a location configured by `expect.toMatchAriaSnapshot.pathTemplate` and/or `snapshotPathTemplate` properties in the configuration file.
+
+**Usage**
+
+```js
+await expect(page.locator('body')).toMatchAriaSnapshot();
+await expect(page.locator('body')).toMatchAriaSnapshot({ name: 'body.yml' });
+```
+
+### option: LocatorAssertions.toMatchAriaSnapshot#2.name
+* since: v1.50
+* langs: js
+- `name` <[string]>
+
+Name of the snapshot to store in the snapshot folder corresponding to this test.
+Generates sequential names if not specified.
+
+### option: LocatorAssertions.toMatchAriaSnapshot#2.timeout = %%-js-assertions-timeout-%%
+* since: v1.50
+
+### option: LocatorAssertions.toMatchAriaSnapshot#2.timeout = %%-csharp-java-python-assertions-timeout-%%
+* since: v1.50

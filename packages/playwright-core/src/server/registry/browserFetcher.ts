@@ -20,7 +20,7 @@ import os from 'os';
 import path from 'path';
 import childProcess from 'child_process';
 import { existsAsync } from '../../utils/fileUtils';
-import { debugLogger } from '../../common/debugLogger';
+import { debugLogger } from '../../utils/debugLogger';
 import { ManualPromise } from '../../utils/manualPromise';
 import { colors, progress as ProgressBar } from '../../utilsBundle';
 import { browserDirectoryToMarkerFilePath } from '.';
@@ -36,7 +36,7 @@ export async function downloadBrowserWithProgressBar(title: string, browserDirec
 
   const zipPath = path.join(os.tmpdir(), downloadFileName);
   try {
-    const retryCount = 3;
+    const retryCount = 5;
     for (let attempt = 1; attempt <= retryCount; ++attempt) {
       debugLogger.log('install', `downloading ${title} - attempt #${attempt}`);
       const url = downloadURLs[(attempt - 1) % downloadURLs.length];
@@ -170,5 +170,5 @@ function getBasicDownloadProgress(): OnProgressCallback {
 
 function toMegabytes(bytes: number) {
   const mb = bytes / 1024 / 1024;
-  return `${Math.round(mb * 10) / 10} Mb`;
+  return `${Math.round(mb * 10) / 10} MiB`;
 }

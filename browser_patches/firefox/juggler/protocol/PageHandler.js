@@ -5,7 +5,6 @@
 "use strict";
 
 const {Helper, EventWatcher} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
 const {NetworkObserver, PageNetwork} = ChromeUtils.import('chrome://juggler/content/NetworkObserver.js');
 const {PageTarget} = ChromeUtils.import('chrome://juggler/content/TargetRegistry.js');
@@ -257,6 +256,13 @@ class PageHandler {
     return await this._contentPage.send('disposeObject', options);
   }
 
+  async ['Heap.collectGarbage']() {
+    Services.obs.notifyObservers(null, "child-gc-request");
+    Cu.forceGC();
+    Services.obs.notifyObservers(null, "child-cc-request");
+    Cu.forceCC();
+  }
+
   async ['Network.getResponseBody']({requestId}) {
     return this._pageNetwork.getResponseBody(requestId);
   }
@@ -303,8 +309,8 @@ class PageHandler {
     await this._pageTarget.activateAndRun(() => {});
   }
 
-  async ['Page.setCacheDisabled'](options) {
-    return await this._contentPage.send('setCacheDisabled', options);
+  async ['Page.setCacheDisabled']({cacheDisabled}) {
+    return await this._pageTarget.setCacheDisabled(cacheDisabled);
   }
 
   async ['Page.addBinding']({ worldName, name, script }) {
@@ -395,7 +401,7 @@ class PageHandler {
           'nsIReferrerInfo',
           'init'
         );
-        referrerInfo = new ReferrerInfo(Ci.nsIHttpChannel.REFERRER_POLICY_UNSET, true, referrerURI);
+        referrerInfo = new ReferrerInfo(Ci.nsIReferrerInfo.UNSAFE_URL, true, referrerURI);
       } catch (e) {
         throw new Error(`Invalid referer: "${referer}"`);
       }
@@ -489,6 +495,9 @@ class PageHandler {
       this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
       // 2. Get element's bounding box in the browser after the scroll is completed.
       const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
+      // 3. Make sure compositor is flushed after scrolling.
+      if (win.windowUtils.flushApzRepaints())
+        await helper.awaitTopic('apz-repaints-flushed');
 
       const watcher = new EventWatcher(this._pageEventSink, types, this._pendingEventWatchers);
       const promises = [];
@@ -609,7 +618,7 @@ class PageHandler {
     const lineOrPageDeltaX = deltaX > 0 ? Math.floor(deltaX) : Math.ceil(deltaX);
     const lineOrPageDeltaY = deltaY > 0 ? Math.floor(deltaY) : Math.ceil(deltaY);
 
-    await this._pageTarget.activateAndRun(() => {
+    await this._pageTarget.activateAndRun(async () => {
       this._pageTarget.ensureContextMenuClosed();
 
       // 1. Scroll element to the desired location first; the coordinates are relative to the element.
@@ -618,6 +627,10 @@ class PageHandler {
       const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
 
       const win = this._pageTarget._window;
+      // 3. Make sure compositor is flushed after scrolling.
+      if (win.windowUtils.flushApzRepaints())
+        await helper.awaitTopic('apz-repaints-flushed');
+
       win.windowUtils.sendWheelEvent(
         x + boundingBox.left,
         y + boundingBox.top,

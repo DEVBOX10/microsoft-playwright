@@ -27,12 +27,17 @@ test('should render counters', async ({ mount }) => {
     flaky: 17,
     skipped: 10,
     ok: false,
-  }} filterText='' setFilterText={() => {}}></HeaderView>);
-  await expect(component.locator('a', { hasText: 'All' }).locator('.counter')).toHaveText('100');
+  }} filterText='' setFilterText={() => { }}></HeaderView>);
+  await expect(component.locator('a', { hasText: 'All' }).locator('.counter')).toHaveText('90');
   await expect(component.locator('a', { hasText: 'Passed' }).locator('.counter')).toHaveText('42');
   await expect(component.locator('a', { hasText: 'Failed' }).locator('.counter')).toHaveText('31');
   await expect(component.locator('a', { hasText: 'Flaky' }).locator('.counter')).toHaveText('17');
   await expect(component.locator('a', { hasText: 'Skipped' }).locator('.counter')).toHaveText('10');
+  await expect(component).toMatchAriaSnapshot(`
+    - navigation:
+      - link "All 90"
+      - text: Passed 42 Failed 31 Flaky 17 Skipped 10
+  `);
 });
 
 test('should toggle filters', async ({ page, mount }) => {
@@ -59,5 +64,6 @@ test('should toggle filters', async ({ page, mount }) => {
   await expect(page).toHaveURL(/#\?q=s:flaky/);
   await component.locator('a', { hasText: 'Skipped' }).click();
   await expect(page).toHaveURL(/#\?q=s:skipped/);
-  expect(filters).toEqual(['', 's:passed', 's:failed', 's:flaky', 's:skipped']);
+  await component.getByRole('textbox').fill('annot:annotation type=annotation description');
+  expect(filters).toEqual(['', 's:passed', 's:failed', 's:flaky', 's:skipped', 'annot:annotation type=annotation description']);
 });

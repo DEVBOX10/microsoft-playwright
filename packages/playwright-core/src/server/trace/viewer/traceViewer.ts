@@ -17,51 +17,60 @@
 import path from 'path';
 import fs from 'fs';
 import { HttpServer } from '../../../utils/httpServer';
-import { createGuid, gracefullyProcessExitDoNotHang, isUnderTest } from '../../../utils';
+import type { Transport } from '../../../utils/httpServer';
+import { gracefullyProcessExitDoNotHang, isUnderTest } from '../../../utils';
 import { syncLocalStorageWithSettings } from '../../launchApp';
 import { serverSideCallMetadata } from '../../instrumentation';
 import { createPlaywright } from '../../playwright';
 import { ProgressController } from '../../progress';
-import { open, wsServer } from '../../../utilsBundle';
+import { open } from '../../../utilsBundle';
 import type { Page } from '../../page';
 import type { BrowserType } from '../../browserType';
 import { launchApp } from '../../launchApp';
 
-export type Transport = {
-  sendEvent?: (method: string, params: any) => void;
-  dispatch: (method: string, params: any) => Promise<any>;
-  close?: () => void;
-  onclose: () => void;
-};
-
-export type OpenTraceViewerOptions = {
-  app?: string;
-  headless?: boolean;
+export type TraceViewerServerOptions = {
   host?: string;
   port?: number;
   isServer?: boolean;
   transport?: Transport;
+};
+
+export type TraceViewerRedirectOptions = {
+  args?: string[];
+  grep?: string;
+  grepInvert?: string;
+  project?: string[];
+  reporter?: string[];
+  webApp?: string;
+  isServer?: boolean;
+};
+
+export type TraceViewerAppOptions = {
+  headless?: boolean;
   persistentContextOptions?: Parameters<BrowserType['launchPersistentContext']>[2];
 };
 
-async function startTraceViewerServer(traceUrls: string[], options?: OpenTraceViewerOptions): Promise<{ server: HttpServer, url: string }> {
+function validateTraceUrls(traceUrls: string[]) {
   for (const traceUrl of traceUrls) {
     let traceFile = traceUrl;
     // If .json is requested, we'll synthesize it.
     if (traceUrl.endsWith('.json'))
       traceFile = traceUrl.substring(0, traceUrl.length - '.json'.length);
 
-    if (!traceUrl.startsWith('http://') && !traceUrl.startsWith('https://') && !fs.existsSync(traceFile) && !fs.existsSync(traceFile + '.trace')) {
-      // eslint-disable-next-line no-console
-      console.error(`Trace file ${traceUrl} does not exist!`);
-      gracefullyProcessExitDoNotHang(1);
-    }
+    if (!traceUrl.startsWith('http://') && !traceUrl.startsWith('https://') && !fs.existsSync(traceFile) && !fs.existsSync(traceFile + '.trace'))
+      throw new Error(`Trace file ${traceUrl} does not exist!`);
   }
+}
 
+export async function startTraceViewerServer(options?: TraceViewerServerOptions): Promise<HttpServer> {
   const server = new HttpServer();
   server.routePrefix('/trace', (request, response) => {
     const url = new URL('http://localhost' + request.url!);
     const relativePath = url.pathname.slice('/trace'.length);
+    if (process.env.PW_HMR) {
+      // When running in Vite HMR mode, port is hardcoded in build.js
+      response.appendHeader('Access-Control-Allow-Origin', 'http://localhost:44223');
+    }
     if (relativePath.endsWith('/stall.js'))
       return true;
     if (relativePath.startsWith('/file')) {
@@ -88,49 +97,71 @@ async function startTraceViewerServer(traceUrls: string[], options?: OpenTraceVi
     return server.serveFile(request, response, absolutePath);
   });
 
-  const params = traceUrls.map(t => `trace=${encodeURIComponent(t)}`);
   const transport = options?.transport || (options?.isServer ? new StdinServer() : undefined);
-
-  if (transport) {
-    const guid = createGuid();
-    params.push('ws=' + guid);
-    const wss = new wsServer({ server: server.server(), path: '/' + guid });
-    wss.on('connection', ws => {
-      transport.sendEvent = (method, params)  => ws.send(JSON.stringify({ method, params }));
-      transport.close = () => ws.close();
-      ws.on('message', async (message: string) => {
-        const { id, method, params } = JSON.parse(message);
-        const result = await transport.dispatch(method, params);
-        ws.send(JSON.stringify({ id, result }));
-      });
-      ws.on('close', () => transport.onclose());
-      ws.on('error', () => transport.onclose());
-    });
-  }
-
-  if (options?.isServer)
-    params.push('isServer');
-  if (isUnderTest())
-    params.push('isUnderTest=true');
+  if (transport)
+    server.createWebSocket(transport);
 
   const { host, port } = options || {};
-  const url = await server.start({ preferredPort: port, host });
-  const { app } = options || {};
-  const searchQuery = params.length ? '?' + params.join('&') : '';
-  const urlPath  = `/trace/${app || 'index.html'}${searchQuery}`;
+  await server.start({ preferredPort: port, host });
+  return server;
+}
 
-  server.routePath('/', (request, response) => {
+export async function installRootRedirect(server: HttpServer, traceUrls: string[], options: TraceViewerRedirectOptions) {
+  const params = new URLSearchParams();
+  if (path.sep !== path.posix.sep)
+    params.set('pathSeparator', path.sep);
+  for (const traceUrl of traceUrls)
+    params.append('trace', traceUrl);
+  if (server.wsGuid())
+    params.append('ws', server.wsGuid()!);
+  if (options?.isServer)
+    params.append('isServer', '');
+  if (isUnderTest())
+    params.append('isUnderTest', 'true');
+  for (const arg of options.args || [])
+    params.append('arg', arg);
+  if (options.grep)
+    params.append('grep', options.grep);
+  if (options.grepInvert)
+    params.append('grepInvert', options.grepInvert);
+  for (const project of options.project || [])
+    params.append('project', project);
+  for (const reporter of options.reporter || [])
+    params.append('reporter', reporter);
+
+  let baseUrl = '.';
+  if (process.env.PW_HMR) {
+    baseUrl = 'http://localhost:44223'; // port is hardcoded in build.js
+    params.set('server', server.urlPrefix('precise'));
+  }
+
+  const urlPath  = `${baseUrl}/trace/${options.webApp || 'index.html'}?${params.toString()}`;
+  server.routePath('/', (_, response) => {
     response.statusCode = 302;
-    response.setHeader('Location', urlPath + request.url!.substring(1));
+    response.setHeader('Location', urlPath);
     response.end();
     return true;
   });
-
-  return { server, url };
 }
 
-export async function openTraceViewerApp(traceUrls: string[], browserName: string, options?: OpenTraceViewerOptions): Promise<Page> {
-  const { url } = await startTraceViewerServer(traceUrls, options);
+export async function runTraceViewerApp(traceUrls: string[], browserName: string, options: TraceViewerServerOptions & { headless?: boolean }, exitOnClose?: boolean) {
+  validateTraceUrls(traceUrls);
+  const server = await startTraceViewerServer(options);
+  await installRootRedirect(server, traceUrls, options);
+  const page = await openTraceViewerApp(server.urlPrefix('precise'), browserName, options);
+  if (exitOnClose)
+    page.on('close', () => gracefullyProcessExitDoNotHang(0));
+  return page;
+}
+
+export async function runTraceInBrowser(traceUrls: string[], options: TraceViewerServerOptions) {
+  validateTraceUrls(traceUrls);
+  const server = await startTraceViewerServer(options);
+  await installRootRedirect(server, traceUrls, options);
+  await openTraceInBrowser(server.urlPrefix('human-readable'));
+}
+
+export async function openTraceViewerApp(url: string, browserName: string, options?: TraceViewerAppOptions): Promise<Page> {
   const traceViewerPlaywright = createPlaywright({ sdkLanguage: 'javascript', isInternalPlaywright: true });
   const traceViewerBrowser = isUnderTest() ? 'chromium' : browserName;
 
@@ -141,7 +172,8 @@ export async function openTraceViewerApp(traceUrls: string[], browserName: strin
     persistentContextOptions: {
       ...options?.persistentContextOptions,
       useWebSocket: isUnderTest(),
-      headless: options?.headless,
+      headless: !!options?.headless,
+      colorScheme: isUnderTest() ? 'light' : undefined,
     },
   });
 
@@ -163,12 +195,11 @@ export async function openTraceViewerApp(traceUrls: string[], browserName: strin
   return page;
 }
 
-export async function openTraceInBrowser(traceUrls: string[], options?: OpenTraceViewerOptions) {
-  const { url } = await startTraceViewerServer(traceUrls, options);
+export async function openTraceInBrowser(url: string) {
   // eslint-disable-next-line no-console
   console.log('\nListening on ' + url);
   if (!isUnderTest())
-    await open(url).catch(() => {});
+    await open(url.replace('0.0.0.0', 'localhost')).catch(() => {});
 }
 
 class StdinServer implements Transport {
@@ -188,24 +219,26 @@ class StdinServer implements Transport {
     process.stdin.on('close', () => gracefullyProcessExitDoNotHang(0));
   }
 
+  onconnect() {
+  }
+
   async dispatch(method: string, params: any) {
-    if (method === 'ready') {
+    if (method === 'initialize') {
       if (this._traceUrl)
         this._loadTrace(this._traceUrl);
     }
   }
 
   onclose() {
-    gracefullyProcessExitDoNotHang(0);
   }
 
   sendEvent?: (method: string, params: any) => void;
   close?: () => void;
 
-  private _loadTrace(url: string) {
-    this._traceUrl = url;
+  private _loadTrace(traceUrl: string) {
+    this._traceUrl = traceUrl;
     clearTimeout(this._pollTimer);
-    this.sendEvent?.('loadTrace', { url });
+    this.sendEvent?.('loadTraceRequested', { traceUrl });
   }
 
   private _pollLoadTrace(url: string) {

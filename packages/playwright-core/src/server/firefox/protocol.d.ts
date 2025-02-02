@@ -147,6 +147,11 @@ export module Protocol {
       enabled: boolean;
     };
     export type setRequestInterceptionReturnValue = void;
+    export type setCacheDisabledParameters = {
+      browserContextId?: string;
+      cacheDisabled: boolean;
+    };
+    export type setCacheDisabledReturnValue = void;
     export type setGeolocationOverrideParameters = {
       browserContextId?: string;
       geolocation: {
@@ -215,11 +220,6 @@ export module Protocol {
       }|null;
     };
     export type setDefaultViewportReturnValue = void;
-    export type setScrollbarsHiddenParameters = {
-      browserContextId?: string;
-      hidden: boolean;
-    };
-    export type setScrollbarsHiddenReturnValue = void;
     export type setInitScriptsParameters = {
       browserContextId?: string;
       scripts: {
@@ -301,6 +301,11 @@ export module Protocol {
       forcedColors: ("active"|"none")|null;
     };
     export type setForcedColorsReturnValue = void;
+    export type setContrastParameters = {
+      browserContextId?: string;
+      contrast: ("less"|"more"|"custom"|"no-preference")|null;
+    };
+    export type setContrastReturnValue = void;
     export type setVideoRecordingOptionsParameters = {
       browserContextId?: string;
       options?: {
@@ -314,6 +319,11 @@ export module Protocol {
       uuid?: string;
     };
     export type cancelDownloadReturnValue = void;
+  }
+  export module Heap {
+    export type collectGarbageParameters = {
+    };
+    export type collectGarbageReturnValue = void;
   }
   export module Page {
     export type DOMPoint = {
@@ -513,6 +523,10 @@ export module Protocol {
       }|null;
     };
     export type setViewportSizeReturnValue = void;
+    export type setZoomParameters = {
+      zoom: number;
+    };
+    export type setZoomReturnValue = void;
     export type bringToFrontParameters = {
     };
     export type bringToFrontReturnValue = void;
@@ -521,6 +535,7 @@ export module Protocol {
       colorScheme?: ("dark"|"light"|"no-preference");
       reducedMotion?: ("reduce"|"no-preference");
       forcedColors?: ("active"|"none");
+      contrast?: ("less"|"more"|"custom"|"no-preference");
     };
     export type setEmulatedMediaReturnValue = void;
     export type setCacheDisabledParameters = {
@@ -1099,6 +1114,7 @@ export module Protocol {
     "Browser.setContextProxy": Browser.setContextProxyParameters;
     "Browser.setHTTPCredentials": Browser.setHTTPCredentialsParameters;
     "Browser.setRequestInterception": Browser.setRequestInterceptionParameters;
+    "Browser.setCacheDisabled": Browser.setCacheDisabledParameters;
     "Browser.setGeolocationOverride": Browser.setGeolocationOverrideParameters;
     "Browser.setUserAgentOverride": Browser.setUserAgentOverrideParameters;
     "Browser.setPlatformOverride": Browser.setPlatformOverrideParameters;
@@ -1110,7 +1126,6 @@ export module Protocol {
     "Browser.setDownloadOptions": Browser.setDownloadOptionsParameters;
     "Browser.setTouchOverride": Browser.setTouchOverrideParameters;
     "Browser.setDefaultViewport": Browser.setDefaultViewportParameters;
-    "Browser.setScrollbarsHidden": Browser.setScrollbarsHiddenParameters;
     "Browser.setInitScripts": Browser.setInitScriptsParameters;
     "Browser.addBinding": Browser.addBindingParameters;
     "Browser.grantPermissions": Browser.grantPermissionsParameters;
@@ -1122,12 +1137,15 @@ export module Protocol {
     "Browser.setColorScheme": Browser.setColorSchemeParameters;
     "Browser.setReducedMotion": Browser.setReducedMotionParameters;
     "Browser.setForcedColors": Browser.setForcedColorsParameters;
+    "Browser.setContrast": Browser.setContrastParameters;
     "Browser.setVideoRecordingOptions": Browser.setVideoRecordingOptionsParameters;
     "Browser.cancelDownload": Browser.cancelDownloadParameters;
+    "Heap.collectGarbage": Heap.collectGarbageParameters;
     "Page.close": Page.closeParameters;
     "Page.setFileInputFiles": Page.setFileInputFilesParameters;
     "Page.addBinding": Page.addBindingParameters;
     "Page.setViewportSize": Page.setViewportSizeParameters;
+    "Page.setZoom": Page.setZoomParameters;
     "Page.bringToFront": Page.bringToFrontParameters;
     "Page.setEmulatedMedia": Page.setEmulatedMediaParameters;
     "Page.setCacheDisabled": Page.setCacheDisabledParameters;
@@ -1179,6 +1197,7 @@ export module Protocol {
     "Browser.setContextProxy": Browser.setContextProxyReturnValue;
     "Browser.setHTTPCredentials": Browser.setHTTPCredentialsReturnValue;
     "Browser.setRequestInterception": Browser.setRequestInterceptionReturnValue;
+    "Browser.setCacheDisabled": Browser.setCacheDisabledReturnValue;
     "Browser.setGeolocationOverride": Browser.setGeolocationOverrideReturnValue;
     "Browser.setUserAgentOverride": Browser.setUserAgentOverrideReturnValue;
     "Browser.setPlatformOverride": Browser.setPlatformOverrideReturnValue;
@@ -1190,7 +1209,6 @@ export module Protocol {
     "Browser.setDownloadOptions": Browser.setDownloadOptionsReturnValue;
     "Browser.setTouchOverride": Browser.setTouchOverrideReturnValue;
     "Browser.setDefaultViewport": Browser.setDefaultViewportReturnValue;
-    "Browser.setScrollbarsHidden": Browser.setScrollbarsHiddenReturnValue;
     "Browser.setInitScripts": Browser.setInitScriptsReturnValue;
     "Browser.addBinding": Browser.addBindingReturnValue;
     "Browser.grantPermissions": Browser.grantPermissionsReturnValue;
@@ -1202,12 +1220,15 @@ export module Protocol {
     "Browser.setColorScheme": Browser.setColorSchemeReturnValue;
     "Browser.setReducedMotion": Browser.setReducedMotionReturnValue;
     "Browser.setForcedColors": Browser.setForcedColorsReturnValue;
+    "Browser.setContrast": Browser.setContrastReturnValue;
     "Browser.setVideoRecordingOptions": Browser.setVideoRecordingOptionsReturnValue;
     "Browser.cancelDownload": Browser.cancelDownloadReturnValue;
+    "Heap.collectGarbage": Heap.collectGarbageReturnValue;
     "Page.close": Page.closeReturnValue;
     "Page.setFileInputFiles": Page.setFileInputFilesReturnValue;
     "Page.addBinding": Page.addBindingReturnValue;
     "Page.setViewportSize": Page.setViewportSizeReturnValue;
+    "Page.setZoom": Page.setZoomReturnValue;
     "Page.bringToFront": Page.bringToFrontReturnValue;
     "Page.setEmulatedMedia": Page.setEmulatedMediaReturnValue;
     "Page.setCacheDisabled": Page.setCacheDisabledReturnValue;

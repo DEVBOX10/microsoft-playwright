@@ -15,6 +15,8 @@
  */
 
 import { devices, defineConfig } from '@playwright/experimental-ct-react';
+import path from 'path';
+import url from 'url';
 
 export default defineConfig({
   testDir: 'src',
@@ -24,6 +26,13 @@ export default defineConfig({
   reporter: process.env.CI ? 'blob' : 'html',
   use: {
     ctPort: 3101,
+    ctViteConfig: {
+      resolve: {
+        alias: {
+          '@web': path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '../web/src'),
+        },
+      }
+    },
     trace: 'on-first-retry',
   },
   projects: [{

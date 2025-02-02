@@ -44,8 +44,9 @@ function getAllMarkdownFiles(dirPath, filePaths = []) {
 }
 
 const run = async () => {
+  const jsOnly = process.argv.includes('--js-only');
+  const lintingServiceFactory = new LintingServiceFactory(jsOnly);
   const documentationRoot = path.join(PROJECT_DIR, 'docs', 'src');
-  const lintingServiceFactory = new LintingServiceFactory();
   let documentation = parseApi(path.join(documentationRoot, 'api'));
 
   /** @type {CodeSnippet[]} */
@@ -69,6 +70,8 @@ const run = async () => {
     });
   }
   await lintingServiceFactory.lintAndReport(codeSnippets);
+  if (jsOnly)
+    return;
   const { hasErrors } = lintingServiceFactory.reportMetrics();
   if (hasErrors)
     process.exit(1);
@@ -94,9 +97,9 @@ class LintingService {
   }
 
   /**
-   * @param {string} command 
+   * @param {string} command
    * @param {string[]} args
-   * @param {CodeSnippet[]} snippets 
+   * @param {CodeSnippet[]} snippets
    * @param {string} cwd
    * @returns {Promise<LintResult[]>}
    */
@@ -118,7 +121,7 @@ class LintingService {
   }
 
   /**
-   * @param {CodeSnippet[]} snippets 
+   * @param {CodeSnippet[]} snippets
    * @returns {Promise<LintResult[]>}
    */
   async lint(snippets) {
@@ -139,6 +142,7 @@ class JSLintingService extends LintingService {
     this.eslint = new ESLint({
       overrideConfigFile: path.join(PROJECT_DIR, '.eslintrc.js'),
       useEslintrc: false,
+      // @ts-ignore
       overrideConfig: {
         plugins: ['react'],
         settings: {
@@ -151,6 +155,8 @@ class JSLintingService extends LintingService {
           'notice/notice': 'off',
           '@typescript-eslint/no-unused-vars': 'off',
           'max-len': ['error', { code: 100 }],
+          'react/react-in-jsx-scope': 'off',
+          'eol-last': 'off',
         },
       }
     });
@@ -180,7 +186,10 @@ class JSLintingService extends LintingService {
    * @returns {Promise<LintResult[]>}
    */
   async lint(snippets) {
-    return Promise.all(snippets.map(async snippet => this._lintSnippet(snippet)));
+    const result = [];
+    for (let i = 0; i < snippets.length; ++i)
+      result.push(await this._lintSnippet(snippets[i]));
+    return result;
   }
 }
 
@@ -205,16 +214,27 @@ class CSharpLintingService extends LintingService {
   }
 }
 
+class JavaLintingService extends LintingService {
+  supports(codeLang) {
+    return codeLang === 'java';
+  }
+
+  async lint(snippets) {
+    return await this.spawnAsync('java', ['-jar', path.join(__dirname, 'java', 'target', 'java-syntax-checker-1.0-SNAPSHOT.jar')], snippets, path.join(__dirname, 'java'))
+  }
+}
+
 class LintingServiceFactory {
-  constructor() {
+  constructor(jsOnly) {
     /** @type {LintingService[]} */
     this.services = [
       new JSLintingService(),
     ]
-    if (!process.env.NO_EXTERNAL_DEPS) {
+    if (!jsOnly) {
       this.services.push(
         new PythonLintingService(),
         new CSharpLintingService(),
+        new JavaLintingService(),
       );
     }
     this._metrics = {};
@@ -287,8 +307,8 @@ class LintingServiceFactory {
   }
 
   /**
-   * @param {string} language 
-   * @param {LintResult} result 
+   * @param {string} language
+   * @param {LintResult} result
    */
   _collectMetrics(language, result) {
     if (!this._metrics[language])

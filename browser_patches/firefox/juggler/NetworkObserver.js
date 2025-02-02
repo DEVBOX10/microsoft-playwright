@@ -5,7 +5,6 @@
 "use strict";
 
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
 const { ChannelEventSinkFactory } = ChromeUtils.import("chrome://remote/content/cdp/observers/ChannelEventSink.jsm");
 
@@ -146,9 +145,13 @@ class NetworkRequest {
     }
     this._expectingInterception = false;
     this._expectingResumedRequest = undefined;  // { method, headers, postData }
+    this._overriddenHeadersForRedirect = redirectedFrom?._overriddenHeadersForRedirect;
     this._sentOnResponse = false;
+    this._fulfilled = false;
 
-    if (this._pageNetwork)
+    if (this._overriddenHeadersForRedirect)
+      overrideRequestHeaders(httpChannel, this._overriddenHeadersForRedirect);
+    else if (this._pageNetwork)
       appendExtraHTTPHeaders(httpChannel, this._pageNetwork.combinedExtraHTTPHeaders());
 
     this._responseBodyChunks = [];
@@ -195,6 +198,7 @@ class NetworkRequest {
 
   // Public interception API.
   fulfill(status, statusText, headers, base64body) {
+    this._fulfilled = true;
     this._interceptedChannel.synthesizeStatus(status, statusText);
     for (const header of headers) {
       this._interceptedChannel.synthesizeHeader(header.name, header.value);
@@ -229,16 +233,13 @@ class NetworkRequest {
     if (!this._expectingResumedRequest)
       return;
     const { method, headers, postData } = this._expectingResumedRequest;
+    this._overriddenHeadersForRedirect = headers;
     this._expectingResumedRequest = undefined;
 
-    if (headers) {
-      for (const header of requestHeaders(this.httpChannel))
-        this.httpChannel.setRequestHeader(header.name, '', false /* merge */);
-      for (const header of headers)
-        this.httpChannel.setRequestHeader(header.name, header.value, false /* merge */);
-    } else if (this._pageNetwork) {
+    if (headers)
+      overrideRequestHeaders(this.httpChannel, headers);
+    else if (this._pageNetwork)
       appendExtraHTTPHeaders(this.httpChannel, this._pageNetwork.combinedExtraHTTPHeaders());
-    }
     if (method)
       this.httpChannel.requestMethod = method;
     if (postData !== undefined)
@@ -363,13 +364,6 @@ class NetworkRequest {
       return;
     }
 
-    const browserContext = pageNetwork._target.browserContext();
-    if (browserContext.crossProcessCookie.settings.onlineOverride === 'offline') {
-      // Implement offline.
-      this.abort(Cr.NS_ERROR_OFFLINE);
-      return;
-    }
-
     // Ok, so now we have intercepted the request, let's issue onRequest.
     // If interception has been disabled while we were intercepting, resume and forget.
     const interceptionEnabled = this._shouldIntercept();
@@ -458,8 +452,6 @@ class NetworkRequest {
       return true;
     const browserContext = pageNetwork._target.browserContext();
     if (browserContext.requestInterceptionEnabled)
-      return true;
-    if (browserContext.crossProcessCookie.settings.onlineOverride === 'offline')
       return true;
     return false;
   }
@@ -559,7 +551,11 @@ class NetworkRequest {
 
   _sendOnRequestFinished() {
     const pageNetwork = this._pageNetwork;
-    if (pageNetwork) {
+    // Undefined |responseEndTime| means there has been no response yet.
+    // This happens when request interception API is used to redirect
+    // the request to a different URL.
+    // In this case, we should not emit "requestFinished" event.
+    if (pageNetwork && this.httpChannel.responseEndTime !== undefined) {
       let protocolVersion = undefined;
       try {
         protocolVersion = this.httpChannel.protocolVersion;
@@ -602,6 +598,8 @@ class NetworkObserver {
           proxyFilter.onProxyFilterResult(defaultProxyInfo);
           return;
         }
+        if (this._targetRegistry.shouldBustHTTPAuthCacheForProxy(proxy))
+          Services.obs.notifyObservers(null, "net:clear-active-logins");
         proxyFilter.onProxyFilterResult(protocolProxyService.newProxyInfo(
             proxy.type,
             proxy.host,
@@ -771,6 +769,20 @@ function requestHeaders(httpChannel) {
   return headers;
 }
 
+function clearRequestHeaders(httpChannel) {
+  for (const header of requestHeaders(httpChannel)) {
+    // We cannot remove the "host" header.
+    if (header.name.toLowerCase() === 'host')
+      continue;
+    httpChannel.setRequestHeader(header.name, '', false /* merge */);
+  }
+}
+
+function overrideRequestHeaders(httpChannel, headers) {
+  clearRequestHeaders(httpChannel);
+  appendExtraHTTPHeaders(httpChannel, headers);
+}
+
 function causeTypeToString(causeType) {
   for (let key in Ci.nsIContentPolicy) {
     if (Ci.nsIContentPolicy[key] === causeType)
@@ -803,7 +815,8 @@ class ResponseStorage {
       return;
     }
     let encodings = [];
-    if ((request.httpChannel instanceof Ci.nsIEncodedChannel) && request.httpChannel.contentEncodings && !request.httpChannel.applyConversion) {
+    // Note: fulfilled request comes with decoded body right away.
+    if ((request.httpChannel instanceof Ci.nsIEncodedChannel) && request.httpChannel.contentEncodings && !request.httpChannel.applyConversion && !request._fulfilled) {
       const encodingHeader = request.httpChannel.getResponseHeader("Content-Encoding");
       encodings = encodingHeader.split(/\s*\t*,\s*\t*/);
     }

@@ -34,6 +34,10 @@
   padding-left: 5px;
 }
 
+.list-view-content.not-selectable > .list-view-entry {
+  cursor: inherit;
+}
+
 .list-view-entry.highlighted:not(.selected) {
   background-color: var(--vscode-list-inactiveSelectionBackground) !important;
 }
@@ -74,8 +78,14 @@
 
 .list-view-entry.error {
   color: var(--vscode-list-errorForeground);
+  background-color: var(--vscode-inputValidation-errorBackground);
 }
 
 .list-view-entry.warning {
   color: var(--vscode-list-warningForeground);
+  background-color: var(--vscode-inputValidation-warningBackground);
+}
+
+.list-view-entry.info {
+  background-color: var(--vscode-inputValidation-infoBackground);
 }

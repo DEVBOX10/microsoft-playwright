@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-import os from 'os';
 import type { Route } from 'playwright-core';
 import { test as it, expect } from './pageTest';
 
@@ -152,9 +151,9 @@ it('should contain referer header', async ({ page, server }) => {
   expect(requests[1].headers().referer).toContain('/one-style.html');
 });
 
-it('should properly return navigation response when URL has cookies', async ({ page, server, isElectron, isAndroid }) => {
+it('should properly return navigation response when URL has cookies', async ({ page, server, isAndroid, isElectron, electronMajorVersion }) => {
   it.skip(isAndroid, 'No isolated context');
-  it.fixme(isElectron, 'error: Browser context management is not supported.');
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
 
   // Setup cookie.
   await page.goto(server.EMPTY_PAGE);
@@ -168,7 +167,7 @@ it('should properly return navigation response when URL has cookies', async ({ p
 
 it('should override cookie header', async ({ page, server, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16773' });
-  it.fail(browserName !== 'firefox');
+  it.fail(browserName !== 'firefox' && !browserName.includes('bidi'));
 
   await page.goto(server.EMPTY_PAGE);
   await page.evaluate(() => document.cookie = 'original=value');
@@ -201,10 +200,15 @@ it('should show custom HTTP headers', async ({ page, server }) => {
 });
 
 // @see https://github.com/GoogleChrome/puppeteer/issues/4337
-it('should work with redirect inside sync XHR', async ({ page, server }) => {
+it('should work with redirect inside sync XHR', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28461' });
+  it.fixme(browserName === 'webkit', 'No Network.requestIntercepted for the request');
   await page.goto(server.EMPTY_PAGE);
   server.setRedirect('/logo.png', '/pptr.png');
-  await page.route('**/*', route => route.continue());
+  let continuePromise;
+  await page.route('**/*', route => {
+    continuePromise = route.continue();
+  });
   const status = await page.evaluate(async () => {
     const request = new XMLHttpRequest();
     request.open('GET', '/logo.png', false);  // `false` makes the request synchronous
@@ -212,6 +216,8 @@ it('should work with redirect inside sync XHR', async ({ page, server }) => {
     return request.status;
   });
   expect(status).toBe(200);
+  expect(continuePromise).toBeTruthy();
+  await continuePromise;
 });
 
 it('should pause intercepted XHR until continue', async ({ page, server, browserName }) => {
@@ -293,19 +299,36 @@ it('should be abortable', async ({ page, server }) => {
   expect(failed).toBe(true);
 });
 
-it('should be abortable with custom error codes', async ({ page, server, browserName, isMac }) => {
+it('should be abortable with custom error codes', async ({ page, server, browserName, isMac, macVersion }) => {
   await page.route('**/*', route => route.abort('internetdisconnected'));
   let failedRequest = null;
   page.on('requestfailed', request => failedRequest = request);
   await page.goto(server.EMPTY_PAGE).catch(e => {});
   expect(failedRequest).toBeTruthy();
-  const isFrozenWebKit = isMac && parseInt(os.release(), 10) < 20;
   if (browserName === 'webkit')
-    expect(failedRequest.failure().errorText).toBe(isFrozenWebKit ? 'Request intercepted' : 'Blocked by Web Inspector');
+    expect(failedRequest.failure().errorText).toBe(isMac && macVersion < 11 ? 'Request intercepted' : 'Blocked by Web Inspector');
   else if (browserName === 'firefox')
     expect(failedRequest.failure().errorText).toBe('NS_ERROR_OFFLINE');
   else
     expect(failedRequest.failure().errorText).toBe('net::ERR_INTERNET_DISCONNECTED');
+});
+
+it('should not throw if request was cancelled by the page', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
+  let interceptCallback;
+  const interceptPromise = new Promise<Route>(f => interceptCallback = f);
+  await page.route('**/data.json', route => interceptCallback(route));
+  await page.goto(server.EMPTY_PAGE);
+  page.evaluate(url => {
+    globalThis.controller = new AbortController();
+    return fetch(url, { signal: globalThis.controller.signal });
+  }, server.PREFIX + '/data.json').catch(() => {});
+  const route = await interceptPromise;
+  const failurePromise = page.waitForEvent('requestfailed');
+  await page.evaluate(() => globalThis.controller.abort());
+  const cancelledRequest = await failurePromise;
+  expect(cancelledRequest.failure().errorText).toMatch(/cancelled|aborted/i);
+  await route.abort(); // Should not throw.
 });
 
 it('should send referer', async ({ page, server }) => {
@@ -320,14 +343,13 @@ it('should send referer', async ({ page, server }) => {
   expect(request.headers['referer']).toBe('http://google.com/');
 });
 
-it('should fail navigation when aborting main resource', async ({ page, server, browserName, isMac }) => {
+it('should fail navigation when aborting main resource', async ({ page, server, browserName, isMac, macVersion }) => {
   await page.route('**/*', route => route.abort());
   let error = null;
   await page.goto(server.EMPTY_PAGE).catch(e => error = e);
   expect(error).toBeTruthy();
-  const isFrozenWebKit = isMac && parseInt(os.release(), 10) < 20;
   if (browserName === 'webkit')
-    expect(error.message).toContain(isFrozenWebKit ? 'Request intercepted' : 'Blocked by Web Inspector');
+    expect(error.message).toContain(isMac && macVersion < 11 ? 'Request intercepted' : 'Blocked by Web Inspector');
   else if (browserName === 'firefox')
     expect(error.message).toContain('NS_ERROR_FAILURE');
   else
@@ -487,7 +509,7 @@ it('should work with badly encoded server', async ({ page, server }) => {
   expect(response.status()).toBe(200);
 });
 
-it('should work with encoded server - 2', async ({ page, server, browserName, browserMajorVersion }) => {
+it('should work with encoded server - 2', async ({ page, server, browserName }) => {
   // The requestWillBeSent will report URL as-is, whereas interception will
   // report encoded URL for stylesheet. @see crbug.com/759388
   const requests = [];
@@ -497,7 +519,7 @@ it('should work with encoded server - 2', async ({ page, server, browserName, br
   });
   const response = await page.goto(`data:text/html,<link rel="stylesheet" href="${server.PREFIX}/fonts?helvetica|arial"/>`);
   expect(response).toBe(null);
-  if (browserName === 'firefox' && browserMajorVersion >= 97)
+  if (browserName === 'firefox')
     expect(requests.length).toBe(2); // Firefox DevTools report to navigations in this case as well.
   else
     expect(requests.length).toBe(1);
@@ -571,7 +593,7 @@ it('should not fulfill with redirect status', async ({ page, server, browserName
           'location': '/empty.html',
         }
       });
-      reject('fullfill didn\'t throw');
+      reject('fulfill didn\'t throw');
     } catch (e) {
       fulfill(e);
     }
@@ -714,7 +736,7 @@ it('should respect cors overrides', async ({ page, server, browserName, isAndroi
   }
 });
 
-it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isAndroid }) => {
+it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isAndroid, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20469' });
   it.fixme(isAndroid);
 
@@ -768,7 +790,10 @@ it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isA
     expect.soft(text1).toBe('Hello');
     expect.soft(text2).toBe('World');
     // Preflight for OPTIONS is auto-fulfilled, then OPTIONS, then GET without preflight.
-    expect.soft(requests).toEqual(['OPTIONS:/something', 'GET:/something']);
+    if (browserName === 'firefox')
+      expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
+    else
+      expect.soft(requests).toEqual(['OPTIONS:/something', 'GET:/something']);
   }
 });
 
@@ -900,6 +925,25 @@ it('should support the times parameter with route matching', async ({ page, serv
   await page.goto(server.EMPTY_PAGE);
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toHaveLength(1);
+});
+
+it('should work if handler with times parameter was removed from another handler', async ({ page, server }) => {
+  const intercepted = [];
+  const handler = async route => {
+    intercepted.push('first');
+    void route.continue();
+  };
+  await page.route('**/*', handler, { times: 1 });
+  await page.route('**/*', async route => {
+    intercepted.push('second');
+    await page.unroute('**/*', handler);
+    await route.fallback();
+  });
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+  intercepted.length = 0;
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
 });
 
 it('should support async handler w/ times', async ({ page, server }) => {

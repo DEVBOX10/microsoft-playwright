@@ -22,7 +22,8 @@ const emptyHTML = new URL('file://' + path.join(__dirname, '..', '..', 'assets',
 
 test('should print the correct imports and context options', async ({ runCLI }) => {
   const cli = runCLI(['--target=python-pytest', emptyHTML]);
-  const expectedResult = `from playwright.sync_api import Page, expect
+  const expectedResult = `import re
+from playwright.sync_api import Page, expect
 
 
 def test_example(page: Page) -> None:`;
@@ -39,7 +40,7 @@ test('should print the correct context options when using a device and lang', as
   await cli.waitForCleanExit();
   const content = fs.readFileSync(tmpFile);
   expect(content.toString()).toBe(`import pytest
-
+import re
 from playwright.sync_api import Page, expect
 
 
@@ -60,10 +61,33 @@ test('should save the codegen output to a file if specified', async ({ runCLI },
   });
   await cli.waitForCleanExit();
   const content = fs.readFileSync(tmpFile);
-  expect(content.toString()).toBe(`from playwright.sync_api import Page, expect
+  expect(content.toString()).toBe(`import re
+from playwright.sync_api import Page, expect
 
 
 def test_example(page: Page) -> None:
     page.goto("${emptyHTML}")
 `);
+});
+
+test('should work with --save-har', async ({ runCLI }, testInfo) => {
+  const harFileName = testInfo.outputPath('har.har');
+  const expectedResult = `page.route_from_har(${JSON.stringify(harFileName)})`;
+  const cli = runCLI(['--target=python-pytest', `--save-har=${harFileName}`], {
+    autoExitWhen: expectedResult,
+  });
+  await cli.waitForCleanExit();
+  const json = JSON.parse(fs.readFileSync(harFileName, 'utf-8'));
+  expect(json.log.creator.name).toBe('Playwright');
+});
+
+test('should work with --save-har and --save-har-glob', async ({ runCLI }, testInfo) => {
+  const harFileName = testInfo.outputPath('har.har');
+  const expectedResult = `page.route_from_har(${JSON.stringify(harFileName)}, url="**/*.js")`;
+  const cli = runCLI(['--target=python-pytest', `--save-har=${harFileName}`, '--save-har-glob=**/*.js'], {
+    autoExitWhen: expectedResult,
+  });
+  await cli.waitForCleanExit();
+  const json = JSON.parse(fs.readFileSync(harFileName, 'utf-8'));
+  expect(json.log.creator.name).toBe('Playwright');
 });

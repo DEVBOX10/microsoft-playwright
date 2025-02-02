@@ -27,11 +27,12 @@ import { AndroidDevice } from '../server/android/android';
 import { DebugControllerDispatcher } from '../server/dispatchers/debugControllerDispatcher';
 import { startProfiling, stopProfiling } from '../utils';
 import { monotonicTime } from '../utils';
-import { debugLogger } from '../common/debugLogger';
+import { debugLogger } from '../utils/debugLogger';
 
 export type ClientType = 'controller' | 'launch-browser' | 'reuse-browser' | 'pre-launched-browser-or-android';
 
 type Options = {
+  allowFSPaths: boolean,
   socksProxyPattern: string | undefined,
   browserName: string | null,
   launchOptions: LaunchOptions,
@@ -60,7 +61,7 @@ export class PlaywrightConnection {
     this._ws = ws;
     this._preLaunched = preLaunched;
     this._options = options;
-    options.launchOptions = filterLaunchOptions(options.launchOptions);
+    options.launchOptions = filterLaunchOptions(options.launchOptions, options.allowFSPaths);
     if (clientType === 'reuse-browser' || clientType === 'pre-launched-browser-or-android')
       assert(preLaunched.playwright);
     if (clientType === 'pre-launched-browser-or-android')
@@ -76,15 +77,20 @@ export class PlaywrightConnection {
         const messageString = JSON.stringify(message);
         if (debugLogger.isEnabled('server:channel'))
           debugLogger.log('server:channel', `[${this._id}] ${monotonicTime() * 1000} SEND ► ${messageString}`);
+        if (debugLogger.isEnabled('server:metadata'))
+          this.logServerMetadata(message, messageString, 'SEND');
         ws.send(messageString);
       }
     };
     ws.on('message', async (message: string) => {
       await lock;
       const messageString = Buffer.from(message).toString();
+      const jsonMessage = JSON.parse(messageString);
       if (debugLogger.isEnabled('server:channel'))
         debugLogger.log('server:channel', `[${this._id}] ${monotonicTime() * 1000} ◀ RECV ${messageString}`);
-      this._dispatcherConnection.dispatch(JSON.parse(messageString));
+      if (debugLogger.isEnabled('server:metadata'))
+        this.logServerMetadata(jsonMessage, messageString, 'RECV');
+      this._dispatcherConnection.dispatch(jsonMessage);
     });
 
     ws.on('close', () => this._onDisconnect());
@@ -112,7 +118,14 @@ export class PlaywrightConnection {
     const playwright = createPlaywright({ sdkLanguage: options.sdkLanguage, isServer: true });
 
     const ownedSocksProxy = await this._createOwnedSocksProxy(playwright);
-    const browser = await playwright[this._options.browserName as 'chromium'].launch(serverSideCallMetadata(), this._options.launchOptions);
+    let browserName = this._options.browserName;
+    if ('bidi' === browserName) {
+      if (this._options.launchOptions?.channel?.toLocaleLowerCase().includes('firefox'))
+        browserName = 'bidiFirefox';
+      else
+        browserName = 'bidiChromium';
+    }
+    const browser = await playwright[browserName as 'chromium'].launch(serverSideCallMetadata(), this._options.launchOptions);
 
     this._cleanups.push(async () => {
       for (const browser of playwright.allBrowsers())
@@ -245,6 +258,17 @@ export class PlaywrightConnection {
     debugLogger.log('server', `[${this._id}] finished cleanup`);
   }
 
+  private logServerMetadata(message: object, messageString: string, direction: 'SEND' | 'RECV') {
+    const serverLogMetadata = {
+      wallTime: Date.now(),
+      id: (message as any).id,
+      guid: (message as any).guid,
+      method: (message as any).method,
+      payloadSizeInBytes: Buffer.byteLength(messageString, 'utf-8')
+    };
+    debugLogger.log('server:metadata', (direction === 'SEND' ? 'SEND ► ' : '◀ RECV ') + JSON.stringify(serverLogMetadata));
+  }
+
   async close(reason?: { code: number, reason: string }) {
     if (this._disconnected)
       return;
@@ -268,7 +292,7 @@ function launchOptionsHash(options: LaunchOptions) {
   return JSON.stringify(copy);
 }
 
-function filterLaunchOptions(options: LaunchOptions): LaunchOptions {
+function filterLaunchOptions(options: LaunchOptions, allowFSPaths: boolean): LaunchOptions {
   return {
     channel: options.channel,
     args: options.args,
@@ -280,7 +304,8 @@ function filterLaunchOptions(options: LaunchOptions): LaunchOptions {
     chromiumSandbox: options.chromiumSandbox,
     firefoxUserPrefs: options.firefoxUserPrefs,
     slowMo: options.slowMo,
-    executablePath: isUnderTest() ? options.executablePath : undefined,
+    executablePath: (isUnderTest() || allowFSPaths) ? options.executablePath : undefined,
+    downloadsPath: allowFSPaths ? options.downloadsPath : undefined,
   };
 }
 

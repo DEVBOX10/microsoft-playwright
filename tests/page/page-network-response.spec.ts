@@ -129,26 +129,6 @@ it('should reject response.finished if page closes', async ({ page, server }) =>
   expect(error.message).toContain('closed');
 });
 
-it('should reject response.finished if context closes', async ({ page, server }) => {
-  await page.goto(server.EMPTY_PAGE);
-  server.setRoute('/get', (req, res) => {
-    // In Firefox, |fetch| will be hanging until it receives |Content-Type| header
-    // from server.
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.write('hello ');
-  });
-  // send request and wait for server response
-  const [pageResponse] = await Promise.all([
-    page.waitForEvent('response'),
-    page.evaluate(() => fetch('./get', { method: 'GET' })),
-  ]);
-
-  const finishPromise = pageResponse.finished().catch(e => e);
-  await page.context().close();
-  const error = await finishPromise;
-  expect(error.message).toContain('closed');
-});
-
 it('should return json', async ({ page, server }) => {
   const response = await page.goto(server.PREFIX + '/simple.json');
   expect(await response.json()).toEqual({ foo: 'bar' });
@@ -270,14 +250,14 @@ it('should behave the same way for headers and allHeaders', async ({ page, serve
   expect(allHeaders['name-b']).toEqual('v4');
 });
 
-it('should provide a Response with a file URL', async ({ page, asset, isAndroid, isElectron, isWindows, browserName, browserMajorVersion, mode }) => {
+it('should provide a Response with a file URL', async ({ page, asset, isAndroid, isElectron, isWindows, browserName, mode }) => {
   it.skip(isAndroid, 'No files on Android');
   it.skip(browserName === 'firefox', 'Firefox does return null for file:// URLs');
   it.skip(mode.startsWith('service'));
 
   const fileurl = url.pathToFileURL(asset('frames/two-frames.html')).href;
   const response = await page.goto(fileurl);
-  if (isElectron || (browserName === 'chromium' && browserMajorVersion >= 99) || (browserName === 'webkit' && isWindows))
+  if (isElectron || (browserName === 'chromium') || (browserName === 'webkit' && isWindows))
     expect(response.status()).toBe(200);
   else
     expect(response.status()).toBe(0);
@@ -346,4 +326,83 @@ it('should return body for prefetch script', async ({ page, server, browserName 
   ]);
   const body = await response.body();
   expect(body.toString()).toBe('// Scripts will be pre-fetched');
+});
+
+it('should bypass disk cache when page interception is enabled', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30000' });
+  await page.goto(server.PREFIX + '/frames/one-frame.html');
+  await page.route('**/api*', route => route.continue());
+  {
+    const requests = [];
+    server.setRoute('/api', (req, res) => {
+      requests.push(req);
+      res.statusCode = 200;
+      res.setHeader('content-type', 'text/plain');
+      res.setHeader('cache-control', 'public, max-age=31536000');
+      res.end('Hello');
+    });
+    for (let i = 0; i < 3; i++) {
+      await it.step(`main frame iteration ${i}`, async () => {
+        const respPromise = page.waitForResponse('**/api');
+        await page.evaluate(async () => {
+          const response = await fetch('/api');
+          return response.status;
+        });
+        const response = await respPromise;
+        expect(response.status()).toBe(200);
+        expect(requests.length).toBe(i + 1);
+      });
+    }
+  }
+
+  {
+    const requests = [];
+    server.setRoute('/frame/api', (req, res) => {
+      requests.push(req);
+      res.statusCode = 200;
+      res.setHeader('content-type', 'text/plain');
+      res.setHeader('cache-control', 'public, max-age=31536000');
+      res.end('Hello');
+    });
+    for (let i = 0; i < 3; i++) {
+      await it.step(`subframe iteration ${i}`, async () => {
+        const respPromise = page.waitForResponse('**/frame/api');
+        await page.frame({ url: '**/frame.html' }).evaluate(async () => {
+          const response = await fetch('/frame/api');
+          return response.status;
+        });
+        const response = await respPromise;
+        expect(response.status()).toBe(200);
+        expect(requests.length).toBe(i + 1);
+      });
+    }
+  }
+});
+
+it('should bypass disk cache when context interception is enabled', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30000' });
+  await page.context().route('**/api*', route => route.continue());
+  await page.goto(server.PREFIX + '/frames/one-frame.html');
+  {
+    const requests = [];
+    server.setRoute('/api', (req, res) => {
+      requests.push(req);
+      res.statusCode = 200;
+      res.setHeader('content-type', 'text/plain');
+      res.setHeader('cache-control', 'public, max-age=31536000');
+      res.end('Hello');
+    });
+    for (let i = 0; i < 3; i++) {
+      await it.step(`main frame iteration ${i}`, async () => {
+        const respPromise = page.waitForResponse('**/api');
+        await page.evaluate(async () => {
+          const response = await fetch('/api');
+          return response.status;
+        });
+        const response = await respPromise;
+        expect(response.status()).toBe(200);
+        expect(requests.length).toBe(i + 1);
+      });
+    }
+  }
 });

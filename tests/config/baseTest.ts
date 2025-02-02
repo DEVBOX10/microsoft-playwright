@@ -20,13 +20,12 @@ import type { CommonFixtures, CommonWorkerFixtures } from './commonFixtures';
 import { commonFixtures } from './commonFixtures';
 import type { ServerFixtures, ServerWorkerOptions } from './serverFixtures';
 import { serverFixtures } from './serverFixtures';
-import { coverageTest } from './coverageFixtures';
 import { platformTest } from './platformFixtures';
 import { testModeTest } from './testModeFixtures';
 
 export const base = test;
 
-export const baseTest = mergeTests(base, coverageTest, platformTest, testModeTest)
+export const baseTest = mergeTests(base, platformTest, testModeTest)
     .extend<CommonFixtures, CommonWorkerFixtures>(commonFixtures)
     .extend<ServerFixtures, ServerWorkerOptions>(serverFixtures);
 
@@ -41,4 +40,17 @@ export function step<This extends Object, Args extends any[], Return>(
     });
   }
   return replacementMethod;
+}
+
+declare global {
+  interface Window {
+    builtinSetTimeout: WindowOrWorkerGlobalScope['setTimeout'],
+    builtinClearTimeout: WindowOrWorkerGlobalScope['setTimeout'],
+    builtinSetInterval: WindowOrWorkerGlobalScope['setInterval'],
+    builtinClearInterval: WindowOrWorkerGlobalScope['clearInterval'],
+    builtinRequestAnimationFrame: AnimationFrameProvider['requestAnimationFrame'],
+    builtinCancelAnimationFrame: AnimationFrameProvider['cancelAnimationFrame'],
+    builtinPerformance: WindowOrWorkerGlobalScope['performance'],
+    builtinDate: typeof Date,
+  }
 }

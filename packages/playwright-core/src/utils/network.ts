@@ -17,13 +17,11 @@
 
 import http from 'http';
 import https from 'https';
+import http2 from 'http2';
 import type net from 'net';
 import { getProxyForUrl } from '../utilsBundle';
 import { HttpsProxyAgent } from '../utilsBundle';
 import url from 'url';
-import type { URLMatch } from '../common/types';
-import { isString, isRegExp } from './rtti';
-import { globToRegex } from './glob';
 import { httpHappyEyeballsAgent, httpsHappyEyeballsAgent } from './happy-eyeballs';
 
 export type HTTPRequestParams = {
@@ -110,49 +108,6 @@ export function fetchData(params: HTTPRequestParams, onError?: (params: HTTPRequ
   });
 }
 
-export function urlMatchesEqual(match1: URLMatch, match2: URLMatch) {
-  if (isRegExp(match1) && isRegExp(match2))
-    return match1.source === match2.source && match1.flags === match2.flags;
-  return match1 === match2;
-}
-
-export function urlMatches(baseURL: string | undefined, urlString: string, match: URLMatch | undefined): boolean {
-  if (match === undefined || match === '')
-    return true;
-  if (isString(match) && !match.startsWith('*'))
-    match = constructURLBasedOnBaseURL(baseURL, match);
-  if (isString(match))
-    match = globToRegex(match);
-  if (isRegExp(match))
-    return match.test(urlString);
-  if (typeof match === 'string' && match === urlString)
-    return true;
-  const url = parsedURL(urlString);
-  if (!url)
-    return false;
-  if (typeof match === 'string')
-    return url.pathname === match;
-  if (typeof match !== 'function')
-    throw new Error('url parameter should be string, RegExp or function');
-  return match(url);
-}
-
-function parsedURL(url: string): URL | null {
-  try {
-    return new URL(url);
-  } catch (e) {
-    return null;
-  }
-}
-
-export function constructURLBasedOnBaseURL(baseURL: string | undefined, givenURL: string): string {
-  try {
-    return (new URL(givenURL, baseURL)).toString();
-  } catch (e) {
-    return givenURL;
-  }
-}
-
 export function createHttpServer(requestListener?: (req: http.IncomingMessage, res: http.ServerResponse) => void): http.Server;
 export function createHttpServer(options: http.ServerOptions, requestListener?: (req: http.IncomingMessage, res: http.ServerResponse) => void): http.Server;
 export function createHttpServer(...args: any[]): http.Server {
@@ -169,7 +124,46 @@ export function createHttpsServer(...args: any[]): https.Server {
   return server;
 }
 
-function decorateServer(server: http.Server | http.Server) {
+export function createHttp2Server(onRequestHandler?: (request: http2.Http2ServerRequest, response: http2.Http2ServerResponse) => void,): http2.Http2SecureServer;
+export function createHttp2Server(options: http2.SecureServerOptions, onRequestHandler?: (request: http2.Http2ServerRequest, response: http2.Http2ServerResponse) => void,): http2.Http2SecureServer;
+export function createHttp2Server(...args: any[]): http2.Http2SecureServer {
+  const server = http2.createSecureServer(...args);
+  decorateServer(server);
+  return server;
+}
+
+export async function isURLAvailable(url: URL, ignoreHTTPSErrors: boolean, onLog?: (data: string) => void, onStdErr?: (data: string) => void) {
+  let statusCode = await httpStatusCode(url, ignoreHTTPSErrors, onLog, onStdErr);
+  if (statusCode === 404 && url.pathname === '/') {
+    const indexUrl = new URL(url);
+    indexUrl.pathname = '/index.html';
+    statusCode = await httpStatusCode(indexUrl, ignoreHTTPSErrors, onLog, onStdErr);
+  }
+  return statusCode >= 200 && statusCode < 404;
+}
+
+async function httpStatusCode(url: URL, ignoreHTTPSErrors: boolean, onLog?: (data: string) => void, onStdErr?: (data: string) => void): Promise<number> {
+  return new Promise(resolve => {
+    onLog?.(`HTTP GET: ${url}`);
+    httpRequest({
+      url: url.toString(),
+      headers: { Accept: '*/*' },
+      rejectUnauthorized: !ignoreHTTPSErrors
+    }, res => {
+      res.resume();
+      const statusCode = res.statusCode ?? 0;
+      onLog?.(`HTTP Status: ${statusCode}`);
+      resolve(statusCode);
+    }, error => {
+      if ((error as NodeJS.ErrnoException).code === 'DEPTH_ZERO_SELF_SIGNED_CERT')
+        onStdErr?.(`[WebServer] Self-signed certificate detected. Try adding ignoreHTTPSErrors: true to config.webServer.`);
+      onLog?.(`Error while checking if ${url} is available: ${error.message}`);
+      resolve(0);
+    });
+  });
+}
+
+function decorateServer(server: net.Server) {
   const sockets = new Set<net.Socket>();
   server.on('connection', socket => {
     sockets.add(socket);

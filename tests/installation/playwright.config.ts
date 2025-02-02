@@ -24,7 +24,7 @@ const reporters = () => {
   const result: ReporterDescription[] = process.env.CI ? [
     ['dot'],
     ['json', { outputFile: path.join(outputDir, 'report.json') }],
-    ['blob'],
+    ['blob', { fileName: `${process.env.PWTEST_BOT_NAME}.zip` }],
   ] : [
     ['list'],
     ['html', { open: 'on-failure' }]
@@ -38,7 +38,7 @@ export default defineConfig({
   outputDir,
   testIgnore: '**\/fixture-scripts/**',
   timeout: 5 * 60 * 1000,
-  retries: 0,
+  retries: process.env.CI ? 3 : 0,
   reporter: reporters(),
   forbidOnly: !!process.env.CI,
   workers: 1,

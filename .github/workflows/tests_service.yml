@@ -17,24 +17,24 @@ jobs:
         browser: [chromium, firefox, webkit]
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run test -- --project=${{ matrix.browser }} --workers=10 --retries=0
+    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run test -- --project=${{ matrix.browser }}-* --workers=10 --retries=0
       env:
         PWTEST_MODE: service2
         PWTEST_TRACE: 1
-        PWTEST_BLOB_REPORT_NAME: "${{ matrix.browser }}-${{ matrix.service-os }}-service"
+        PWTEST_BOT_NAME: "${{ matrix.browser }}-${{ matrix.service-os }}-service"
         PLAYWRIGHT_SERVICE_ACCESS_KEY: ${{ secrets.PLAYWRIGHT_SERVICE_ACCESS_KEY }}
         PLAYWRIGHT_SERVICE_URL: ${{ secrets.PLAYWRIGHT_SERVICE_URL }}
         PLAYWRIGHT_SERVICE_OS: ${{ matrix.service-os }}
         PLAYWRIGHT_SERVICE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
     - name: Upload blob report to GitHub
-      if: always()
-      uses: actions/upload-artifact@v3
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
       with:
         name: all-blob-reports
         path: blob-report
@@ -43,17 +43,17 @@ jobs:
   merge_reports:
     name: "Merge reports"
     needs: [test]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
     - name: Download blob report artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: all-blob-reports
         path: all-blob-reports

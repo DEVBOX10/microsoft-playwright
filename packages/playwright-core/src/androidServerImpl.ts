@@ -38,7 +38,7 @@ export class AndroidServerLauncherImpl {
     if (options.deviceSerialNumber) {
       devices = devices.filter(d => d.serial === options.deviceSerialNumber);
       if (devices.length === 0)
-        throw new Error(`No device with serial number '${options.deviceSerialNumber}' not found`);
+        throw new Error(`No device with serial number '${options.deviceSerialNumber}' was found`);
     }
 
     if (devices.length > 1)
@@ -50,7 +50,7 @@ export class AndroidServerLauncherImpl {
 
     // 2. Start the server
     const server = new PlaywrightServer({ mode: 'launchServer', path, maxConnections: 1, preLaunchedAndroidDevice: device });
-    const wsEndpoint = await server.listen(options.port);
+    const wsEndpoint = await server.listen(options.port, options.host);
 
     // 3. Return the BrowserServer interface
     const browserServer = new ws.EventEmitter() as (BrowserServer & WebSocketEventEmitter);

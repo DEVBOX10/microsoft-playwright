@@ -31,6 +31,42 @@ it('should create new context @smoke', async function({ browser }) {
   expect(browser).toBe(context.browser());
 });
 
+it('should be able to click across browser contexts', async function({ browser }) {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29096' });
+  expect(browser.contexts().length).toBe(0);
+
+  const createPage = async () => {
+    const page = await browser.newPage();
+    await page.setContent(`<button>Click me</button>`);
+    await page.locator('button').evaluate(button => {
+      window['clicks'] = 0;
+      button.addEventListener('click', () => ++window['clicks'], false);
+    });
+    return page;
+  };
+
+  const clickInPage = async (page, count) => {
+    for (let i = 0; i < count; ++i)
+      await page.locator('button').click();
+  };
+
+  const getClicks = async page => page.evaluate(() => window['clicks']);
+
+  const page1 = await createPage();
+  const page2 = await createPage();
+
+  const CLICK_COUNT = 20;
+  await Promise.all([
+    clickInPage(page1, CLICK_COUNT),
+    clickInPage(page2, CLICK_COUNT),
+  ]);
+  expect(await getClicks(page1)).toBe(CLICK_COUNT);
+  expect(await getClicks(page2)).toBe(CLICK_COUNT);
+
+  await page1.close();
+  await page2.close();
+});
+
 it('window.open should use parent tab context', async function({ browser, server }) {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -218,7 +254,7 @@ it('should be able to navigate after disabling javascript', async ({ browser, se
 });
 
 it('should not hang on promises after disabling javascript', async ({ browserName, contextFactory }) => {
-  it.fixme(browserName === 'webkit' || browserName === 'firefox');
+  it.fixme(browserName === 'firefox');
   const context = await contextFactory({ javaScriptEnabled: false });
   const page = await context.newPage();
   expect(await page.evaluate(() => 1)).toBe(1);
@@ -233,11 +269,21 @@ it('setContent should work after disabling javascript', async ({ contextFactory 
   await expect(page.locator('h1')).toHaveText('Hello');
 });
 
-it('should work with offline option', async ({ browser, server }) => {
+it('should work with offline option', async ({ browser, server, browserName }) => {
   const context = await browser.newContext({ offline: true });
   const page = await context.newPage();
   let error = null;
-  await page.goto(server.EMPTY_PAGE).catch(e => error = e);
+  if (browserName === 'firefox') {
+    // Firefox navigates to an error page, and this navigation might conflict with the
+    // next navigation we do in test.
+    // So we need to wait for the navigation explicitly.
+    await Promise.all([
+      page.goto(server.EMPTY_PAGE).catch(e => error = e),
+      page.waitForEvent('framenavigated'),
+    ]);
+  } else {
+    await page.goto(server.EMPTY_PAGE).catch(e => error = e);
+  }
   expect(error).toBeTruthy();
   await context.setOffline(false);
   const response = await page.goto(server.EMPTY_PAGE);

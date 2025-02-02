@@ -51,12 +51,12 @@ test('should work and remove non-failures', async ({ runInlineTest }, testInfo) 
   expect(result.results[0].status).toBe('failed');
   expect(result.results[0].retry).toBe(0);
   // Should only fail the last retry check.
-  expect(result.results[0].error.message).toBe('Give me retries');
+  expect(result.results[0].error.message).toBe('Error: Give me retries');
 
   expect(result.results[1].status).toBe('failed');
   expect(result.results[1].retry).toBe(1);
   // Should only fail the last retry check.
-  expect(result.results[1].error.message).toBe('Give me retries');
+  expect(result.results[1].error.message).toBe('Error: Give me retries');
 
   expect(result.results[2].status).toBe('passed');
   expect(result.results[2].retry).toBe(2);
@@ -413,7 +413,7 @@ test('should allow shorten long output dirs characters in the output dir', async
     `,
   });
   const outputDir = result.outputLines[0];
-  expect(outputDir).toBe(path.join(testInfo.outputDir, 'test-results', 'very-deep-and-long-file-name-that-i-want-to-be-99202--keeps-going-and-going-and-we-should-shorten-it'));
+  expect(outputDir).toBe(path.join(testInfo.outputDir, 'test-results', 'very-deep-and-long-file-na-99202-ng-and-we-should-shorten-it'));
 });
 
 test('should not mangle double dashes', async ({ runInlineTest }, testInfo) => {

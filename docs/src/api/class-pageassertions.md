@@ -14,14 +14,14 @@ test('navigates to login', async ({ page }) => {
 ```
 
 ```java
-...
+// ...
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
 public class TestPage {
-  ...
+  // ...
   @Test
   void navigatesToLoginPage() {
-    ...
+    // ...
     page.getByText("Sign in").click();
     assertThat(page).hasURL(Pattern.compile(".*/login"));
   }
@@ -50,21 +50,19 @@ def test_navigates_to_login_page(page: Page) -> None:
 
 ```csharp
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using Microsoft.Playwright.NUnit;
-using NUnit.Framework;
+using Microsoft.Playwright;
+using Microsoft.Playwright.MSTest;
 
 namespace PlaywrightTests;
 
-[TestFixture]
+[TestClass]
 public class ExampleTests : PageTest
 {
-    [Test]
-    public async Task NavigatetoLoginPage()
+    [TestMethod]
+    public async Task NavigateToLoginPage()
     {
-        // ..
-        await Page.GetByText("Sing in").ClickAsync();
-        await Expect(Page.Locator("div#foobar")).ToHaveURL(new Regex(".*/login"));
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Sign In" }).ClickAsync();
+        await Expect(Page).ToHaveURLAsync(new Regex(".*/login"));
     }
 }
 ```
@@ -85,7 +83,7 @@ assertThat(page).not().hasURL("error");
 ```
 
 ```csharp
-await Expect(page).Not.ToHaveURL("error");
+await Expect(Page).Not.ToHaveURLAsync("error");
 ```
 
 ## async method: PageAssertions.NotToHaveTitle
@@ -115,6 +113,12 @@ The opposite of [`method: PageAssertions.toHaveURL`].
 - `urlOrRegExp` <[string]|[RegExp]>
 
 Expected URL string or RegExp.
+
+### option: PageAssertions.NotToHaveURL.ignoreCase
+* since: v1.44
+- `ignoreCase` <[boolean]>
+
+Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression flag if specified.
 
 ### option: PageAssertions.NotToHaveURL.timeout = %%-csharp-java-python-assertions-timeout-%%
 * since: v1.18
@@ -160,6 +164,9 @@ Snapshot name.
 
 ### option: PageAssertions.toHaveScreenshot#1.maskColor = %%-screenshot-option-mask-color-%%
 * since: v1.35
+
+### option: PageAssertions.toHaveScreenshot#1.stylePath = %%-screenshot-option-style-path-%%
+* since: v1.41
 
 ### option: PageAssertions.toHaveScreenshot#1.omitBackground = %%-screenshot-option-omit-background-%%
 * since: v1.23
@@ -212,6 +219,9 @@ Note that screenshot assertions only work with Playwright test runner.
 ### option: PageAssertions.toHaveScreenshot#2.maskColor = %%-screenshot-option-mask-color-%%
 * since: v1.35
 
+### option: PageAssertions.toHaveScreenshot#2.stylePath = %%-screenshot-option-style-path-%%
+* since: v1.41
+
 ### option: PageAssertions.toHaveScreenshot#2.omitBackground = %%-screenshot-option-omit-background-%%
 * since: v1.23
 
@@ -261,7 +271,7 @@ expect(page).to_have_title(re.compile(r".*checkout"))
 ```
 
 ```csharp
-await Expect(page).ToHaveTitle("Playwright");
+await Expect(Page).ToHaveTitleAsync("Playwright");
 ```
 
 ### param: PageAssertions.toHaveTitle.titleOrRegExp
@@ -310,14 +320,21 @@ expect(page).to_have_url(re.compile(".*checkout"))
 ```
 
 ```csharp
-await Expect(page).ToHaveURL(new Regex(".*checkout"));
+await Expect(Page).ToHaveURLAsync(new Regex(".*checkout"));
 ```
 
-### param: PageAssertions.toHaveURL.urlOrRegExp
+### param: PageAssertions.toHaveURL.url
 * since: v1.18
-- `urlOrRegExp` <[string]|[RegExp]>
+- `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]>
 
-Expected URL string or RegExp.
+Expected URL string, RegExp, or predicate receiving [URL] to match.
+When a [`option: Browser.newContext.baseURL`] via the context options was provided and the passed URL is a path, it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+
+### option: PageAssertions.toHaveURL.ignoreCase
+* since: v1.44
+- `ignoreCase` <[boolean]>
+
+Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression parameter if specified. A provided predicate ignores this flag.
 
 ### option: PageAssertions.toHaveURL.timeout = %%-js-assertions-timeout-%%
 * since: v1.18

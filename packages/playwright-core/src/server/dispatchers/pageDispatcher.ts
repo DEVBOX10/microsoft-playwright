@@ -35,12 +35,14 @@ import { ArtifactDispatcher } from './artifactDispatcher';
 import type { Download } from '../download';
 import { createGuid, urlMatches } from '../../utils';
 import type { BrowserContextDispatcher } from './browserContextDispatcher';
+import { WebSocketRouteDispatcher } from './webSocketRouteDispatcher';
 
 export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, BrowserContextDispatcher> implements channels.PageChannel {
   _type_EventTarget = true;
   _type_Page = true;
   private _page: Page;
   _subscriptions = new Set<channels.PageUpdateSubscriptionParams['event']>();
+  _webSocketInterceptionPatterns: channels.PageSetWebSocketInterceptionPatternsParams['patterns'] = [];
 
   static from(parentScope: BrowserContextDispatcher, page: Page): PageDispatcher {
     return PageDispatcher.fromNullable(parentScope, page)!;
@@ -85,6 +87,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     }));
     this.addObjectListener(Page.Events.FrameAttached, frame => this._onFrameAttached(frame));
     this.addObjectListener(Page.Events.FrameDetached, frame => this._onFrameDetached(frame));
+    this.addObjectListener(Page.Events.LocatorHandlerTriggered, (uid: number) => this._dispatchEvent('locatorHandlerTriggered', { uid }));
     this.addObjectListener(Page.Events.WebSocket, webSocket => this._dispatchEvent('webSocket', { webSocket: new WebSocketDispatcher(this, webSocket) }));
     this.addObjectListener(Page.Events.Worker, worker => this._dispatchEvent('worker', { worker: new WorkerDispatcher(this, worker) }));
     this.addObjectListener(Page.Events.Video, (artifact: Artifact) => this._dispatchEvent('video', { artifact: ArtifactDispatcher.from(parentScope, artifact) }));
@@ -136,6 +139,23 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     return { response: ResponseDispatcher.fromNullable(this.parentScope(), await this._page.goForward(metadata, params)) };
   }
 
+  async requestGC(params: channels.PageRequestGCParams, metadata: CallMetadata): Promise<channels.PageRequestGCResult> {
+    await this._page.requestGC();
+  }
+
+  async registerLocatorHandler(params: channels.PageRegisterLocatorHandlerParams, metadata: CallMetadata): Promise<channels.PageRegisterLocatorHandlerResult> {
+    const uid = this._page.registerLocatorHandler(params.selector, params.noWaitAfter);
+    return { uid };
+  }
+
+  async resolveLocatorHandlerNoReply(params: channels.PageResolveLocatorHandlerNoReplyParams, metadata: CallMetadata): Promise<void> {
+    this._page.resolveLocatorHandler(params.uid, params.remove);
+  }
+
+  async unregisterLocatorHandler(params: channels.PageUnregisterLocatorHandlerParams, metadata: CallMetadata): Promise<void> {
+    this._page.unregisterLocatorHandler(params.uid);
+  }
+
   async emulateMedia(params: channels.PageEmulateMediaParams, metadata: CallMetadata): Promise<void> {
     await this._page.emulateMedia({
       media: params.media,
@@ -168,8 +188,14 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     });
   }
 
+  async setWebSocketInterceptionPatterns(params: channels.PageSetWebSocketInterceptionPatternsParams, metadata: CallMetadata): Promise<void> {
+    this._webSocketInterceptionPatterns = params.patterns;
+    if (params.patterns.length)
+      await WebSocketRouteDispatcher.installIfNeeded(this._page);
+  }
+
   async expectScreenshot(params: channels.PageExpectScreenshotParams, metadata: CallMetadata): Promise<channels.PageExpectScreenshotResult> {
-    const mask: { frame: Frame, selector: string }[] = (params.screenshotOptions?.mask || []).map(({ frame, selector }) => ({
+    const mask: { frame: Frame, selector: string }[] = (params.mask || []).map(({ frame, selector }) => ({
       frame: (frame as FrameDispatcher)._object,
       selector,
     }));
@@ -180,14 +206,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     return await this._page.expectScreenshot(metadata, {
       ...params,
       locator,
-      comparatorOptions: {
-        ...params.comparatorOptions,
-        _comparator: params.comparatorOptions?.comparator,
-      },
-      screenshotOptions: {
-        ...params.screenshotOptions,
-        mask,
-      },
+      mask,
     });
   }
 
@@ -235,19 +254,19 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   async mouseMove(params: channels.PageMouseMoveParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.move(params.x, params.y, params);
+    await this._page.mouse.move(params.x, params.y, params, metadata);
   }
 
   async mouseDown(params: channels.PageMouseDownParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.down(params);
+    await this._page.mouse.down(params, metadata);
   }
 
   async mouseUp(params: channels.PageMouseUpParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.up(params);
+    await this._page.mouse.up(params, metadata);
   }
 
   async mouseClick(params: channels.PageMouseClickParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.click(params.x, params.y, params);
+    await this._page.mouse.click(params.x, params.y, params, metadata);
   }
 
   async mouseWheel(params: channels.PageMouseWheelParams, metadata: CallMetadata): Promise<void> {
@@ -255,7 +274,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   async touchscreenTap(params: channels.PageTouchscreenTapParams, metadata: CallMetadata): Promise<void> {
-    await this._page.touchscreen.tap(params.x, params.y);
+    await this._page.touchscreen.tap(params.x, params.y, metadata);
   }
 
   async accessibilitySnapshot(params: channels.PageAccessibilitySnapshotParams, metadata: CallMetadata): Promise<channels.PageAccessibilitySnapshotResult> {
@@ -364,9 +383,11 @@ export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels
 
   async resolve(params: channels.BindingCallResolveParams, metadata: CallMetadata): Promise<void> {
     this._resolve!(parseArgument(params.result));
+    this._dispose();
   }
 
   async reject(params: channels.BindingCallRejectParams, metadata: CallMetadata): Promise<void> {
     this._reject!(parseError(params.error));
+    this._dispose();
   }
 }

@@ -25,27 +25,30 @@ import { assert, headersObjectToArray, isString } from '../utils';
 import { mkdirIfNeeded } from '../utils/fileUtils';
 import { ChannelOwner } from './channelOwner';
 import { RawHeaders } from './network';
-import type { FilePayload, Headers, StorageState } from './types';
+import type { ClientCertificate, FilePayload, Headers, StorageState } from './types';
 import type { Playwright } from './playwright';
 import { Tracing } from './tracing';
-import { isTargetClosedError } from './errors';
+import { TargetClosedError, isTargetClosedError } from './errors';
+import { toClientCertificatesProtocol } from './browserContext';
 
 export type FetchOptions = {
-  params?: { [key: string]: string; },
+  params?: { [key: string]: string | number | boolean; } | URLSearchParams | string,
   method?: string,
   headers?: Headers,
   data?: string | Buffer | Serializable,
-  form?: { [key: string]: string|number|boolean; };
-  multipart?: { [key: string]: string|number|boolean|fs.ReadStream|FilePayload; };
+  form?: { [key: string]: string|number|boolean; } | FormData;
+  multipart?: { [key: string]: string|number|boolean|fs.ReadStream|FilePayload; } | FormData;
   timeout?: number,
   failOnStatusCode?: boolean,
   ignoreHTTPSErrors?: boolean,
   maxRedirects?: number,
+  maxRetries?: number,
 };
 
-type NewContextOptions = Omit<channels.PlaywrightNewRequestOptions, 'extraHTTPHeaders' | 'storageState' | 'tracesDir'> & {
+type NewContextOptions = Omit<channels.PlaywrightNewRequestOptions, 'extraHTTPHeaders' | 'clientCertificates' | 'storageState' | 'tracesDir'> & {
   extraHTTPHeaders?: Headers,
   storageState?: string | StorageState,
+  clientCertificates?: ClientCertificate[];
 };
 
 type RequestWithBodyOptions = Omit<FetchOptions, 'method'>;
@@ -73,11 +76,12 @@ export class APIRequest implements api.APIRequest {
       extraHTTPHeaders: options.extraHTTPHeaders ? headersObjectToArray(options.extraHTTPHeaders) : undefined,
       storageState,
       tracesDir,
+      clientCertificates: await toClientCertificatesProtocol(options.clientCertificates),
     })).request);
     this._contexts.add(context);
     context._request = this;
     context._tracing._tracesDir = tracesDir;
-    await context._instrumentation.onDidCreateRequestContext(context);
+    await context._instrumentation.runAfterCreateRequestContext(context);
     return context;
   }
 }
@@ -85,6 +89,7 @@ export class APIRequest implements api.APIRequest {
 export class APIRequestContext extends ChannelOwner<channels.APIRequestContextChannel> implements api.APIRequestContext {
   _request?: APIRequest;
   readonly _tracing: Tracing;
+  private _closeReason: string | undefined;
 
   static from(channel: channels.APIRequestContextChannel): APIRequestContext {
     return (channel as any)._object;
@@ -99,49 +104,57 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
     await this.dispose();
   }
 
-  async dispose(): Promise<void> {
-    await this._instrumentation.onWillCloseRequestContext(this);
-    await this._channel.dispose();
+  async dispose(options: { reason?: string } = {}): Promise<void> {
+    this._closeReason = options.reason;
+    await this._instrumentation.runBeforeCloseRequestContext(this);
+    try {
+      await this._channel.dispose(options);
+    } catch (e) {
+      if (isTargetClosedError(e))
+        return;
+      throw e;
+    }
+    this._tracing._resetStackCounter();
     this._request?._contexts.delete(this);
   }
 
   async delete(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'DELETE',
     });
   }
 
   async head(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'HEAD',
     });
   }
 
   async get(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'GET',
     });
   }
 
   async patch(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'PATCH',
     });
   }
 
   async post(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'POST',
     });
   }
 
   async put(url: string, options?: RequestWithBodyOptions): Promise<APIResponse> {
-    return this.fetch(url, {
+    return await this.fetch(url, {
       ...options,
       method: 'PUT',
     });
@@ -150,20 +163,26 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
   async fetch(urlOrRequest: string | api.Request, options: FetchOptions = {}): Promise<APIResponse> {
     const url = isString(urlOrRequest) ? urlOrRequest : undefined;
     const request = isString(urlOrRequest) ? undefined : urlOrRequest;
-    return this._innerFetch({ url, request, ...options });
+    return await this._innerFetch({ url, request, ...options });
   }
 
   async _innerFetch(options: FetchOptions & { url?: string, request?: api.Request } = {}): Promise<APIResponse> {
-    return this._wrapApiCall(async () => {
+    return await this._wrapApiCall(async () => {
+      if (this._closeReason)
+        throw new TargetClosedError(this._closeReason);
       assert(options.request || typeof options.url === 'string', 'First argument must be either URL string or Request');
       assert((options.data === undefined ? 0 : 1) + (options.form === undefined ? 0 : 1) + (options.multipart === undefined ? 0 : 1) <= 1, `Only one of 'data', 'form' or 'multipart' can be specified`);
-      assert(options.maxRedirects === undefined || options.maxRedirects >= 0, `'maxRedirects' should be greater than or equal to '0'`);
+      assert(options.maxRedirects === undefined || options.maxRedirects >= 0, `'maxRedirects' must be greater than or equal to '0'`);
+      assert(options.maxRetries === undefined || options.maxRetries >= 0, `'maxRetries' must be greater than or equal to '0'`);
       const url = options.url !== undefined ? options.url : options.request!.url();
-      const params = objectToArray(options.params);
       const method = options.method || options.request?.method();
-      const maxRedirects = options.maxRedirects;
+      let encodedParams = undefined;
+      if (typeof options.params === 'string')
+        encodedParams = options.params;
+      else if (options.params instanceof URLSearchParams)
+        encodedParams = options.params.toString();
       // Cannot call allHeaders() here as the request may be paused inside route handler.
-      const headersObj = options.headers || options.request?.headers() ;
+      const headersObj = options.headers || options.request?.headers();
       const headers = headersObj ? headersObjectToArray(headersObj) : undefined;
       let jsonData: any;
       let formData: channels.NameValue[] | undefined;
@@ -183,21 +202,36 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
           throw new Error(`Unexpected 'data' type`);
         }
       } else if (options.form) {
-        formData = objectToArray(options.form);
+        if (globalThis.FormData && options.form instanceof FormData) {
+          formData = [];
+          for (const [name, value] of options.form.entries()) {
+            if (typeof value !== 'string')
+              throw new Error(`Expected string for options.form["${name}"], found File. Please use options.multipart instead.`);
+            formData.push({ name, value });
+          }
+        } else {
+          formData = objectToArray(options.form);
+        }
       } else if (options.multipart) {
         multipartData = [];
-        // Convert file-like values to ServerFilePayload structs.
-        for (const [name, value] of Object.entries(options.multipart)) {
-          if (isFilePayload(value)) {
-            const payload = value as FilePayload;
-            if (!Buffer.isBuffer(payload.buffer))
-              throw new Error(`Unexpected buffer type of 'data.${name}'`);
-            multipartData.push({ name, file: filePayloadToJson(payload) });
-          } else if (value instanceof fs.ReadStream) {
-            multipartData.push({ name, file: await readStreamToJson(value as fs.ReadStream) });
-          } else {
-            multipartData.push({ name, value: String(value) });
+        if (globalThis.FormData && options.multipart instanceof FormData) {
+          const form = options.multipart;
+          for (const [name, value] of form.entries()) {
+            if (isString(value)) {
+              multipartData.push({ name, value });
+            } else {
+              const file: ServerFilePayload = {
+                name: value.name,
+                mimeType: value.type,
+                buffer: Buffer.from(await value.arrayBuffer()),
+              };
+              multipartData.push({ name, file });
+            }
           }
+        } else {
+          // Convert file-like values to ServerFilePayload structs.
+          for (const [name, value] of Object.entries(options.multipart))
+            multipartData.push(await toFormField(name, value));
         }
       }
       if (postDataBuffer === undefined && jsonData === undefined && formData === undefined && multipartData === undefined)
@@ -207,7 +241,8 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
       };
       const result = await this._channel.fetch({
         url,
-        params,
+        params: typeof options.params === 'object' ? objectToArray(options.params) : undefined,
+        encodedParams,
         method,
         headers,
         postData: postDataBuffer,
@@ -217,7 +252,8 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
         timeout: options.timeout,
         failOnStatusCode: options.failOnStatusCode,
         ignoreHTTPSErrors: options.ignoreHTTPSErrors,
-        maxRedirects: maxRedirects,
+        maxRedirects: options.maxRedirects,
+        maxRetries: options.maxRetries,
         ...fixtures
       });
       return new APIResponse(this, result.response);
@@ -231,6 +267,19 @@ export class APIRequestContext extends ChannelOwner<channels.APIRequestContextCh
       await fs.promises.writeFile(options.path, JSON.stringify(state, undefined, 2), 'utf8');
     }
     return state;
+  }
+}
+
+async function toFormField(name: string, value: string|number|boolean|fs.ReadStream|FilePayload): Promise<channels.FormField> {
+  if (isFilePayload(value)) {
+    const payload = value as FilePayload;
+    if (!Buffer.isBuffer(payload.buffer))
+      throw new Error(`Unexpected buffer type of 'data.${name}'`);
+    return { name, file: filePayloadToJson(payload) };
+  } else if (value instanceof fs.ReadStream) {
+    return { name, file: await readStreamToJson(value as fs.ReadStream) };
+  } else {
+    return { name, value: String(value) };
   }
 }
 
@@ -363,7 +412,7 @@ function isJsonContentType(headers?: HeadersArray): boolean {
   return false;
 }
 
-function objectToArray(map?:  { [key: string]: any }): NameValue[] | undefined {
+function objectToArray(map?: { [key: string]: any }): NameValue[] | undefined {
   if (!map)
     return undefined;
   const result = [];

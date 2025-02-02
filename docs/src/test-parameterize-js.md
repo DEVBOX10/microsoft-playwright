@@ -9,13 +9,61 @@ You can either parameterize tests on a test level or on a project level.
 ## Parameterized Tests
 
 ```js title="example.spec.ts"
-const people = ['Alice', 'Bob'];
-for (const name of people) {
-  test(`testing with ${name}`, async () => {
-    // ...
-  });
+[
+  { name: 'Alice', expected: 'Hello, Alice!' },
+  { name: 'Bob', expected: 'Hello, Bob!' },
+  { name: 'Charlie', expected: 'Hello, Charlie!' },
+].forEach(({ name, expected }) => {
   // You can also do it with test.describe() or with multiple tests as long the test name is unique.
-}
+  test(`testing with ${name}`, async ({ page }) => {
+    await page.goto(`https://example.com/greet?name=${name}`);
+    await expect(page.getByRole('heading')).toHaveText(expected);
+  });
+});
+```
+
+### Before and after hooks
+
+Most of the time you should put `beforeEach`, `beforeAll`, `afterEach` and `afterAll` hooks outside of `forEach`, so that hooks are executed just once:
+
+```js title="example.spec.ts"
+test.beforeEach(async ({ page }) => {
+  // ...
+});
+
+test.afterEach(async ({ page }) => {
+  // ...
+});
+
+[
+  { name: 'Alice', expected: 'Hello, Alice!' },
+  { name: 'Bob', expected: 'Hello, Bob!' },
+  { name: 'Charlie', expected: 'Hello, Charlie!' },
+].forEach(({ name, expected }) => {
+  test(`testing with ${name}`, async ({ page }) => {
+    await page.goto(`https://example.com/greet?name=${name}`);
+    await expect(page.getByRole('heading')).toHaveText(expected);
+  });
+});
+```
+
+If you want to have hooks for each test, you can put them inside a `describe()` - so they are executed for each iteration / each individual test:
+
+```js title="example.spec.ts"
+[
+  { name: 'Alice', expected: 'Hello, Alice!' },
+  { name: 'Bob', expected: 'Hello, Bob!' },
+  { name: 'Charlie', expected: 'Hello, Charlie!' },
+].forEach(({ name, expected }) => {
+  test.describe(() => {
+    test.beforeEach(async ({ page }) => {
+      await page.goto(`https://example.com/greet?name=${name}`);
+    });
+    test(`testing with ${expected}`, async ({ page }) => {
+      await expect(page.getByRole('heading')).toHaveText(expected);
+    });
+  });
+});
 ```
 
 ## Parameterized Projects
@@ -156,7 +204,7 @@ For example, consider the following test file that needs a username and a passwo
 ```js title="example.spec.ts"
 test(`example test`, async ({ page }) => {
   // ...
-  await page.getByLabel('User Name').fill(process.env.USERNAME);
+  await page.getByLabel('User Name').fill(process.env.USER_NAME);
   await page.getByLabel('Password').fill(process.env.PASSWORD);
 });
 ```
@@ -164,17 +212,17 @@ test(`example test`, async ({ page }) => {
 You can run this test with your secret username and password set in the command line.
 
 ```bash tab=bash-bash
-USERNAME=me PASSWORD=secret npx playwright test
+USER_NAME=me PASSWORD=secret npx playwright test
 ```
 
 ```batch tab=bash-batch
-set USERNAME=me
+set USER_NAME=me
 set PASSWORD=secret
 npx playwright test
 ```
 
 ```powershell tab=bash-powershell
-$env:USERNAME=me
+$env:USER_NAME=me
 $env:PASSWORD=secret
 npx playwright test
 ```
@@ -216,8 +264,8 @@ import { defineConfig } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Read from default ".env" file.
-dotenv.config();
+// Read from ".env" file.
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 // Alternatively, read from "../my.env" file.
 dotenv.config({ path: path.resolve(__dirname, '..', 'my.env') });
@@ -234,7 +282,7 @@ Now, you can just edit `.env` file to set any variables you'd like.
 ```bash
 # .env file
 STAGING=0
-USERNAME=me
+USER_NAME=me
 PASSWORD=secret
 ```
 

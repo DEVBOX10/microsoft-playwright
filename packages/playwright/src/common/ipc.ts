@@ -16,44 +16,42 @@
 
 import util from 'util';
 import { serializeCompilationCache } from '../transform/compilationCache';
-import type { FullConfigInternal } from './config';
+import type { SerializedCompilationCache  } from '../transform/compilationCache';
+import type { ConfigLocation, FullConfigInternal } from './config';
 import type { ReporterDescription, TestInfoError, TestStatus } from '../../types/test';
+import type { MatcherResultProperty } from '../matchers/matcherHint';
 
 export type ConfigCLIOverrides = {
+  debug?: boolean;
   forbidOnly?: boolean;
   fullyParallel?: boolean;
   globalTimeout?: number;
   maxFailures?: number;
   outputDir?: string;
+  preserveOutputDir?: boolean;
   quiet?: boolean;
   repeatEach?: number;
   retries?: number;
   reporter?: ReporterDescription[];
+  additionalReporters?: ReporterDescription[];
   shard?: { current: number, total: number };
   timeout?: number;
+  tsconfig?: string;
   ignoreSnapshots?: boolean;
-  updateSnapshots?: 'all'|'none'|'missing';
+  updateSnapshots?: 'all' | 'changed' | 'missing' | 'none';
+  updateSourceMethod?: 'overwrite' | 'patch' | '3way';
   workers?: number | string;
   projects?: { name: string, use?: any }[],
   use?: any;
 };
 
 export type SerializedConfig = {
-  configFile: string | undefined;
-  configDir: string;
+  location: ConfigLocation;
   configCLIOverrides: ConfigCLIOverrides;
-  compilationCache: any;
-};
-
-export type TtyParams = {
-  rows: number | undefined;
-  columns: number | undefined;
-  colorDepth: number;
+  compilationCache?: SerializedCompilationCache;
 };
 
 export type ProcessInitParams = {
-  stdoutParams: TtyParams;
-  stderrParams: TtyParams;
   processName: string;
 };
 
@@ -77,13 +75,19 @@ export type AttachmentPayload = {
   path?: string;
   body?: string;
   contentType: string;
+  stepId?: string;
+};
+
+export type TestInfoErrorImpl = TestInfoError & {
+  matcherResult?: MatcherResultProperty;
 };
 
 export type TestEndPayload = {
   testId: string;
   duration: number;
   status: TestStatus;
-  errors: TestInfoError[];
+  errors: TestInfoErrorImpl[];
+  hasNonRetriableError: boolean;
   expectedStatus: TestStatus;
   annotations: { type: string, description?: string }[];
   timeout: number;
@@ -103,7 +107,9 @@ export type StepEndPayload = {
   testId: string;
   stepId: string;
   wallTime: number;  // milliseconds since unix epoch
-  error?: TestInfoError;
+  error?: TestInfoErrorImpl;
+  suggestedRebaseline?: string;
+  annotations: { type: string, description?: string }[];
 };
 
 export type TestEntry = {
@@ -117,7 +123,7 @@ export type RunPayload = {
 };
 
 export type DonePayload = {
-  fatalErrors: TestInfoError[];
+  fatalErrors: TestInfoErrorImpl[];
   skipTestsDueToSetupFailure: string[];  // test ids
   fatalUnknownTestIds?: string[];
 };
@@ -128,17 +134,16 @@ export type TestOutputPayload = {
 };
 
 export type TeardownErrorsPayload = {
-  fatalErrors: TestInfoError[];
+  fatalErrors: TestInfoErrorImpl[];
 };
 
 export type EnvProducedPayload = [string, string | null][];
 
-export function serializeConfig(config: FullConfigInternal): SerializedConfig {
+export function serializeConfig(config: FullConfigInternal, passCompilationCache: boolean): SerializedConfig {
   const result: SerializedConfig = {
-    configFile: config.config.configFile,
-    configDir: config.configDir,
+    location: { configDir: config.configDir, resolvedConfigFile: config.config.configFile },
     configCLIOverrides: config.configCLIOverrides,
-    compilationCache: serializeCompilationCache(),
+    compilationCache: passCompilationCache ? serializeCompilationCache() : undefined,
   };
   return result;
 }

@@ -2,30 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {FrameTree} = ChromeUtils.import('chrome://juggler/content/content/FrameTree.js');
 const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
 const {PageAgent} = ChromeUtils.import('chrome://juggler/content/content/PageAgent.js');
 
-const browsingContextToAgents = new Map();
 const helper = new Helper();
 
-function initialize(browsingContext, docShell, actor) {
-  if (browsingContext.parent) {
-    // For child frames, return agents from the main frame.
-    return browsingContextToAgents.get(browsingContext.top);
-  }
-
-  let data = browsingContextToAgents.get(browsingContext);
-  if (data) {
-    // Rebind from one main frame actor to another one.
-    data.channel.bindToActor(actor);
-    return data;
-  }
-
-  data = { channel: undefined, pageAgent: undefined, frameTree: undefined, failedToOverrideTimezone: false };
-  browsingContextToAgents.set(browsingContext, data);
+function initialize(browsingContext, docShell) {
+  const data = { channel: undefined, pageAgent: undefined, frameTree: undefined, failedToOverrideTimezone: false };
 
   const applySetting = {
     geolocation: (geolocation) => {
@@ -48,15 +33,6 @@ function initialize(browsingContext, docShell, actor) {
       }
     },
 
-    onlineOverride: (onlineOverride) => {
-      if (!onlineOverride) {
-        docShell.onlineOverride = Ci.nsIDocShell.ONLINE_OVERRIDE_NONE;
-        return;
-      }
-      docShell.onlineOverride = onlineOverride === 'online' ?
-          Ci.nsIDocShell.ONLINE_OVERRIDE_ONLINE : Ci.nsIDocShell.ONLINE_OVERRIDE_OFFLINE;
-    },
-
     bypassCSP: (bypassCSP) => {
       docShell.bypassCSPEnabled = bypassCSP;
     },
@@ -67,10 +43,6 @@ function initialize(browsingContext, docShell, actor) {
 
     locale: (locale) => {
       docShell.languageOverride = locale;
-    },
-
-    scrollbarsHidden: (hidden) => {
-      data.frameTree.setScrollbarsHidden(hidden);
     },
 
     javaScriptDisabled: (javaScriptDisabled) => {
@@ -94,7 +66,6 @@ function initialize(browsingContext, docShell, actor) {
     data.frameTree.addBinding(worldName, name, script);
   data.frameTree.setInitScripts([...contextCrossProcessCookie.initScripts, ...pageCrossProcessCookie.initScripts]);
   data.channel = new SimpleChannel('', 'process-' + Services.appinfo.processID);
-  data.channel.bindToActor(actor);
   data.pageAgent = new PageAgent(data.channel, data.frameTree);
   docShell.fileInputInterceptionEnabled = !!pageCrossProcessCookie.interceptFileChooserDialog;
 

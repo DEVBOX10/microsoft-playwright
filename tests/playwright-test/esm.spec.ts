@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, playwrightCtConfigText } from './playwright-test-fixtures';
 
 test('should load nested as esm when package.json has type module', async ({ runInlineTest }) => {
   const result = await runInlineTest({
@@ -35,24 +35,31 @@ test('should load nested as esm when package.json has type module', async ({ run
   expect(result.passed).toBe(1);
 });
 
-test('should support import assertions', async ({ runInlineTest }) => {
+test('should support import attributes', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
-      import packageJSON from './package.json' assert { type: 'json' };
+      import packageJSON from './package.json' with { type: 'json' };
+      console.log('imported value (config): ' + packageJSON.foo);
       export default { };
     `,
-    'package.json': JSON.stringify({ type: 'module' }),
-    'a.esm.test.ts': `
+    'package.json': JSON.stringify({ type: 'module', foo: 'bar' }),
+    'a.test.ts': `
+      import config from './package.json' with { type: 'json' };
+      import configFooFromUtils from './utils.js'
+      console.log('imported value (test): ' + config.foo);
       import { test, expect } from '@playwright/test';
-
-      test('check project name', ({}, testInfo) => {
-        expect(1).toBe(1);
-      });
+      expect(configFooFromUtils.foo).toBe('bar');
+      test('pass', async () => {});
+    `,
+    'utils.js': `
+      import config from './package.json' with { type: 'json' };
+      export default config;
     `
   });
-
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
+  expect(result.stdout).toContain('imported value (config): bar');
+  expect(result.stdout).toContain('imported value (test): bar');
 });
 
 test('should import esm from ts when package.json has type module in experimental mode', async ({ runInlineTest }) => {
@@ -105,8 +112,10 @@ test('should respect path resolver in experimental mode', async ({ runInlineTest
   const result = await runInlineTest({
     'package.json': JSON.stringify({ type: 'module' }),
     'playwright.config.ts': `
+      // Make sure that config can use the path mapping.
+      import { foo } from 'util/b.js';
       export default {
-        projects: [{name: 'foo'}],
+        projects: [{ name: foo }],
       };
     `,
     'tsconfig.json': `{
@@ -124,7 +133,8 @@ test('should respect path resolver in experimental mode', async ({ runInlineTest
       import { foo } from 'util/b.js';
       import { test, expect } from '@playwright/test';
       test('check project name', ({}, testInfo) => {
-        expect(testInfo.project.name).toBe(foo);
+        expect(testInfo.project.name).toBe('foo');
+        expect(foo).toBe('foo');
       });
     `,
     'foo/bar/util/b.ts': `
@@ -155,6 +165,32 @@ test('should use source maps', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
   expect(output).toContain('[foo] › a.test.ts:4:7 › check project name');
+});
+
+test('should use source maps when importing a file throws an error', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29418' });
+
+  const result = await runInlineTest({
+    'package.json': `{ "type": "module" }`,
+    'playwright.config.ts': `
+      export default {};
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+
+      throw new Error('Oh my!');
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`Error: Oh my!
+
+   at a.test.ts:4
+
+  2 |       import { test, expect } from '@playwright/test';
+  3 |
+> 4 |       throw new Error('Oh my!');
+    |             ^
+  `);
 });
 
 test('should show the codeframe in errors', async ({ runInlineTest }) => {
@@ -481,10 +517,7 @@ test('should resolve no-extension import to .jsx file in ESM mode', async ({ run
 test('should resolve .js import to .tsx file in ESM mode for components', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'package.json': `{ "type": "module" }`,
-    'playwright.config.ts': `
-      import { defineConfig } from '@playwright/experimental-ct-react';
-      export default defineConfig({ projects: [{name: 'foo'}] });
-    `,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': ``,
 
@@ -529,7 +562,9 @@ test('should load cjs config and test in non-ESM mode', async ({ runInlineTest }
   expect(result.passed).toBe(2);
 });
 
-test('should disallow ESM when config is cjs', async ({ runInlineTest }) => {
+test('should allow ESM when config is cjs', async ({ runInlineTest, nodeVersion }) => {
+  test.skip(nodeVersion.major < 18, 'ESM loader is enabled conditionally with older API');
+
   const result = await runInlineTest({
     'package.json': `{ "type": "module" }`,
     'playwright.config.cjs': `
@@ -544,8 +579,46 @@ test('should disallow ESM when config is cjs', async ({ runInlineTest }) => {
     `,
   });
 
-  expect(result.exitCode).toBe(1);
-  expect(result.output).toContain('Unknown file extension ".ts"');
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should load mts without config', async ({ runInlineTest, nodeVersion }) => {
+  test.skip(nodeVersion.major < 18, 'ESM loader is enabled conditionally with older API');
+
+  const result = await runInlineTest({
+    'a.test.mts': `
+      import { test, expect } from '@playwright/test';
+      test('check project name', ({}, testInfo) => {
+        expect(true).toBe(true);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should load type module without config', async ({ runInlineTest, nodeVersion }) => {
+  test.skip(nodeVersion.major < 18, 'ESM loader is enabled conditionally with older API');
+
+  const result = await runInlineTest({
+    'package.json': `{ "type": "module" }`,
+    'helper.js': `
+      const foo = 42;
+      export default foo;
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      import foo from './helper.js';
+      test('check project name', ({}, testInfo) => {
+        expect(foo).toBe(42);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
 });
 
 test('should be able to use use execSync with a Node.js file inside a spec', async ({ runInlineTest }) => {
@@ -609,9 +682,6 @@ test('should be able to use use execSync with a Node.js file inside a spec', asy
     'global-setup import level',
     'execSync: hello from hello.js',
     'spawnSync: hello from hello.js',
-    'global-teardown import level',
-    'execSync: hello from hello.js',
-    'spawnSync: hello from hello.js',
     'global-setup export level',
     'execSync: hello from hello.js',
     'spawnSync: hello from hello.js',
@@ -626,6 +696,9 @@ test('should be able to use use execSync with a Node.js file inside a spec', asy
     'execSync: hello from hello.js',
     'spawnSync: hello from hello.js',
     'fork: hello from hellofork.js',
+    'global-teardown import level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
     'global-teardown export level',
     'execSync: hello from hello.js',
     'spawnSync: hello from hello.js',
@@ -671,4 +744,21 @@ test('should be able to use mergeTests/mergeExpect', async ({ runInlineTest }) =
   expect(result.passed).toBe(1);
   expect(result.outputLines).toContain('myFixture1: 1');
   expect(result.outputLines).toContain('myFixture2: 2');
+});
+
+test('should exit after merge-reports', async ({ runInlineTest, mergeReports }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28699' });
+  const result = await runInlineTest({
+    'merge.config.ts': `
+      export default { reporter: 'line' };
+    `,
+    'package.json': JSON.stringify({ type: 'module' }),
+    'nested/folder/a.esm.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('test 1', ({}, testInfo) => {});
+    `
+  }, undefined, undefined, { additionalArgs: ['--reporter', 'blob'] });
+  expect(result.exitCode).toBe(0);
+  const { exitCode } = await mergeReports(test.info().outputPath('blob-report'), undefined, { additionalArgs: ['-c', 'merge.config.ts'] });
+  expect(exitCode).toBe(0);
 });

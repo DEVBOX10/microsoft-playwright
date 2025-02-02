@@ -14,25 +14,19 @@
  * limitations under the License.
  */
 
-import type { FullConfig, FullResult, Location, TestError, TestResult, TestStatus, TestStep } from '../../types/testReporter';
 import type { Annotation } from '../common/config';
-import type { FullProject, Metadata } from '../../types/test';
+import type { Metadata } from '../../types/test';
 import type * as reporterTypes from '../../types/testReporter';
-import type { SuitePrivate } from '../../types/reporterPrivate';
 import type { ReporterV2 } from '../reporters/reporterV2';
-import { StringInternPool } from './stringInternPool';
 
-export type JsonLocation = Location;
+export type StringIntern = (s: string) => string;
+export type JsonLocation = reporterTypes.Location;
 export type JsonError = string;
 export type JsonStackFrame = { file: string, line: number, column: number };
 
 export type JsonStdIOType = 'stdout' | 'stderr';
 
-export type JsonConfig = Pick<FullConfig, 'configFile' | 'globalTimeout' | 'maxFailures' | 'metadata' | 'rootDir' | 'version' | 'workers'> & {
-  listOnly: boolean;
-};
-
-export type MergeReporterConfig = Pick<FullConfig, 'configFile' | 'quiet' | 'reportSlowTests' | 'rootDir' | 'reporter' >;
+export type JsonConfig = Pick<reporterTypes.FullConfig, 'configFile' | 'globalTimeout' | 'maxFailures' | 'metadata' | 'rootDir' | 'version' | 'workers'>;
 
 export type JsonPattern = {
   s?: string;
@@ -40,18 +34,20 @@ export type JsonPattern = {
 };
 
 export type JsonProject = {
-  id: string;
   grep: JsonPattern[];
   grepInvert: JsonPattern[];
   metadata: Metadata;
   name: string;
   dependencies: string[];
+  // This is relative to root dir.
   snapshotDir: string;
+  // This is relative to root dir.
   outputDir: string;
   repeatEach: number;
   retries: number;
   suites: JsonSuite[];
   teardown?: string;
+  // This is relative to root dir.
   testDir: string;
   testIgnore: JsonPattern[];
   testMatch: JsonPattern[];
@@ -59,13 +55,9 @@ export type JsonProject = {
 };
 
 export type JsonSuite = {
-  type: 'root' | 'project' | 'file' | 'describe';
   title: string;
   location?: JsonLocation;
-  suites: JsonSuite[];
-  tests: JsonTestCase[];
-  fileId: string | undefined;
-  parallelMode: 'none' | 'default' | 'serial' | 'parallel';
+  entries: (JsonSuite | JsonTestCase)[];
 };
 
 export type JsonTestCase = {
@@ -73,11 +65,14 @@ export type JsonTestCase = {
   title: string;
   location: JsonLocation;
   retries: number;
+  tags?: string[];
+  repeatEachIndex: number;
+  annotations?: { type: string, description?: string }[];
 };
 
 export type JsonTestEnd = {
   testId: string;
-  expectedStatus: TestStatus;
+  expectedStatus: reporterTypes.TestStatus;
   timeout: number;
   annotations: { type: string, description?: string }[];
 };
@@ -90,13 +85,13 @@ export type JsonTestResultStart = {
   startTime: number;
 };
 
-export type JsonAttachment = Omit<TestResult['attachments'][0], 'body'> & { base64?: string };
+export type JsonAttachment = Omit<reporterTypes.TestResult['attachments'][0], 'body'> & { base64?: string };
 
 export type JsonTestResultEnd = {
   id: string;
   duration: number;
-  status: TestStatus;
-  errors: TestError[];
+  status: reporterTypes.TestStatus;
+  errors: reporterTypes.TestError[];
   attachments: JsonAttachment[];
 };
 
@@ -106,17 +101,19 @@ export type JsonTestStepStart = {
   title: string;
   category: string,
   startTime: number;
-  location?: Location;
+  location?: reporterTypes.Location;
 };
 
 export type JsonTestStepEnd = {
   id: string;
   duration: number;
-  error?: TestError;
+  error?: reporterTypes.TestError;
+  attachments?: number[]; // index of JsonTestResultEnd.attachments
+  annotations?: Annotation[];
 };
 
 export type JsonFullResult = {
-  status: FullResult['status'];
+  status: reporterTypes.FullResult['status'];
   startTime: number;
   duration: number;
 };
@@ -126,25 +123,32 @@ export type JsonEvent = {
   params: any
 };
 
+type TeleReporterReceiverOptions = {
+  mergeProjects?: boolean;
+  mergeTestCases?: boolean;
+  resolvePath?: (rootDir: string, relativePath: string) => string;
+  configOverrides?: Pick<reporterTypes.FullConfig, 'configFile' | 'quiet' | 'reportSlowTests' | 'reporter'>;
+  clearPreviousResultsWhenTestBegins?: boolean;
+};
+
 export class TeleReporterReceiver {
+  public isListing = false;
   private _rootSuite: TeleSuite;
-  private _pathSeparator: string;
-  private _reporter: Partial<ReporterV2>;
+  private _options: TeleReporterReceiverOptions;
+  private _reporter: ReporterV2;
   private _tests = new Map<string, TeleTestCase>();
   private _rootDir!: string;
-  private _listOnly = false;
-  private _clearPreviousResultsWhenTestBegins: boolean = false;
-  private _reuseTestCases: boolean;
-  private _reportConfig: MergeReporterConfig | undefined;
-  private _config!: FullConfig;
-  private _stringPool = new StringInternPool();
+  private _config!: reporterTypes.FullConfig;
 
-  constructor(pathSeparator: string, reporter: Partial<ReporterV2>, reuseTestCases: boolean, reportConfig?: MergeReporterConfig) {
+  constructor(reporter: ReporterV2, options: TeleReporterReceiverOptions = {}) {
     this._rootSuite = new TeleSuite('', 'root');
-    this._pathSeparator = pathSeparator;
+    this._options = options;
     this._reporter = reporter;
-    this._reuseTestCases = reuseTestCases;
-    this._reportConfig = reportConfig;
+  }
+
+  reset() {
+    this._rootSuite._entries = [];
+    this._tests.clear();
   }
 
   dispatch(message: JsonEvent): Promise<void> | void {
@@ -191,44 +195,22 @@ export class TeleReporterReceiver {
       return this._onExit();
   }
 
-  _setClearPreviousResultsWhenTestBegins() {
-    this._clearPreviousResultsWhenTestBegins = true;
-  }
-
   private _onConfigure(config: JsonConfig) {
     this._rootDir = config.rootDir;
-    this._listOnly = config.listOnly;
     this._config = this._parseConfig(config);
     this._reporter.onConfigure?.(this._config);
   }
 
   private _onProject(project: JsonProject) {
-    let projectSuite = this._rootSuite.suites.find(suite => suite.project()!.__projectId === project.id);
+    let projectSuite = this._options.mergeProjects ? this._rootSuite.suites.find(suite => suite.project()!.name === project.name) : undefined;
     if (!projectSuite) {
       projectSuite = new TeleSuite(project.name, 'project');
-      this._rootSuite.suites.push(projectSuite);
-      projectSuite.parent = this._rootSuite;
+      this._rootSuite._addSuite(projectSuite);
     }
-    const p = this._parseProject(project);
-    projectSuite.project = () => p;
-    this._mergeSuitesInto(project.suites, projectSuite);
-
-    // Remove deleted tests when listing. Empty suites will be auto-filtered
-    // in the UI layer.
-    if (this._listOnly) {
-      const testIds = new Set<string>();
-      const collectIds = (suite: JsonSuite) => {
-        suite.tests.map(t => t.testId).forEach(testId => testIds.add(testId));
-        suite.suites.forEach(collectIds);
-      };
-      project.suites.forEach(collectIds);
-
-      const filterTests = (suite: TeleSuite) => {
-        suite.tests = suite.tests.filter(t => testIds.has(t.id));
-        suite.suites.forEach(filterTests);
-      };
-      filterTests(projectSuite);
-    }
+    // Always update project in watch mode.
+    projectSuite._project = this._parseProject(project);
+    for (const suite of project.suites)
+      this._mergeSuiteInto(suite, projectSuite);
   }
 
   private _onBegin() {
@@ -237,14 +219,13 @@ export class TeleReporterReceiver {
 
   private _onTestBegin(testId: string, payload: JsonTestResultStart) {
     const test = this._tests.get(testId)!;
-    if (this._clearPreviousResultsWhenTestBegins)
-      test._clearResults();
+    if (this._options.clearPreviousResultsWhenTestBegins)
+      test.results = [];
     const testResult = test._createTestResult(payload.id);
     testResult.retry = payload.retry;
     testResult.workerIndex = payload.workerIndex;
     testResult.parallelIndex = payload.parallelIndex;
     testResult.setStartTimeNumber(payload.startTime);
-    testResult.statusEx = 'running';
     this._reporter.onTestBegin?.(test, testResult);
   }
 
@@ -253,50 +234,50 @@ export class TeleReporterReceiver {
     test.timeout = testEndPayload.timeout;
     test.expectedStatus = testEndPayload.expectedStatus;
     test.annotations = testEndPayload.annotations;
-    const result = test.resultsMap.get(payload.id)!;
+    const result = test.results.find(r => r._id === payload.id)!;
     result.duration = payload.duration;
     result.status = payload.status;
-    result.statusEx = payload.status;
     result.errors = payload.errors;
     result.error = result.errors?.[0];
     result.attachments = this._parseAttachments(payload.attachments);
     this._reporter.onTestEnd?.(test, result);
     // Free up the memory as won't see these step ids.
-    result.stepMap = new Map();
+    result._stepMap = new Map();
   }
 
   private _onStepBegin(testId: string, resultId: string, payload: JsonTestStepStart) {
     const test = this._tests.get(testId)!;
-    const result = test.resultsMap.get(resultId)!;
-    const parentStep = payload.parentStepId ? result.stepMap.get(payload.parentStepId) : undefined;
+    const result = test.results.find(r => r._id === resultId)!;
+    const parentStep = payload.parentStepId ? result._stepMap.get(payload.parentStepId) : undefined;
 
     const location = this._absoluteLocation(payload.location);
-    const step = new TeleTestStep(payload, parentStep, location);
+    const step = new TeleTestStep(payload, parentStep, location, result);
     if (parentStep)
       parentStep.steps.push(step);
     else
       result.steps.push(step);
-    result.stepMap.set(payload.id, step);
+    result._stepMap.set(payload.id, step);
     this._reporter.onStepBegin?.(test, result, step);
   }
 
   private _onStepEnd(testId: string, resultId: string, payload: JsonTestStepEnd) {
     const test = this._tests.get(testId)!;
-    const result = test.resultsMap.get(resultId)!;
-    const step = result.stepMap.get(payload.id)!;
+    const result = test.results.find(r => r._id === resultId)!;
+    const step = result._stepMap.get(payload.id)!;
+    step._endPayload = payload;
     step.duration = payload.duration;
     step.error = payload.error;
     this._reporter.onStepEnd?.(test, result, step);
   }
 
-  private _onError(error: TestError) {
+  private _onError(error: reporterTypes.TestError) {
     this._reporter.onError?.(error);
   }
 
   private _onStdIO(type: JsonStdIOType, testId: string | undefined, resultId: string | undefined, data: string, isBase64: boolean) {
     const chunk = isBase64 ? ((globalThis as any).Buffer ? Buffer.from(data, 'base64') : atob(data)) : data;
     const test = testId ? this._tests.get(testId) : undefined;
-    const result = test && resultId ? test.resultsMap.get(resultId) : undefined;
+    const result = test && resultId ? test.results.find(r => r._id === resultId) : undefined;
     if (type === 'stdout') {
       result?.stdout.push(chunk);
       this._reporter.onStdOut?.(chunk, test, result);
@@ -315,25 +296,22 @@ export class TeleReporterReceiver {
   }
 
   private _onExit(): Promise<void> | void {
-    // Free up the memory from the string pool.
-    this._stringPool = new StringInternPool();
     return this._reporter.onExit?.();
   }
 
-  private _parseConfig(config: JsonConfig): FullConfig {
+  private _parseConfig(config: JsonConfig): reporterTypes.FullConfig {
     const result = { ...baseFullConfig, ...config };
-    if (this._reportConfig) {
-      result.configFile = this._reportConfig.configFile;
-      result.reportSlowTests = this._reportConfig.reportSlowTests;
-      result.quiet = this._reportConfig.quiet;
-      result.reporter = [...this._reportConfig.reporter];
+    if (this._options.configOverrides) {
+      result.configFile = this._options.configOverrides.configFile;
+      result.reportSlowTests = this._options.configOverrides.reportSlowTests;
+      result.quiet = this._options.configOverrides.quiet;
+      result.reporter = [...this._options.configOverrides.reporter];
     }
     return result;
   }
 
   private _parseProject(project: JsonProject): TeleFullProject {
     return {
-      __projectId: project.id,
       metadata: project.metadata,
       name: project.name,
       outputDir: this._absolutePath(project.outputDir),
@@ -352,7 +330,7 @@ export class TeleReporterReceiver {
     };
   }
 
-  private _parseAttachments(attachments: JsonAttachment[]): TestResult['attachments'] {
+  private _parseAttachments(attachments: JsonAttachment[]): reporterTypes.TestResult['attachments'] {
     return attachments.map(a => {
       return {
         ...a,
@@ -361,45 +339,43 @@ export class TeleReporterReceiver {
     });
   }
 
-  private _mergeSuitesInto(jsonSuites: JsonSuite[], parent: TeleSuite) {
-    for (const jsonSuite of jsonSuites) {
-      let targetSuite = parent.suites.find(s => s.title === jsonSuite.title);
-      if (!targetSuite) {
-        targetSuite = new TeleSuite(jsonSuite.title, jsonSuite.type);
-        targetSuite.parent = parent;
-        parent.suites.push(targetSuite);
-      }
-      targetSuite.location = this._absoluteLocation(jsonSuite.location);
-      targetSuite._fileId = jsonSuite.fileId;
-      targetSuite._parallelMode = jsonSuite.parallelMode;
-      this._mergeSuitesInto(jsonSuite.suites, targetSuite);
-      this._mergeTestsInto(jsonSuite.tests, targetSuite);
+  private _mergeSuiteInto(jsonSuite: JsonSuite, parent: TeleSuite): void {
+    let targetSuite = parent.suites.find(s => s.title === jsonSuite.title);
+    if (!targetSuite) {
+      targetSuite = new TeleSuite(jsonSuite.title, parent.type === 'project' ? 'file' : 'describe');
+      parent._addSuite(targetSuite);
     }
+    targetSuite.location = this._absoluteLocation(jsonSuite.location);
+    jsonSuite.entries.forEach(e => {
+      if ('testId' in e)
+        this._mergeTestInto(e, targetSuite!);
+      else
+        this._mergeSuiteInto(e, targetSuite!);
+    });
   }
 
-  private _mergeTestsInto(jsonTests: JsonTestCase[], parent: TeleSuite) {
-    for (const jsonTest of jsonTests) {
-      let targetTest = this._reuseTestCases ? parent.tests.find(s => s.title === jsonTest.title) : undefined;
-      if (!targetTest) {
-        targetTest = new TeleTestCase(jsonTest.testId, jsonTest.title, this._absoluteLocation(jsonTest.location));
-        targetTest.parent = parent;
-        parent.tests.push(targetTest);
-        this._tests.set(targetTest.id, targetTest);
-      }
-      this._updateTest(jsonTest, targetTest);
+  private _mergeTestInto(jsonTest: JsonTestCase, parent: TeleSuite) {
+    let targetTest = this._options.mergeTestCases ? parent.tests.find(s => s.title === jsonTest.title && s.repeatEachIndex === jsonTest.repeatEachIndex) : undefined;
+    if (!targetTest) {
+      targetTest = new TeleTestCase(jsonTest.testId, jsonTest.title, this._absoluteLocation(jsonTest.location), jsonTest.repeatEachIndex);
+      parent._addTest(targetTest);
+      this._tests.set(targetTest.id, targetTest);
     }
+    this._updateTest(jsonTest, targetTest);
   }
 
   private _updateTest(payload: JsonTestCase, test: TeleTestCase): TeleTestCase {
     test.id = payload.testId;
     test.location = this._absoluteLocation(payload.location);
     test.retries = payload.retries;
+    test.tags = payload.tags ?? [];
+    test.annotations = payload.annotations ?? [];
     return test;
   }
 
-  private _absoluteLocation(location: Location): Location;
-  private _absoluteLocation(location?: Location): Location | undefined;
-  private _absoluteLocation(location: Location | undefined): Location | undefined {
+  private _absoluteLocation(location: reporterTypes.Location): reporterTypes.Location;
+  private _absoluteLocation(location?: reporterTypes.Location): reporterTypes.Location | undefined;
+  private _absoluteLocation(location: reporterTypes.Location | undefined): reporterTypes.Location | undefined {
     if (!location)
       return location;
     return {
@@ -411,39 +387,53 @@ export class TeleReporterReceiver {
   private _absolutePath(relativePath: string): string;
   private _absolutePath(relativePath?: string): string | undefined;
   private _absolutePath(relativePath?: string): string | undefined {
-    if (!relativePath)
-      return relativePath;
-    return this._stringPool.internString(this._rootDir + this._pathSeparator + relativePath);
+    if (relativePath === undefined)
+      return;
+    return this._options.resolvePath ? this._options.resolvePath(this._rootDir, relativePath) : this._rootDir + '/' + relativePath;
   }
-
 }
 
-export class TeleSuite implements SuitePrivate {
+export class TeleSuite implements reporterTypes.Suite {
   title: string;
-  location?: Location;
+  location?: reporterTypes.Location;
   parent?: TeleSuite;
+  _entries: (TeleSuite | TeleTestCase)[] = [];
   _requireFile: string = '';
-  suites: TeleSuite[] = [];
-  tests: TeleTestCase[] = [];
   _timeout: number | undefined;
   _retries: number | undefined;
-  _fileId: string | undefined;
+  _project: TeleFullProject | undefined;
   _parallelMode: 'none' | 'default' | 'serial' | 'parallel' = 'none';
-  readonly _type: 'root' | 'project' | 'file' | 'describe';
+  private readonly _type: 'root' | 'project' | 'file' | 'describe';
 
   constructor(title: string, type: 'root' | 'project' | 'file' | 'describe') {
     this.title = title;
     this._type = type;
   }
 
-  allTests(): TeleTestCase[] {
-    const result: TeleTestCase[] = [];
-    const visit = (suite: TeleSuite) => {
-      for (const entry of [...suite.suites, ...suite.tests]) {
-        if (entry instanceof TeleSuite)
-          visit(entry);
-        else
+  get type() {
+    return this._type;
+  }
+
+  get suites(): TeleSuite[] {
+    return this._entries.filter(e => e.type !== 'test') as TeleSuite[];
+  }
+
+  get tests(): TeleTestCase[] {
+    return this._entries.filter(e => e.type === 'test') as TeleTestCase[];
+  }
+
+  entries() {
+    return this._entries;
+  }
+
+  allTests(): reporterTypes.TestCase[] {
+    const result: reporterTypes.TestCase[] = [];
+    const visit = (suite: reporterTypes.Suite) => {
+      for (const entry of suite.entries()) {
+        if (entry.type === 'test')
           result.push(entry);
+        else
+          visit(entry);
       }
     };
     visit(this);
@@ -459,7 +449,17 @@ export class TeleSuite implements SuitePrivate {
   }
 
   project(): TeleFullProject | undefined {
-    return undefined;
+    return this._project ?? this.parent?.project();
+  }
+
+  _addTest(test: TeleTestCase) {
+    test.parent = this;
+    this._entries.push(test);
+  }
+
+  _addSuite(suite: TeleSuite) {
+    suite.parent = this;
+    this._entries.push(suite);
   }
 }
 
@@ -467,22 +467,23 @@ export class TeleTestCase implements reporterTypes.TestCase {
   title: string;
   fn = () => {};
   results: TeleTestResult[] = [];
-  location: Location;
+  location: reporterTypes.Location;
   parent!: TeleSuite;
+  type: 'test' = 'test';
 
   expectedStatus: reporterTypes.TestStatus = 'passed';
   timeout = 0;
   annotations: Annotation[] = [];
   retries = 0;
+  tags: string[] = [];
   repeatEachIndex = 0;
   id: string;
 
-  resultsMap = new Map<string, TeleTestResult>();
-
-  constructor(id: string, title: string, location: Location) {
+  constructor(id: string, title: string, location: reporterTypes.Location, repeatEachIndex: number) {
     this.id = id;
     this.title = title;
     this.location = location;
+    this.repeatEachIndex = repeatEachIndex;
   }
 
   titlePath(): string[] {
@@ -492,15 +493,7 @@ export class TeleTestCase implements reporterTypes.TestCase {
   }
 
   outcome(): 'skipped' | 'expected' | 'unexpected' | 'flaky' {
-    const results = this.results.filter(result => result.status !== 'interrupted');
-    if (results.every(result => result.status === 'skipped'))
-      return 'skipped';
-    const failures = results.filter(result => result.status !== this.expectedStatus);
-    if (!failures.length) // all passed
-      return 'expected';
-    if (failures.length === results.length) // all failed
-      return 'unexpected';
-    return 'flaky'; // mixed bag
+    return computeTestCaseOutcome(this);
   }
 
   ok(): boolean {
@@ -508,35 +501,34 @@ export class TeleTestCase implements reporterTypes.TestCase {
     return status === 'expected' || status === 'flaky' || status === 'skipped';
   }
 
-  _clearResults() {
-    this.results = [];
-    this.resultsMap.clear();
-  }
-
   _createTestResult(id: string): TeleTestResult {
-    const result = new TeleTestResult(this.results.length);
+    const result = new TeleTestResult(this.results.length, id);
     this.results.push(result);
-    this.resultsMap.set(id, result);
     return result;
   }
 }
 
-class TeleTestStep implements TestStep {
+class TeleTestStep implements reporterTypes.TestStep {
   title: string;
   category: string;
-  location: Location | undefined;
-  parent: TestStep | undefined;
+  location: reporterTypes.Location | undefined;
+  parent: reporterTypes.TestStep | undefined;
   duration: number = -1;
-  steps: TestStep[] = [];
+  steps: reporterTypes.TestStep[] = [];
+  error: reporterTypes.TestError | undefined;
+
+  private _result: TeleTestResult;
+  _endPayload?: JsonTestStepEnd;
 
   private _startTime: number = 0;
 
-  constructor(payload: JsonTestStepStart, parentStep: TestStep | undefined, location:  Location | undefined) {
+  constructor(payload: JsonTestStepStart, parentStep: reporterTypes.TestStep | undefined, location: reporterTypes.Location | undefined, result: TeleTestResult) {
     this.title = payload.title;
     this.category = payload.category;
     this.location = location;
     this.parent = parentStep;
     this._startTime = payload.startTime;
+    this._result = result;
   }
 
   titlePath() {
@@ -551,9 +543,17 @@ class TeleTestStep implements TestStep {
   set startTime(value: Date) {
     this._startTime = +value;
   }
+
+  get attachments() {
+    return this._endPayload?.attachments?.map(index => this._result.attachments[index]) ?? [];
+  }
+
+  get annotations() {
+    return this._endPayload?.annotations ?? [];
+  }
 }
 
-class TeleTestResult implements reporterTypes.TestResult {
+export class TeleTestResult implements reporterTypes.TestResult {
   retry: reporterTypes.TestResult['retry'];
   parallelIndex: reporterTypes.TestResult['parallelIndex'] = -1;
   workerIndex: reporterTypes.TestResult['workerIndex'] = -1;
@@ -561,18 +561,19 @@ class TeleTestResult implements reporterTypes.TestResult {
   stdout: reporterTypes.TestResult['stdout'] = [];
   stderr: reporterTypes.TestResult['stderr'] = [];
   attachments: reporterTypes.TestResult['attachments'] = [];
-  status: TestStatus = 'skipped';
+  status: reporterTypes.TestStatus = 'skipped';
   steps: TeleTestStep[] = [];
   errors: reporterTypes.TestResult['errors'] = [];
   error: reporterTypes.TestResult['error'];
 
-  stepMap: Map<string, reporterTypes.TestStep> = new Map();
-  statusEx: reporterTypes.TestResult['status'] | 'scheduled' | 'running' = 'scheduled';
+  _stepMap = new Map<string, TeleTestStep>();
+  _id: string;
 
   private _startTime: number = 0;
 
-  constructor(retry: number) {
+  constructor(retry: number, id: string) {
     this.retry = retry;
+    this._id = id;
   }
 
   setStartTimeNumber(startTime: number) {
@@ -588,9 +589,9 @@ class TeleTestResult implements reporterTypes.TestResult {
   }
 }
 
-export type TeleFullProject = FullProject & { __projectId: string };
+export type TeleFullProject = reporterTypes.FullProject;
 
-export const baseFullConfig: FullConfig = {
+export const baseFullConfig: reporterTypes.FullConfig = {
   forbidOnly: false,
   fullyParallel: false,
   globalSetup: null,
@@ -609,6 +610,7 @@ export const baseFullConfig: FullConfig = {
   quiet: false,
   shard: null,
   updateSnapshots: 'missing',
+  updateSourceMethod: 'patch',
   version: '',
   workers: 0,
   webServer: null,
@@ -626,8 +628,52 @@ export function serializeRegexPatterns(patterns: string | RegExp | (string | Reg
 
 export function parseRegexPatterns(patterns: JsonPattern[]): (string | RegExp)[] {
   return patterns.map(p => {
-    if (p.s)
+    if (p.s !== undefined)
       return p.s;
     return new RegExp(p.r!.source, p.r!.flags);
   });
+}
+
+export function computeTestCaseOutcome(test: reporterTypes.TestCase) {
+  let skipped = 0;
+  let didNotRun = 0;
+  let expected = 0;
+  let interrupted = 0;
+  let unexpected = 0;
+  for (const result of test.results) {
+    if (result.status === 'interrupted') {
+      ++interrupted; // eslint-disable-line @typescript-eslint/no-unused-vars
+    } else if (result.status === 'skipped' && test.expectedStatus === 'skipped') {
+      // Only tests "expected to be skipped" are skipped. These were specifically
+      // marked with test.skip or test.fixme.
+      ++skipped;
+    } else if (result.status === 'skipped') {
+      // Tests that were expected to run, but were skipped are "did not run".
+      // This happens when:
+      // - testing finished early;
+      // - test failure prevented other tests in the serial suite to run;
+      // - probably more cases!
+      ++didNotRun; // eslint-disable-line @typescript-eslint/no-unused-vars
+    } else if (result.status === test.expectedStatus) {
+      // Either passed and expected to pass, or failed and expected to fail.
+      ++expected;
+    } else {
+      ++unexpected;
+    }
+  }
+
+  // Tests that were "skipped as expected" are considered equal to "expected" below,
+  // because that's the expected outcome.
+  //
+  // However, we specifically differentiate the case of "only skipped"
+  // and show it as "skipped" in all reporters.
+  //
+  // More exotic cases like "failed on first run and skipped on retry" are flaky.
+  if (expected === 0 && unexpected === 0)
+    return 'skipped';  // all results were skipped or interrupted
+  if (unexpected === 0)
+    return 'expected';  // no failures, just expected+skipped
+  if (expected === 0 && skipped === 0)
+    return 'unexpected';  // only failures
+  return 'flaky';  // expected+unexpected or skipped+unexpected
 }

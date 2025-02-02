@@ -16,12 +16,11 @@
 
 import type { FixturePool } from './fixtures';
 import type * as reporterTypes from '../../types/testReporter';
-import type { SuitePrivate } from '../../types/reporterPrivate';
 import type { TestTypeImpl } from './testType';
 import { rootTestType } from './testType';
 import type { Annotation, FixturesWithLocation, FullProjectInternal } from './config';
-import type { FullProject } from '../../types/test';
-import type { Location } from '../../types/testReporter';
+import type { Location, FullProject } from '../../types/testReporter';
+import { computeTestCaseOutcome } from '../isomorphic/teleReceiver';
 
 class Base {
   title: string;
@@ -40,7 +39,7 @@ export type Modifier = {
   description: string | undefined
 };
 
-export class Suite extends Base implements SuitePrivate {
+export class Suite extends Base {
   location?: Location;
   parent?: Suite;
   _use: FixturesWithLocation[] = [];
@@ -48,7 +47,10 @@ export class Suite extends Base implements SuitePrivate {
   _hooks: { type: 'beforeEach' | 'afterEach' | 'beforeAll' | 'afterAll', fn: Function, title: string, location: Location }[] = [];
   _timeout: number | undefined;
   _retries: number | undefined;
+  // Annotations known statically before running the test, e.g. `test.describe.skip()` or `test.describe({ annotation }, body)`.
   _staticAnnotations: Annotation[] = [];
+  // Explicitly declared tags that are not a part of the title.
+  _tags: string[] = [];
   _modifiers: Modifier[] = [];
   _parallelMode: 'none' | 'default' | 'serial' | 'parallel' = 'none';
   _fullProject: FullProjectInternal | undefined;
@@ -58,6 +60,14 @@ export class Suite extends Base implements SuitePrivate {
   constructor(title: string, type: 'root' | 'project' | 'file' | 'describe') {
     super(title);
     this._type = type;
+  }
+
+  get type(): 'root' | 'project' | 'file' | 'describe' {
+    return this._type;
+  }
+
+  entries() {
+    return this._entries;
   }
 
   get suites(): Suite[] {
@@ -119,6 +129,14 @@ export class Suite extends Base implements SuitePrivate {
     if (this.title || this._type !== 'describe')
       titlePath.push(this.title);
     return titlePath;
+  }
+
+  _collectGrepTitlePath(path: string[]) {
+    if (this.parent)
+      this.parent._collectGrepTitlePath(path);
+    if (this.title || this._type !== 'describe')
+      path.push(this.title);
+    path.push(...this._tags);
   }
 
   _getOnlyItems(): (TestCase | Suite)[] {
@@ -185,6 +203,7 @@ export class Suite extends Base implements SuitePrivate {
       timeout: this._timeout,
       retries: this._retries,
       staticAnnotations: this._staticAnnotations.slice(),
+      tags: this._tags.slice(),
       modifiers: this._modifiers.slice(),
       parallelMode: this._parallelMode,
       hooks: this._hooks.map(h => ({ type: h.type, location: h.location, title: h.title })),
@@ -200,6 +219,7 @@ export class Suite extends Base implements SuitePrivate {
     suite._timeout = data.timeout;
     suite._retries = data.retries;
     suite._staticAnnotations = data.staticAnnotations;
+    suite._tags = data.tags;
     suite._modifiers = data.modifiers;
     suite._parallelMode = data.parallelMode;
     suite._hooks = data.hooks.map((h: any) => ({ type: h.type, location: h.location, title: h.title, fn: () => { } }));
@@ -226,6 +246,7 @@ export class TestCase extends Base implements reporterTypes.TestCase {
   results: reporterTypes.TestResult[] = [];
   location: Location;
   parent!: Suite;
+  type: 'test' = 'test';
 
   expectedStatus: reporterTypes.TestStatus = 'passed';
   timeout = 0;
@@ -239,11 +260,10 @@ export class TestCase extends Base implements reporterTypes.TestCase {
   _poolDigest = '';
   _workerHash = '';
   _projectId = '';
-  // This is different from |results.length| because sometimes we do not run the test, but consume
-  // an attempt, for example when skipping tests in a serial suite after a failure.
-  _runAttempts = 0;
-  // Annotations known statically before running the test, e.g. `test.skip()` or `test.describe.skip()`.
+  // Annotations known statically before running the test, e.g. `test.skip()` or `test(title, { annotation }, body)`.
   _staticAnnotations: Annotation[] = [];
+  // Explicitly declared tags that are not a part of the title.
+  _tags: string[] = [];
 
   constructor(title: string, fn: Function, testType: TestTypeImpl, location: Location) {
     super(title);
@@ -259,20 +279,16 @@ export class TestCase extends Base implements reporterTypes.TestCase {
   }
 
   outcome(): 'skipped' | 'expected' | 'unexpected' | 'flaky' {
-    const results = this.results.filter(result => result.status !== 'interrupted');
-    if (results.every(result => result.status === 'skipped'))
-      return 'skipped';
-    const failures = results.filter(result => result.status !== this.expectedStatus);
-    if (!failures.length) // all passed
-      return 'expected';
-    if (failures.length === results.length) // all failed
-      return 'unexpected';
-    return 'flaky'; // mixed bag
+    return computeTestCaseOutcome(this);
   }
 
   ok(): boolean {
     const status = this.outcome();
     return status === 'expected' || status === 'flaky' || status === 'skipped';
+  }
+
+  get tags(): string[] {
+    return this._grepTitle().match(/@[\S]+/g) || [];
   }
 
   _serialize(): any {
@@ -290,6 +306,7 @@ export class TestCase extends Base implements reporterTypes.TestCase {
       workerHash: this._workerHash,
       staticAnnotations: this._staticAnnotations.slice(),
       annotations: this.annotations.slice(),
+      tags: this._tags.slice(),
       projectId: this._projectId,
     };
   }
@@ -306,6 +323,7 @@ export class TestCase extends Base implements reporterTypes.TestCase {
     test._workerHash = data.workerHash;
     test._staticAnnotations = data.staticAnnotations;
     test.annotations = data.annotations;
+    test._tags = data.tags;
     test._projectId = data.projectId;
     return test;
   }
@@ -334,5 +352,13 @@ export class TestCase extends Base implements reporterTypes.TestCase {
     };
     this.results.push(result);
     return result;
+  }
+
+  _grepTitle() {
+    const path: string[] = [];
+    this.parent._collectGrepTitlePath(path);
+    path.push(this.title);
+    path.push(...this._tags);
+    return path.join(' ');
   }
 }

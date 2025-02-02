@@ -24,48 +24,38 @@ import type { NestedSelectorBody, ParsedSelector, ParsedSelectorPart } from '../
 import { visitAllSelectorParts, parseSelector, stringifySelector } from '../../utils/isomorphic/selectorParser';
 import { type TextMatcher, elementMatchesText, elementText, type ElementText, getElementLabels } from './selectorUtils';
 import { SelectorEvaluatorImpl, sortInDOMOrder } from './selectorEvaluator';
-import { enclosingShadowRootOrDocument, isElementVisible, parentElementOrShadowHost } from './domUtils';
+import { enclosingShadowRootOrDocument, isElementVisible, isInsideScope, parentElementOrShadowHost, setBrowserName } from './domUtils';
 import type { CSSComplexSelectorList } from '../../utils/isomorphic/cssParser';
 import { generateSelector, type GenerateSelectorOptions } from './selectorGenerator';
 import type * as channels from '@protocol/channels';
 import { Highlight } from './highlight';
-import { getChecked, getAriaDisabled, getAriaRole, getElementAccessibleName } from './roleUtils';
+import { getAriaDisabled, getAriaRole, getElementAccessibleName, getElementAccessibleDescription, getReadonly, getElementAccessibleErrorMessage, getCheckedAllowMixed, getCheckedWithoutMixed } from './roleUtils';
 import { kLayoutSelectorNames, type LayoutSelectorName, layoutSelectorScore } from './layoutSelectorUtils';
 import { asLocator } from '../../utils/isomorphic/locatorGenerators';
 import type { Language } from '../../utils/isomorphic/locatorGenerators';
-import { normalizeWhiteSpace } from '../../utils/isomorphic/stringUtils';
-
-type Predicate<T> = (progress: InjectedScriptProgress) => T | symbol;
-
-export type InjectedScriptProgress = {
-  injectedScript: InjectedScript;
-  continuePolling: symbol;
-  aborted: boolean;
-  log: (message: string) => void;
-  logRepeating: (message: string) => void;
-};
-
-export type LogEntry = {
-  message?: string;
-};
+import { cacheNormalizedWhitespaces, normalizeWhiteSpace, trimStringWithEllipsis } from '../../utils/isomorphic/stringUtils';
+import { matchesAriaTree, getAllByAria, generateAriaTree, renderAriaTree } from './ariaSnapshot';
+import type { AriaNode, AriaSnapshot } from './ariaSnapshot';
+import type { AriaTemplateNode } from '@isomorphic/ariaSnapshot';
+import { parseAriaSnapshot } from '@isomorphic/ariaSnapshot';
 
 export type FrameExpectParams = Omit<channels.FrameExpectParams, 'expectedValue'> & { expectedValue?: any };
 
-export type InjectedScriptPoll<T> = {
-  run: () => Promise<T>,
-  // Takes more logs, waiting until at least one message is available.
-  takeNextLogs: () => Promise<LogEntry[]>,
-  // Takes all current logs without waiting.
-  takeLastLogs: () => LogEntry[],
-  cancel: () => void,
-};
-
-export type ElementStateWithoutStable = 'visible' | 'hidden' | 'enabled' | 'disabled' | 'editable' | 'checked' | 'unchecked';
-export type ElementState = ElementStateWithoutStable | 'stable';
+export type ElementState = 'visible' | 'hidden' | 'enabled' | 'disabled' | 'editable' | 'checked' | 'unchecked' | 'indeterminate' | 'stable';
+export type ElementStateWithoutStable = Exclude<ElementState, 'stable'>;
+export type ElementStateQueryResult = { matches: boolean, received?: string | 'error:notconnected' };
 
 export type HitTargetInterceptionResult = {
   stop: () => 'done' | { hitTargetDescription: string };
 };
+
+interface WebKitLegacyDeviceOrientationEvent extends DeviceOrientationEvent {
+  readonly initDeviceOrientationEvent: (type: string, bubbles: boolean, cancelable: boolean, alpha: number, beta: number, gamma: number, absolute: boolean) => void;
+}
+
+interface WebKitLegacyDeviceMotionEvent extends DeviceMotionEvent {
+  readonly initDeviceMotionEvent: (type: string, bubbles: boolean, cancelable: boolean, acceleration: DeviceMotionEventAcceleration, accelerationIncludingGravity: DeviceMotionEventAcceleration, rotationRate: DeviceMotionEventRotationRate, interval: number) => void;
+}
 
 export class InjectedScript {
   private _engines: Map<string, SelectorEngine>;
@@ -78,9 +68,27 @@ export class InjectedScript {
   readonly isUnderTest: boolean;
   private _sdkLanguage: Language;
   private _testIdAttributeNameForStrictErrorAndConsoleCodegen: string = 'data-testid';
+  private _markedElements?: { callId: string, elements: Set<Element> };
   // eslint-disable-next-line no-restricted-globals
   readonly window: Window & typeof globalThis;
   readonly document: Document;
+  private _ariaElementById: Map<number, Element> | undefined;
+
+  // Recorder must use any external dependencies through InjectedScript.
+  // Otherwise it will end up with a copy of all modules it uses, and any
+  // module-level globals will be duplicated, which leads to subtle bugs.
+  readonly utils = {
+    asLocator,
+    cacheNormalizedWhitespaces,
+    elementText,
+    getAriaRole,
+    getElementAccessibleDescription,
+    getElementAccessibleName,
+    isElementVisible,
+    isInsideScope,
+    normalizeWhiteSpace,
+    parseAriaSnapshot,
+  };
 
   // eslint-disable-next-line no-restricted-globals
   constructor(window: Window & typeof globalThis, isUnderTest: boolean, sdkLanguage: Language, testIdAttributeNameForStrictErrorAndConsoleCodegen: string, stableRafCount: number, browserName: string, customEngines: { name: string, engine: SelectorEngine }[]) {
@@ -123,18 +131,38 @@ export class InjectedScript {
     this._engines.set('internal:attr', this._createNamedAttributeEngine());
     this._engines.set('internal:testid', this._createNamedAttributeEngine());
     this._engines.set('internal:role', createRoleEngine(true));
+    this._engines.set('internal:aria-id', this._createAriaIdEngine());
 
     for (const { name, engine } of customEngines)
       this._engines.set(name, engine);
 
     this._stableRafCount = stableRafCount;
     this._browserName = browserName;
+    setBrowserName(browserName);
 
     this._setupGlobalListenersRemovalDetection();
     this._setupHitTargetInterceptors();
 
     if (isUnderTest)
       (this.window as any).__injectedScript = this;
+  }
+
+  builtinSetTimeout(callback: Function, timeout: number) {
+    if (this.window.__pwClock?.builtin)
+      return this.window.__pwClock.builtin.setTimeout(callback, timeout);
+    return this.window.setTimeout(callback, timeout);
+  }
+
+  builtinClearTimeout(timeout: number | undefined) {
+    if (this.window.__pwClock?.builtin)
+      return this.window.__pwClock.builtin.clearTimeout(timeout);
+    return this.window.clearTimeout(timeout);
+  }
+
+  builtinRequestAnimationFrame(callback: FrameRequestCallback) {
+    if (this.window.__pwClock?.builtin)
+      return this.window.__pwClock.builtin.requestAnimationFrame(callback);
+    return this.window.requestAnimationFrame(callback);
   }
 
   eval(expression: string): any {
@@ -154,7 +182,11 @@ export class InjectedScript {
     return result;
   }
 
-  generateSelector(targetElement: Element, options?: GenerateSelectorOptions): string {
+  generateSelector(targetElement: Element, options: GenerateSelectorOptions) {
+    return generateSelector(this, targetElement, options);
+  }
+
+  generateSelectorSimple(targetElement: Element, options?: GenerateSelectorOptions): string {
     return generateSelector(this, targetElement, { ...options, testIdAttributeName: this._testIdAttributeNameForStrictErrorAndConsoleCodegen }).selector;
   }
 
@@ -185,6 +217,34 @@ export class InjectedScript {
     }
     result.sort((a, b) => a.score - b.score);
     return new Set<Element>(result.map(r => r.element));
+  }
+
+  ariaSnapshot(node: Node, options?: { mode?: 'raw' | 'regex', id?: boolean }): string {
+    if (node.nodeType !== Node.ELEMENT_NODE)
+      throw this.createStacklessError('Can only capture aria snapshot of Element nodes.');
+    const ariaSnapshot = generateAriaTree(node as Element);
+    this._ariaElementById = ariaSnapshot.elements;
+    return renderAriaTree(ariaSnapshot.root, { ...options, ids: options?.id ? ariaSnapshot.ids : undefined });
+  }
+
+  ariaSnapshotAsObject(node: Node): AriaSnapshot {
+    return generateAriaTree(node as Element);
+  }
+
+  ariaSnapshotElement(snapshot: AriaSnapshot, elementId: number): Element | null {
+    return snapshot.elements.get(elementId) || null;
+  }
+
+  renderAriaTree(ariaNode: AriaNode, options?: { mode?: 'raw' | 'regex', id?: boolean}): string {
+    return renderAriaTree(ariaNode, options);
+  }
+
+  renderAriaSnapshotWithIds(ariaSnapshot: AriaSnapshot): string {
+    return renderAriaTree(ariaSnapshot.root, { ids: ariaSnapshot.ids });
+  }
+
+  getAllByAria(document: Document, template: AriaTemplateNode): Element[] {
+    return getAllByAria(document.documentElement, template);
   }
 
   querySelectorAll(selector: ParsedSelector, root: Node): Element[] {
@@ -401,7 +461,8 @@ export class InjectedScript {
     const queryAll = (root: SelectorRoot, body: string) => {
       if (root.nodeType !== 1 /* Node.ELEMENT_NODE */)
         return [];
-      return isElementVisible(root as Element) === Boolean(body) ? [root as Element] : [];
+      const visible = body === 'true';
+      return isElementVisible(root as Element) === visible ? [root as Element] : [];
     };
     return { queryAll };
   }
@@ -423,10 +484,6 @@ export class InjectedScript {
     return new constrFunction(this, params);
   }
 
-  isVisible(element: Element): boolean {
-    return isElementVisible(element);
-  }
-
   async viewportRatio(element: Element): Promise<number> {
     return await new Promise(resolve => {
       const observer = new IntersectionObserver(entries => {
@@ -436,94 +493,8 @@ export class InjectedScript {
       observer.observe(element);
       // Firefox doesn't call IntersectionObserver callback unless
       // there are rafs.
-      requestAnimationFrame(() => {});
+      this.builtinRequestAnimationFrame(() => {});
     });
-  }
-
-  pollRaf<T>(predicate: Predicate<T>): InjectedScriptPoll<T> {
-    return this.poll(predicate, next => requestAnimationFrame(next));
-  }
-
-  private poll<T>(predicate: Predicate<T>, scheduleNext: (next: () => void) => void): InjectedScriptPoll<T> {
-    return this._runAbortableTask(progress => {
-      let fulfill: (result: T) => void;
-      let reject: (error: Error) => void;
-      const result = new Promise<T>((f, r) => { fulfill = f; reject = r; });
-
-      const next = () => {
-        if (progress.aborted)
-          return;
-        try {
-          const success = predicate(progress);
-          if (success !== progress.continuePolling)
-            fulfill(success as T);
-          else
-            scheduleNext(next);
-        } catch (e) {
-          progress.log('  ' + e.message);
-          reject(e);
-        }
-      };
-
-      next();
-      return result;
-    });
-  }
-
-  private _runAbortableTask<T>(task: (progess: InjectedScriptProgress) => Promise<T>): InjectedScriptPoll<T> {
-    let unsentLog: LogEntry[] = [];
-    let takeNextLogsCallback: ((logs: LogEntry[]) => void) | undefined;
-    let taskFinished = false;
-    const logReady = () => {
-      if (!takeNextLogsCallback)
-        return;
-      takeNextLogsCallback(unsentLog);
-      unsentLog = [];
-      takeNextLogsCallback = undefined;
-    };
-
-    const takeNextLogs = () => new Promise<LogEntry[]>(fulfill => {
-      takeNextLogsCallback = fulfill;
-      if (unsentLog.length || taskFinished)
-        logReady();
-    });
-
-    let lastMessage = '';
-    const progress: InjectedScriptProgress = {
-      injectedScript: this,
-      aborted: false,
-      continuePolling: Symbol('continuePolling'),
-      log: (message: string) => {
-        lastMessage = message;
-        unsentLog.push({ message });
-        logReady();
-      },
-      logRepeating: (message: string) => {
-        if (message !== lastMessage)
-          progress.log(message);
-      },
-    };
-
-    const run = () => {
-      const result = task(progress);
-
-      // After the task has finished, there should be no more logs.
-      // Release any pending `takeNextLogs` call, and do not block any future ones.
-      // This prevents non-finished protocol evaluation calls and memory leaks.
-      result.finally(() => {
-        taskFinished = true;
-        logReady();
-      });
-
-      return result;
-    };
-
-    return {
-      takeNextLogs,
-      run,
-      cancel: () => { progress.aborted = true; },
-      takeLastLogs: () => unsentLog,
-    };
   }
 
   getElementBorderWidth(node: Node): { left: number; top: number; } {
@@ -554,121 +525,161 @@ export class InjectedScript {
       return null;
     if (behavior === 'none')
       return element;
-    if (!element.matches('input, textarea, select')) {
+    if (!element.matches('input, textarea, select') && !(element as any).isContentEditable) {
       if (behavior === 'button-link')
         element = element.closest('button, [role=button], a, [role=link]') || element;
       else
         element = element.closest('button, [role=button], [role=checkbox], [role=radio]') || element;
     }
     if (behavior === 'follow-label') {
-      if (!element.matches('input, textarea, button, select, [role=button], [role=checkbox], [role=radio]') &&
+      if (!element.matches('a, input, textarea, button, select, [role=link], [role=button], [role=checkbox], [role=radio]') &&
         !(element as any).isContentEditable) {
         // Go up to the label that might be connected to the input/textarea.
-        element = element.closest('label') || element;
+        const enclosingLabel: HTMLLabelElement | null = element.closest('label');
+        if (enclosingLabel && enclosingLabel.control)
+          element = enclosingLabel.control;
       }
-      if (element.nodeName === 'LABEL')
-        element = (element as HTMLLabelElement).control || element;
     }
     return element;
   }
 
-  waitForElementStatesAndPerformAction<T>(node: Node, states: ElementState[], force: boolean | undefined,
-    callback: (node: Node, progress: InjectedScriptProgress) => T | symbol): InjectedScriptPoll<T | 'error:notconnected'> {
-    let lastRect: { x: number, y: number, width: number, height: number } | undefined;
-    let counter = 0;
-    let samePositionCounter = 0;
-    let lastTime = 0;
-
-    return this.pollRaf(progress => {
-      if (force) {
-        progress.log(`    forcing action`);
-        return callback(node, progress);
-      }
-
-      for (const state of states) {
-        if (state !== 'stable') {
-          const result = this.elementState(node, state);
-          if (typeof result !== 'boolean')
-            return result;
-          if (!result) {
-            progress.logRepeating(`    element is not ${state} - waiting...`);
-            return progress.continuePolling;
-          }
-          continue;
-        }
-
-        const element = this.retarget(node, 'no-follow-label');
-        if (!element)
+  async checkElementStates(node: Node, states: ElementState[]): Promise<'error:notconnected' | { missingState: ElementState } | undefined> {
+    if (states.includes('stable')) {
+      const stableResult = await this._checkElementIsStable(node);
+      if (stableResult === false)
+        return { missingState: 'stable' };
+      if (stableResult === 'error:notconnected')
+        return 'error:notconnected';
+    }
+    for (const state of states) {
+      if (state !== 'stable') {
+        const result = this.elementState(node, state);
+        if (result.received === 'error:notconnected')
           return 'error:notconnected';
-
-        // First raf happens in the same animation frame as evaluation, so it does not produce
-        // any client rect difference compared to synchronous call. We skip the synchronous call
-        // and only force layout during actual rafs as a small optimisation.
-        if (++counter === 1)
-          return progress.continuePolling;
-
-        // Drop frames that are shorter than 16ms - WebKit Win bug.
-        const time = performance.now();
-        if (this._stableRafCount > 1 && time - lastTime < 15)
-          return progress.continuePolling;
-        lastTime = time;
-
-        const clientRect = element.getBoundingClientRect();
-        const rect = { x: clientRect.top, y: clientRect.left, width: clientRect.width, height: clientRect.height };
-        const samePosition = lastRect && rect.x === lastRect.x && rect.y === lastRect.y && rect.width === lastRect.width && rect.height === lastRect.height;
-        if (samePosition)
-          ++samePositionCounter;
-        else
-          samePositionCounter = 0;
-        const isStable = samePositionCounter >= this._stableRafCount;
-        const isStableForLogs = isStable || !lastRect;
-        lastRect = rect;
-        if (!isStableForLogs)
-          progress.logRepeating(`    element is not stable - waiting...`);
-        if (!isStable)
-          return progress.continuePolling;
+        if (!result.matches)
+          return { missingState: state };
       }
-
-      return callback(node, progress);
-    });
+    }
   }
 
-  elementState(node: Node, state: ElementStateWithoutStable): boolean | 'error:notconnected' {
-    const element = this.retarget(node, ['stable', 'visible', 'hidden'].includes(state) ? 'none' : 'follow-label');
+  private async _checkElementIsStable(node: Node): Promise<'error:notconnected' | boolean> {
+    const continuePolling = Symbol('continuePolling');
+    let lastRect: { x: number, y: number, width: number, height: number } | undefined;
+    let stableRafCounter = 0;
+    let lastTime = 0;
+
+    const check = () => {
+      const element = this.retarget(node, 'no-follow-label');
+      if (!element)
+        return 'error:notconnected';
+
+      // Drop frames that are shorter than 16ms - WebKit Win bug.
+      const time = performance.now();
+      if (this._stableRafCount > 1 && time - lastTime < 15)
+        return continuePolling;
+      lastTime = time;
+
+      const clientRect = element.getBoundingClientRect();
+      const rect = { x: clientRect.top, y: clientRect.left, width: clientRect.width, height: clientRect.height };
+      if (lastRect) {
+        const samePosition = rect.x === lastRect.x && rect.y === lastRect.y && rect.width === lastRect.width && rect.height === lastRect.height;
+        if (!samePosition)
+          return false;
+        if (++stableRafCounter >= this._stableRafCount)
+          return true;
+      }
+      lastRect = rect;
+      return continuePolling;
+    };
+
+    let fulfill: (result: 'error:notconnected' | boolean) => void;
+    let reject: (error: Error) => void;
+    const result = new Promise<'error:notconnected' | boolean>((f, r) => { fulfill = f; reject = r; });
+
+    const raf = () => {
+      try {
+        const success = check();
+        if (success !== continuePolling)
+          fulfill(success);
+        else
+          this.builtinRequestAnimationFrame(raf);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    this.builtinRequestAnimationFrame(raf);
+
+    return result;
+  }
+
+  _createAriaIdEngine() {
+    const queryAll = (root: SelectorRoot, selector: string): Element[] => {
+      const ariaId = parseInt(selector, 10);
+      const result = this._ariaElementById?.get(ariaId);
+      return result && result.isConnected ? [result] : [];
+    };
+    return { queryAll };
+  }
+
+  elementState(node: Node, state: ElementStateWithoutStable): ElementStateQueryResult {
+    const element = this.retarget(node, ['visible', 'hidden'].includes(state) ? 'none' : 'follow-label');
     if (!element || !element.isConnected) {
       if (state === 'hidden')
-        return true;
-      return 'error:notconnected';
+        return { matches: true, received: 'hidden' };
+      return { matches: false, received: 'error:notconnected' };
     }
 
-    if (state === 'visible')
-      return this.isVisible(element);
-    if (state === 'hidden')
-      return !this.isVisible(element);
+    if (state === 'visible' || state === 'hidden') {
+      const visible = isElementVisible(element);
+      return {
+        matches: state === 'visible' ? visible : !visible,
+        received: visible ? 'visible' : 'hidden'
+      };
+    }
 
-    const disabled = getAriaDisabled(element);
-    if (state === 'disabled')
-      return disabled;
-    if (state === 'enabled')
-      return !disabled;
+    if (state === 'disabled' || state === 'enabled') {
+      const disabled = getAriaDisabled(element);
+      return {
+        matches: state === 'disabled' ? disabled : !disabled,
+        received: disabled ? 'disabled' : 'enabled'
+      };
+    }
 
-    const editable = !(['INPUT', 'TEXTAREA', 'SELECT'].includes(element.nodeName) && element.hasAttribute('readonly'));
-    if (state === 'editable')
-      return !disabled && editable;
+    if (state === 'editable') {
+      const disabled = getAriaDisabled(element);
+      const readonly = getReadonly(element);
+      if (readonly === 'error')
+        throw this.createStacklessError('Element is not an <input>, <textarea>, <select> or [contenteditable] and does not have a role allowing [aria-readonly]');
+      return {
+        matches: !disabled && !readonly,
+        received: disabled ? 'disabled' : readonly ? 'readOnly' : 'editable'
+      };
+    }
 
     if (state === 'checked' || state === 'unchecked') {
       const need = state === 'checked';
-      const checked = getChecked(element, false);
+      const checked = getCheckedWithoutMixed(element);
       if (checked === 'error')
         throw this.createStacklessError('Not a checkbox or radio button');
-      return need === checked;
+      return {
+        matches: need === checked,
+        received: checked ? 'checked' : 'unchecked',
+      };
+    }
+
+    if (state === 'indeterminate') {
+      const checked = getCheckedAllowMixed(element);
+      if (checked === 'error')
+        throw this.createStacklessError('Not a checkbox or radio button');
+      return {
+        matches: checked === 'mixed',
+        received: checked === true ? 'checked' : checked === false ? 'unchecked' : 'mixed',
+      };
     }
     throw this.createStacklessError(`Unexpected element state "${state}"`);
   }
 
-  selectOptions(optionsToSelect: (Node | { valueOrLabel?: string, value?: string, label?: string, index?: number })[],
-    node: Node, progress: InjectedScriptProgress): string[] | 'error:notconnected' | symbol {
-
+  selectOptions(node: Node, optionsToSelect: (Node | { valueOrLabel?: string, value?: string, label?: string, index?: number })[]): string[] | 'error:notconnected' | 'error:optionsnotfound' {
     const element = this.retarget(node, 'follow-label');
     if (!element)
       return 'error:notconnected';
@@ -704,31 +715,26 @@ export class InjectedScript {
         break;
       }
     }
-    if (remainingOptionsToSelect.length) {
-      progress.logRepeating('    did not find some options - waiting... ');
-      return progress.continuePolling;
-    }
+    if (remainingOptionsToSelect.length)
+      return 'error:optionsnotfound';
     select.value = undefined as any;
     selectedOptions.forEach(option => option.selected = true);
-    progress.log('    selected specified option(s)');
-    select.dispatchEvent(new Event('input', { 'bubbles': true }));
-    select.dispatchEvent(new Event('change', { 'bubbles': true }));
+    select.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
     return selectedOptions.map(option => option.value);
   }
 
-  fill(value: string, node: Node, progress: InjectedScriptProgress): 'error:notconnected' | 'needsinput' | 'done' {
+  fill(node: Node, value: string): 'error:notconnected' | 'needsinput' | 'done' {
     const element = this.retarget(node, 'follow-label');
     if (!element)
       return 'error:notconnected';
     if (element.nodeName.toLowerCase() === 'input') {
       const input = element as HTMLInputElement;
       const type = input.type.toLowerCase();
-      const kInputTypesToSetValue = new Set(['color', 'date', 'time', 'datetime', 'datetime-local', 'month', 'range', 'week']);
+      const kInputTypesToSetValue = new Set(['color', 'date', 'time', 'datetime-local', 'month', 'range', 'week']);
       const kInputTypesToTypeInto = new Set(['', 'email', 'number', 'password', 'search', 'tel', 'text', 'url']);
-      if (!kInputTypesToTypeInto.has(type) && !kInputTypesToSetValue.has(type)) {
-        progress.log(`    input of type "${type}" cannot be filled`);
+      if (!kInputTypesToTypeInto.has(type) && !kInputTypesToSetValue.has(type))
         throw this.createStacklessError(`Input of type "${type}" cannot be filled`);
-      }
       if (type === 'number') {
         value = value.trim();
         if (isNaN(Number(value)))
@@ -740,8 +746,8 @@ export class InjectedScript {
         input.value = value;
         if (input.value !== value)
           throw this.createStacklessError('Malformed value');
-        element.dispatchEvent(new Event('input', { 'bubbles': true }));
-        element.dispatchEvent(new Event('change', { 'bubbles': true }));
+        element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
         return 'done';  // We have already changed the value, no need to input it.
       }
     } else if (element.nodeName.toLowerCase() === 'textarea') {
@@ -843,8 +849,8 @@ export class InjectedScript {
     for (const file of files)
       dt.items.add(file);
     input.files = dt.files;
-    input.dispatchEvent(new Event('input', { 'bubbles': true }));
-    input.dispatchEvent(new Event('change', { 'bubbles': true }));
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   expectHitTarget(hitPoint: { x: number, y: number }, targetElement: Element) {
@@ -1025,17 +1031,68 @@ export class InjectedScript {
     return { stop };
   }
 
-  dispatchEvent(node: Node, type: string, eventInit: Object) {
+  dispatchEvent(node: Node, type: string, eventInitObj: Object) {
     let event;
-    eventInit = { bubbles: true, cancelable: true, composed: true, ...eventInit };
+    const eventInit: any = { bubbles: true, cancelable: true, composed: true, ...eventInitObj };
     switch (eventType.get(type)) {
       case 'mouse': event = new MouseEvent(type, eventInit); break;
       case 'keyboard': event = new KeyboardEvent(type, eventInit); break;
-      case 'touch': event = new TouchEvent(type, eventInit); break;
+      case 'touch': {
+        // WebKit does not support Touch constructor, but has deprecated createTouch and createTouchList methods.
+        if (this._browserName === 'webkit') {
+          const createTouch = (t: any) => {
+            if (t instanceof Touch)
+              return t;
+            // createTouch does not accept clientX/clientY, so we have to use pageX/pageY.
+            let pageX = t.pageX;
+            if (pageX === undefined && t.clientX !== undefined)
+              pageX = t.clientX + (this.document.scrollingElement?.scrollLeft || 0);
+            let pageY = t.pageY;
+            if (pageY === undefined && t.clientY !== undefined)
+              pageY = t.clientY + (this.document.scrollingElement?.scrollTop || 0);
+            return (this.document as any).createTouch(this.window, t.target ?? node, t.identifier, pageX, pageY, t.screenX, t.screenY, t.radiusX, t.radiusY, t.rotationAngle, t.force);
+          };
+          const createTouchList = (touches: any) => {
+            if (touches instanceof TouchList || !touches)
+              return touches;
+            return (this.document as any).createTouchList(...touches.map(createTouch));
+          };
+          eventInit.target ??= node;
+          eventInit.touches = createTouchList(eventInit.touches);
+          eventInit.targetTouches = createTouchList(eventInit.targetTouches);
+          eventInit.changedTouches = createTouchList(eventInit.changedTouches);
+          event = new TouchEvent(type, eventInit);
+        } else {
+          eventInit.target ??= node;
+          eventInit.touches = eventInit.touches?.map((t: any) => t instanceof Touch ? t : new Touch({ ...t, target: t.target ?? node }));
+          eventInit.targetTouches = eventInit.targetTouches?.map((t: any) => t instanceof Touch ? t : new Touch({ ...t, target: t.target ?? node }));
+          eventInit.changedTouches = eventInit.changedTouches?.map((t: any) => t instanceof Touch ? t : new Touch({ ...t, target: t.target ?? node }));
+          event = new TouchEvent(type, eventInit);
+        }
+        break;
+      }
       case 'pointer': event = new PointerEvent(type, eventInit); break;
       case 'focus': event = new FocusEvent(type, eventInit); break;
       case 'drag': event = new DragEvent(type, eventInit); break;
       case 'wheel': event = new WheelEvent(type, eventInit); break;
+      case 'deviceorientation':
+        try {
+          event = new DeviceOrientationEvent(type, eventInit);
+        } catch {
+          const { bubbles, cancelable, alpha, beta, gamma, absolute } = eventInit as {bubbles: boolean, cancelable: boolean, alpha: number, beta: number, gamma: number, absolute: boolean};
+          event = this.document.createEvent('DeviceOrientationEvent') as WebKitLegacyDeviceOrientationEvent;
+          event.initDeviceOrientationEvent(type, bubbles, cancelable, alpha, beta, gamma, absolute);
+        }
+        break;
+      case 'devicemotion':
+        try {
+          event = new DeviceMotionEvent(type, eventInit);
+        } catch {
+          const { bubbles, cancelable, acceleration, accelerationIncludingGravity, rotationRate, interval } = eventInit as {bubbles: boolean, cancelable: boolean, acceleration: DeviceMotionEventAcceleration, accelerationIncludingGravity: DeviceMotionEventAcceleration, rotationRate: DeviceMotionEventRotationRate, interval: number};
+          event = this.document.createEvent('DeviceMotionEvent') as WebKitLegacyDeviceMotionEvent;
+          event.initDeviceMotionEvent(type, bubbles, cancelable, acceleration, accelerationIncludingGravity, rotationRate, interval);
+        }
+        break;
       default: event = new Event(type, eventInit); break;
     }
     node.dispatchEvent(event);
@@ -1059,9 +1116,7 @@ export class InjectedScript {
         attrs.push(` ${name}="${value}"`);
     }
     attrs.sort((a, b) => a.length - b.length);
-    let attrText = attrs.join('');
-    if (attrText.length > 50)
-      attrText = attrText.substring(0, 49) + '\u2026';
+    const attrText = trimStringWithEllipsis(attrs.join(''), 500);
     if (autoClosingTags.has(element.nodeName))
       return oneLine(`<${element.nodeName.toLowerCase()}${attrText}/>`);
 
@@ -1072,16 +1127,14 @@ export class InjectedScript {
       for (let i = 0; i < children.length; i++)
         onlyText = onlyText && children[i].nodeType === Node.TEXT_NODE;
     }
-    let text = onlyText ? (element.textContent || '') : (children.length ? '\u2026' : '');
-    if (text.length > 50)
-      text = text.substring(0, 49) + '\u2026';
-    return oneLine(`<${element.nodeName.toLowerCase()}${attrText}>${text}</${element.nodeName.toLowerCase()}>`);
+    const text = onlyText ? (element.textContent || '') : (children.length ? '\u2026' : '');
+    return oneLine(`<${element.nodeName.toLowerCase()}${attrText}>${trimStringWithEllipsis(text, 50)}</${element.nodeName.toLowerCase()}>`);
   }
 
   strictModeViolationError(selector: ParsedSelector, matches: Element[]): Error {
     const infos = matches.slice(0, 10).map(m => ({
       preview: this.previewNode(m),
-      selector: this.generateSelector(m),
+      selector: this.generateSelectorSimple(m),
     }));
     const lines = infos.map((info, i) => `\n    ${i + 1}) ${info.preview} aka ${asLocator(this._sdkLanguage, info.selector)}`);
     if (infos.length < matches.length)
@@ -1102,7 +1155,11 @@ export class InjectedScript {
     return error;
   }
 
-  maskSelectors(selectors: ParsedSelector[], color?: string) {
+  createHighlight() {
+    return new Highlight(this);
+  }
+
+  maskSelectors(selectors: ParsedSelector[], color: string) {
     if (this._highlight)
       this.hideHighlight();
     this._highlight = new Highlight(this);
@@ -1129,14 +1186,33 @@ export class InjectedScript {
   }
 
   markTargetElements(markedElements: Set<Element>, callId: string) {
-    const customEvent = new CustomEvent('__playwright_target__', {
+    if (this._markedElements?.callId !== callId)
+      this._markedElements = undefined;
+    const previous = this._markedElements?.elements || new Set();
+
+    const unmarkEvent = new CustomEvent('__playwright_unmark_target__', {
       bubbles: true,
       cancelable: true,
       detail: callId,
       composed: true,
     });
-    for (const element of markedElements)
-      element.dispatchEvent(customEvent);
+    for (const element of previous) {
+      if (!markedElements.has(element))
+        element.dispatchEvent(unmarkEvent);
+    }
+
+    const markEvent = new CustomEvent('__playwright_mark_target__', {
+      bubbles: true,
+      cancelable: true,
+      detail: callId,
+      composed: true,
+    });
+    for (const element of markedElements) {
+      if (!previous.has(element))
+        element.dispatchEvent(markEvent);
+    }
+
+    this._markedElements = { callId, elements: markedElements };
   }
 
   private _setupGlobalListenersRemovalDetection() {
@@ -1174,7 +1250,7 @@ export class InjectedScript {
     this.onGlobalListenersRemoved.add(addHitTargetInterceptorListeners);
   }
 
-  async expect(element: Element | undefined, options: FrameExpectParams, elements: Element[]): Promise<{ matches: boolean, received?: any, missingRecevied?: boolean }> {
+  async expect(element: Element | undefined, options: FrameExpectParams, elements: Element[]): Promise<{ matches: boolean, received?: any, missingReceived?: boolean }> {
     const isArray = options.expression === 'to.have.count' || options.expression.endsWith('.array');
     if (isArray)
       return this.expectArray(elements, options);
@@ -1195,7 +1271,7 @@ export class InjectedScript {
       if (options.isNot && options.expression === 'to.be.in.viewport')
         return { matches: false };
       // When none of the above applies, expect does not match.
-      return { matches: options.isNot, missingRecevied: true };
+      return { matches: options.isNot, missingReceived: true };
     }
     return await this.expectSingleElement(element, options);
   }
@@ -1205,44 +1281,65 @@ export class InjectedScript {
 
     {
       // Element state / boolean values.
-      let elementState: boolean | 'error:notconnected' | 'error:notcheckbox' | undefined;
+      let result: ElementStateQueryResult | undefined;
       if (expression === 'to.have.attribute') {
-        elementState = element.hasAttribute(options.expressionArg);
+        const hasAttribute = element.hasAttribute(options.expressionArg);
+        result = {
+          matches: hasAttribute,
+          received: hasAttribute ? 'attribute present' : 'attribute not present',
+        };
       } else if (expression === 'to.be.checked') {
-        elementState = this.elementState(element, 'checked');
-      } else if (expression === 'to.be.unchecked') {
-        elementState = this.elementState(element, 'unchecked');
+        const { checked, indeterminate } = options.expectedValue;
+        if (indeterminate) {
+          if (checked !== undefined)
+            throw this.createStacklessError('Can\'t assert indeterminate and checked at the same time');
+          result = this.elementState(element, 'indeterminate');
+        } else {
+          result = this.elementState(element, checked === false ? 'unchecked' : 'checked');
+        }
       } else if (expression === 'to.be.disabled') {
-        elementState = this.elementState(element, 'disabled');
+        result = this.elementState(element, 'disabled');
       } else if (expression === 'to.be.editable') {
-        elementState = this.elementState(element, 'editable');
+        result = this.elementState(element, 'editable');
       } else if (expression === 'to.be.readonly') {
-        elementState = !this.elementState(element, 'editable');
+        result = this.elementState(element, 'editable');
+        result.matches = !result.matches;
       } else if (expression === 'to.be.empty') {
-        if (element.nodeName === 'INPUT' || element.nodeName === 'TEXTAREA')
-          elementState = !(element as HTMLInputElement).value;
-        else
-          elementState = !element.textContent?.trim();
+        if (element.nodeName === 'INPUT' || element.nodeName === 'TEXTAREA') {
+          const value = (element as HTMLInputElement).value;
+          result = { matches: !value, received: value ? 'notEmpty' : 'empty' };
+        } else {
+          const text = element.textContent?.trim();
+          result = { matches: !text, received: text ? 'notEmpty' : 'empty' };
+        }
       } else if (expression === 'to.be.enabled') {
-        elementState = this.elementState(element, 'enabled');
+        result = this.elementState(element, 'enabled');
       } else if (expression === 'to.be.focused') {
-        elementState = this._activelyFocused(element).isFocused;
+        const focused = this._activelyFocused(element).isFocused;
+        result = {
+          matches: focused,
+          received: focused ? 'focused' : 'inactive',
+        };
       } else if (expression === 'to.be.hidden') {
-        elementState = this.elementState(element, 'hidden');
+        result = this.elementState(element, 'hidden');
       } else if (expression === 'to.be.visible') {
-        elementState = this.elementState(element, 'visible');
+        result = this.elementState(element, 'visible');
       } else if (expression === 'to.be.attached') {
-        elementState = true;
+        result = {
+          matches: true,
+          received: 'attached',
+        };
       } else if (expression === 'to.be.detached') {
-        elementState = false;
+        result = {
+          matches: false,
+          received: 'attached',
+        };
       }
 
-      if (elementState !== undefined) {
-        if (elementState === 'error:notcheckbox')
-          throw this.createStacklessError('Element is not a checkbox');
-        if (elementState === 'error:notconnected')
+      if (result) {
+        if (result.received === 'error:notconnected')
           throw this.createStacklessError('Element is not connected');
-        return { received: elementState, matches: elementState };
+        return result;
       }
     }
 
@@ -1284,6 +1381,16 @@ export class InjectedScript {
     }
 
     {
+      if (expression === 'to.match.aria') {
+        const result = matchesAriaTree(element, options.expectedValue);
+        return {
+          received: result.received,
+          matches: !!result.matches.length,
+        };
+      }
+    }
+
+    {
       // Single text value.
       let received: string | undefined;
       if (expression === 'to.have.attribute.value') {
@@ -1299,10 +1406,16 @@ export class InjectedScript {
         received = element.id;
       } else if (expression === 'to.have.text') {
         received = options.useInnerText ? (element as HTMLElement).innerText : elementText(new Map(), element).full;
+      } else if (expression === 'to.have.accessible.name') {
+        received = getElementAccessibleName(element, false /* includeHidden */);
+      } else if (expression === 'to.have.accessible.description') {
+        received = getElementAccessibleDescription(element, false /* includeHidden */);
+      } else if (expression === 'to.have.accessible.error.message') {
+        received = getElementAccessibleErrorMessage(element);
+      } else if (expression === 'to.have.role') {
+        received = getAriaRole(element) || '';
       } else if (expression === 'to.have.title') {
         received = this.document.title;
-      } else if (expression === 'to.have.url') {
-        received = this.document.location.href;
       } else if (expression === 'to.have.value') {
         element = this.retarget(element, 'follow-label')!;
         if (element.nodeName !== 'INPUT' && element.nodeName !== 'TEXTAREA' && element.nodeName !== 'SELECT')
@@ -1354,14 +1467,6 @@ export class InjectedScript {
     }
     throw this.createStacklessError('Unknown expect matcher: ' + expression);
   }
-
-  getElementAccessibleName(element: Element, includeHidden?: boolean): string {
-    return getElementAccessibleName(element, !!includeHidden);
-  }
-
-  getAriaRole(element: Element) {
-    return getAriaRole(element);
-  }
 }
 
 const autoClosingTags = new Set(['AREA', 'BASE', 'BR', 'COL', 'COMMAND', 'EMBED', 'HR', 'IMG', 'INPUT', 'KEYGEN', 'LINK', 'MENUITEM', 'META', 'PARAM', 'SOURCE', 'TRACK', 'WBR']);
@@ -1371,7 +1476,7 @@ function oneLine(s: string): string {
   return s.replace(/\n/g, '↵').replace(/\t/g, '⇆');
 }
 
-const eventType = new Map<string, 'mouse' | 'keyboard' | 'touch' | 'pointer' | 'focus' | 'drag' | 'wheel'>([
+const eventType = new Map<string, 'mouse' | 'keyboard' | 'touch' | 'pointer' | 'focus' | 'drag' | 'wheel' | 'deviceorientation' | 'devicemotion'>([
   ['auxclick', 'mouse'],
   ['click', 'mouse'],
   ['dblclick', 'mouse'],
@@ -1419,6 +1524,11 @@ const eventType = new Map<string, 'mouse' | 'keyboard' | 'touch' | 'pointer' | '
   ['drop', 'drag'],
 
   ['wheel', 'wheel'],
+
+  ['deviceorientation', 'deviceorientation'],
+  ['deviceorientationabsolute', 'deviceorientation'],
+
+  ['devicemotion', 'devicemotion'],
 ]);
 
 const kHoverHitTargetInterceptorEvents = new Set(['mousemove']);
@@ -1465,7 +1575,7 @@ function createTextMatcher(selector: string, internal: boolean): { matcher: Text
   selector = normalizeWhiteSpace(selector);
   if (strict) {
     if (internal)
-      return { kind: 'strict', matcher: (elementText: ElementText) => normalizeWhiteSpace(elementText.full) === selector };
+      return { kind: 'strict', matcher: (elementText: ElementText) => elementText.normalized === selector };
 
     const strictTextNodeMatcher = (elementText: ElementText) => {
       if (!selector && !elementText.immediate.length)
@@ -1475,7 +1585,7 @@ function createTextMatcher(selector: string, internal: boolean): { matcher: Text
     return { matcher: strictTextNodeMatcher, kind: 'strict' };
   }
   selector = selector.toLowerCase();
-  return { kind: 'lax', matcher: (elementText: ElementText) => normalizeWhiteSpace(elementText.full).toLowerCase().includes(selector) };
+  return { kind: 'lax', matcher: (elementText: ElementText) => elementText.normalized.toLowerCase().includes(selector) };
 }
 
 class ExpectedTextMatcher {
@@ -1570,4 +1680,16 @@ function deepEquals(a: any, b: any): boolean {
     return isNaN(a) && isNaN(b);
 
   return false;
+}
+
+declare global {
+  interface Window {
+    __pwClock?: {
+      builtin: {
+        setTimeout: Window['setTimeout'],
+        clearTimeout: Window['clearTimeout'],
+        requestAnimationFrame: Window['requestAnimationFrame'],
+      }
+    }
+  }
 }

@@ -20,7 +20,6 @@ import type { APIRequestContext } from './fetch';
 import type { Browser } from './browser';
 import type { BrowserContext } from './browserContext';
 import type { BrowserType } from './browserType';
-import type { ElementHandle } from './dom';
 import type { Frame } from './frames';
 import type { Page } from './page';
 import type { Playwright } from './playwright';
@@ -35,10 +34,9 @@ export type Attribution = {
 };
 
 import type { CallMetadata } from '@protocol/callMetadata';
+import type { Dialog } from './dialog';
+import type { Download } from './download';
 export type { CallMetadata } from '@protocol/callMetadata';
-import type * as trace from '@trace/trace';
-
-export const kTestSdkObjects = new WeakSet<SdkObject>();
 
 export class SdkObject extends EventEmitter {
   guid: string;
@@ -51,8 +49,6 @@ export class SdkObject extends EventEmitter {
     this.setMaxListeners(0);
     this.attribution = { ...parent.attribution };
     this.instrumentation = parent.instrumentation;
-    if (process.env._PW_INTERNAL_COUNT_SDK_OBJECTS)
-      kTestSdkObjects.add(this);
   }
 }
 
@@ -60,26 +56,28 @@ export interface Instrumentation {
   addListener(listener: InstrumentationListener, context: BrowserContext | APIRequestContext | null): void;
   removeListener(listener: InstrumentationListener): void;
   onBeforeCall(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
-  onBeforeInputAction(sdkObject: SdkObject, metadata: CallMetadata, element: ElementHandle): Promise<void>;
+  onBeforeInputAction(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onCallLog(sdkObject: SdkObject, metadata: CallMetadata, logName: string, message: string): void;
   onAfterCall(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
-  onEvent(sdkObject: SdkObject, event: trace.EventTraceEvent): void;
   onPageOpen(page: Page): void;
   onPageClose(page: Page): void;
   onBrowserOpen(browser: Browser): void;
   onBrowserClose(browser: Browser): void;
+  onDialog(dialog: Dialog): void;
+  onDownload(page: Page, download: Download): void;
 }
 
 export interface InstrumentationListener {
   onBeforeCall?(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
-  onBeforeInputAction?(sdkObject: SdkObject, metadata: CallMetadata, element: ElementHandle): Promise<void>;
+  onBeforeInputAction?(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onCallLog?(sdkObject: SdkObject, metadata: CallMetadata, logName: string, message: string): void;
   onAfterCall?(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
-  onEvent?(sdkObject: SdkObject, event: trace.EventTraceEvent): void;
   onPageOpen?(page: Page): void;
   onPageClose?(page: Page): void;
   onBrowserOpen?(browser: Browser): void;
   onBrowserClose?(browser: Browser): void;
+  onDialog?(dialog: Dialog): void;
+  onDownload?(page: Page, download: Download): void;
 }
 
 export function createInstrumentation(): Instrumentation {
@@ -109,7 +107,6 @@ export function serverSideCallMetadata(): CallMetadata {
     id: '',
     startTime: 0,
     endTime: 0,
-    wallTime: Date.now(),
     type: 'Internal',
     method: '',
     params: {},

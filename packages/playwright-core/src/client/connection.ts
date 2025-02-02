@@ -21,7 +21,7 @@ import { ChannelOwner } from './channelOwner';
 import { ElementHandle } from './elementHandle';
 import { Frame } from './frame';
 import { JSHandle } from './jsHandle';
-import { Request, Response, Route, WebSocket } from './network';
+import { Request, Response, Route, WebSocket, WebSocketRoute } from './network';
 import { Page, BindingCall } from './page';
 import { Worker } from './worker';
 import { Dialog } from './dialog';
@@ -32,7 +32,7 @@ import { Electron, ElectronApplication } from './electron';
 import type * as channels from '@protocol/channels';
 import { Stream } from './stream';
 import { WritableStream } from './writableStream';
-import { debugLogger } from '../common/debugLogger';
+import { debugLogger } from '../utils/debugLogger';
 import { SelectorsOwner } from './selectors';
 import { Android, AndroidSocket, AndroidDevice } from './android';
 import { Artifact } from './artifact';
@@ -44,7 +44,7 @@ import { Tracing } from './tracing';
 import { findValidator, ValidationError, type ValidatorContext } from '../protocol/validator';
 import { createInstrumentation } from './clientInstrumentation';
 import type { ClientInstrumentation } from './clientInstrumentation';
-import { formatCallLog, rewriteErrorMessage } from '../utils';
+import { formatCallLog, rewriteErrorMessage, zones } from '../utils';
 
 class Root extends ChannelOwner<channels.RootChannel> {
   constructor(connection: Connection) {
@@ -70,6 +70,7 @@ export class Connection extends EventEmitter {
   private _closedError: Error | undefined;
   private _isRemote = false;
   private _localUtils?: LocalUtils;
+  private _rawBuffers = false;
   // Some connections allow resolving in-process dispatchers.
   toImpl: ((client: ChannelOwner) => any) | undefined;
   private _tracingCount = 0;
@@ -77,9 +78,9 @@ export class Connection extends EventEmitter {
 
   constructor(localUtils: LocalUtils | undefined, instrumentation: ClientInstrumentation | undefined) {
     super();
-    this._rootObject = new Root(this);
-    this._localUtils = localUtils;
     this._instrumentation = instrumentation || createInstrumentation();
+    this._localUtils = localUtils;
+    this._rootObject = new Root(this);
   }
 
   markAsRemote() {
@@ -88,6 +89,14 @@ export class Connection extends EventEmitter {
 
   isRemote() {
     return this._isRemote;
+  }
+
+  useRawBuffers() {
+    this._rawBuffers = true;
+  }
+
+  rawBuffers() {
+    return this._rawBuffers;
   }
 
   localUtils(): LocalUtils {
@@ -102,14 +111,14 @@ export class Connection extends EventEmitter {
     return this._objects.get(guid)!;
   }
 
-  async setIsTracing(isTracing: boolean) {
+  setIsTracing(isTracing: boolean) {
     if (isTracing)
       this._tracingCount++;
     else
       this._tracingCount--;
   }
 
-  async sendMessageToServer(object: ChannelOwner, method: string, params: any, apiName: string | undefined, frames: channels.StackFrame[], wallTime: number | undefined): Promise<any> {
+  async sendMessageToServer(object: ChannelOwner, method: string, params: any, apiName: string | undefined, frames: channels.StackFrame[], stepId?: string): Promise<any> {
     if (this._closedError)
       throw this._closedError;
     if (object._wasCollected)
@@ -124,10 +133,12 @@ export class Connection extends EventEmitter {
       debugLogger.log('channel', 'SEND> ' + JSON.stringify(message));
     }
     const location = frames[0] ? { file: frames[0].file, line: frames[0].line, column: frames[0].column } : undefined;
-    const metadata: channels.Metadata = { wallTime, apiName, location, internal: !apiName };
+    const metadata: channels.Metadata = { apiName, location, internal: !apiName, stepId };
     if (this._tracingCount && frames && type !== 'LocalUtils')
       this._localUtils?._channel.addStackToTracingNoReply({ callData: { stack: frames, id } }).catch(() => {});
-    this.onmessage({ ...message, metadata });
+    // We need to exit zones before calling into the server, otherwise
+    // when we receive events from the server, we would be in an API zone.
+    zones.empty().run(() => this.onmessage({ ...message, metadata }));
     return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject, apiName, type, method }));
   }
 
@@ -149,7 +160,7 @@ export class Connection extends EventEmitter {
         callback.reject(parsedError);
       } else {
         const validator = findValidator(callback.type, callback.method, 'Result');
-        callback.resolve(validator(result, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this.isRemote() ? 'fromBase64' : 'buffer' }));
+        callback.resolve(validator(result, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._rawBuffers ? 'buffer' : 'fromBase64' }));
       }
       return;
     }
@@ -179,11 +190,13 @@ export class Connection extends EventEmitter {
     }
 
     const validator = findValidator(object._type, method, 'Event');
-    (object._channel as any).emit(method, validator(params, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this.isRemote() ? 'fromBase64' : 'buffer' }));
+    (object._channel as any).emit(method, validator(params, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._rawBuffers ? 'buffer' : 'fromBase64' }));
   }
 
-  close(cause?: Error) {
-    this._closedError = new TargetClosedError(cause?.toString());
+  close(cause?: string) {
+    if (this._closedError)
+      return;
+    this._closedError = new TargetClosedError(cause);
     for (const callback of this._callbacks.values())
       callback.reject(this._closedError);
     this._callbacks.clear();
@@ -208,7 +221,7 @@ export class Connection extends EventEmitter {
       throw new Error(`Cannot find parent object ${parentGuid} to create ${guid}`);
     let result: ChannelOwner<any>;
     const validator = findValidator(type, '', 'Initializer');
-    initializer = validator(initializer, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this.isRemote() ? 'fromBase64' : 'buffer' });
+    initializer = validator(initializer, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._rawBuffers ? 'buffer' : 'fromBase64' });
     switch (type) {
       case 'Android':
         result = new Android(parent, type, guid, initializer);
@@ -295,6 +308,9 @@ export class Connection extends EventEmitter {
         break;
       case 'WebSocket':
         result = new WebSocket(parent, type, guid, initializer);
+        break;
+      case 'WebSocketRoute':
+        result = new WebSocketRoute(parent, type, guid, initializer);
         break;
       case 'Worker':
         result = new Worker(parent, type, guid, initializer);

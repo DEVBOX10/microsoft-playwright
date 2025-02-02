@@ -20,8 +20,9 @@ test('render delayed data', async ({ mount }) => {
   await expect(component).toHaveText('complete');
 });
 
-test('get textContent of the empty fragment', async ({ mount }) => {
+test('render an empty component', async ({ mount, page }) => {
   const component = await mount(<EmptyFragment />);
+  expect(await page.evaluate(() => 'props' in window && window.props)).toEqual({});
   expect(await component.allTextContents()).toEqual(['']);
   expect(await component.textContent()).toBe('');
   await expect(component).toHaveText('');
@@ -30,6 +31,7 @@ test('get textContent of the empty fragment', async ({ mount }) => {
 const testWithServer = test.extend(serverFixtures);
 testWithServer(
   'components routing should go through context',
+  // @ts-ignore "serverFixtures" are imported from the impl without any types
   async ({ mount, context, server }) => {
     server.setRoute('/hello', (req: any, res: any) => {
       res.write('served via server');

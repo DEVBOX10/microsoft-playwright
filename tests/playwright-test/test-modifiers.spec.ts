@@ -143,6 +143,8 @@ test.describe('test modifier annotations', () => {
           test('skip inner', () => { test.skip(); });
           test.fixme('fixme wrap', () => {});
           test('fixme inner', () => { test.fixme(); });
+          test.fail('fail wrap', () => { expect(1).toBe(2); });
+          test('fail inner', () => { test.fail(); expect(1).toBe(2); });
         });
 
         test('example', () => {});
@@ -151,13 +153,15 @@ test.describe('test modifier annotations', () => {
     const expectTest = expectTestHelper(result);
 
     expect(result.exitCode).toBe(0);
-    expect(result.passed).toBe(2);
+    expect(result.passed).toBe(4);
     expect(result.skipped).toBe(4);
     expectTest('no marker', 'passed', 'expected', []);
     expectTest('skip wrap', 'skipped', 'skipped', ['skip']);
     expectTest('skip inner', 'skipped', 'skipped', ['skip']);
     expectTest('fixme wrap', 'skipped', 'skipped', ['fixme']);
     expectTest('fixme inner', 'skipped', 'skipped', ['fixme']);
+    expectTest('fail wrap', 'failed', 'expected', ['fail']);
+    expectTest('fail inner', 'failed', 'expected', ['fail']);
     expectTest('example', 'passed', 'expected', []);
   });
 
@@ -185,7 +189,7 @@ test.describe('test modifier annotations', () => {
     expect(result.passed).toBe(0);
     expect(result.skipped).toBe(6);
     expectTest('no marker', 'skipped', 'skipped', ['fixme']);
-    expectTest('skip wrap', 'skipped', 'skipped', ['skip', 'fixme']);
+    expectTest('skip wrap', 'skipped', 'skipped', ['fixme', 'skip']);
     expectTest('skip inner', 'skipped', 'skipped', ['fixme']);
     expectTest('fixme wrap', 'skipped', 'skipped', ['fixme', 'fixme']);
     expectTest('fixme inner', 'skipped', 'skipped', ['fixme']);
@@ -216,7 +220,7 @@ test.describe('test modifier annotations', () => {
     expectTest('no marker', 'skipped', 'skipped', ['skip']);
     expectTest('skip wrap', 'skipped', 'skipped', ['skip', 'skip']);
     expectTest('skip inner', 'skipped', 'skipped', ['skip']);
-    expectTest('fixme wrap', 'skipped', 'skipped', ['fixme', 'skip']);
+    expectTest('fixme wrap', 'skipped', 'skipped', ['skip', 'fixme']);
     expectTest('fixme inner', 'skipped', 'skipped', ['skip']);
     expectTest('example', 'passed', 'expected', []);
   });
@@ -247,7 +251,7 @@ test.describe('test modifier annotations', () => {
     expect(result.exitCode).toBe(0);
     expect(result.passed).toBe(0);
     expect(result.skipped).toBe(2);
-    expectTest('fixme wrap', 'skipped', 'skipped', ['fixme', 'fixme', 'skip', 'skip', 'fixme']);
+    expectTest('fixme wrap', 'skipped', 'skipped', ['fixme', 'skip', 'skip', 'fixme', 'fixme']);
     expectTest('fixme inner', 'skipped', 'skipped', ['fixme', 'skip', 'skip', 'fixme']);
   });
 
@@ -273,6 +277,33 @@ test.describe('test modifier annotations', () => {
     expect(result.skipped).toBe(2);
     expectTest('focused skip by suite', 'skipped', 'skipped', ['skip']);
     expectTest('focused fixme by suite', 'skipped', 'skipped', ['fixme']);
+  });
+
+  test('should work with fail.only inside describe.only', async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'a.test.ts': `
+        import { test, expect } from '@playwright/test';
+  
+        test.describe.only("suite", () => {
+          test.skip('focused skip by suite', () => {});
+          test.fixme('focused fixme by suite', () => {});
+          test.fail.only('focused fail by suite', () => { expect(1).toBe(2); });
+        });
+  
+        test.describe.skip('not focused', () => {
+          test('no marker', () => {});
+        });
+      `,
+    });
+    const expectTest = expectTestHelper(result);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.passed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.skipped).toBe(0);
+    expectTest('focused skip by suite', 'skipped', 'skipped', ['skip']);
+    expectTest('focused fixme by suite', 'skipped', 'skipped', ['fixme']);
+    expectTest('focused fail by suite', 'failed', 'expected', ['fail']);
   });
 
   test('should not multiple on retry', async ({ runInlineTest }) => {
@@ -517,7 +548,7 @@ test('modifier timeout should be reported', async ({ runInlineTest }) => {
   expect(result.output).toContain('3 |       test.skip(async () => new Promise(() => {}));');
 });
 
-test('should not run hooks if modifier throws', async ({ runInlineTest }) => {
+test('should run beforeAll/afterAll hooks if modifier throws', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
@@ -526,7 +557,7 @@ test('should not run hooks if modifier throws', async ({ runInlineTest }) => {
         throw new Error('Oh my');
       });
       test.beforeAll(() => {
-        console.log('%%beforeEach');
+        console.log('%%beforeAll');
       });
       test.beforeEach(() => {
         console.log('%%beforeEach');
@@ -535,7 +566,7 @@ test('should not run hooks if modifier throws', async ({ runInlineTest }) => {
         console.log('%%afterEach');
       });
       test.afterAll(() => {
-        console.log('%%beforeEach');
+        console.log('%%afterAll');
       });
       test('skipped1', () => {
         console.log('%%skipped1');
@@ -546,7 +577,46 @@ test('should not run hooks if modifier throws', async ({ runInlineTest }) => {
   expect(result.failed).toBe(1);
   expect(result.outputLines).toEqual([
     'modifier',
+    'beforeAll',
+    'afterAll',
   ]);
+});
+
+test('should skip all tests from beforeAll', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test.beforeAll(() => {
+        console.log('%%beforeAll');
+        test.skip(true, 'reason');
+      });
+      test.beforeAll(() => {
+        console.log('%%beforeAll2');
+      });
+      test.beforeEach(() => {
+        console.log('%%beforeEach');
+      });
+      test.afterEach(() => {
+        console.log('%%afterEach');
+      });
+      test.afterAll(() => {
+        console.log('%%afterAll');
+      });
+      test('skipped1', () => {
+        console.log('%%skipped1');
+      });
+      test('skipped2', () => {
+        console.log('%%skipped2');
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.outputLines).toEqual([
+    'beforeAll',
+    'afterAll',
+  ]);
+  expect(result.report.suites[0].specs[0].tests[0].annotations).toEqual([{ type: 'skip', description: 'reason' }]);
+  expect(result.report.suites[0].specs[1].tests[0].annotations).toEqual([{ type: 'skip', description: 'reason' }]);
 });
 
 test('should report skipped tests in-order with correct properties', async ({ runInlineTest }) => {
@@ -634,15 +704,63 @@ test('static modifiers should be added in serial mode', async ({ runInlineTest }
       });
       test.skip('skipped', async ({}) => {
       });
-      test('ignored', async ({}) => {
+      test('does not run', async ({}) => {
       });
     `,
   });
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.didNotRun).toBe(3);
+  expect(result.skipped).toBe(2);
+  expect(result.didNotRun).toBe(1);
   expect(result.report.suites[0].specs[0].tests[0].annotations).toEqual([{ type: 'slow' }]);
   expect(result.report.suites[0].specs[1].tests[0].annotations).toEqual([{ type: 'fixme' }]);
   expect(result.report.suites[0].specs[2].tests[0].annotations).toEqual([{ type: 'skip' }]);
   expect(result.report.suites[0].specs[3].tests[0].annotations).toEqual([]);
+});
+
+test('should contain only one slow modifier', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'slow.test.ts': `
+      import { test } from '@playwright/test';
+      test.slow();
+      test('pass', { annotation: { type: 'issue', description: 'my-value' } }, () => {});
+    `,
+    'skip.test.ts': `
+      import { test } from '@playwright/test';
+      test.skip();
+      test('pass', { annotation: { type: 'issue', description: 'my-value' } }, () => {});
+  `,
+    'fixme.test.ts': `
+      import { test } from '@playwright/test';
+      test.fixme();
+      test('pass', { annotation: { type: 'issue', description: 'my-value' } }, () => {});
+`,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.report.suites[0].specs[0].tests[0].annotations).toEqual([{ type: 'fixme' }, { type: 'issue', description: 'my-value' }]);
+  expect(result.report.suites[1].specs[0].tests[0].annotations).toEqual([{ type: 'skip' }, { type: 'issue', description: 'my-value' }]);
+  expect(result.report.suites[2].specs[0].tests[0].annotations).toEqual([{ type: 'slow' }, { type: 'issue', description: 'my-value' }]);
+});
+
+test('should skip beforeEach hooks upon modifiers', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      import { test } from '@playwright/test';
+      test('top', () => {});
+
+      test.describe(() => {
+        test.skip(({ viewport }) => true);
+        test.beforeEach(() => { throw new Error(); });
+
+        test.describe(() => {
+          test.beforeEach(() => { throw new Error(); });
+          test('test', () => {});
+        });
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.skipped).toBe(1);
 });

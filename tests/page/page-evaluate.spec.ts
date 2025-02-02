@@ -349,10 +349,10 @@ it('should properly serialize null fields', async ({ page }) => {
 
 it('should properly serialize PerformanceMeasure object', async ({ page }) => {
   expect(await page.evaluate(() => {
-    window.performance.mark('start');
-    window.performance.mark('end');
-    window.performance.measure('my-measure', 'start', 'end');
-    return performance.getEntriesByType('measure');
+    window.builtinPerformance.mark('start');
+    window.builtinPerformance.mark('end');
+    window.builtinPerformance.measure('my-measure', 'start', 'end');
+    return window.builtinPerformance.getEntriesByType('measure');
   })).toEqual([{
     duration: expect.any(Number),
     entryType: 'measure',
@@ -362,6 +362,8 @@ it('should properly serialize PerformanceMeasure object', async ({ page }) => {
 });
 
 it('should properly serialize window.performance object', async ({ page }) => {
+  it.skip(!!process.env.PW_CLOCK);
+
   expect(await page.evaluate(() => performance)).toEqual({
     'navigation': {
       'redirectCount': 0,
@@ -396,6 +398,22 @@ it('should properly serialize window.performance object', async ({ page }) => {
 
 it('should return undefined for non-serializable objects', async ({ page }) => {
   expect(await page.evaluate(() => function() {})).toBe(undefined);
+});
+
+it('should throw for too deep reference chain', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33997' }
+}, async ({ page, browserName }) => {
+  await expect(page.evaluate(depth => {
+    const obj = {};
+    let temp = obj;
+    for (let i = 0; i < depth; i++) {
+      temp[i] = {};
+      temp = temp[i];
+    }
+    return obj;
+  }, 1000)).rejects.toThrow(browserName === 'firefox'
+    ? 'Maximum call stack size exceeded'
+    : 'Cannot serialize result: object reference chain is too long.');
 });
 
 it('should alias Window, Document and Node', async ({ page }) => {
@@ -583,13 +601,37 @@ it('should evaluate exception with a function on the stack', async ({ page }) =>
       return new Error('error message');
     })();
   });
-  expect(error).toContain('Error: error message');
-  expect(error).toContain('functionOnStack');
+  expect(error.message).toBe('error message');
+  expect(error.stack).toContain('functionOnStack');
 });
 
 it('should evaluate exception', async ({ page }) => {
-  const error = await page.evaluate(`new Error('error message')`);
-  expect(error).toContain('Error: error message');
+  const error = await page.evaluate(() => {
+    function innerFunction() {
+      const e = new Error('error message');
+      e.name = 'foobar';
+      return e;
+    }
+    return innerFunction();
+  });
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toBe('error message');
+  expect((error as Error).name).toBe('foobar');
+  expect((error as Error).stack).toContain('innerFunction');
+});
+
+it('should pass exception argument', async ({ page }) => {
+  function innerFunction() {
+    const e = new Error('error message');
+    e.name = 'foobar';
+    return e;
+  }
+  const received = await page.evaluate(e => {
+    return { message: e.message, name: e.name, stack: e.stack };
+  }, innerFunction());
+  expect(received.message).toBe('error message');
+  expect(received.name).toBe('foobar');
+  expect(received.stack).toContain('innerFunction');
 });
 
 it('should evaluate date', async ({ page }) => {
@@ -760,12 +802,10 @@ it('should work with overridden URL/Date/RegExp', async ({ page, server }) => {
   }
 });
 
-it('should expose utilityScript', async ({ page }) => {
-  const result = await (page.mainFrame() as any)._evaluateExposeUtilityScript((utilityScript, { a }) => {
-    return { utils: 'parseEvaluationResultValue' in utilityScript, a };
-  }, { a: 42 });
-  expect(result).toEqual({
-    a: 42,
-    utils: true,
-  });
+it('should work with Array.from/map', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28520' });
+  expect(await page.evaluate(() => {
+    const r = (str, amount) => Array.from(Array(amount)).map(() => str).join('');
+    return r('([a-f0-9]{2})', 3);
+  })).toBe('([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})');
 });

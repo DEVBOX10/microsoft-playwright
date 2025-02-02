@@ -17,22 +17,32 @@
 import type http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { mime } from '../utilsBundle';
+import { mime, wsServer } from '../utilsBundle';
 import { assert } from './debug';
 import { createHttpServer } from './network';
 import { ManualPromise } from './manualPromise';
+import { createGuid } from './crypto';
 
 export type ServerRouteHandler = (request: http.IncomingMessage, response: http.ServerResponse) => boolean;
 
+export type Transport = {
+  sendEvent?: (method: string, params: any) => void;
+  close?: () => void;
+  onconnect: () => void;
+  dispatch: (method: string, params: any) => Promise<any>;
+  onclose: () => void;
+};
+
 export class HttpServer {
   private _server: http.Server;
-  private _urlPrefix: string;
+  private _urlPrefixPrecise: string = '';
+  private _urlPrefixHumanReadable: string = '';
   private _port: number = 0;
   private _started = false;
   private _routes: { prefix?: string, exact?: string, handler: ServerRouteHandler }[] = [];
+  private _wsGuid: string | undefined;
 
-  constructor(address: string = '') {
-    this._urlPrefix = address;
+  constructor() {
     this._server = createHttpServer(this._onRequest.bind(this));
   }
 
@@ -68,7 +78,33 @@ export class HttpServer {
     }
   }
 
-  async start(options: { port?: number, preferredPort?: number, host?: string } = {}): Promise<string> {
+  createWebSocket(transport: Transport, guid?: string) {
+    assert(!this._wsGuid, 'can only create one main websocket transport per server');
+    this._wsGuid = guid || createGuid();
+    const wss = new wsServer({ server: this._server, path: '/' + this._wsGuid });
+    wss.on('connection', ws => {
+      transport.onconnect();
+      transport.sendEvent = (method, params)  => ws.send(JSON.stringify({ method, params }));
+      transport.close = () => ws.close();
+      ws.on('message', async message => {
+        const { id, method, params } = JSON.parse(String(message));
+        try {
+          const result = await transport.dispatch(method, params);
+          ws.send(JSON.stringify({ id, result }));
+        } catch (e) {
+          ws.send(JSON.stringify({ id, error: String(e) }));
+        }
+      });
+      ws.on('close', () => transport.onclose());
+      ws.on('error', () => transport.onclose());
+    });
+  }
+
+  wsGuid(): string | undefined {
+    return this._wsGuid;
+  }
+
+  async start(options: { port?: number, preferredPort?: number, host?: string } = {}): Promise<void> {
     assert(!this._started, 'server already started');
     this._started = true;
 
@@ -87,23 +123,23 @@ export class HttpServer {
 
     const address = this._server.address();
     assert(address, 'Could not bind server socket');
-    if (!this._urlPrefix) {
-      if (typeof address === 'string') {
-        this._urlPrefix = address;
-      } else {
-        this._port = address.port;
-        this._urlPrefix = `http://${host}:${address.port}`;
-      }
+    if (typeof address === 'string') {
+      this._urlPrefixPrecise = address;
+      this._urlPrefixHumanReadable = address;
+    } else {
+      this._port = address.port;
+      const resolvedHost = address.family === 'IPv4' ? address.address : `[${address.address}]`;
+      this._urlPrefixPrecise = `http://${resolvedHost}:${address.port}`;
+      this._urlPrefixHumanReadable = `http://${host}:${address.port}`;
     }
-    return this._urlPrefix;
   }
 
   async stop() {
     await new Promise(cb => this._server!.close(cb));
   }
 
-  urlPrefix(): string {
-    return this._urlPrefix;
+  urlPrefix(purpose: 'human-readable' | 'precise'): string {
+    return purpose === 'human-readable' ? this._urlPrefixHumanReadable : this._urlPrefixPrecise;
   }
 
   serveFile(request: http.IncomingMessage, response: http.ServerResponse, absoluteFilePath: string, headers?: { [name: string]: string }): boolean {
@@ -178,12 +214,6 @@ export class HttpServer {
   }
 
   private _onRequest(request: http.IncomingMessage, response: http.ServerResponse) {
-    response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Request-Method', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET');
-    if (request.headers.origin)
-      response.setHeader('Access-Control-Allow-Headers', request.headers.origin);
-
     if (request.method === 'OPTIONS') {
       response.writeHead(200);
       response.end();

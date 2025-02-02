@@ -6,7 +6,6 @@ var EXPORTED_SYMBOLS = ["Juggler", "JugglerFactory"];
 
 const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 const {ComponentUtils} = ChromeUtils.import("resource://gre/modules/ComponentUtils.jsm");
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {Dispatcher} = ChromeUtils.import("chrome://juggler/content/protocol/Dispatcher.js");
 const {BrowserHandler} = ChromeUtils.import("chrome://juggler/content/protocol/BrowserHandler.js");
 const {NetworkObserver} = ChromeUtils.import("chrome://juggler/content/NetworkObserver.js");
@@ -106,7 +105,10 @@ class Juggler {
         };
 
         // Force create hidden window here, otherwise its creation later closes the web socket!
-        Services.appShell.hiddenDOMWindow;
+        // Since https://phabricator.services.mozilla.com/D219834, hiddenDOMWindow is only available on MacOS.
+        if (Services.appShell.hasHiddenWindow) {
+          Services.appShell.hiddenDOMWindow;
+        }
 
         let pipeStopped = false;
         let browserHandler;

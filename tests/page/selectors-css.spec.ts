@@ -274,8 +274,8 @@ it('should work with :nth-child', async ({ page, server }) => {
   expect(await page.$$eval(`css=span:nth-child(23n+2)`, els => els.length)).toBe(1);
 });
 
-it('should work with :nth-child(of) notation with nested functions', async ({ page, browserName }) => {
-  it.fixme(browserName === 'firefox', 'Should enable once Firefox supports this syntax');
+it('should work with :nth-child(of) notation with nested functions', async ({ page, browserName, browserMajorVersion }) => {
+  it.skip(browserName === 'chromium' && browserMajorVersion < 111, 'https://caniuse.com/css-nth-child-of');
 
   await page.setContent(`
     <div>

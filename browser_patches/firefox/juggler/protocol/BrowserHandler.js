@@ -5,7 +5,6 @@
 "use strict";
 
 const {AddonManager} = ChromeUtils.import("resource://gre/modules/AddonManager.jsm");
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {TargetRegistry} = ChromeUtils.import("chrome://juggler/content/TargetRegistry.js");
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {PageHandler} = ChromeUtils.import("chrome://juggler/content/protocol/PageHandler.js");
@@ -187,6 +186,10 @@ class BrowserHandler {
     this._targetRegistry.browserContextForId(browserContextId).requestInterceptionEnabled = enabled;
   }
 
+  ['Browser.setCacheDisabled']({browserContextId, cacheDisabled}) {
+    this._targetRegistry.browserContextForId(browserContextId).setCacheDisabled(cacheDisabled);
+  }
+
   ['Browser.setIgnoreHTTPSErrors']({browserContextId, ignoreHTTPSErrors}) {
     this._targetRegistry.browserContextForId(browserContextId).setIgnoreHTTPSErrors(nullToUndefined(ignoreHTTPSErrors));
   }
@@ -200,7 +203,8 @@ class BrowserHandler {
   }
 
   async ['Browser.setOnlineOverride']({browserContextId, override}) {
-    await this._targetRegistry.browserContextForId(browserContextId).applySetting('onlineOverride', nullToUndefined(override));
+    const forceOffline = override === 'offline';
+    await this._targetRegistry.browserContextForId(browserContextId).setForceOffline(forceOffline);
   }
 
   async ['Browser.setColorScheme']({browserContextId, colorScheme}) {
@@ -249,10 +253,6 @@ class BrowserHandler {
 
   async ['Browser.setDefaultViewport']({browserContextId, viewport}) {
     await this._targetRegistry.browserContextForId(browserContextId).setDefaultViewport(nullToUndefined(viewport));
-  }
-
-  async ['Browser.setScrollbarsHidden']({browserContextId, hidden}) {
-    await this._targetRegistry.browserContextForId(browserContextId).applySetting('scrollbarsHidden', nullToUndefined(hidden));
   }
 
   async ['Browser.setInitScripts']({browserContextId, scripts}) {

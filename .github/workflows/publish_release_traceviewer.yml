@@ -7,11 +7,11 @@ on:
 jobs:
   publish-trace-viewer:
     name: "publish Trace Viewer to trace.playwright.dev"
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     if: github.repository == 'microsoft/playwright'
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
         node-version: 18
     - name: Deploy Stable

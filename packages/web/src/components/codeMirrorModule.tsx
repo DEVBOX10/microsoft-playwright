@@ -14,13 +14,19 @@
   limitations under the License.
 */
 
+// @ts-ignore
 import codemirror from 'codemirror';
+import type codemirrorType from 'codemirror';
 import 'codemirror/lib/codemirror.css';
 import 'codemirror/mode/css/css';
 import 'codemirror/mode/htmlmixed/htmlmixed';
 import 'codemirror/mode/javascript/javascript';
 import 'codemirror/mode/python/python';
 import 'codemirror/mode/clike/clike';
+import 'codemirror/mode/markdown/markdown';
+import 'codemirror/addon/display/placeholder';
+import 'codemirror/addon/mode/simple';
+import 'codemirror/mode/yaml/yaml';
 
-export type CodeMirror = typeof codemirror;
+export type CodeMirror = typeof codemirrorType;
 export default codemirror;

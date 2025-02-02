@@ -27,11 +27,11 @@ export type SnapshotData = {
   }[],
   viewport: { width: number, height: number },
   url: string,
-  timestamp: number,
+  wallTime: number,
   collectionTime: number,
 };
 
-export function frameSnapshotStreamer(snapshotStreamer: string) {
+export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: boolean) {
   // Communication with Playwright.
   if ((window as any)[snapshotStreamer])
     return;
@@ -47,6 +47,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
   const kTargetAttribute = '__playwright_target__';
   const kCustomElementsAttribute = '__playwright_custom_elements__';
   const kCurrentSrcAttribute = '__playwright_current_src__';
+  const kBoundingRectAttribute = '__playwright_bounding_rect__';
+  const kPopoverOpenAttribute = '__playwright_popover_open_';
 
   // Symbols for our own info on Nodes/StyleSheets.
   const kSnapshotFrameId = Symbol('__playwright_snapshot_frameid_');
@@ -81,7 +83,6 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
   }
 
   class Streamer {
-    private _removeNoScript = true;
     private _lastSnapshotNumber = 0;
     private _staleStyleSheets = new Set<CSSStyleSheet>();
     private _readingStyleSheet = false;  // To avoid invalidating due to our own reads.
@@ -140,11 +141,18 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
     }
 
     private _refreshListeners() {
-      (document as any).addEventListener('__playwright_target__', (event: CustomEvent) => {
+      (document as any).addEventListener('__playwright_mark_target__', (event: CustomEvent) => {
         if (!event.detail)
           return;
         const callId = event.detail as string;
         (event.composedPath()[0] as any).__playwright_target__ = callId;
+      });
+      (document as any).addEventListener('__playwright_unmark_target__', (event: CustomEvent) => {
+        if (!event.detail)
+          return;
+        const callId = event.detail as string;
+        if ((event.composedPath()[0] as any).__playwright_target__ === callId)
+          delete (event.composedPath()[0] as any).__playwright_target__;
       });
     }
 
@@ -337,7 +345,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           if (rel === 'preload' || rel === 'prefetch')
             return;
         }
-        if (this._removeNoScript && nodeName === 'NOSCRIPT')
+        if (removeNoScript && nodeName === 'NOSCRIPT')
           return;
         if (nodeName === 'META' && (node as HTMLMetaElement).httpEquiv.toLowerCase() === 'content-security-policy')
           return;
@@ -429,6 +437,24 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
             expectValue(kSelectedAttribute);
             expectValue(value);
             attrs[kSelectedAttribute] = value;
+          }
+          if (nodeName === 'CANVAS' || nodeName === 'IFRAME' || nodeName === 'FRAME') {
+            const boundingRect = (element as HTMLElement).getBoundingClientRect();
+            const value = JSON.stringify({
+              left: boundingRect.left,
+              top: boundingRect.top,
+              right: boundingRect.right,
+              bottom: boundingRect.bottom
+            });
+            expectValue(kBoundingRectAttribute);
+            expectValue(value);
+            attrs[kBoundingRectAttribute] = value;
+          }
+          if ((element as HTMLElement).popover && (element as HTMLElement).matches && (element as HTMLElement).matches(':popover-open')) {
+            const value = 'true';
+            expectValue(kPopoverOpenAttribute);
+            expectValue(value);
+            attrs[kPopoverOpenAttribute] = value;
           }
           if (element.scrollTop) {
             expectValue(kScrollTopAttribute);
@@ -541,7 +567,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
         return checkAndReturn(result);
       };
 
-      const visitStyleSheet = (sheet: CSSStyleSheet) => {
+      const visitStyleSheet = (sheet: CSSStyleSheet): { equals: boolean, n: NodeSnapshot } => {
         const data = ensureCachedData(sheet);
         const oldCSSText = data.cssText;
         const cssText = this._updateStyleElementStyleSheetTextIfNeeded(sheet, true /* forceText */)!;
@@ -573,7 +599,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           height: window.innerHeight,
         },
         url: location.href,
-        timestamp,
+        wallTime: Date.now(),
         collectionTime: 0,
       };
 
@@ -590,7 +616,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
         result.resourceOverrides.push({ url, content, contentType: 'text/css' },);
       }
 
-      result.collectionTime = performance.now() - result.timestamp;
+      result.collectionTime = performance.now() - timestamp;
       return result;
     }
   }

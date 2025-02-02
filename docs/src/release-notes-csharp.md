@@ -4,6 +4,492 @@ title: "Release notes"
 toc_max_heading_level: 2
 ---
 
+
+## Version 1.49
+
+### Aria snapshots
+
+New assertion [`method: LocatorAssertions.toMatchAriaSnapshot`] verifies page structure by comparing to an expected accessibility tree, represented as YAML.
+
+```csharp
+await page.GotoAsync("https://playwright.dev");
+await Expect(page.Locator("body")).ToMatchAriaSnapshotAsync(@"
+  - banner:
+    - heading /Playwright enables reliable/ [level=1]
+    - link ""Get started""
+    - link ""Star microsoft/playwright on GitHub""
+  - main:
+    - img ""Browsers (Chromium, Firefox, WebKit)""
+    - heading ""Any browser • Any platform • One API""
+");
+```
+
+You can generate this assertion with [Test Generator](./codegen) or by calling [`method: Locator.ariaSnapshot`].
+
+Learn more in the [aria snapshots guide](./aria-snapshots).
+
+### Tracing groups
+
+New method [`method: Tracing.group`] allows you to visually group actions in the trace viewer.
+
+```csharp
+// All actions between GroupAsync and GroupEndAsync
+// will be shown in the trace viewer as a group.
+await Page.Context.Tracing.GroupAsync("Open Playwright.dev > API");
+await Page.GotoAsync("https://playwright.dev/");
+await Page.GetByRole(AriaRole.Link, new() { Name = "API" }).ClickAsync();
+await Page.Context.Tracing.GroupEndAsync();
+```
+
+### Breaking: `chrome` and `msedge` channels switch to new headless mode
+
+This change affects you if you're using one of the following channels in your `playwright.config.ts`:
+- `chrome`, `chrome-dev`, `chrome-beta`, or `chrome-canary`
+- `msedge`, `msedge-dev`, `msedge-beta`, or `msedge-canary`
+
+After updating to Playwright v1.49, run your test suite. If it still passes, you're good to go. If not, you will probably need to update your snapshots, and adapt some of your test code around PDF viewers and extensions. See [issue #33566](https://github.com/microsoft/playwright/issues/33566) for more details.
+
+### Try new Chromium headless
+
+You can opt into the new headless mode by using `'chromium'` channel. As [official Chrome documentation puts it](https://developer.chrome.com/blog/chrome-headless-shell):
+
+> New Headless on the other hand is the real Chrome browser, and is thus more authentic, reliable, and offers more features. This makes it more suitable for high-accuracy end-to-end web app testing or browser extension testing.
+
+See [issue #33566](https://github.com/microsoft/playwright/issues/33566) for the list of possible breakages you could encounter and more details on Chromium headless. Please file an issue if you see any problems after opting in.
+
+```xml csharp title="runsettings.xml"
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <Playwright>
+    <BrowserName>chromium</BrowserName>
+    <LaunchOptions>
+      <Channel>chromium</Channel>
+    </LaunchOptions>
+  </Playwright>
+</RunSettings>
+```
+
+```bash csharp
+dotnet test -- Playwright.BrowserName=chromium Playwright.LaunchOptions.Channel=chromium
+```
+
+### Miscellaneous
+
+- There will be no more updates for WebKit on Ubuntu 20.04 and Debian 11. We recommend updating your OS to a later version.
+- `<canvas>` elements inside a snapshot now draw a preview.
+
+### Browser Versions
+
+- Chromium 131.0.6778.33
+- Mozilla Firefox 132.0
+- WebKit 18.2
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 130
+- Microsoft Edge 130
+
+
+## Version 1.48
+
+### WebSocket routing
+
+New methods [`method: Page.routeWebSocket`] and [`method: BrowserContext.routeWebSocket`] allow to intercept, modify and mock WebSocket connections initiated in the page. Below is a simple example that mocks WebSocket communication by responding to a `"request"` with a `"response"`.
+
+```csharp
+await page.RouteWebSocketAsync("/ws", ws => {
+  ws.OnMessage(frame => {
+    if (frame.Text == "request")
+      ws.Send("response");
+  });
+});
+```
+
+See [WebSocketRoute] for more details.
+
+### UI updates
+
+- New "copy" buttons for annotations and test location in the HTML report.
+- Route method calls like [`method: Route.fulfill`] are not shown in the report and trace viewer anymore. You can see which network requests were routed in the network tab instead.
+- New "Copy as cURL" and "Copy as fetch" buttons for requests in the network tab.
+
+### Miscellaneous
+
+- New method [`method: Page.requestGC`] may help detect memory leaks.
+- Requests made by [APIRequestContext] now record detailed timing and security information in the HAR.
+
+### Browser Versions
+
+- Chromium 130.0.6723.19
+- Mozilla Firefox 130.0
+- WebKit 18.0
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 129
+- Microsoft Edge 129
+
+
+## Version 1.47
+
+### Network Tab improvements
+
+The Network tab in the trace viewer has several nice improvements:
+
+- filtering by asset type and URL
+- better display of query string parameters
+- preview of font assets
+
+![Network tab now has filters](https://github.com/user-attachments/assets/4bd1b67d-90bd-438b-a227-00b9e86872e2)
+
+### Miscellaneous
+
+- The `mcr.microsoft.com/playwright/dotnet:v1.47.0` now serves a Playwright image based on Ubuntu 24.04 Noble.
+  To use the 22.04 jammy-based image, please use `mcr.microsoft.com/playwright/dotnet:v1.47.0-jammy` instead.
+- The `:latest`/`:focal`/`:jammy` tag for Playwright Docker images is no longer being published. Pin to a specific version for better stability and reproducibility.
+- TLS client certificates can now be passed from memory by passing [`option: Browser.newContext.clientCertificates.cert`] and [`option: Browser.newContext.clientCertificates.key`] as byte arrays instead of file paths.
+- [`option: Locator.selectOption.noWaitAfter`] in [`method: Locator.selectOption`] was deprecated.
+- We've seen reports of WebGL in Webkit misbehaving on GitHub Actions `macos-13`. We recommend upgrading GitHub Actions to `macos-14`.
+
+### Browser Versions
+
+- Chromium 129.0.6668.29
+- Mozilla Firefox 130.0
+- WebKit 18.0
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 128
+- Microsoft Edge 128
+
+## Version 1.46
+
+### TLS Client Certificates
+
+Playwright now allows to supply client-side certificates, so that server can verify them, as specified by TLS Client Authentication.
+
+You can provide client certificates as a parameter of [`method: Browser.newContext`] and [`method: APIRequest.newContext`]. The following snippet sets up a client certificate for `https://example.com`:
+
+```csharp
+var context = await Browser.NewContextAsync(new() {
+  ClientCertificates = [
+    new() {
+      Origin = "https://example.com",
+      CertPath = "client-certificates/cert.pem",
+      KeyPath = "client-certificates/key.pem",
+    }
+  ]
+});
+```
+
+### Trace Viewer Updates
+
+- Content of text attachments is now rendered inline in the attachments pane.
+- New setting to show/hide routing actions like [`method: Route.continue`].
+- Request method and status are shown in the network details tab.
+- New button to copy source file location to clipboard.
+- Metadata pane now displays the `BaseURL`.
+
+### Miscellaneous
+
+- New `maxRetries` option in [`method: APIRequestContext.fetch`] which retries on the `ECONNRESET` network error.
+
+### Browser Versions
+
+- Chromium 128.0.6613.18
+- Mozilla Firefox 128.0
+- WebKit 18.0
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 127
+- Microsoft Edge 127
+
+
+## Version 1.45
+
+### Clock
+
+Utilizing the new [Clock] API allows to manipulate and control time within tests to verify time-related behavior. This API covers many common scenarios, including:
+* testing with predefined time;
+* keeping consistent time and timers;
+* monitoring inactivity;
+* ticking through time manually.
+
+```csharp
+// Initialize clock with some time before the test time and let the page load naturally.
+// `Date.now` will progress as the timers fire.
+await Page.Clock.InstallAsync(new()
+{
+  TimeDate = new DateTime(2024, 2, 2, 8, 0, 0)
+});
+await Page.GotoAsync("http://localhost:3333");
+
+// Pretend that the user closed the laptop lid and opened it again at 10am.
+// Pause the time once reached that point.
+await Page.Clock.PauseAtAsync(new DateTime(2024, 2, 2, 10, 0, 0));
+
+// Assert the page state.
+await Expect(Page.GetByTestId("current-time")).ToHaveTextAsync("2/2/2024, 10:00:00 AM");
+
+// Close the laptop lid again and open it at 10:30am.
+await Page.Clock.FastForwardAsync("30:00");
+await Expect(Page.GetByTestId("current-time")).ToHaveTextAsync("2/2/2024, 10:30:00 AM");
+```
+
+See [the clock guide](./clock.md) for more details.
+
+### Miscellaneous
+
+- Method [`method: Locator.setInputFiles`] now supports uploading a directory for `<input type=file webkitdirectory>` elements.
+  ```csharp
+  await page.GetByLabel("Upload directory").SetInputFilesAsync("mydir");
+  ```
+
+- Multiple methods like [`method: Locator.click`] or [`method: Locator.press`] now support a `ControlOrMeta` modifier key. This key maps to `Meta` on macOS and maps to `Control` on Windows and Linux.
+  ```csharp
+  // Press the common keyboard shortcut Control+S or Meta+S to trigger a "Save" operation.
+  await page.Keyboard.PressAsync("ControlOrMeta+S");
+  ```
+
+- New property `httpCredentials.send` in [`method: APIRequest.newContext`] that allows to either always send the `Authorization` header or only send it in response to `401 Unauthorized`.
+
+- Playwright now supports Chromium, Firefox and WebKit on Ubuntu 24.04.
+
+- v1.45 is the last release to receive WebKit update for macOS 12 Monterey. Please update macOS to keep using the latest WebKit.
+
+### Browser Versions
+
+* Chromium 127.0.6533.5
+* Mozilla Firefox 127.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 126
+* Microsoft Edge 126
+
+## Version 1.44
+
+### New APIs
+
+**Accessibility assertions**
+
+- [`method: LocatorAssertions.toHaveAccessibleName`] checks if the element has the specified accessible name:
+  ```csharp
+  var locator = Page.GetByRole(AriaRole.Button);
+  await Expect(locator).ToHaveAccessibleNameAsync("Submit");
+  ```
+
+- [`method: LocatorAssertions.toHaveAccessibleDescription`] checks if the element has the specified accessible description:
+  ```csharp
+  var locator = Page.GetByRole(AriaRole.Button);
+  await Expect(locator).ToHaveAccessibleDescriptionAsync("Upload a photo");
+  ```
+
+- [`method: LocatorAssertions.toHaveRole`] checks if the element has the specified ARIA role:
+  ```csharp
+  var locator = Page.GetByTestId("save-button");
+  await Expect(locator).ToHaveRoleAsync(AriaRole.Button);
+  ```
+
+**Locator handler**
+
+- After executing the handler added with [`method: Page.addLocatorHandler`], Playwright will now wait until the overlay that triggered the handler is not visible anymore. You can opt-out of this behavior with the new `NoWaitAfter` option.
+- You can use new `Times` option in [`method: Page.addLocatorHandler`] to specify maximum number of times the handler should be run.
+- The handler in [`method: Page.addLocatorHandler`] now accepts the locator as argument.
+- New [`method: Page.removeLocatorHandler`] method for removing previously added locator handlers.
+
+```csharp
+var locator = Page.GetByText("This interstitial covers the button");
+await Page.AddLocatorHandlerAsync(locator, async (overlay) =>
+{
+    await overlay.Locator("#close").ClickAsync();
+}, new() { Times = 3, NoWaitAfter = true });
+// Run your tests that can be interrupted by the overlay.
+// ...
+await Page.RemoveLocatorHandlerAsync(locator);
+```
+
+**Miscellaneous options**
+
+- New method [`method: FormData.append`] allows to specify repeating fields with the same name in [`Multipart`](./api/class-apirequestcontext#api-request-context-fetch-option-multipart) option in `APIRequestContext.FetchAsync()`:
+  ```csharp
+  var formData = Context.APIRequest.CreateFormData();
+  formData.Append("file", new FilePayload()
+  {
+      Name = "f1.js",
+      MimeType = "text/javascript",
+      Buffer = System.Text.Encoding.UTF8.GetBytes("var x = 2024;")
+  });
+  formData.Append("file", new FilePayload()
+  {
+      Name = "f2.txt",
+      MimeType = "text/plain",
+      Buffer = System.Text.Encoding.UTF8.GetBytes("hello")
+  });
+  var response = await Context.APIRequest.PostAsync("https://example.com/uploadFiles", new() { Multipart = formData });
+  ```
+
+- [`method: PageAssertions.toHaveURL`] now supports `IgnoreCase` [option](./api/class-pageassertions#page-assertions-to-have-url-option-ignore-case).
+
+### Browser Versions
+
+* Chromium 125.0.6422.14
+* Mozilla Firefox 125.0.1
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 124
+* Microsoft Edge 124
+
+## Version 1.43
+
+### New APIs
+
+- Method [`method: BrowserContext.clearCookies`] now supports filters to remove only some cookies.
+
+  ```csharp
+  // Clear all cookies.
+  await Context.ClearCookiesAsync();
+  // New: clear cookies with a particular name.
+  await Context.ClearCookiesAsync(new() { Name = "session-id" });
+  // New: clear cookies for a particular domain.
+  await Context.ClearCookiesAsync(new() { Domain = "my-origin.com" });
+  ```
+
+- New property [`method: Locator.contentFrame`] converts a [Locator] object to a [FrameLocator]. This can be useful when you have a [Locator] object obtained somewhere, and later on would like to interact with the content inside the frame.
+
+  ```csharp
+  var locator = Page.Locator("iframe[name='embedded']");
+  // ...
+  var frameLocator = locator.ContentFrame;
+  await frameLocator.GetByRole(AriaRole.Button).ClickAsync();
+  ```
+
+- New property [`method: FrameLocator.owner`] converts a [FrameLocator] object to a [Locator]. This can be useful when you have a [FrameLocator] object obtained somewhere, and later on would like to interact with the `iframe` element.
+
+  ```csharp
+  var frameLocator = page.FrameLocator("iframe[name='embedded']");
+  // ...
+  var locator = frameLocator.Owner;
+  await Expect(locator).ToBeVisibleAsync();
+  ```
+
+### Browser Versions
+
+* Chromium 124.0.6367.8
+* Mozilla Firefox 124.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 123
+* Microsoft Edge 123
+
+## Version 1.42
+
+### New Locator Handler
+
+New method [`method: Page.addLocatorHandler`] registers a callback that will be invoked when specified element becomes visible and may block Playwright actions. The callback can get rid of the overlay. Here is an example that closes a cookie dialog when it appears.
+
+```csharp
+// Setup the handler.
+await Page.AddLocatorHandlerAsync(
+    Page.GetByRole(AriaRole.Heading, new() { Name = "Hej! You are in control of your cookies." }),
+    async () =>
+    {
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Accept all" }).ClickAsync();
+    });
+// Write the test as usual.
+await Page.GotoAsync("https://www.ikea.com/");
+await Page.GetByRole(AriaRole.Link, new() { Name = "Collection of blue and white" }).ClickAsync();
+await Expect(Page.GetByRole(AriaRole.Heading, new() { Name = "Light and easy" })).ToBeVisibleAsync();
+```
+
+### New APIs
+
+- [`method: Page.pdf`] accepts two new options [`option: Page.pdf.tagged`] and [`option: Page.pdf.outline`].
+
+### Announcements
+
+* ⚠️ Ubuntu 18 is not supported anymore.
+
+### Browser Versions
+
+* Chromium 123.0.6312.4
+* Mozilla Firefox 123.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 122
+* Microsoft Edge 123
+
+## Version 1.41
+
+### New APIs
+
+- New method [`method: Page.unrouteAll`] removes all routes registered by [`method: Page.route`] and [`method: Page.routeFromHAR`]. Optionally allows to wait for ongoing routes to finish, or ignore any errors from them.
+- New method [`method: BrowserContext.unrouteAll`] removes all routes registered by [`method: BrowserContext.route`] and [`method: BrowserContext.routeFromHAR`]. Optionally allows to wait for ongoing routes to finish, or ignore any errors from them.
+- New options [`option: Page.screenshot.style`] in [`method: Page.screenshot`] and [`option: Locator.screenshot.style`] in [`method: Locator.screenshot`] to add custom CSS to the page before taking a screenshot.
+
+### Browser Versions
+
+* Chromium 121.0.6167.57
+* Mozilla Firefox 121.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 120
+* Microsoft Edge 120
+
+## Version 1.40
+
+### Test Generator Update
+
+![Playwright Test Generator](https://github.com/microsoft/playwright/assets/9881434/e8d67e2e-f36d-4301-8631-023948d3e190)
+
+New tools to generate assertions:
+- "Assert visibility" tool generates [`method: LocatorAssertions.toBeVisible`].
+- "Assert value" tool generates [`method: LocatorAssertions.toHaveValue`].
+- "Assert text" tool generates [`method: LocatorAssertions.toContainText`].
+
+Here is an example of a generated test with assertions:
+
+```csharp
+await Page.GotoAsync("https://playwright.dev/");
+await Page.GetByRole(AriaRole.Link, new() { Name = "Get started" }).ClickAsync();
+await Expect(Page.GetByLabel("Breadcrumbs").GetByRole(AriaRole.List)).ToContainTextAsync("Installation");
+await Expect(Page.GetByLabel("Search")).ToBeVisibleAsync();
+await Page.GetByLabel("Search").ClickAsync();
+await Page.GetByPlaceholder("Search docs").FillAsync("locator");
+await Expect(Page.GetByPlaceholder("Search docs")).ToHaveValueAsync("locator");
+```
+
+### New APIs
+
+- Options [`option: Page.close.reason`] in [`method: Page.close`], [`option: BrowserContext.close.reason`] in [`method: BrowserContext.close`] and [`option: Browser.close.reason`] in [`method: Browser.close`]. Close reason is reported for all operations interrupted by the closure.
+- Option [`option: BrowserType.launchPersistentContext.firefoxUserPrefs`] in [`method: BrowserType.launchPersistentContext`].
+
+### Other Changes
+
+- Methods [`method: Download.path`] and [`method: Download.createReadStream`] throw an error for failed and cancelled downloads.
+- Playwright [docker image](./docker.md) now comes with .NET 8 (new LTS).
+
+### Browser Versions
+
+* Chromium 120.0.6099.28
+* Mozilla Firefox 119.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 119
+* Microsoft Edge 119
+
 ## Version 1.39
 
 Evergreen browsers update.
@@ -157,7 +643,7 @@ This version was also tested against the following stable channels:
       await Page.GetByRole(AriaRole.Button, new() { Name = "Dismiss" }).ClickAsync();
     await newEmail.ClickAsync();
     ```
-* Use new options [`option: hasNot`] and [`option: hasNotText`] in [`method: Locator.filter`]
+* Use new options [`option: Locator.filter.hasNot`] and [`option: Locator.filter.hasNotText`] in [`method: Locator.filter`]
   to find elements that **do not match** certain conditions.
 
     ```csharp
@@ -174,10 +660,10 @@ This version was also tested against the following stable channels:
 ### New APIs
 
 - [`method: Locator.or`]
-- New option [`option: hasNot`] in [`method: Locator.filter`]
-- New option [`option: hasNotText`] in [`method: Locator.filter`]
+- New option [`option: Locator.filter.hasNot`] in [`method: Locator.filter`]
+- New option [`option: Locator.filter.hasNotText`] in [`method: Locator.filter`]
 - [`method: LocatorAssertions.toBeAttached`]
-- New option [`option: timeout`] in [`method: Route.fetch`]
+- New option [`option: Route.fetch.timeout`] in [`method: Route.fetch`]
 
 ### ⚠️ Breaking change
 
@@ -200,9 +686,9 @@ This version was also tested against the following stable channels:
 
 ### New APIs
 
-- New options [`option: updateMode`] and [`option: updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
+- New options [`option: Page.routeFromHAR.updateMode`] and [`option: Page.routeFromHAR.updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
 - Chaining existing locator objects, see [locator docs](./locators.md#matching-inside-a-locator) for details.
-- New option [`option: name`] in method [`method: Tracing.startChunk`].
+- New option [`option: Tracing.startChunk.name`] in method [`method: Tracing.startChunk`].
 
 ### Browser Versions
 
@@ -373,7 +859,7 @@ await page.GetByLabel("Password").FillAsync("secret-password");
 
 await page.GetByRole(AriaRole.Button, new() { NameString = "Sign in" }).ClickAsync();
 
-await Expect(page.GetByText("Welcome, John!")).ToBeVisibleAsync();
+await Expect(Page.GetByText("Welcome, John!")).ToBeVisibleAsync();
 ```
 
 All the same methods are also available on [Locator], [FrameLocator] and [Frame] classes.
@@ -387,7 +873,7 @@ All the same methods are also available on [Locator], [FrameLocator] and [Frame]
 - [`method: LocatorAssertions.toHaveAttribute`] with an empty value does not match missing attribute anymore. For example, the following snippet will succeed when `button` **does not** have a `disabled` attribute.
 
    ```csharp
-   await Expect(page.GetByRole(AriaRole.Button)).ToHaveAttribute("disabled", "");
+   await Expect(Page.GetByRole(AriaRole.Button)).ToHaveAttributeAsync("disabled", "");
    ```
 
 ### Browser Versions
@@ -415,7 +901,7 @@ This version was also tested against the following stable channels:
 ### Other highlights
 
 - New option `MaxRedirects` for [`method: APIRequestContext.get`] and others to limit redirect count.
-- Codegen now supports NUnit and MSTest frameworks.
+- Codegen now supports MSTest and NUnit frameworks.
 - ASP .NET is now supported.
 
 ### Behavior Change
@@ -448,7 +934,7 @@ This version was also tested against the following stable channels:
 
 ### New .runsettings file support
 
-`Microsoft.Playwright.NUnit` and `Microsoft.Playwright.MSTest` will now consider the `.runsettings` file and passed settings via the CLI when running end-to-end tests. See in the [documentation](https://playwright.dev/dotnet/docs/test-runners) for a full list of supported settings.
+`Microsoft.Playwright.NUnit` and `Microsoft.Playwright.MSTest` will now consider the `.runsettings` file and passed settings via the CLI when running end-to-end tests. See in the [documentation](./test-runners) for a full list of supported settings.
 
 The following does now work:
 
@@ -511,7 +997,7 @@ Linux support looks like this:
 
 ### New introduction docs
 
-We rewrote our Getting Started docs to be more end-to-end testing focused. Check them out on [playwright.dev](https://playwright.dev/dotnet/docs/intro).
+We rewrote our Getting Started docs to be more end-to-end testing focused. Check them out on [playwright.dev](./intro).
 
 ## Version 1.23
 
@@ -727,7 +1213,7 @@ Read more in [our documentation](./test-assertions).
 
 ### Announcements
 
-- v1.20 is the last release to receive WebKit update for macOS 10.15 Catalina. Please update MacOS to keep using latest & greatest WebKit!
+- v1.20 is the last release to receive WebKit update for macOS 10.15 Catalina. Please update macOS to keep using latest & greatest WebKit!
 
 ### Browser Versions
 
@@ -889,31 +1375,31 @@ This version of Playwright was also tested against the following stable channels
 
 ### 🖱️ Mouse Wheel
 
-By using [`Page.Mouse.WheelAsync`](https://playwright.dev/dotnet/docs/next/api/class-mouse#mouse-wheel) you are now able to scroll vertically or horizontally.
+By using [`method: Mouse.wheel`] you are now able to scroll vertically or horizontally.
 
 ### 📜 New Headers API
 
 Previously it was not possible to get multiple header values of a response. This is now possible and additional helper functions are available:
 
-- [Request.AllHeadersAsync()](https://playwright.dev/dotnet/docs/next/api/class-request#request-all-headers)
-- [Request.HeadersArrayAsync()](https://playwright.dev/dotnet/docs/next/api/class-request#request-headers-array)
-- [Request.HeaderValueAsync(name: string)](https://playwright.dev/dotnet/docs/next/api/class-request#request-header-value)
-- [Response.AllHeadersAsync()](https://playwright.dev/dotnet/docs/next/api/class-response#response-all-headers)
-- [Response.HeadersArrayAsync()](https://playwright.dev/dotnet/docs/next/api/class-response#response-headers-array)
-- [Response.HeaderValueAsync(name: string)](https://playwright.dev/dotnet/docs/next/api/class-response#response-header-value)
-- [Response.HeaderValuesAsync(name: string)](https://playwright.dev/dotnet/docs/next/api/class-response#response-header-values)
+- [`method: Request.allHeaders`]
+- [`method: Request.headersArray`]
+- [`method: Request.headerValue`]
+- [`method: Response.allHeaders`]
+- [`method: Response.headersArray`]
+- [`method: Response.headerValue`]
+- [`method: Response.headerValues`]
 
 ### 🌈 Forced-Colors emulation
 
-Its now possible to emulate the `forced-colors` CSS media feature by passing it in the [context options](https://playwright.dev/dotnet/docs/next/api/class-browser#browser-new-context-option-forced-colors) or calling [Page.EmulateMediaAsync()](https://playwright.dev/dotnet/docs/next/api/class-page#page-emulate-media).
+Its now possible to emulate the `forced-colors` CSS media feature by passing it in the [`method: Browser.newContext`] or calling [`method: Page.emulateMedia`].
 
 ### New APIs
 
-- [Page.RouteAsync()](https://playwright.dev/dotnet/docs/next/api/class-page#page-route) accepts new `times` option to specify how many times this route should be matched.
-- [Page.SetCheckedAsync(selector: string, checked: Boolean)](https://playwright.dev/dotnet/docs/next/api/class-page#page-set-checked) and [Locator.SetCheckedAsync(selector: string, checked: Boolean)](https://playwright.dev/dotnet/docs/next/api/class-locator#locator-set-checked) was introduced to set the checked state of a checkbox.
-- [Request.SizesAsync()](https://playwright.dev/dotnet/docs/next/api/class-request#request-sizes) Returns resource size information for given http request.
-- [Tracing.StartChunkAsync()](https://playwright.dev/dotnet/docs/next/api/class-tracing#tracing-start-chunk) - Start a new trace chunk.
-- [Tracing.StopChunkAsync()](https://playwright.dev/dotnet/docs/next/api/class-tracing#tracing-stop-chunk) - Stops a new trace chunk.
+- [`method: Page.route`] accepts new `times` option to specify how many times this route should be matched.
+- [`method: Page.setChecked`] and [`method: Locator.setChecked`] were introduced to set the checked state of a checkbox.
+- [`method: Request.sizes`] Returns resource size information for given http request.
+- [`method: Tracing.startChunk`] - Start a new trace chunk.
+- [`method: Tracing.stopChunk`] - Stops a new trace chunk.
 
 ### Important ⚠
 * ⬆ .NET Core Apps 2.1 are **no longer** supported for our CLI tooling. As of August 31st, 2021, .NET Core 2.1 is no [longer supported](https://devblogs.microsoft.com/dotnet/net-core-2-1-will-reach-end-of-support-on-august-21-2021/) and will not receive any security updates. We've decided to move the CLI forward and require .NET Core 3.1 as a minimum.

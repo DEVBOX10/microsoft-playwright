@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import { attachFrame } from 'tests/config/utils';
 import { browserTest as it, expect } from '../config/browserTest';
 import fs from 'fs';
 
@@ -34,16 +35,16 @@ it('should capture local storage', async ({ contextFactory }) => {
   });
   const { origins } = await context.storageState();
   expect(origins).toEqual([{
-    origin: 'https://www.example.com',
-    localStorage: [{
-      name: 'name1',
-      value: 'value1'
-    }],
-  }, {
     origin: 'https://www.domain.com',
     localStorage: [{
       name: 'name2',
       value: 'value2'
+    }],
+  }, {
+    origin: 'https://www.example.com',
+    localStorage: [{
+      name: 'name1',
+      value: 'value1'
     }],
   }]);
 });
@@ -203,14 +204,115 @@ it('should handle missing file', async ({ contextFactory }, testInfo) => {
   expect(error.message).toContain(`Error reading storage state from ${file}:\nENOENT`);
 });
 
-it('should handle malformed file', async ({ contextFactory }, testInfo) => {
+it('should handle malformed file', async ({ contextFactory, nodeVersion }, testInfo) => {
   const file = testInfo.outputPath('state.json');
   fs.writeFileSync(file, 'not-json', 'utf-8');
   const error = await contextFactory({
     storageState: file,
   }).catch(e => e);
-  if (+process.versions.node.split('.')[0] > 18)
+  if (nodeVersion.major > 18)
     expect(error.message).toContain(`Error reading storage state from ${file}:\nUnexpected token 'o', \"not-json\" is not valid JSON`);
   else
     expect(error.message).toContain(`Error reading storage state from ${file}:\nUnexpected token o in JSON at position 1`);
+});
+
+it('should serialize storageState with lone surrogates', async ({ page, context, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright-dotnet/issues/2819' });
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(() => window.localStorage.setItem('foo', String.fromCharCode(55934)));
+  const storageState = await context.storageState();
+  expect(storageState.origins[0].localStorage[0].value).toBe(String.fromCharCode(55934));
+});
+
+it('should work when service worker is intefering', async ({ page, context, server, isAndroid, isElectron, electronMajorVersion }) => {
+  it.skip(isAndroid);
+  it.skip(isElectron && electronMajorVersion < 30, 'error: Browser context management is not supported.');
+
+  server.setRoute('/', (req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`
+      <script>
+        console.log('from page');
+        window.localStorage.foo = 'bar';
+        window.registrationPromise = navigator.serviceWorker.register('sw.js');
+        window.activationPromise = new Promise(resolve => navigator.serviceWorker.oncontrollerchange = resolve);
+      </script>
+    `);
+  });
+
+  server.setRoute('/sw.js', (req, res) => {
+    res.writeHead(200, { 'content-type': 'application/javascript' });
+    res.end(`
+      const kHtmlPage = \`
+        <script>
+          console.log('from sw page');
+          let counter = window.localStorage.counter || 0;
+          ++counter;
+          window.localStorage.counter = counter;
+          setTimeout(() => {
+            window.location.href = counter + '.html';
+          }, 0);
+        </script>
+      \`;
+
+      console.log('from sw 1');
+      self.addEventListener('fetch', event => {
+        console.log('fetching ' + event.request.url);
+        const blob = new Blob([kHtmlPage], { type: 'text/html' });
+        const response = new Response(blob, { status: 200 , statusText: 'OK' });
+        event.respondWith(response);
+      });
+
+      self.addEventListener('activate', event => {
+        console.log('from sw 2');
+        event.waitUntil(clients.claim());
+      });
+    `);
+  });
+
+  await page.goto(server.PREFIX);
+  await page.evaluate(() => window['activationPromise']);
+
+  const storageState = await context.storageState();
+  expect(storageState.origins[0].localStorage[0]).toEqual({ name: 'foo', value: 'bar' });
+});
+
+it('should set local storage in third-party context', async ({ contextFactory, server }) => {
+  const context = await contextFactory({
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: server.CROSS_PROCESS_PREFIX,
+          localStorage: [{
+            name: 'name1',
+            value: 'value1'
+          }]
+        },
+      ]
+    }
+  });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+  const frame = await attachFrame(page, 'frame1', server.CROSS_PROCESS_PREFIX + '/empty.html');
+
+  const localStorage = await frame.evaluate('window.localStorage');
+  expect(localStorage).toEqual({ name1: 'value1' });
+  await context.close();
+});
+
+it('should roundtrip local storage in third-party context', async ({ page, contextFactory, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  const frame = await attachFrame(page, 'frame1', server.CROSS_PROCESS_PREFIX + '/empty.html');
+  await frame.evaluate(() => window.localStorage.setItem('name1', 'value1'));
+  const storageState = await page.context().storageState();
+
+  const context2 = await contextFactory({ storageState });
+  const page2 = await context2.newPage();
+  await page2.goto(server.EMPTY_PAGE);
+  const frame2 = await attachFrame(page2, 'frame1', server.CROSS_PROCESS_PREFIX + '/empty.html');
+
+  const localStorage = await frame2.evaluate('window.localStorage');
+  expect(localStorage).toEqual({ name1: 'value1' });
+  await context2.close();
 });

@@ -30,6 +30,17 @@ test('android.launchServer should connect to a device', async ({ playwright }) =
   await browserServer.close();
 });
 
+test('android.launchServer should work with host', async ({ playwright }) => {
+  const host = '0.0.0.0';
+  const browserServer = await playwright._android.launchServer({ host });
+  expect(browserServer.wsEndpoint()).toContain(String(host));
+  const device = await playwright._android.connect(browserServer.wsEndpoint());
+  const output = await device.shell('echo 123');
+  expect(output.toString()).toBe('123\n');
+  await device.close();
+  await browserServer.close();
+});
+
 test('android.launchServer should handle close event correctly', async ({ playwright }) => {
   const receivedEvents: string[] = [];
   const browserServer = await playwright._android.launchServer();
@@ -118,14 +129,16 @@ test('android.launchServer should terminate WS connection when device gets disco
   const forwardingServer = new ws.Server({ port: 0, path: '/connect' });
   let receivedConnection: ws.WebSocket | undefined;
   forwardingServer.on('connection', connection => {
+    // Pause the connection until we establish the actual connection to the browser server.
+    connection.pause();
     receivedConnection = connection;
     const actualConnection = new ws.WebSocket(browserServer.wsEndpoint());
-    actualConnection.on('open', () => {
-      actualConnection.on('message', message => connection.send(message));
-      connection.on('message', message => actualConnection.send(message));
-      connection.on('close', () => actualConnection.close());
-      actualConnection.on('close', () => connection.close());
-    });
+    // We need to wait for the actual connection to be established before resuming
+    actualConnection.on('open', () => connection.resume());
+    actualConnection.on('message', message => connection.send(message));
+    connection.on('message', message => actualConnection.send(message));
+    connection.on('close', () => actualConnection.close());
+    actualConnection.on('close', () => connection.close());
   });
   try {
     const device = await playwright._android.connect(`ws://localhost:${(forwardingServer.address() as ws.AddressInfo).port}/connect`);

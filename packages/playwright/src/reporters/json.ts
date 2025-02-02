@@ -17,45 +17,48 @@
 import fs from 'fs';
 import path from 'path';
 import type { FullConfig, TestCase, Suite, TestResult, TestError, TestStep, FullResult, Location, JSONReport, JSONReportSuite, JSONReportSpec, JSONReportTest, JSONReportTestResult, JSONReportTestStep, JSONReportError } from '../../types/testReporter';
-import { formatError, prepareErrorStack } from './base';
-import { MultiMap } from 'playwright-core/lib/utils';
-import { assert } from 'playwright-core/lib/utils';
+import { formatError, nonTerminalScreen, prepareErrorStack, resolveOutputFile } from './base';
+import { MultiMap, toPosixPath } from 'playwright-core/lib/utils';
 import { getProjectId } from '../common/config';
-import EmptyReporter from './empty';
+import type { ReporterV2 } from './reporterV2';
 
-export function toPosixPath(aPath: string): string {
-  return aPath.split(path.sep).join(path.posix.sep);
-}
+type JSONOptions = {
+  outputFile?: string,
+  configDir: string,
+};
 
-class JSONReporter extends EmptyReporter {
+class JSONReporter implements ReporterV2 {
   config!: FullConfig;
   suite!: Suite;
   private _errors: TestError[] = [];
-  private _outputFile: string | undefined;
+  private _resolvedOutputFile: string | undefined;
 
-  constructor(options: { outputFile?: string } = {}) {
-    super();
-    this._outputFile = options.outputFile || reportOutputNameFromEnv();
+  constructor(options: JSONOptions) {
+    this._resolvedOutputFile = resolveOutputFile('JSON', options)?.outputFile;
   }
 
-  override printsToStdio() {
-    return !this._outputFile;
+  version(): 'v2' {
+    return 'v2';
   }
 
-  override onConfigure(config: FullConfig) {
+  printsToStdio() {
+    return !this._resolvedOutputFile;
+  }
+
+  onConfigure(config: FullConfig) {
     this.config = config;
   }
 
-  override onBegin(suite: Suite) {
+  onBegin(suite: Suite) {
     this.suite = suite;
   }
 
-  override onError(error: TestError): void {
+  onError(error: TestError): void {
     this._errors.push(error);
   }
 
-  override async onEnd(result: FullResult) {
-    await outputReport(this._serializeReport(result), this.config, this._outputFile);
+  async onEnd(result: FullResult) {
+    await outputReport(this._serializeReport(result), this._resolvedOutputFile);
   }
 
   private _serializeReport(result: FullResult): JSONReport {
@@ -174,7 +177,7 @@ class JSONReporter extends EmptyReporter {
     return {
       title: test.title,
       ok: test.ok(),
-      tags: (test.title.match(/@[\S]+/g) || []).map(t => t.substring(1)),
+      tags: test.tags.map(tag => tag.substring(1)),  // Strip '@'.
       tests: [this._serializeTest(projectId, projectName, test)],
       id: test.id,
       ...this._relativeLocation(test.location),
@@ -219,7 +222,7 @@ class JSONReporter extends EmptyReporter {
   }
 
   private _serializeError(error: TestError): JSONReportError {
-    return formatError(error, true);
+    return formatError(nonTerminalScreen, error);
   }
 
   private _serializeTestStep(step: TestStep): JSONReportTestStep {
@@ -233,13 +236,11 @@ class JSONReporter extends EmptyReporter {
   }
 }
 
-async function outputReport(report: JSONReport, config: FullConfig, outputFile: string | undefined) {
+async function outputReport(report: JSONReport, resolvedOutputFile: string | undefined) {
   const reportString = JSON.stringify(report, undefined, 2);
-  if (outputFile) {
-    assert(config.configFile || path.isAbsolute(outputFile), 'Expected fully resolved path if not using config file.');
-    outputFile = config.configFile ? path.resolve(path.dirname(config.configFile), outputFile) : outputFile;
-    await fs.promises.mkdir(path.dirname(outputFile), { recursive: true });
-    await fs.promises.writeFile(outputFile, reportString);
+  if (resolvedOutputFile) {
+    await fs.promises.mkdir(path.dirname(resolvedOutputFile), { recursive: true });
+    await fs.promises.writeFile(resolvedOutputFile, reportString);
   } else {
     console.log(reportString);
   }
@@ -253,12 +254,6 @@ function stdioEntry(s: string | Buffer): any {
 
 function removePrivateFields(config: FullConfig): FullConfig {
   return Object.fromEntries(Object.entries(config).filter(([name, value]) => !name.startsWith('_'))) as FullConfig;
-}
-
-function reportOutputNameFromEnv(): string | undefined {
-  if (process.env[`PLAYWRIGHT_JSON_OUTPUT_NAME`])
-    return path.resolve(process.cwd(), process.env[`PLAYWRIGHT_JSON_OUTPUT_NAME`]);
-  return undefined;
 }
 
 export function serializePatterns(patterns: string | RegExp | (string | RegExp)[]): string[] {

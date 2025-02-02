@@ -14,88 +14,60 @@
  * limitations under the License.
  */
 
-import type { RawStack } from './stackTrace';
-import { captureRawStack } from './stackTrace';
+import { AsyncLocalStorage } from 'async_hooks';
 
-export type ZoneType = 'apiZone' | 'expectZone' | 'stepZone';
+export type ZoneType = 'apiZone' | 'stepZone';
 
 class ZoneManager {
-  lastZoneId = 0;
-  readonly _zones = new Map<number, Zone<any>>();
+  private readonly _asyncLocalStorage = new AsyncLocalStorage<Zone | undefined>();
+  private readonly _emptyZone = Zone.createEmpty(this._asyncLocalStorage);
 
-  run<T, R>(type: ZoneType, data: T, func: (data: T) => R): R {
-    return new Zone<T>(this, ++this.lastZoneId, type, data).run(func);
+  run<T, R>(type: ZoneType, data: T, func: () => R): R {
+    return this.current().with(type, data).run(func);
   }
 
-  zoneData<T>(type: ZoneType, rawStack: RawStack): T | null {
-    for (const line of rawStack) {
-      for (const zoneId of zoneIds(line)) {
-        const zone = this._zones.get(zoneId);
-        if (zone && zone.type === type)
-          return zone.data;
-      }
-    }
-    return null;
+  zoneData<T>(type: ZoneType): T | undefined {
+    return this.current().data(type);
   }
 
-  preserve<T>(callback: () => Promise<T>): Promise<T> {
-    const rawStack = captureRawStack();
-    const refs: number[] = [];
-    for (const line of rawStack)
-      refs.push(...zoneIds(line));
-    Object.defineProperty(callback, 'name', { value: `__PWZONE__[${refs.join(',')}]-refs` });
-    return callback();
+  current(): Zone {
+    return this._asyncLocalStorage.getStore() ?? this._emptyZone;
+  }
+
+  empty(): Zone {
+    return this._emptyZone;
   }
 }
 
-function zoneIds(line: string): number[] {
-  const index = line.indexOf('__PWZONE__[');
-  if (index === -1)
-    return [];
-  return line.substring(index + '__PWZONE__['.length, line.indexOf(']', index)).split(',').map(s => +s);
-}
+export class Zone {
+  private readonly _asyncLocalStorage: AsyncLocalStorage<Zone | undefined>;
+  private readonly _data: ReadonlyMap<ZoneType, unknown>;
 
-class Zone<T> {
-  private _manager: ZoneManager;
-  readonly id: number;
-  readonly type: ZoneType;
-  data: T;
-  readonly wallTime: number;
-
-  constructor(manager: ZoneManager, id: number, type: ZoneType, data: T) {
-    this._manager = manager;
-    this.id = id;
-    this.type = type;
-    this.data = data;
-    this.wallTime = Date.now();
+  static createEmpty(asyncLocalStorage: AsyncLocalStorage<Zone | undefined>) {
+    return new Zone(asyncLocalStorage, new Map());
   }
 
-  run<R>(func: (data: T) => R): R {
-    this._manager._zones.set(this.id, this);
-    Object.defineProperty(func, 'name', { value: `__PWZONE__[${this.id}]-${this.type}` });
-    return runWithFinally(() => func(this.data), () => {
-      this._manager._zones.delete(this.id);
-    });
+  private constructor(asyncLocalStorage: AsyncLocalStorage<Zone | undefined>, store: Map<ZoneType, unknown>) {
+    this._asyncLocalStorage = asyncLocalStorage;
+    this._data = store;
   }
-}
 
-export function runWithFinally<R>(func: () => R, finallyFunc: Function): R {
-  try {
-    const result = func();
-    if (result instanceof Promise) {
-      return result.then(r => {
-        finallyFunc();
-        return r;
-      }).catch(e => {
-        finallyFunc();
-        throw e;
-      }) as any;
-    }
-    finallyFunc();
-    return result;
-  } catch (e) {
-    finallyFunc();
-    throw e;
+  with(type: ZoneType, data: unknown): Zone {
+    return new Zone(this._asyncLocalStorage, new Map(this._data).set(type, data));
+  }
+
+  without(type?: ZoneType): Zone {
+    const data = type ? new Map(this._data) : new Map();
+    data.delete(type);
+    return new Zone(this._asyncLocalStorage, data);
+  }
+
+  run<R>(func: () => R): R {
+    return this._asyncLocalStorage.run(this, func);
+  }
+
+  data<T>(type: ZoneType): T | undefined {
+    return this._data.get(type) as T | undefined;
   }
 }
 

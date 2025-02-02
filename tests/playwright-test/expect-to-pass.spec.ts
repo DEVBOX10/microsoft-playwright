@@ -220,3 +220,81 @@ test('should show intermediate result for toPass that spills over test time', as
   expect(result.output).toContain('Expected: 2');
   expect(result.output).toContain('Received: 3');
 });
+
+test('should respect timeout in config file when timeout parameter is not passed', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `module.exports = { expect: { toPass: { timeout: 100 } } }`,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('should fail', async () => {
+        await test.expect(() => {
+          expect(1).toBe(2);
+        }).toPass();
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Timeout 100ms exceeded while waiting on the predicate');
+  expect(result.output).toContain('Received: 1');
+  expect(result.output).toContain(`
+  4 |         await test.expect(() => {
+  `.trim());
+});
+
+test('should give priority to timeout parameter over timeout in config file', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `module.exports = { expect: { toPass: { timeout: 100 } } }`,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('should fail', async () => {
+        await test.expect(() => {
+          expect(1).toBe(2);
+        }).toPass({ timeout: 200 });
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Timeout 200ms exceeded while waiting on the predicate');
+  expect(result.output).toContain('Received: 1');
+  expect(result.output).toContain(`
+  4 |         await test.expect(() => {
+  `.trim());
+});
+
+test('should respect intervals in config file when intervals parameter is not passed', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `module.exports = { expect: { toPass: { timeout: 2000, intervals: [100, 1000] } } }`,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('should fail', async () => {
+        let attempt = 0;
+        await test.expect(() => {
+          expect(++attempt).toBe(-1);
+        }).toPass();
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Error: expect(received).toBe(expected) // Object.is equality');
+  expect(result.output).toContain('Expected: -1');
+  expect(result.output).toContain('Received: 3');
+});
+
+test('should give priority to intervals parameter over intervals in config file', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `module.exports = { expect: { toPass: { timeout: 2000, intervals: [100] } } }`,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('should fail', async () => {
+        let attempt = 0;
+        await test.expect(() => {
+          expect(++attempt).toBe(-1);
+        }).toPass({ intervals: [100, 1000] });
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Error: expect(received).toBe(expected) // Object.is equality');
+  expect(result.output).toContain('Expected: -1');
+  expect(result.output).toContain('Received: 3');
+});

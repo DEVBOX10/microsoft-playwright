@@ -59,14 +59,14 @@ test('should remove temp dir on process.exit', async ({ startRemoteServer, serve
 test.describe('signals', () => {
   test.skip(({ platform }) => platform === 'win32');
 
-  test('should report browser close signal 2', async ({ startRemoteServer, server, isMac, browserName }) => {
+  test('should report browser close signal 2', async ({ startRemoteServer, server, isMac, macVersion, browserName }) => {
     const remoteServer = await startRemoteServer('launchServer', { url: server.EMPTY_PAGE });
     const pid = await remoteServer.out('pid');
     process.kill(-pid, 'SIGKILL');
-    if (isMac && browserName === 'webkit' && parseInt(os.release(), 10) === 22 && os.arch() === 'arm64') {
-      // WebKit on mac13 exits differently.
-      expect(await remoteServer.out('exitCode')).toBe('137');
-      expect(await remoteServer.out('signal')).toBe('null');
+    if (isMac && browserName === 'webkit' && macVersion > 13 && os.arch() === 'arm64') {
+      // WebKit on newer macOS exits sometimes with exit code, sometimes with signal.
+      expect('exitCode:' + await remoteServer.out('exitCode') +
+             'signal:' + await remoteServer.out('signal')).toMatch(/exitCode:137|signal:SIGKILL/);
     } else {
       expect(await remoteServer.out('exitCode')).toBe('null');
       expect(await remoteServer.out('signal')).toBe('SIGKILL');
@@ -132,5 +132,13 @@ test.describe('signals', () => {
     expect(await remoteServer.out('exitCode')).toBe('null');
     expect(await remoteServer.out('signal')).toBe('SIGKILL');
     expect(await remoteServer.childExitCode()).toBe(130);
+  });
+
+  test('should not prevent default SIGTERM handling after browser close', async ({ startRemoteServer, server, platform }, testInfo) => {
+    const remoteServer = await startRemoteServer('launchServer', { startStopAndRunHttp: true });
+    expect(await remoteServer.out('closed')).toBe('success');
+    process.kill(remoteServer.child().pid, 'SIGTERM');
+    expect(await remoteServer.childExitCode()).toBe(null);
+    expect(await remoteServer.childSignal()).toBe('SIGTERM');
   });
 });

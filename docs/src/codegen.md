@@ -21,23 +21,31 @@ Install the VS Code extension and generate tests directly from VS Code. The exte
 
 ### Record a New Test
 
-To record a test click on the **Record new** button from the Testing sidebar. This will create a `test-1.spec.ts` file as well as open up a browser window. 
+To record a test click on the **Record new** button from the Testing sidebar. This will create a `test-1.spec.ts` file as well as open up a browser window.
 
 <img width="1385" alt="record new in vs code" src="https://user-images.githubusercontent.com/13063165/220961665-615d0ab8-3f0b-439c-ad0b-0424d9aa154b.png" />
 
 In the browser go to the URL you wish to test and start clicking around to record your user actions.
 
-<img width="1394" alt="clicking delete button on todo app with locator highlighted" src="https://user-images.githubusercontent.com/13063165/220957132-31b54f82-6235-4c52-a966-6863553b5b23.png" />
+![generating user actions](https://github.com/microsoft/playwright/assets/13063165/1d4c8f37-8325-4816-a665-d0e95e63f509)
 
-Playwright will record your actions and generate the test code directly in VS Code. Once you are done recording click the **cancel** button or close the browser window. You can then inspect your `test-1.spec.ts` file and see your generated test and then manually improve the test by adding [ assertions](test-assertions).
+Playwright will record your actions and generate the test code directly in VS Code. You can also generate assertions by choosing one of the icons in the toolbar and then clicking on an element on the page to assert against. The following assertions can be generated:
+  * `'assert visibility'` to assert that an element is visible
+  * `'assert text'` to assert that an element contains specific text
+  * `'assert value'` to assert that an element has a specific value
 
-<img width="1667" alt="vs code showing recorded actions of test" src="https://user-images.githubusercontent.com/13063165/220938674-6e1ff1d3-e75a-4238-a7fc-4c40dbc8b3bc.png" />
+![generating assertions](https://github.com/microsoft/playwright/assets/13063165/d131eb35-b2ca-4bf4-a8ac-88b6e40dcf07)
+
+Once you are done recording click the **cancel** button or close the browser window. You can then inspect your `test-1.spec.ts` file and manually improve it if needed.
+
+![code from a generated test](https://github.com/microsoft/playwright/assets/13063165/2ba4c212-4713-460a-b054-6dc6b67a9a7c)
 
 ### Record at Cursor
 
 To record from a specific point in your test move your cursor to where you want to record more actions and then click the **Record at cursor** button from the Testing sidebar. If your browser window is not already open then first run the test with 'Show browser' checked and then click the **Record at cursor** button.
 
-<img width="1529" alt="record at cursor in vs code" src="https://user-images.githubusercontent.com/13063165/220959996-2bb3af59-85d9-4d58-aba7-d57375e7ca7e.png" />
+
+![record at cursor in vs code](https://github.com/microsoft/playwright/assets/13063165/77948ab8-92a2-435f-9833-0944da5ae664)
 
 In the browser window start performing the actions you want to record.
 
@@ -46,20 +54,20 @@ In the browser window start performing the actions you want to record.
 
 In the test file in VS Code you will see your new generated actions added to your test at the cursor position.
 
-<img width="1641" alt="vs code showing test code generated" src="https://user-images.githubusercontent.com/13063165/220940902-d1dbc321-0ef5-4388-9e11-6311aff59ff4.png" />
+![code from a generated test](https://github.com/microsoft/playwright/assets/13063165/4f4bb34e-9cda-41fe-bf65-8d8016d84c7f)
 
 ### Generating locators
 
-You can generate locators with the test generator. 
-- Click on the **Pick locator** button form the testing sidebar and then hover over elements in the browser window to see the [locator](./locators.md) highlighted underneath each element. 
-- Click the element you require and it will now show up in the **Pick locator** box in VS Code. 
+You can generate locators with the test generator.
+- Click on the **Pick locator** button form the testing sidebar and then hover over elements in the browser window to see the [locator](./locators.md) highlighted underneath each element.
+- Click the element you require and it will now show up in the **Pick locator** box in VS Code.
 - Press <kbd>Enter</kbd> on your keyboard to copy the locator into the clipboard and then paste anywhere in your code. Or press 'escape' if you want to cancel.
 
 <img width="1641" alt="Pick locators in VS code" src="https://user-images.githubusercontent.com/13063165/220958368-95b03620-3c9b-40a8-be74-01c96ba03cad.png" />
 
 ## Generate tests with the Playwright Inspector
 
-When running the `codegen` command two windows will be opened, a browser window where you interact with the website you wish to test and the Playwright Inspector window where you can record your tests and then copy them into your editor. 
+When running the `codegen` command two windows will be opened, a browser window where you interact with the website you wish to test and the Playwright Inspector window where you can record your tests and then copy them into your editor.
 
 ### Running Codegen
 
@@ -85,59 +93,67 @@ pwsh bin/Debug/netX/playwright.ps1 codegen demo.playwright.dev/todomvc
 
 Run the `codegen` command and perform actions in the browser window. Playwright will generate the code for the user interactions which you can see in the Playwright Inspector window. Once you have finished recording your test stop the recording and press the **copy** button to copy your generated test into your editor.
 
+With the test generator you can record:
+* Actions like click or fill by simply interacting with the page
+* Assertions by clicking on one of the icons in the toolbar and then clicking on an element on the page to assert against. You can choose:
+  * `'assert visibility'` to assert that an element is visible
+  * `'assert text'` to assert that an element contains specific text
+  * `'assert value'` to assert that an element has a specific value
+
 ######
 * langs: js
 
-<img width="1365" alt="Recording a test" src="https://user-images.githubusercontent.com/13063165/212754505-b98e80fd-6dda-48f7-860b-b32b4fabee33.png" />
+![Recording a test](https://github.com/microsoft/playwright/assets/13063165/34a79ea1-639e-4cb3-8115-bfdc78e3d34d)
 
 ######
 * langs: java
 
-<img width="1365" alt="Recording a test" src="https://user-images.githubusercontent.com/13063165/212754804-0d9f9d52-0a48-45c8-970d-e672d4a91221.png" />
+![recording a test](https://github.com/microsoft/playwright/assets/13063165/ec9c4071-4af8-4ae7-8b36-aebcc29bdbbb)
 
 ######
 * langs: python
 
-<img width="1365" alt="Recording a test" src="https://user-images.githubusercontent.com/13063165/212751993-b7da2c40-a7cc-4b13-9a91-40ee837042a1.png" />
+![recording a test](https://github.com/microsoft/playwright/assets/13063165/9751b609-6e4c-486b-a961-f86f177b1d58)
 
 ######
 * langs: csharp
 
-<img width="1365" alt="Recording a test" src="https://user-images.githubusercontent.com/13063165/212754994-fa637d81-b81d-44b8-bcd7-5dc218034f0a.png" />
+![recording a test](https://github.com/microsoft/playwright/assets/13063165/53bdfb6f-d462-4ce0-ab95-0619faaebf1e)
+
+######
+* langs: js, java, python, csharp
 
 When you have finished interacting with the page, press the **record** button to stop the recording and use the **copy** button to copy the generated code to your editor.
 
-Use the **clear** button to clear the code to start recording again. Once finished close the Playwright inspector window or stop the terminal command.
-
-To learn more about generating tests check out or detailed guide on [Codegen](./codegen.md).
+Use the **clear** button to clear the code to start recording again. Once finished, close the Playwright inspector window or stop the terminal command.
 
 ### Generating locators
-You can generate [locators](/locators.md) with the test generator. 
+You can generate [locators](/locators.md) with the test generator.
 
 * Press the `'Record'` button to stop the recording and the `'Pick Locator'` button will appear.
-* Click on the `'Pick Locator'` button and then hover over elements in the browser window to see the locator highlighted underneath each element. 
-* To choose a locator click on the element you would like to locate and the code for that locator will appear in the field next to the Pick Locator button.
+* Click on the `'Pick Locator'` button and then hover over elements in the browser window to see the locator highlighted underneath each element.
+* To choose a locator, click on the element you would like to locate and the code for that locator will appear in the field next to the Pick Locator button.
 * You can then edit the locator in this field to fine tune it or use the copy button to copy it and paste it into your code.
 
 ######
 * langs: js
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753129-55fbcf69-0be3-422e-888a-f52060c7aa6b.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/2c8a12e2-4e98-4fdd-af92-1d73ae696d86)
 
 ######
 * langs: java
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753446-456484a8-8c37-4104-8db5-4525b74c8cf1.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/733b48fd-5edf-4150-93f0-018adc52b6ff)
 
 ######
 * langs: python
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753605-861d66a4-fc1c-4559-b821-cb1f39059337.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/95d11f48-96a4-46b9-9c2a-63c3aa4fdce7)
 
 ######
 * langs: csharp
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753728-49d35a7c-c05a-4298-bf66-89930d2cb578.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/1478f56f-422f-4276-9696-0674041f11dc)
 
 ## Emulation
 
@@ -148,19 +164,19 @@ You can use the test generator to generate tests using emulation so as to genera
 Playwright opens a browser window with its viewport set to a specific width and height and is not responsive as tests need to be run under the same conditions. Use the `--viewport` option to generate tests with a different viewport size.
 
 ```bash js
-npx playwright codegen --viewport-size=800,600 playwright.dev
+npx playwright codegen --viewport-size="800,600" playwright.dev
 ```
 
 ```bash java
-mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="codegen --viewport-size=800,600 playwright.dev"
+mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="codegen --viewport-size='800,600' playwright.dev"
 ```
 
 ```bash python
-playwright codegen --viewport-size=800,600 playwright.dev
+playwright codegen --viewport-size="800,600" playwright.dev
 ```
 
 ```bash csharp
-pwsh bin/Debug/netX/playwright.ps1 codegen --viewport-size=800,600 playwright.dev
+pwsh bin/Debug/netX/playwright.ps1 codegen --viewport-size="800,600" playwright.dev
 ```
 ######
 * langs: js
@@ -268,7 +284,7 @@ pwsh bin/Debug/netX/playwright.ps1 codegen --color-scheme=dark playwright.dev
 Record scripts and tests while emulating timezone, language & location using the `--timezone`, `--geolocation` and `--lang` options. Once the page opens:
 
 1. Accept the cookies
-1. On the top right click on the locate me button to see geolocation in action.
+1. On the top right, click on the locate me button to see geolocation in action.
 
 ```bash js
 npx playwright codegen --timezone="Europe/Rome" --geolocation="41.890221,12.492348" --lang="it-IT" bing.com/maps
@@ -309,7 +325,7 @@ pwsh bin/Debug/netX/playwright.ps1 codegen --timezone="Europe/Rome" --geolocatio
 
 ### Preserve authenticated state
 
-Run `codegen` with `--save-storage` to save [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) and [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) at the end of the session. This is useful to separately record an authentication step and reuse it later when recording more tests. 
+Run `codegen` with `--save-storage` to save [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) and [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) at the end of the session. This is useful to separately record an authentication step and reuse it later when recording more tests.
 
 ```bash js
 npx playwright codegen github.com/microsoft/playwright --save-storage=auth.json
@@ -351,15 +367,15 @@ pwsh bin/Debug/netX/playwright.ps1 codegen github.com/microsoft/playwright --sav
 
 #### Login
 
-After performing authentication and closing the browser, `auth.json` will contain the storage state which you can then reuse in your tests. 
+After performing authentication and closing the browser, `auth.json` will contain the storage state which you can then reuse in your tests.
 
-<img width="1394" alt="login to Github screen" src="https://user-images.githubusercontent.com/13063165/220561688-04b2b984-4ba6-4446-8b0a-8058876e2a02.png" />
+<img width="1394" alt="login to GitHub screen" src="https://user-images.githubusercontent.com/13063165/220561688-04b2b984-4ba6-4446-8b0a-8058876e2a02.png" />
 
 Make sure you only use the `auth.json` locally as it contains sensitive information. Add it to your `.gitignore` or delete it once you have finished generating your tests.
 
 #### Load authenticated state
 
-Run with `--load-storage` to consume the previously loaded storage from the `auth.json`. This way, all [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) and [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) will be restored, bringing most web apps to the authenticated state without the need to login again. This means you can can continue generating tests from the logged in state.
+Run with `--load-storage` to consume the previously loaded storage from the `auth.json`. This way, all [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) and [localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) will be restored, bringing most web apps to the authenticated state without the need to login again. This means you can continue generating tests from the logged in state.
 
 ```bash js
 npx playwright codegen --load-storage=auth.json github.com/microsoft/playwright

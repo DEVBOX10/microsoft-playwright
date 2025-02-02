@@ -217,7 +217,7 @@ test('should retry beforeAll failure', async ({ runInlineTest }) => {
   expect(result.passed).toBe(0);
   expect(result.failed).toBe(1);
   expect(result.didNotRun).toBe(1);
-  expect(result.output.split('\n')[2]).toBe('××F');
+  expect(result.output.split('\n')[2]).toBe('×°×°F°');
   expect(result.output).toContain('BeforeAll is bugged!');
 });
 

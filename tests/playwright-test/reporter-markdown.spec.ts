@@ -14,18 +14,21 @@
  * limitations under the License.
  */
 
-import * as fs from 'fs';
+import fs from 'fs';
+import path from 'path';
 import { expect, test } from './playwright-test-fixtures';
+
+const markdownReporter = require.resolve('../../packages/playwright/lib/reporters/markdown');
 
 test('simple report', async ({ runInlineTest }) => {
   const files = {
     'playwright.config.ts': `
       module.exports = {
         retries: 1,
-        reporter: 'markdown',
+        reporter: ${JSON.stringify(markdownReporter)},
       };
     `,
-    'a.test.js': `
+    'dir1/a.test.js': `
       import { test, expect } from '@playwright/test';
       test('math 1', async ({}) => {
         expect(1 + 1).toBe(2);
@@ -38,7 +41,7 @@ test('simple report', async ({ runInlineTest }) => {
       });
       test.skip('skipped 1', async ({}) => {});
     `,
-    'b.test.js': `
+    'dir2/b.test.js': `
       import { test, expect } from '@playwright/test';
       test('math 2', async ({}) => {
         expect(1 + 1).toBe(2);
@@ -63,13 +66,13 @@ test('simple report', async ({ runInlineTest }) => {
   expect(exitCode).toBe(1);
   const reportFile = await fs.promises.readFile(test.info().outputPath('report.md'));
   expect(reportFile.toString()).toContain(`**2 failed**
-:x: a.test.js:6:11 › failing 1
-:x: b.test.js:6:11 › failing 2
+:x: dir1${path.sep}a.test.js:6:11 › failing 1
+:x: dir2${path.sep}b.test.js:6:11 › failing 2
 
 <details>
 <summary><b>2 flaky</b></summary>
-:warning: a.test.js:9:11 › flaky 1 <br/>
 :warning: c.test.js:6:11 › flaky 2 <br/>
+:warning: dir1${path.sep}a.test.js:9:11 › flaky 1 <br/>
 
 </details>
 
@@ -82,7 +85,7 @@ test('custom report file', async ({ runInlineTest }) => {
   const files = {
     'playwright.config.ts': `
       module.exports = {
-        reporter: [['markdown', { outputFile: 'my-report.md' }]],
+        reporter: [[${JSON.stringify(markdownReporter)}, { outputFile: 'my-report.md' }]],
       };
     `,
     'a.test.js': `
@@ -106,7 +109,7 @@ test('report error without snippet', async ({ runInlineTest }) => {
     'playwright.config.ts': `
       module.exports = {
         retries: 1,
-        reporter: 'markdown',
+        reporter: ${JSON.stringify(markdownReporter)},
       };
     `,
     'a.test.js': `
@@ -134,7 +137,7 @@ test('report with worker error', async ({ runInlineTest }) => {
     'playwright.config.ts': `
       module.exports = {
         retries: 1,
-        reporter: 'markdown',
+        reporter: ${JSON.stringify(markdownReporter)},
       };
     `,
     'a.test.js': `

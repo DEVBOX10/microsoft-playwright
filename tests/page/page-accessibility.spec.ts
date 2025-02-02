@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
-import os from 'os';
 import { test as it, expect } from './pageTest';
 import { chromiumVersionLessThan } from '../config/utils';
 
-it('should work @smoke', async ({ page, browserName }) => {
+it('should work @smoke', async ({ page, browserName, isMac }) => {
   await page.setContent(`
   <head>
     <title>Accessibility Test</title>
@@ -75,8 +74,7 @@ it('should work @smoke', async ({ page, browserName }) => {
       { role: 'textbox', name: 'Input with whitespace', value: '  ' },
       { role: 'textbox', name: '', value: 'value only' },
       { role: 'textbox', name: 'placeholder', value: 'and a value' },
-      // due to frozen WebKit on macOS 11 we have the if/else here
-      { role: 'textbox', name: parseInt(os.release(), 10) >= 21 ? 'placeholder' : 'This is a description!', value: 'and a value' }, // webkit uses the description over placeholder for the name
+      { role: 'textbox', name: isMac ? 'placeholder' : 'This is a description!', value: 'and a value' },
     ]
   };
   expect(await page.accessibility.snapshot()).toEqual(golden);
@@ -143,10 +141,8 @@ it('should not report text nodes inside controls', async function({ page, browse
   expect(await page.accessibility.snapshot()).toEqual(golden);
 });
 
-it('rich text editable fields should have children', async function({ page, browserName, browserVersion, channel, isWebView2 }) {
+it('rich text editable fields should have children', async function({ page, browserName, browserVersion }) {
   it.skip(browserName === 'webkit', 'WebKit rich text accessibility is iffy');
-  it.skip(channel && channel.startsWith('msedge'), 'Edge is missing a Chromium fix');
-  it.skip(isWebView2, 'WebView2 is missing a Chromium fix');
 
   await page.setContent(`
   <div contenteditable="true">
@@ -178,10 +174,8 @@ it('rich text editable fields should have children', async function({ page, brow
   expect(snapshot.children[0]).toEqual(golden);
 });
 
-it('rich text editable fields with role should have children', async function({ page, browserName, browserMajorVersion, browserVersion, channel, isWebView2 }) {
+it('rich text editable fields with role should have children', async function({ page, browserName, browserVersion }) {
   it.skip(browserName === 'webkit', 'WebKit rich text accessibility is iffy');
-  it.skip(channel && channel.startsWith('msedge'), 'Edge is missing a Chromium fix');
-  it.skip(isWebView2, 'WebView2 is missing a Chromium fix');
 
   await page.setContent(`
   <div contenteditable="true" role='textbox'>
@@ -198,7 +192,7 @@ it('rich text editable fields with role should have children', async function({ 
   } : {
     role: 'textbox',
     name: '',
-    multiline: (browserName === 'chromium' && browserMajorVersion >= 92) ? true : undefined,
+    multiline: (browserName === 'chromium') ? true : undefined,
     value: 'Edit this image: ',
     children: (chromiumVersionLessThan(browserVersion, '104.0.1293.1') && browserName === 'chromium') ? [{
       role: 'text',
@@ -349,4 +343,21 @@ it('should work when there is a title ', async ({ page }) => {
   const snapshot = await page.accessibility.snapshot();
   expect(snapshot.name).toBe('This is the title');
   expect(snapshot.children[0].name).toBe('This is the content');
+});
+
+it('should work with aria-invalid accessibility tree', async ({ page, browserName, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`<a href="/hi" aria-invalid="true">WHO WE ARE</a>`);
+  expect(await page.accessibility.snapshot()).toEqual({
+    'role': browserName === 'firefox' ? 'document' : 'WebArea',
+    'name': '',
+    'children': [
+      {
+        'role': 'link',
+        'name': 'WHO WE ARE',
+        'invalid': 'true',
+        'value': browserName === 'firefox' ?  `${server.PREFIX}/hi` : undefined
+      }
+    ]
+  });
 });

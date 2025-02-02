@@ -89,17 +89,58 @@ test('should print load/save storage_state', async ({ runCLI, browserName }, tes
   await cli.waitFor(expectedResult2);
 });
 
-test('should work with --save-har', async ({ runCLI }, testInfo) => {
+test('should work with --save-har and --save-har-glob as java-library', async ({ runCLI }, testInfo) => {
   const harFileName = testInfo.outputPath('har.har');
-  const expectedResult = `BrowserContext context = browser.newContext(new Browser.NewContextOptions()
-        .setRecordHarMode(HarMode.MINIMAL)
-        .setRecordHarPath(Paths.get(${JSON.stringify(harFileName)}))
-        .setServiceWorkers(ServiceWorkerPolicy.BLOCK));`;
-  const cli = runCLI(['--target=java', `--save-har=${harFileName}`], {
+  const expectedResult = `context.routeFromHAR(Paths.get(${JSON.stringify(harFileName)}), new BrowserContext.RouteFromHAROptions()
+        .setUrl("**/*.js"));`;
+  const cli = runCLI(['--target=java', `--save-har=${harFileName}`, '--save-har-glob=**/*.js'], {
     autoExitWhen: expectedResult,
   });
 
   await cli.waitForCleanExit();
   const json = JSON.parse(fs.readFileSync(harFileName, 'utf-8'));
   expect(json.log.creator.name).toBe('Playwright');
+});
+
+test('should work with --save-har and --save-har-glob as java-junit', async ({ runCLI }, testInfo) => {
+  const harFileName = testInfo.outputPath('har.har');
+  const expectedResult = `page.routeFromHAR(Paths.get(${JSON.stringify(harFileName)}), new Page.RouteFromHAROptions()
+      .setUrl("**/*.js"));`;
+  const cli = runCLI(['--target=java-junit', `--save-har=${harFileName}`, '--save-har-glob=**/*.js'], {
+    autoExitWhen: expectedResult,
+  });
+
+  await cli.waitForCleanExit();
+  const json = JSON.parse(fs.readFileSync(harFileName, 'utf-8'));
+  expect(json.log.creator.name).toBe('Playwright');
+});
+
+test('should print the correct imports in junit', async ({ runCLI, channel, browserName }) => {
+  const cli = runCLI(['--target=java-junit', emptyHTML]);
+  const expectedImportResult = `import com.microsoft.playwright.junit.UsePlaywright;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.*;
+
+import org.junit.jupiter.api.*;
+import static com.microsoft.playwright.assertions.PlaywrightAssertions.*;`;
+  await cli.waitFor(expectedImportResult);
+});
+
+test('should print a valid basic program in junit', async ({ runCLI, channel, browserName }) => {
+  const cli = runCLI(['--target=java-junit', emptyHTML]);
+  const expectedResult = `import com.microsoft.playwright.junit.UsePlaywright;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.*;
+
+import org.junit.jupiter.api.*;
+import static com.microsoft.playwright.assertions.PlaywrightAssertions.*;
+
+@UsePlaywright
+public class TestExample {
+  @Test
+  void test(Page page) {
+    page.navigate("${emptyHTML}");
+  }
+}`;
+  await cli.waitFor(expectedResult);
 });

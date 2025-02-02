@@ -21,9 +21,10 @@ import type { FrameSnapshot, ResourceSnapshot } from './snapshot';
 export type Size = { width: number, height: number };
 
 // Make sure you add _modernize_N_to_N1(event: any) to traceModel.ts.
-export type VERSION = 6;
+export type VERSION = 7;
 
 export type BrowserContextEventOptions = {
+  baseURL?: string,
   viewport?: Size,
   deviceScaleFactor?: number,
   isMobile?: boolean,
@@ -33,10 +34,12 @@ export type BrowserContextEventOptions = {
 export type ContextCreatedTraceEvent = {
   version: number,
   type: 'context-options',
+  origin: 'testRunner' | 'library',
   browserName: string,
   channel?: string,
   platform: string,
   wallTime: number,
+  monotonicTime: number,
   title?: string,
   options: BrowserContextEventOptions,
   sdkLanguage?: Language,
@@ -50,6 +53,7 @@ export type ScreencastFrameTraceEvent = {
   width: number,
   height: number,
   timestamp: number,
+  frameSwapWallTime?: number,
 };
 
 export type BeforeActionTraceEvent = {
@@ -60,7 +64,7 @@ export type BeforeActionTraceEvent = {
   class: string;
   method: string;
   params: Record<string, any>;
-  wallTime: number;
+  stepId?: string;
   beforeSnapshot?: string;
   stack?: StackFrame[];
   pageId?: string;
@@ -82,6 +86,11 @@ export type AfterActionTraceEventAttachment = {
   base64?: string;
 };
 
+export type AfterActionTraceEventAnnotation = {
+  type: string,
+  description?: string
+};
+
 export type AfterActionTraceEvent = {
   type: 'after',
   callId: string;
@@ -89,7 +98,9 @@ export type AfterActionTraceEvent = {
   afterSnapshot?: string;
   error?: SerializedError['error'];
   attachments?: AfterActionTraceEventAttachment[];
+  annotations?: AfterActionTraceEventAnnotation[];
   result?: any;
+  point?: Point;
 };
 
 export type LogTraceEvent = {
@@ -145,6 +156,12 @@ export type StdioTraceEvent = {
   base64?: string;
 };
 
+export type ErrorTraceEvent = {
+  type: 'error';
+  message: string;
+  stack?: StackFrame[];
+};
+
 export type TraceEvent =
     ContextCreatedTraceEvent |
     ScreencastFrameTraceEvent |
@@ -157,4 +174,5 @@ export type TraceEvent =
     ConsoleMessageTraceEvent |
     ResourceSnapshotTraceEvent |
     FrameSnapshotTraceEvent |
-    StdioTraceEvent;
+    StdioTraceEvent |
+    ErrorTraceEvent;

@@ -19,18 +19,21 @@ import { PlaywrightServer } from '../../packages/playwright-core/lib/remote/play
 import { createGuid } from '../../packages/playwright-core/lib/utils/crypto';
 import { Backend } from '../config/debugControllerBackend';
 import type { Browser, BrowserContext } from '@playwright/test';
+import type * as channels from '@protocol/channels';
+import { roundBox } from '../page/pageTest';
 
 type BrowserWithReuse = Browser & { _newContextForReuse: () => Promise<BrowserContext> };
 type Fixtures = {
   wsEndpoint: string;
-  backend: Backend;
+  backend: channels.DebugControllerChannel;
   connectedBrowserFactory: () => Promise<BrowserWithReuse>;
   connectedBrowser: BrowserWithReuse;
 };
 
 const test = baseTest.extend<Fixtures>({
-  wsEndpoint: async ({ }, use) => {
-    process.env.PW_DEBUG_CONTROLLER_HEADLESS = '1';
+  wsEndpoint: async ({ headless }, use) => {
+    if (headless)
+      process.env.PW_DEBUG_CONTROLLER_HEADLESS = '1';
     const server = new PlaywrightServer({ mode: 'extension', path: '/' + createGuid(), maxConnections: Number.MAX_VALUE, enableSocksProxy: false });
     const wsEndpoint = await server.listen();
     await use(wsEndpoint);
@@ -40,7 +43,7 @@ const test = baseTest.extend<Fixtures>({
     const backend = new Backend();
     await backend.connect(wsEndpoint);
     await backend.initialize();
-    await use(backend);
+    await use(backend.channel);
     await backend.close();
   },
   connectedBrowserFactory: async ({ wsEndpoint, browserType }, use) => {
@@ -70,7 +73,7 @@ test('should pick element', async ({ backend, connectedBrowser }) => {
   const events = [];
   backend.on('inspectRequested', event => events.push(event));
 
-  await backend.setMode({ mode: 'inspecting' });
+  await backend.setRecorderMode({ mode: 'inspecting' });
 
   const context = await connectedBrowser._newContextForReuse();
   const [page] = context.pages();
@@ -81,16 +84,18 @@ test('should pick element', async ({ backend, connectedBrowser }) => {
 
   expect(events).toEqual([
     {
+      ariaSnapshot: '- button "Submit"',
       selector: 'internal:role=button[name=\"Submit\"i]',
       locator: 'getByRole(\'button\', { name: \'Submit\' })',
     }, {
+      ariaSnapshot: '- button "Submit"',
       selector: 'internal:role=button[name=\"Submit\"i]',
       locator: 'getByRole(\'button\', { name: \'Submit\' })',
     },
   ]);
 
   // No events after mode disabled
-  await backend.setMode({ mode: 'none' });
+  await backend.setRecorderMode({ mode: 'none' });
   await page.locator('body').click();
   expect(events).toHaveLength(2);
 });
@@ -163,7 +168,7 @@ test('should record', async ({ backend, connectedBrowser }) => {
   const events = [];
   backend.on('sourceChanged', event => events.push(event));
 
-  await backend.setMode({ mode: 'recording' });
+  await backend.setRecorderMode({ mode: 'recording' });
 
   const context = await connectedBrowser._newContextForReuse();
   const [page] = context.pages();
@@ -187,9 +192,9 @@ test('test', async ({ page }) => {
   await page.getByRole('button', { name: 'Submit' }).click();
 });`
   });
-  const length = events.length;
   // No events after mode disabled
-  await backend.setMode({ mode: 'none' });
+  await backend.setRecorderMode({ mode: 'none' });
+  const length = events.length;
   await page.getByRole('button').click();
   expect(events).toHaveLength(length);
 });
@@ -207,7 +212,7 @@ test('should record custom data-testid', async ({ backend, connectedBrowser }) =
   await page.setContent(`<div data-custom-id='one'>One</div>`);
 
   // 2. "Record at cursor".
-  await backend.setMode({ mode: 'recording', testIdAttributeName: 'data-custom-id' });
+  await backend.setRecorderMode({ mode: 'recording', testIdAttributeName: 'data-custom-id' });
 
   // 3. Record a click action.
   await page.locator('div').click();
@@ -251,4 +256,53 @@ test('should reset routes before reuse', async ({ server, connectedBrowserFactor
   await page2.goto(server.PREFIX + '/consolelog.html');
   await expect(page2).toHaveTitle('console.log test');
   await browser2.close();
+});
+
+test('should highlight inside iframe', async ({ backend, connectedBrowser }, testInfo) => {
+  testInfo.annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33146' });
+
+  const context = await connectedBrowser._newContextForReuse();
+  const page = await context.newPage();
+  await backend.navigate({ url: `data:text/html,<div>bar</div><iframe srcdoc="<div>bar</div>"/>` });
+
+
+  await page.frameLocator('iframe').getByText('bar').highlight();
+
+  const highlight = page.frameLocator('iframe').locator('x-pw-highlight');
+  await expect(highlight).not.toHaveCount(0);
+  await backend.hideHighlight();
+  await expect(highlight).toHaveCount(0);
+
+  await backend.highlight({ selector: `frameLocator('iframe').getByText('bar')` });
+  await expect(highlight).not.toHaveCount(0);
+
+  await backend.highlight({ selector: `frameLocator('iframe').frameLocator('iframe').getByText('bar')` });
+  await expect(highlight).toHaveCount(0);
+
+  await backend.highlight({ selector: `getByText('bar')` });
+  await expect(highlight).toHaveCount(1);
+  await expect(page.locator('x-pw-highlight')).toHaveCount(1);
+});
+
+test('should highlight aria template', async ({ backend, connectedBrowser }, testInfo) => {
+  const context = await connectedBrowser._newContextForReuse();
+  const page = await context.newPage();
+  await backend.navigate({ url: `data:text/html,<button>Submit</button>` });
+
+  const button = page.getByRole('button');
+  const highlight = page.locator('x-pw-highlight');
+
+  await backend.highlight({ ariaTemplate: `- button "Submit2"` });
+  await expect(highlight).toHaveCount(0);
+
+  await backend.highlight({ ariaTemplate: `- button "Submit"` });
+  const box1 = roundBox(await button.boundingBox());
+  const box2 = roundBox(await highlight.boundingBox());
+  expect(box1).toEqual(box2);
+});
+
+test('should report error in aria template', async ({ backend }) => {
+  await backend.navigate({ url: `data:text/html,<button>Submit</button>` });
+  const error = await backend.highlight({ ariaTemplate: `- button "Submit` }).catch(e => e);
+  expect(error.message).toContain('Unterminated string:');
 });

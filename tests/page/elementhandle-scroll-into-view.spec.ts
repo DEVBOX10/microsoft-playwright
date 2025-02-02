@@ -48,7 +48,7 @@ async function testWaiting(page, after) {
   const div = await page.$('div');
   let done = false;
   const promise = div.scrollIntoViewIfNeeded().then(() => done = true);
-  await page.evaluate(() => new Promise(f => setTimeout(f, 1000)));
+  await page.waitForTimeout(1000);
   expect(done).toBe(false);
   await div.evaluate(after);
   await promise;
@@ -80,7 +80,9 @@ it('should scroll display:contents into view', async ({ page, browserName, brows
   `);
   const div = await page.$('#target');
   await div.scrollIntoViewIfNeeded();
-  expect(await page.$eval('#container', e => e.scrollTop)).toBe(350);
+  const scrollTop = await page.$eval('#container', e => e.scrollTop);
+  // On Android the value is not exact due to various scale conversions.
+  expect(Math.abs(scrollTop - 350)).toBeLessThan(1);
 });
 
 it('should work for visibility:hidden element', async ({ page }) => {
@@ -120,5 +122,6 @@ it('should timeout waiting for visible', async ({ page, server }) => {
   await page.setContent('<div style="display:none">Hello</div>');
   const div = await page.$('div');
   const error = await div.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(e => e);
-  expect(error.message).toContain('element is not displayed, retrying in 100ms');
+  expect(error.message).toContain('element is not visible');
+  expect(error.message).toContain('retrying scroll into view action');
 });

@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const uuidGen = Cc["@mozilla.org/uuid-generator;1"].getService(Ci.nsIUUIDGenerator);
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 class Helper {
   decorateAsEventEmitter(objectToDecorate) {
@@ -22,6 +21,16 @@ class Helper {
     for (const child of rootBrowsingContext.children)
       this.collectAllBrowsingContexts(child, allBrowsingContexts);
     return allBrowsingContexts;
+  }
+
+  awaitTopic(topic) {
+    return new Promise(resolve => {
+      const listener = () => {
+        Services.obs.removeObserver(listener, topic);
+        resolve();
+      }
+      Services.obs.addObserver(listener, topic);
+    });
   }
 
   toProtocolNavigationId(loadIdentifier) {
