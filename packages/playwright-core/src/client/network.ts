@@ -14,26 +14,31 @@
  * limitations under the License.
  */
 
-import { URLSearchParams } from 'url';
-import type * as channels from '@protocol/channels';
-import { ChannelOwner } from './channelOwner';
-import { Frame } from './frame';
+import { assert } from '@isomorphic/assert';
+import { headersObjectToArray } from '@isomorphic/headers';
+import { serializeURLMatch, urlMatches } from '@isomorphic/urlMatch';
+import { LongStandingScope, ManualPromise } from '@isomorphic/manualPromise';
+import { MultiMap } from '@isomorphic/multimap';
+import { isString } from '@isomorphic/rtti';
+import { rewriteErrorMessage } from '@isomorphic/stackTrace';
+import { getMimeTypeForPath } from '@isomorphic/mimeType';
 import { Worker } from './worker';
-import type { Headers, RemoteAddr, SecurityDetails, WaitForEventOptions } from './types';
-import fs from 'fs';
-import { mime } from '../utilsBundle';
-import { assert, isString, headersObjectToArray, isRegExp, rewriteErrorMessage, MultiMap, urlMatches, zones } from '../utils';
-import type { URLMatch, Zone } from '../utils';
-import { ManualPromise, LongStandingScope } from '../utils/manualPromise';
-import { Events } from './events';
-import type { Page } from './page';
 import { Waiter } from './waiter';
-import type * as api from '../../types/types';
-import type { HeadersArray } from '../common/types';
+import { Frame } from './frame';
 import { APIResponse } from './fetch';
-import type { Serializable } from '../../types/structs';
-import type { BrowserContext } from './browserContext';
+import { Events } from './events';
 import { isTargetClosedError } from './errors';
+import { ChannelOwner } from './channelOwner';
+
+import type { BrowserContext } from './browserContext';
+import type { Page } from './page';
+import type { Headers, RemoteAddr, SecurityDetails, WaitForEventOptions } from './types';
+import type { Serializable } from '../../types/structs';
+import type * as api from '../../types/types';
+import type { HeadersArray } from '@isomorphic/types';
+import type { URLMatch } from '@isomorphic/urlMatch';
+import type * as channels from '@protocol/channels';
+import type { Platform, Zone } from '@isomorphic/platform';
 
 export type NetworkCookie = {
   name: string,
@@ -82,6 +87,7 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
   private _redirectedFrom: Request | null = null;
   private _redirectedTo: Request | null = null;
   _failureText: string | null = null;
+  _response: Response | null = null;
   private _provisionalHeaders: RawHeaders;
   private _actualHeadersPromise: Promise<RawHeaders> | undefined;
   _timing: ResourceTiming;
@@ -97,7 +103,6 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.RequestInitializer) {
     super(parent, type, guid, initializer);
-    this.markAsInternalType();
     this._redirectedFrom = Request.fromNullable(initializer.redirectedFrom);
     if (this._redirectedFrom)
       this._redirectedFrom._redirectedTo = this;
@@ -172,7 +177,7 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
     if (!this._actualHeadersPromise) {
       this._actualHeadersPromise = this._wrapApiCall(async () => {
         return new RawHeaders((await this._channel.rawRequestHeaders()).headers);
-      });
+      }, { internal: true });
     }
     return await this._actualHeadersPromise;
   }
@@ -194,9 +199,11 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
   }
 
   async _internalResponse(): Promise<Response | null> {
-    return await this._wrapApiCall(async () => {
-      return Response.fromNullable((await this._channel.response()).response);
-    }, true);
+    return Response.fromNullable((await this._channel.response()).response);
+  }
+
+  existingResponse(): Response | null {
+    return this._response;
   }
 
   frame(): Frame {
@@ -300,7 +307,6 @@ export class Route extends ChannelOwner<channels.RouteChannel> implements api.Ro
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.RouteInitializer) {
     super(parent, type, guid, initializer);
-    this.markAsInternalType();
   }
 
   request(): Request {
@@ -345,9 +351,7 @@ export class Route extends ChannelOwner<channels.RouteChannel> implements api.Ro
 
   async fulfill(options: { response?: api.APIResponse, status?: number, headers?: Headers, contentType?: string, body?: string | Buffer, json?: any, path?: string } = {}) {
     await this._handleRoute(async () => {
-      await this._wrapApiCall(async () => {
-        await this._innerFulfill(options);
-      });
+      await this._innerFulfill(options);
     });
   }
 
@@ -385,7 +389,7 @@ export class Route extends ChannelOwner<channels.RouteChannel> implements api.Ro
     let isBase64 = false;
     let length = 0;
     if (options.path) {
-      const buffer = await fs.promises.readFile(options.path);
+      const buffer = await this._platform.fs().promises.readFile(options.path);
       body = buffer.toString('base64');
       isBase64 = true;
       length = buffer.length;
@@ -406,7 +410,7 @@ export class Route extends ChannelOwner<channels.RouteChannel> implements api.Ro
     else if (options.json)
       headers['content-type'] = 'application/json';
     else if (options.path)
-      headers['content-type'] = mime.getType(options.path) || 'application/octet-stream';
+      headers['content-type'] = getMimeTypeForPath(options.path) || 'application/octet-stream';
     if (length && !('content-length' in headers))
       headers['content-length'] = String(length);
 
@@ -463,7 +467,6 @@ export class WebSocketRoute extends ChannelOwner<channels.WebSocketRouteChannel>
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.WebSocketRouteInitializer) {
     super(parent, type, guid, initializer);
-    this.markAsInternalType();
 
     this._server = {
       onMessage: (handler: (message: string | Buffer) => any) => {
@@ -480,6 +483,10 @@ export class WebSocketRoute extends ChannelOwner<channels.WebSocketRouteChannel>
 
       url: () => {
         return this._initializer.url;
+      },
+
+      protocols: () => {
+        return [...this._initializer.protocols];
       },
 
       close: async (options: { code?: number, reason?: string } = {}) => {
@@ -531,6 +538,10 @@ export class WebSocketRoute extends ChannelOwner<channels.WebSocketRouteChannel>
     return this._initializer.url;
   }
 
+  protocols(): string[] {
+    return [...this._initializer.protocols];
+  }
+
   async close(options: { code?: number, reason?: string } = {}) {
     await this._channel.closePage({ ...options, wasClean: true }).catch(() => {});
   }
@@ -566,7 +577,8 @@ export class WebSocketRoute extends ChannelOwner<channels.WebSocketRouteChannel>
     if (this._connected)
       return;
     // Ensure that websocket is "open" and can send messages without an actual server connection.
-    await this._channel.ensureOpened();
+    // If this happens after the page has been closed, ignore the error.
+    await this._channel.ensureOpened().catch(() => {});
   }
 }
 
@@ -585,10 +597,9 @@ export class WebSocketRouteHandler {
     const patterns: channels.BrowserContextSetWebSocketInterceptionPatternsParams['patterns'] = [];
     let all = false;
     for (const handler of handlers) {
-      if (isString(handler.url))
-        patterns.push({ glob: handler.url });
-      else if (isRegExp(handler.url))
-        patterns.push({ regexSource: handler.url.source, regexFlags: handler.url.flags });
+      const serialized = serializeURLMatch(handler.url);
+      if (serialized)
+        patterns.push(serialized);
       else
         all = true;
     }
@@ -598,7 +609,7 @@ export class WebSocketRouteHandler {
   }
 
   public matches(wsURL: string): boolean {
-    return urlMatches(this._baseURL, wsURL, this.url);
+    return urlMatches(this._baseURL, wsURL, this.url, true);
   }
 
   public async handle(webSocketRoute: WebSocketRoute) {
@@ -646,9 +657,9 @@ export class Response extends ChannelOwner<channels.ResponseChannel> implements 
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.ResponseInitializer) {
     super(parent, type, guid, initializer);
-    this.markAsInternalType();
     this._provisionalHeaders = new RawHeaders(initializer.headers);
     this._request = Request.from(this._initializer.request);
+    this._request._response = this;
     Object.assign(this._request._timing, this._initializer.timing);
   }
 
@@ -738,6 +749,10 @@ export class Response extends ChannelOwner<channels.ResponseChannel> implements 
   async securityDetails(): Promise<SecurityDetails|null> {
     return (await this._channel.securityDetails()).value || null;
   }
+
+  async httpVersion(): Promise<string> {
+    return (await this._channel.httpVersion()).value;
+  }
 }
 
 export class WebSocket extends ChannelOwner<channels.WebSocketChannel> implements api.WebSocket {
@@ -813,24 +828,23 @@ export class RouteHandler {
   readonly handler: RouteHandlerCallback;
   private _ignoreException: boolean = false;
   private _activeInvocations: Set<{ complete: Promise<void>, route: Route }> = new Set();
-  private _svedZone: Zone;
+  private _savedZone: Zone;
 
-  constructor(baseURL: string | undefined, url: URLMatch, handler: RouteHandlerCallback, times: number = Number.MAX_SAFE_INTEGER) {
+  constructor(platform: Platform, baseURL: string | undefined, url: URLMatch, handler: RouteHandlerCallback, times: number = Number.MAX_SAFE_INTEGER) {
     this._baseURL = baseURL;
     this._times = times;
     this.url = url;
     this.handler = handler;
-    this._svedZone = zones.current().without('apiZone');
+    this._savedZone = platform.zones.current().pop();
   }
 
   static prepareInterceptionPatterns(handlers: RouteHandler[]) {
     const patterns: channels.BrowserContextSetNetworkInterceptionPatternsParams['patterns'] = [];
     let all = false;
     for (const handler of handlers) {
-      if (isString(handler.url))
-        patterns.push({ glob: handler.url });
-      else if (isRegExp(handler.url))
-        patterns.push({ regexSource: handler.url.source, regexFlags: handler.url.flags });
+      const serialized = serializeURLMatch(handler.url);
+      if (serialized)
+        patterns.push(serialized);
       else
         all = true;
     }
@@ -844,7 +858,7 @@ export class RouteHandler {
   }
 
   public async handle(route: Route): Promise<boolean> {
-    return await this._svedZone.run(async () => this._handleImpl(route));
+    return await this._savedZone.run(async () => this._handleImpl(route));
   }
 
   private async _handleImpl(route: Route): Promise<boolean> {

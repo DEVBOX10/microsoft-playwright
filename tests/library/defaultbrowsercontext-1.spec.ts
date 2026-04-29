@@ -36,7 +36,7 @@ it('context.cookies() should work @smoke', async ({ server, launchPersistent, de
   expect(maybeFilterCookies(channel, await page.context().cookies())).toEqual([{
     name: 'username',
     value: 'John Doe',
-    domain: 'localhost',
+    domain: server.HOSTNAME,
     path: '/',
     expires: -1,
     httpOnly: false,
@@ -58,12 +58,12 @@ it('context.addCookies() should work', async ({ server, launchPersistent, browse
   expect(maybeFilterCookies(channel, await page.context().cookies())).toEqual([{
     name: 'username',
     value: 'John Doe',
-    domain: 'localhost',
+    domain: server.HOSTNAME,
     path: '/',
     expires: -1,
     httpOnly: false,
     secure: false,
-    sameSite: (browserName === 'webkit' && isWindows) ? 'None' : 'Lax',
+    sameSite: (browserName === 'webkit' && isWindows && channel !== 'webkit-wsl') ? 'None' : 'Lax',
   }]);
 });
 
@@ -84,43 +84,6 @@ it('context.clearCookies() should work', async ({ server, launchPersistent, chan
   await page.reload();
   expect(maybeFilterCookies(channel, await page.context().cookies([]))).toEqual([]);
   expect(await page.evaluate('document.cookie')).toBe('');
-});
-
-it('should(not) block third party cookies', async ({ server, launchPersistent, browserName, allowsThirdParty }) => {
-  const { page, context } = await launchPersistent();
-  await page.goto(server.EMPTY_PAGE);
-  await page.evaluate(src => {
-    let fulfill;
-    const promise = new Promise(x => fulfill = x);
-    const iframe = document.createElement('iframe');
-    document.body.appendChild(iframe);
-    iframe.onload = fulfill;
-    iframe.src = src;
-    return promise;
-  }, server.CROSS_PROCESS_PREFIX + '/grid.html');
-  const documentCookie = await page.frames()[1].evaluate(() => {
-    document.cookie = 'username=John Doe';
-    return document.cookie;
-  });
-  await page.waitForTimeout(2000);
-  expect(documentCookie).toBe(allowsThirdParty ? 'username=John Doe' : '');
-  const cookies = await context.cookies(server.CROSS_PROCESS_PREFIX + '/grid.html');
-  if (allowsThirdParty) {
-    expect(cookies).toEqual([
-      {
-        'domain': '127.0.0.1',
-        'expires': -1,
-        'httpOnly': false,
-        'name': 'username',
-        'path': '/',
-        'sameSite': 'None',
-        'secure': false,
-        'value': 'John Doe'
-      }
-    ]);
-  } else {
-    expect(cookies).toEqual([]);
-  }
 });
 
 it('should support viewport option', async ({ launchPersistent }) => {
@@ -150,6 +113,7 @@ it('should support bypassCSP option', async ({ server, launchPersistent }) => {
   await page.goto(server.PREFIX + '/csp.html');
   await page.addScriptTag({ content: 'window["__injected"] = 42;' });
   expect(await page.evaluate('__injected')).toBe(42);
+  expect(await page.evaluate('window["__inlineScriptValue"]')).toBe(42);
 });
 
 it('should support javascriptEnabled option', async ({ launchPersistent, browserName }) => {

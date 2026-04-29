@@ -13,7 +13,8 @@ async def run(playwright: Playwright):
     assert response.ok
     assert response.status == 200
     assert response.headers["content-type"] == "application/json; charset=utf-8"
-    assert response.json()["name"] == "foobar"
+    json_data = await response.json()
+    assert json_data["name"] == "foobar"
     assert await response.body() == '{"status": "ok"}'
 
 
@@ -57,6 +58,8 @@ An object with all the response HTTP headers associated with this response.
 ## method: APIResponse.headersArray
 * since: v1.16
 - returns: <[Array]<[Object]>>
+  - alias-csharp: Header
+  - alias-java: HttpHeader
   - `name` <[string]> Name of the header.
   - `value` <[string]> Value of the header.
 

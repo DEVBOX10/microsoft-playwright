@@ -7,13 +7,11 @@ const Ci = Components.interfaces;
 const Cr = Components.results;
 const Cu = Components.utils;
 
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
-const {Runtime} = ChromeUtils.import('chrome://juggler/content/content/Runtime.js');
+const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
 
 const helper = new Helper();
 
-class FrameTree {
+export class FrameTree {
   constructor(rootBrowsingContext) {
     helper.decorateAsEventEmitter(this);
 
@@ -74,10 +72,6 @@ class FrameTree {
       helper.addObserver((browsingContext, topic, why) => {
         this._onBrowsingContextDetached(browsingContext);
       }, 'browsing-context-discarded'),
-      helper.addObserver((subject, topic, eventInfo) => {
-        const [type, jugglerEventId] = eventInfo.split(' ');
-        this.emit(FrameTree.Events.InputEvent, { type, jugglerEventId: +(jugglerEventId ?? '0') });
-      }, 'juggler-mouse-event-hit-renderer'),
       helper.addProgressListener(webProgress, this, flags),
     ];
 
@@ -263,9 +257,7 @@ class FrameTree {
         mozSystemGroup: true,
         capture: true,
       };
-      const emitInputEvent = (event) => this.emit(FrameTree.Events.InputEvent, { type: event.type, jugglerEventId: 0 });
-      // Drag events are dispatched from content process, so these we don't see in the
-      // `juggler-mouse-event-hit-renderer` instrumentation.
+      const emitInputEvent = (event) => this.emit(FrameTree.Events.InputEvent, { type: event.type });
       this._dragEventListeners = [
         helper.addEventListener(chromeEventHandler, 'dragstart', emitInputEvent, options),
         helper.addEventListener(chromeEventHandler, 'dragover', emitInputEvent, options),
@@ -689,7 +681,4 @@ function channelId(channel) {
   return helper.generateId();
 }
 
-
-var EXPORTED_SYMBOLS = ['FrameTree'];
-this.FrameTree = FrameTree;
 

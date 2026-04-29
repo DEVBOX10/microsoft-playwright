@@ -70,6 +70,7 @@ def test_my_app_is_working(fixture_name):
 
 - `browser_type_launch_args`: Override launch arguments for [`method: BrowserType.launch`]. It should return a Dict.
 - `browser_context_args`: Override the options for [`method: Browser.newContext`]. It should return a Dict.
+- `connect_options`: Connect to an existing browser via WebSocket endpoint. It should return a Dict with [`method: BrowserType.connect`] options.
 
 Its also possible to override the context options ([`method: Browser.newContext`]) for a single test by using the `browser_context_args` marker:
 
@@ -219,6 +220,18 @@ def browser_context_args(browser_context_args, playwright):
 
 Or via the CLI `--device="iPhone 11 Pro"`
 
+### Connect to remote browsers
+
+```py title="conftest.py"
+import pytest
+
+@pytest.fixture(scope="session")
+def connect_options():
+    return {
+        "wsEndpoint": "ws://localhost:8080/ws"
+    }
+```
+
 ### Using with `unittest.TestCase`
 
 See the following example for using it with `unittest.TestCase`. This has a limitation,
@@ -262,8 +275,10 @@ See the [guides for CI providers](./ci.md) to deploy your tests to CI/CD.
 
 ## Async Fixtures
 
-If you want to use async fixtures, you can use the [`pytest-playwright-asyncio`](https://pypi.org/project/pytest-playwright-asyncio/) plugin.
-Make sure to use `pytest-asyncio>=0.24.0` and make your tests use of [`loop_scope=session`](https://pytest-asyncio.readthedocs.io/en/latest/how-to-guides/run_session_tests_in_same_loop.html).
+To use async fixtures, install [`pytest-playwright-asyncio`](https://pypi.org/project/pytest-playwright-asyncio/).
+
+Ensure you are using `pytest-asyncio>=0.26.0` and set [`asyncio_default_test_loop_scope = session`](https://pytest-asyncio.readthedocs.io/en/v0.26.0/how-to-guides/change_default_test_loop.html) in your configuration (`pytest.ini/pyproject.toml/setup.cfg`).
+
 
 ```python
 import pytest

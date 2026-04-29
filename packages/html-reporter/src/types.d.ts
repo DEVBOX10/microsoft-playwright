@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type { Metadata } from '@playwright/test';
+import type { TestAnnotation, Metadata } from '@playwright/test';
 
 export type Stats = {
   total: number;
@@ -36,6 +36,12 @@ export type Location = {
   column: number;
 };
 
+export type HTMLReportOptions = {
+  title?: string;
+  noCopyPrompt?: boolean;
+  noSnippets?: boolean;
+};
+
 export type HTMLReport = {
   metadata: Metadata;
   files: TestFileSummary[];
@@ -43,7 +49,14 @@ export type HTMLReport = {
   projectNames: string[];
   startTime: number;
   duration: number;
+  machines: {
+    shardIndex?: number;
+    tag: string[];
+    startTime: number;
+    duration: number;
+  }[];
   errors: string[];  // Top-level errors that are not attributed to any test.
+  options: HTMLReportOptions;
 };
 
 export type TestFile = {
@@ -59,24 +72,25 @@ export type TestFileSummary = {
   stats: Stats;
 };
 
-export type TestCaseAnnotation = { type: string, description?: string };
-
 export type TestCaseSummary = {
   testId: string,
   title: string;
   path: string[];
   projectName: string;
   location: Location;
-  annotations: TestCaseAnnotation[];
+  annotations: TestAnnotation[];
   tags: string[];
   outcome: 'skipped' | 'expected' | 'unexpected' | 'flaky';
   duration: number;
   ok: boolean;
   results: TestResultSummary[];
+  repeatEachIndex?: number;
 };
 
 export type TestResultSummary = {
   attachments: { name: string, contentType: string, path?: string }[];
+  startTime: string;
+  workerIndex: number;
 };
 
 export type TestCase = Omit<TestCaseSummary, 'results'> & {
@@ -95,9 +109,11 @@ export type TestResult = {
   startTime: string;
   duration: number;
   steps: TestStep[];
-  errors: string[];
+  errors: { message: string, codeframe?: string }[];
   attachments: TestAttachment[];
   status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
+  annotations: TestAnnotation[];
+  workerIndex: number;
 };
 
 export type TestStep = {

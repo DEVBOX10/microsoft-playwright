@@ -9,6 +9,12 @@ on:
     paths-ignore:
       - 'browser_patches/**'
       - 'docs/**'
+      - 'packages/extension/**'
+      - 'packages/playwright-core/src/server/bidi/**'
+      - 'packages/playwright-core/src/tools/**'
+      - 'tests/bidi/**'
+      - 'tests/extension/**'
+      - 'tests/mcp/**'
     branches:
       - main
       - release-*
@@ -33,20 +39,23 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
         os: [ubuntu-22.04]
-        node-version: [18]
+        node-version: [20]
         include:
           - os: ubuntu-22.04
-            node-version: 20
+            node-version: 22
             browser: chromium
           - os: ubuntu-22.04
-            node-version: 22
+            node-version: 24
+            browser: chromium
+          - os: ubuntu-22.04-arm
+            node-version: 20
             browser: chromium
     runs-on: ${{ matrix.os }}
     permissions:
       id-token: write   # This is required for OIDC login (azure/login) to succeed
       contents: read    # This is required for actions/checkout to succeed
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         node-version: ${{ matrix.node-version }}
@@ -63,13 +72,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04]
+        os: [ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     permissions:
       id-token: write   # This is required for OIDC login (azure/login) to succeed
       contents: read    # This is required for actions/checkout to succeed
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: chromium-tip-of-tree
@@ -87,89 +96,74 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [18]
+        os: [ubuntu-latest, macos-latest]
+        node-version: [20]
         shardIndex: [1, 2]
         shardTotal: [2]
+        shardWeights: ['58:42']
         include:
-          - os: ubuntu-latest
+          - os: windows-latest
             node-version: 20
             shardIndex: 1
-            shardTotal: 2
-          - os: ubuntu-latest
+            shardTotal: 3
+            shardWeights: '44:33:23'
+          - os: windows-latest
             node-version: 20
             shardIndex: 2
-            shardTotal: 2
+            shardTotal: 3
+            shardWeights: '44:33:23'
+          - os: windows-latest
+            node-version: 20
+            shardIndex: 3
+            shardTotal: 3
+            shardWeights: '44:33:23'
           - os: ubuntu-latest
             node-version: 22
             shardIndex: 1
             shardTotal: 2
+            shardWeights: '58:42'
           - os: ubuntu-latest
             node-version: 22
             shardIndex: 2
             shardTotal: 2
+            shardWeights: '58:42'
+          - os: ubuntu-latest
+            node-version: 24
+            shardIndex: 1
+            shardTotal: 2
+            shardWeights: '58:42'
+          - os: ubuntu-latest
+            node-version: 24
+            shardIndex: 2
+            shardTotal: 2
+            shardWeights: '58:42'
     runs-on: ${{ matrix.os }}
     permissions:
       id-token: write   # This is required for OIDC login (azure/login) to succeed
       contents: read    # This is required for actions/checkout to succeed
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         node-version: ${{matrix.node-version}}
         command: npm run ttest -- --shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-        bot-name: "${{ matrix.os }}-node${{ matrix.node-version }}-${{ matrix.shardIndex }}"
+        bot-name: "${{ matrix.os }}-node${{ matrix.node-version }}"
+        shard-index: ${{ matrix.shardIndex }}
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
         flakiness-subscription-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_SUBSCRIPTION_ID }}
       env:
         PWTEST_CHANNEL: firefox-beta
-
-  test_web_components:
-    name: Web Components
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 18
-    - run: npm ci
-      env:
-        DEBUG: pw:install
-    - run: npm run build
-
-    - run: npx playwright install --with-deps
-    - run: npm run test-html-reporter
-      env:
-        PWTEST_BOT_NAME: "web-components-html-reporter"
-    - name: Upload blob report
-      if: ${{ !cancelled() }}
-      uses: ./.github/actions/upload-blob-report
-      with:
-        report_dir: packages/html-reporter/blob-report
-        job_name: "web-components-html-reporter"
-
-    - run: npm run test-web
-      if: ${{ !cancelled() }}
-      env:
-        PWTEST_BOT_NAME: "web-components-web"
-    - name: Upload blob report
-      if: ${{ !cancelled() }}
-      uses: ./.github/actions/upload-blob-report
-      with:
-        report_dir: packages/web/blob-report
-        job_name: "web-components-web"
+        PWTEST_SHARD_WEIGHTS: ${{ matrix.shardWeights }}
 
   test_vscode_extension:
     name: VSCode Extension
     runs-on: ubuntu-latest
-    env:
-      PWTEST_BOT_NAME: "vscode-extension"
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v6
+    - uses: actions/setup-node@v6
       with:
-        node-version: 18
+        node-version: 20
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -184,17 +178,19 @@ jobs:
       run: node -e "const p = require('./package.json'); delete p.devDependencies['@playwright/test']; fs.writeFileSync('./package.json', JSON.stringify(p, null, 2));"
       working-directory: ./playwright-vscode
     - name: Build extension
-      run: npm install && npm run build
+      run: npm ci && npm run build
       working-directory: ./playwright-vscode
     - name: Run extension tests
-      run: npm run test -- --workers=1
+      run: npm run test
       working-directory: ./playwright-vscode
+      env:
+        PW_TAG: "@vscode-extension"
     - name: Upload blob report
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && (github.event_name == 'pull_request' || failure()) }}
       uses: ./.github/actions/upload-blob-report
       with:
         report_dir: playwright-vscode/blob-report
-        job_name: ${{ env.PWTEST_BOT_NAME }}
+        job_name: vscode-extension
 
   test_package_installations:
     name: "Installation Test ${{ matrix.os }}"
@@ -207,12 +203,12 @@ jobs:
         - macos-latest
         - windows-latest
     runs-on: ${{ matrix.os  }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       id-token: write   # This is required for OIDC login (azure/login) to succeed
       contents: read    # This is required for actions/checkout to succeed
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - run: npm install -g yarn@1
     - run: npm install -g pnpm@8
     - name: Setup Ubuntu Binary Installation # TODO: Remove when https://github.com/electron/electron/issues/42510 is fixed

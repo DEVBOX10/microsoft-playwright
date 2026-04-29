@@ -482,6 +482,9 @@ Optional event-specific initialization properties.
 ### option: Frame.dragAndDrop.targetPosition = %%-input-target-position-%%
 * since: v1.14
 
+### option: Frame.dragAndDrop.steps = %%-input-drag-steps-%%
+* since: v1.57
+
 ## async method: Frame.evalOnSelector
 * since: v1.9
 * discouraged: This method does not wait for the element to pass the actionability
@@ -1035,6 +1038,8 @@ Attribute name to get the value for.
 * since: v1.27
 
 ### option: Frame.getByRole.exact = %%-locator-get-by-role-option-exact-%%
+
+### option: Frame.getByRole.description = %%-locator-get-by-role-option-description-%%
 
 ## method: Frame.getByTestId
 * since: v1.27
@@ -2074,7 +2079,10 @@ a navigation.
 ### param: Frame.waitForNavigation.action = %%-csharp-wait-for-event-action-%%
 * since: v1.12
 
-### option: Frame.waitForNavigation.url = %%-wait-for-navigation-url-%%
+### option: Frame.waitForNavigation.url = %%-js-wait-for-navigation-url-%%
+* since: v1.8
+
+### option: Frame.waitForNavigation.url = %%-python-csharp-java-wait-for-navigation-url-%%
 * since: v1.8
 
 ### option: Frame.waitForNavigation.waitUntil = %%-navigation-wait-until-%%
@@ -2270,7 +2278,10 @@ await frame.ClickAsync("a.delayed-navigation"); // clicking the link will indire
 await frame.WaitForURLAsync("**/target.html");
 ```
 
-### param: Frame.waitForURL.url = %%-wait-for-navigation-url-%%
+### param: Frame.waitForURL.url = %%-js-wait-for-navigation-url-%%
+* since: v1.11
+
+### param: Frame.waitForURL.url = %%-python-csharp-java-wait-for-navigation-url-%%
 * since: v1.11
 
 ### option: Frame.waitForURL.timeout = %%-navigation-timeout-%%

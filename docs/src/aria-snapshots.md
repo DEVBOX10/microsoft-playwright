@@ -10,55 +10,65 @@ With Playwright's Snapshot testing you can assert the accessibility tree of a pa
 
 ```js
 await page.goto('https://playwright.dev/');
-await expect(page.getByRole('banner')).toMatchAriaSnapshot(`
+await expect(page).toMatchAriaSnapshot(`
   - banner:
     - heading /Playwright enables reliable end-to-end/ [level=1]
-    - link "Get started"
-    - link "Star microsoft/playwright on GitHub"
+    - link "Get started":
+      - /url: /docs/intro
+    - link "Star microsoft/playwright on GitHub":
+      - /url: https://github.com/microsoft/playwright
     - link /[\\d]+k\\+ stargazers on GitHub/
 `);
 ```
 
 ```python sync
 page.goto('https://playwright.dev/')
-expect(page.query_selector('banner')).to_match_aria_snapshot("""
+expect(page).to_match_aria_snapshot("""
   - banner:
     - heading /Playwright enables reliable end-to-end/ [level=1]
-    - link "Get started"
-    - link "Star microsoft/playwright on GitHub"
+    - link "Get started":
+      - /url: /docs/intro
+    - link "Star microsoft/playwright on GitHub":
+      - /url: https://github.com/microsoft/playwright
     - link /[\\d]+k\\+ stargazers on GitHub/
 """)
 ```
 
 ```python async
 await page.goto('https://playwright.dev/')
-await expect(page.query_selector('banner')).to_match_aria_snapshot("""
+await expect(page).to_match_aria_snapshot("""
   - banner:
     - heading /Playwright enables reliable end-to-end/ [level=1]
-    - link "Get started"
-    - link "Star microsoft/playwright on GitHub"
+    - link "Get started":
+      - /url: /docs/intro
+    - link "Star microsoft/playwright on GitHub":
+      - /url: https://github.com/microsoft/playwright
     - link /[\\d]+k\\+ stargazers on GitHub/
 """)
 ```
 
 ```java
 page.navigate("https://playwright.dev/");
-assertThat(page.locator("banner")).matchesAriaSnapshot("""
+assertThat(page).matchesAriaSnapshot("""
   - banner:
     - heading /Playwright enables reliable end-to-end/ [level=1]
-    - link "Get started"
-    - link "Star microsoft/playwright on GitHub"
+    - link "Get started":
+      - /url: /docs/intro
+    - link "Star microsoft/playwright on GitHub":
+      - /url: https://github.com/microsoft/playwright
     - link /[\\d]+k\\+ stargazers on GitHub/
 """);
 ```
 
 ```csharp
 await page.GotoAsync("https://playwright.dev/");
-await Expect(page.Locator("banner")).ToMatchAriaSnapshotAsync(@"
+await Expect(page).ToMatchAriaSnapshotAsync(@"
   - banner:
     - heading ""Playwright enables reliable end-to-end testing for modern web apps."" [level=1]
-    - link ""Get started""
-    - link ""Star microsoft/playwright on GitHub""
+    - link ""Get started"":
+      - /url: /docs/intro
+    - link ""Star microsoft/playwright on GitHub"":
+      - /url: https://github.com/microsoft/playwright
     - link /[\\d]+k\\+ stargazers on GitHub/
 ");
 ```
@@ -149,14 +159,14 @@ Each accessible element in the tree is represented as a YAML node:
   as `checked`, `disabled`, `expanded`, `level`, `pressed`, or `selected`.
 
 These values are derived from ARIA attributes or calculated based on HTML semantics. To inspect the accessibility tree
-structure of a page, use the [Chrome DevTools Accessibility Pane](https://developer.chrome.com/docs/devtools/accessibility/reference#pane).
+structure of a page, use the [Chrome DevTools Accessibility Tab](https://developer.chrome.com/docs/devtools/accessibility/reference#tab).
 
 
 ## Snapshot matching
 
-The [`method: LocatorAssertions.toMatchAriaSnapshot`] assertion method in Playwright compares the accessible
-structure of the locator scope with a predefined aria snapshot template, helping validate the page's state against
-testing requirements.
+The [`method: PageAssertions.toMatchAriaSnapshot`] assertion method in Playwright compares the accessible
+structure of the page with a predefined aria snapshot template, helping validate the page's state against
+testing requirements. You can also use [`method: LocatorAssertions.toMatchAriaSnapshot`] to match a specific part of the page.
 
 For the following DOM:
 
@@ -167,31 +177,31 @@ For the following DOM:
 You can match it using the following snapshot template:
 
 ```js
-await expect(page.locator('body')).toMatchAriaSnapshot(`
+await expect(page).toMatchAriaSnapshot(`
   - heading "title"
 `);
 ```
 
 ```python sync
-expect(page.locator("body")).to_match_aria_snapshot("""
+expect(page).to_match_aria_snapshot("""
   - heading "title"
 """)
 ```
 
 ```python async
-await expect(page.locator("body")).to_match_aria_snapshot("""
+await expect(page).to_match_aria_snapshot("""
   - heading "title"
 """)
 ```
 
 ```java
-assertThat(page.locator("body")).matchesAriaSnapshot("""
+assertThat(page).matchesAriaSnapshot("""
   - heading "title"
 """);
 ```
 
 ```csharp
-await Expect(page.Locator("body")).ToMatchAriaSnapshotAsync(@"
+await Expect(page).ToMatchAriaSnapshotAsync(@"
   - heading ""title""
 ");
 ```
@@ -215,9 +225,7 @@ attributes.
 <button>Submit</button>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - button
 ```
 
@@ -233,9 +241,7 @@ focusing solely on role and hierarchy.
 <input type="checkbox" checked>
 ```
 
-*aria snapshot for partial match*
-
-```yaml
+```yaml title="aria snapshot (partial match)"
 - checkbox
 ```
 
@@ -253,15 +259,72 @@ Similarly, you can partially match children in lists or groups by omitting speci
 </ul>
 ```
 
-*aria snapshot for partial match*
-
-```yaml
+```yaml title="aria snapshot (partial match)"
 - list
   - listitem: Feature B
 ```
 
 Partial matches let you create flexible snapshot tests that verify essential page structure without enforcing
 specific content or attributes.
+
+### Strict matching
+
+By default, a template containing the subset of children will be matched:
+
+```html
+<ul>
+  <li>Feature A</li>
+  <li>Feature B</li>
+  <li>Feature C</li>
+</ul>
+```
+
+```yaml title="aria snapshot (partial match)"
+- list
+  - listitem: Feature B
+```
+
+
+The `/children` property can be used to control how child elements are matched:
+- `contain` (default): Matches if all specified children are present in order
+- `equal`: Matches if the children exactly match the specified list in order
+- `deep-equal`: Matches if the children exactly match the specified list in order, including nested children
+
+```html
+<ul>
+  <li>Feature A</li>
+  <li>Feature B</li>
+  <li>Feature C</li>
+</ul>
+```
+
+Following snapshot will fail due to Feature C not being in the template:
+
+```yaml title="aria snapshot"
+- list
+  - /children: equal
+  - listitem: Feature A
+  - listitem: Feature B
+```
+
+#### Setting `children` mode globally
+
+Instead of adding a `/children` property to every snapshot, you can set the default children matching mode for all
+`toMatchAriaSnapshot` calls in the configuration file:
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  expect: {
+    toMatchAriaSnapshot: {
+      children: 'equal',
+    },
+  },
+});
+```
+
+Individual snapshots can still override the global setting by including an explicit `/children` property in the template.
 
 ### Matching with regular expressions
 
@@ -272,9 +335,7 @@ support regex patterns.
 <h1>Issues 12</h1>
 ```
 
-*aria snapshot with regular expression*
-
-```yaml
+```yaml title="aria snapshot"
 - heading /Issues \d+/
 ```
 
@@ -334,15 +395,15 @@ The way source code is updated can be changed using the `--update-source-method`
 - **"overwrite"**: Overwrites the source code with the new snapshot values.
 
 ```bash
-npx playwright test --update-snapshots --update-source-mode=3way
+npx playwright test --update-snapshots --update-source-method=3way
 ```
 
 #### Snapshots as separate files
 
-To store your snapshots in a separate file, use the `toMatchAriaSnapshot` method with the `name` option, specifying a `.yml` file extension.
+To store your snapshots in a separate file, use the `toMatchAriaSnapshot` method with the `name` option, specifying a `.aria.yml` file extension.
 
 ```js
-await expect(page.getByRole('main')).toMatchAriaSnapshot({ name: 'main-snapshot.yml' });
+await expect(page.getByRole('main')).toMatchAriaSnapshot({ name: 'main.aria.yml' });
 ```
 
 By default, snapshots from a test file `example.spec.ts` are placed in the `example.spec.ts-snapshots` directory. As snapshots should be the same across browsers, only one snapshot is saved even if testing with multiple browsers. Should you wish, you can customize the [snapshot path template](./api/class-testconfig#test-config-snapshot-path-template) using the following configuration:
@@ -357,35 +418,35 @@ export default defineConfig({
 });
 ```
 
-### Using the `Locator.ariaSnapshot` method
+### Using [`method: Page.ariaSnapshot`] and [`method: Locator.ariaSnapshot`]
 
-The [`method: Locator.ariaSnapshot`] method allows you to programmatically create a YAML representation of accessible
+Methods [`method: Page.ariaSnapshot`] and [`method: Locator.ariaSnapshot`] allow you to programmatically create a YAML representation of accessible
 elements within a locator's scope, especially helpful for generating snapshots dynamically during test execution.
 
 **Example**:
 
 ```js
-const snapshot = await page.locator('body').ariaSnapshot();
+const snapshot = await page.ariaSnapshot();
 console.log(snapshot);
 ```
 
 ```python sync
-snapshot = page.locator("body").aria_snapshot()
+snapshot = page.aria_snapshot()
 print(snapshot)
 ```
 
 ```python async
-snapshot = await page.locator("body").aria_snapshot()
+snapshot = await page.aria_snapshot()
 print(snapshot)
 ```
 
 ```java
-String snapshot = page.locator("body").ariaSnapshot();
+String snapshot = page.ariaSnapshot();
 System.out.println(snapshot);
 ```
 
 ```csharp
-var snapshot = await page.Locator("body").AriaSnapshotAsync();
+var snapshot = await page.AriaSnapshotAsync();
 Console.WriteLine(snapshot);
 ```
 
@@ -403,9 +464,7 @@ Headings can include a `level` attribute indicating their heading level.
 <h2>Subtitle</h2>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - heading "Title" [level=1]
 - heading "Subtitle" [level=2]
 ```
@@ -418,9 +477,7 @@ Standalone or descriptive text elements appear as text nodes.
 <div>Sample accessible name</div>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - text: Sample accessible name
 ```
 
@@ -432,24 +489,33 @@ Multiline text, such as paragraphs, is normalized in the aria snapshot.
 <p>Line 1<br>Line 2</p>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - paragraph: Line 1 Line 2
 ```
 
 ### Links
 
-Links display their text or composed content from pseudo-elements.
+Links display their text or composed content from pseudo-elements. The link’s destination may be matched using the
+`/url` property.
 
 ```html
 <a href="#more-info">Read more about Accessibility</a>
 ```
 
-*aria snapshot*
+```yaml title="aria snapshot"
+- link "Read more about Accessibility":
+    - /url: "#more-info"
+```
 
-```yaml
-- link "Read more about Accessibility"
+The value of `/url` may also be a regular expression:
+
+```html
+<a href="https://www.youtube.com/channel/UC46Zj8pDH5tDosqm1gd7WTg">YouTube channel</a>
+```
+
+```yaml title="aria snapshot"
+- link:
+  - /url: /https://www.youtube.com/channel/.*/
 ```
 
 ### Text boxes
@@ -460,9 +526,7 @@ Input elements of type `text` show their `value` attribute content.
 <input type="text" value="Enter your name">
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - textbox: Enter your name
 ```
 
@@ -477,9 +541,7 @@ Ordered and unordered lists include their list items.
 </ul>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - list "Main Features":
   - listitem: Feature 1
   - listitem: Feature 2
@@ -496,9 +558,7 @@ Groups capture nested elements, such as `<details>` elements with summary conten
 </details>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - group: Summary
 ```
 
@@ -513,9 +573,7 @@ control states.
 <input type="checkbox" checked>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - checkbox [checked]
 ```
 
@@ -525,8 +583,6 @@ control states.
 <button aria-pressed="true">Toggle</button>
 ```
 
-*aria snapshot*
-
-```yaml
+```yaml title="aria snapshot"
 - button "Toggle" [pressed=true]
 ```

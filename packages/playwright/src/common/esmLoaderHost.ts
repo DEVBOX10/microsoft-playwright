@@ -15,26 +15,38 @@
  */
 
 import url from 'url';
+
 import { addToCompilationCache, serializeCompilationCache } from '../transform/compilationCache';
-import { singleTSConfig, transformConfig } from '../transform/transform';
 import { PortTransport } from '../transform/portTransport';
+import { singleTSConfig, transformConfig } from '../transform/transform';
 
 let loaderChannel: PortTransport | undefined;
-// Node.js < 20
-if ((globalThis as any).__esmLoaderPortPreV20)
-  loaderChannel = createPortTransport((globalThis as any).__esmLoaderPortPreV20);
 
-// Node.js >= 20
-export let esmLoaderRegistered = false;
 export function registerESMLoader() {
+  // Opt-out switch.
+  if (process.env.PW_DISABLE_TS_ESM)
+    return true;
+
+  // Transpilation in `bun` is not necessary, and trying to register a hook would cause issues.
+  // https://github.com/oven-sh/bun/issues/8222#issuecomment-3665364677
+  if ('Bun' in globalThis)
+    return true;
+
+  if (loaderChannel)
+    return true;
+
+  const register = require('node:module').register;
+  if (!register)
+    return false;
+
   const { port1, port2 } = new MessageChannel();
   // register will wait until the loader is initialized.
-  require('node:module').register(url.pathToFileURL(require.resolve('../transform/esmLoader')), {
+  register(url.pathToFileURL(require.resolve('../transform/esmLoader.js')), {
     data: { port: port2 },
     transferList: [port2],
   });
   loaderChannel = createPortTransport(port1);
-  esmLoaderRegistered = true;
+  return true;
 }
 
 function createPortTransport(port: MessagePort) {

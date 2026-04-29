@@ -9,10 +9,13 @@ Represents a step in the [TestRun].
 - type: <[string]>
 
 Step category to differentiate steps with different origin and verbosity. Built-in categories are:
-* `hook` for fixtures and hooks initialization and teardown
 * `expect` for expect calls
+* `fixture` for fixtures setup and teardown
+* `hook` for hooks initialization and teardown
 * `pw:api` for Playwright API calls.
 * `test.step` for test.step API calls.
+* `test.attach` for testInfo.attach API calls.
+
 
 ## property: TestStep.duration
 * since: v1.10
@@ -55,6 +58,7 @@ List of steps inside this step.
 - type: <[Array]<[Object]>>
   - `type` <[string]> Annotation type, for example `'skip'`.
   - `description` ?<[string]> Optional description.
+  - `location` ?<[Location]> Optional location in the source where the annotation is added.
 
 The list of annotations applicable to the current test step.
 

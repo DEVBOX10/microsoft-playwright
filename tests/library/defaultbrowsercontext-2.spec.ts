@@ -19,6 +19,8 @@ import { playwrightTest as it, expect } from '../config/browserTest';
 import fs from 'fs';
 import path from 'path';
 
+it.skip(({ mode }) => mode !== 'default', 'Remote persistent contexts are not supported');
+
 it('should support hasTouch option', async ({ server, launchPersistent }) => {
   const { page } = await launchPersistent({ hasTouch: true });
   await page.goto(server.PREFIX + '/mobile.html');
@@ -49,6 +51,12 @@ it('should support forcedColors option', async ({ launchPersistent, browserName 
   const { page } = await launchPersistent({ forcedColors: 'active' });
   expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
   expect(await page.evaluate(() => matchMedia('(forced-colors: none)').matches)).toBe(false);
+});
+
+it('should support contrast option', async ({ launchPersistent }) => {
+  const { page } = await launchPersistent({ contrast: 'more' });
+  expect.soft(await page.evaluate(() => matchMedia('(prefers-contrast: more)').matches)).toBe(true);
+  expect.soft(await page.evaluate(() => matchMedia('(prefers-contrast: no-preference)').matches)).toBe(false);
 });
 
 it('should support timezoneId option', async ({ launchPersistent, browserName }) => {
@@ -95,7 +103,14 @@ it('should accept userDataDir', async ({ createUserDataDir, browserType }) => {
   expect(fs.readdirSync(userDataDir).length).toBeGreaterThan(0);
 });
 
-it('should restore state from userDataDir', async ({ browserType, server, createUserDataDir, isMac, browserName }) => {
+it('should accept relative userDataDir', async ({ createUserDataDir, browserType }) => {
+  const userDataDir = await createUserDataDir();
+  const context = await browserType.launchPersistentContext(path.relative(process.cwd(), path.join(userDataDir, 'foobar')));
+  expect(fs.readdirSync(path.join(userDataDir, 'foobar')).length).toBeGreaterThan(0);
+  await context.close();
+});
+
+it('should restore state from userDataDir', async ({ browserType, server, createUserDataDir }) => {
   it.slow();
 
   const userDataDir = await createUserDataDir();
@@ -103,6 +118,9 @@ it('should restore state from userDataDir', async ({ browserType, server, create
   const page = await browserContext.newPage();
   await page.goto(server.EMPTY_PAGE);
   await page.evaluate(() => localStorage.hey = 'hello');
+  // Browsers do not persist local storage immediately, they do it asynchronously in another process.
+  // Navigate away to give it a chance to save (best-effort).
+  await page.goto(server.EMPTY_PAGE);
   await browserContext.close();
 
   const browserContext2 = await browserType.launchPersistentContext(userDataDir);
@@ -132,19 +150,17 @@ it('should have default URL when launching browser', async ({ launchPersistent }
   expect(urls).toEqual(['about:blank']);
 });
 
-it('should throw if page argument is passed', async ({ browserType, server, createUserDataDir, browserName }) => {
-  it.skip(browserName === 'firefox');
+it('should throw if page argument is passed', async ({ browserType, server, createUserDataDir, browserName, isBidi }) => {
+  it.skip(browserName === 'firefox' && !isBidi);
 
   const options = { args: [server.EMPTY_PAGE] };
   const error = await browserType.launchPersistentContext(await createUserDataDir(), options).catch(e => e);
   expect(error.message).toContain('can not specify page');
 });
 
-it('should have passed URL when launching with ignoreDefaultArgs: true', async ({ browserType, server, createUserDataDir, toImpl, mode, browserName }) => {
-  it.skip(mode !== 'default');
-
+it('should have passed URL when launching with ignoreDefaultArgs: true', async ({ browserType, server, createUserDataDir, toImpl, browserName }) => {
   const userDataDir = await createUserDataDir();
-  const args = toImpl(browserType).defaultArgs((browserType as any)._defaultLaunchOptions, 'persistent', userDataDir, 0).filter(a => a !== 'about:blank');
+  const args = (await toImpl(browserType).defaultArgs((browserType as any)._playwright._defaultLaunchOptions, 'persistent', userDataDir, 0)).filter(a => a !== 'about:blank');
   const options = {
     args: browserName === 'firefox' ? [...args, '-new-tab', server.EMPTY_PAGE] : [...args, server.EMPTY_PAGE],
     ignoreDefaultArgs: true,
@@ -158,17 +174,13 @@ it('should have passed URL when launching with ignoreDefaultArgs: true', async (
   await browserContext.close();
 });
 
-it('should handle timeout', async ({ browserType, createUserDataDir, mode }) => {
-  it.skip(mode !== 'default');
-
+it('should handle timeout', async ({ browserType, createUserDataDir }) => {
   const options: any = { timeout: 5000, __testHookBeforeCreateBrowser: () => new Promise(f => setTimeout(f, 6000)) };
   const error = await browserType.launchPersistentContext(await createUserDataDir(), options).catch(e => e);
   expect(error.message).toContain(`browserType.launchPersistentContext: Timeout 5000ms exceeded.`);
 });
 
-it('should handle exception', async ({ browserType, createUserDataDir, mode }) => {
-  it.skip(mode !== 'default');
-
+it('should handle exception', async ({ browserType, createUserDataDir }) => {
   const e = new Error('Dummy');
   const options: any = { __testHookBeforeCreateBrowser: () => { throw e; } };
   const error = await browserType.launchPersistentContext(await createUserDataDir(), options).catch(e => e);
@@ -196,8 +208,6 @@ it('coverage should work', async ({ server, launchPersistent, browserName }) => 
 });
 
 it('should respect selectors', async ({ playwright, launchPersistent }) => {
-  const { page } = await launchPersistent();
-
   const defaultContextCSS = () => ({
     query(root, selector) {
       return root.querySelector(selector);
@@ -208,14 +218,13 @@ it('should respect selectors', async ({ playwright, launchPersistent }) => {
   });
   await playwright.selectors.register('defaultContextCSS', defaultContextCSS);
 
+  const { page } = await launchPersistent();
   await page.setContent(`<div>hello</div>`);
   expect(await page.innerHTML('css=div')).toBe('hello');
   expect(await page.innerHTML('defaultContextCSS=div')).toBe('hello');
 });
 
-it('should connect to a browser with the default page', async ({ browserType, createUserDataDir, mode }) => {
-  it.skip(mode !== 'default');
-
+it('should connect to a browser with the default page', async ({ browserType, createUserDataDir }) => {
   const options: any = { __testHookOnConnectToBrowser: () => new Promise(f => setTimeout(f, 3000)) };
   const context = await browserType.launchPersistentContext(await createUserDataDir(), options);
   expect(context.pages().length).toBe(1);
@@ -233,10 +242,37 @@ it('should support har option', async ({ launchPersistent, asset }) => {
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 0, 0)');
 });
 
-it('user agent is up to date', async ({ launchPersistent, browser, mode }) => {
-  it.skip(mode !== 'default');
+it('user agent is up to date', async ({ launchPersistent, browser }) => {
   const { userAgent } = await (browser as any)._channel.defaultUserAgentForTest();
   const { context, page } = await launchPersistent();
   expect(await page.evaluate(() => navigator.userAgent)).toBe(userAgent);
+  await context.close();
+});
+
+it('dialog.accept should work', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35663' }
+}, async ({ launchPersistent }) => {
+  const { context, page } = await launchPersistent();
+  await page.goto('data:text/html,<html><title>Title</title><button onclick="alert(\'Alert\')">Button</button></html>');
+  let shown = false;
+  page.on('dialog', dialog => {
+    shown = true;
+    void dialog.accept();
+  });
+  await page.getByRole('button', { name: 'Button' }).click();
+  expect(shown).toBe(true);
+  await context.close();
+});
+
+it('exposes browser', async ({ launchPersistent }) => {
+  const { context } = await launchPersistent();
+  const browser = context.browser();
+  expect(browser.version()).toBeTruthy();
+  const page = await browser.newPage();
+  await page.goto('data:text/html,<html><title>Title</title></html>');
+  expect(await page.title()).toBe('Title');
+  await browser.close();
+  expect(context.pages().length).toBe(0);
+  // Next line should not throw.
   await context.close();
 });

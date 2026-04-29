@@ -18,6 +18,7 @@ import * as React from 'react';
 import { ToolbarButton } from '@web/components/toolbarButton';
 import './copyToClipboard.css';
 
+// TODO: This should be deduplicated with packages/html-reporter/src/copyToClipboard.tsx
 export const CopyToClipboard: React.FunctionComponent<{
   value: string | (() => Promise<string>),
   description?: string,
@@ -46,11 +47,16 @@ export const CopyToClipboard: React.FunctionComponent<{
 export const CopyToClipboardTextButton: React.FunctionComponent<{
   value: string | (() => Promise<string>),
   description: string,
-}> = ({ value, description }) => {
+  copiedDescription?: React.ReactNode,
+  style?: React.CSSProperties,
+}> = ({ value, description, copiedDescription = description, style }) => {
+  const [copied, setCopied] = React.useState(false);
   const handleCopy = React.useCallback(async () => {
     const valueToCopy = typeof value === 'function' ? await value() : value;
     await navigator.clipboard.writeText(valueToCopy);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
   }, [value]);
 
-  return <ToolbarButton title={description} onClick={handleCopy} className='copy-to-clipboard-text-button'>{description}</ToolbarButton>;
+  return <ToolbarButton style={style} title={description} onClick={handleCopy} className='copy-to-clipboard-text-button'>{copied ? copiedDescription : description}</ToolbarButton>;
 };

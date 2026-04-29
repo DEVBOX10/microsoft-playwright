@@ -82,14 +82,14 @@ it('should work with clicking on anchor links', async ({ page, server }) => {
   expect(page.url()).toBe(server.EMPTY_PAGE + '#foobar');
 });
 
-it('should work with clicking on links which do not commit navigation', async ({ page, server, httpsServer, browserName, platform }) => {
+it('should work with clicking on links which do not commit navigation', async ({ page, server, httpsServer, browserName, platform, channel }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`<a href='${httpsServer.EMPTY_PAGE}'>foobar</a>`);
   const [error] = await Promise.all([
     page.waitForNavigation().catch(e => e),
     page.click('a'),
   ]);
-  expect(error.message).toMatch(expectedSSLError(browserName, platform));
+  expect(error.message).toMatch(expectedSSLError(browserName, platform, channel));
 });
 
 it('should work with history.pushState()', async ({ page, server }) => {
@@ -255,7 +255,7 @@ it('should fail when frame detaches', async ({ page, server }) => {
     frame.waitForNavigation().catch(e => e),
     page.$eval('iframe', frame => { frame.contentWindow.location.href = '/one-style.html'; }),
     // Make sure policy checks pass and navigation actually begins before removing the frame to avoid other errors
-    server.waitForRequest('/one-style.css').then(() => page.$eval('iframe', frame => window.builtinSetTimeout(() => frame.remove(), 0)))
+    server.waitForRequest('/one-style.css').then(() => page.$eval('iframe', frame => window.builtins.setTimeout(() => frame.remove(), 0)))
   ]);
   expect(error.message).toContain('waiting for navigation until "load"');
   expect(error.message).toContain('frame was detached');

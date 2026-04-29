@@ -51,15 +51,23 @@ class CsvReporter implements Reporter {
             continue;
           const row = [];
           const [, , , ...titles] = test.titlePath();
-          row.push(csvEscape(`${file.title} :: ${titles.join(' › ')}`));
+          row.push(csvEscape(`${file.title} › ${titles.join(' › ')}`));
           row.push(test.expectedStatus);
           row.push(test.outcome());
           if (fixme) {
-            row.push('fixme' + (fixme.description ? `: ${fixme.description}` : ''));
+            row.push('fixme' + (fixme.description ? `: ${fixme.description.replace(/\s+/g, ' ')}` : ''));
           } else {
             const result = test.results.find(r => r.error);
-            const errorMessage = stripAnsi(result?.error?.message.replace(/\s+/g, ' ').trim().substring(0, 1024));
-            row.push(csvEscape(errorMessage ?? ''));
+            if (result) {
+              const errorMessage = stripAnsi(result.error?.message.replace(/\s+/g, ' ').trim().substring(0, 1024) ?? '');
+              row.push(csvEscape(errorMessage));
+            } else {
+              const fail = test.annotations.find(a => a.type === 'fail');
+              if (fail)
+                row.push(csvEscape(`Should have failed: ${fail.description}`));
+              else
+                row.push('');
+            }
           }
           rows.push(row);
         }

@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import type { SerializedError } from '@protocol/channels';
-import { isError } from '../utils';
+import { isError } from '@isomorphic/rtti';
 import { parseSerializedValue, serializeValue } from '../protocol/serializers';
+
+import type { SerializedError } from '@protocol/channels';
 
 class CustomError extends Error {
   constructor(message: string) {
@@ -28,7 +29,7 @@ class CustomError extends Error {
 export class TimeoutError extends CustomError {}
 
 export class TargetClosedError extends CustomError {
-  constructor(cause?: string, logs?: string) {
+  constructor(cause: string | undefined, logs?: string) {
     super((cause || 'Target page, context or browser has been closed') + (logs || ''));
   }
 }

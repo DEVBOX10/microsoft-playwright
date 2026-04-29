@@ -34,7 +34,7 @@ test('should update snapshot with the update-snapshots flag with multiple projec
       import { test, expect } from '@playwright/test';
       test('test', async ({ page }) => {
         await page.setContent(\`<h1>hello</h1><h2>bye</h2>\`);
-        await expect(page.locator('body')).toMatchAriaSnapshot(\`
+        await expect(page).toMatchAriaSnapshot(\`
           - heading "world"
         \`);
       });
@@ -50,7 +50,7 @@ test('should update snapshot with the update-snapshots flag with multiple projec
 @@ -3,7 +3,8 @@
        test('test', async ({ page }) => {
          await page.setContent(\`<h1>hello</h1><h2>bye</h2>\`);
-         await expect(page.locator('body')).toMatchAriaSnapshot(\`
+         await expect(page).toMatchAriaSnapshot(\`
 -          - heading "world"
 +          - heading "hello" [level=1]
 +          - heading "bye" [level=2]
@@ -79,7 +79,7 @@ test('should update missing snapshots', async ({ runInlineTest }, testInfo) => {
       import { test, expect } from '@playwright/test';
       test('test', async ({ page }) => {
         await page.setContent(\`<h1>hello</h1>\`);
-        await expect(page.locator('body')).toMatchAriaSnapshot(\`\`);
+        await expect(page).toMatchAriaSnapshot(\`\`);
       });
     `
   });
@@ -103,8 +103,8 @@ test('should update missing snapshots', async ({ runInlineTest }, testInfo) => {
        import { test, expect } from '@playwright/test';
        test('test', async ({ page }) => {
          await page.setContent(\`<h1>hello</h1>\`);
--        await expect(page.locator('body')).toMatchAriaSnapshot(\`\`);
-+        await expect(page.locator('body')).toMatchAriaSnapshot(\`
+-        await expect(page).toMatchAriaSnapshot(\`\`);
++        await expect(page).toMatchAriaSnapshot(\`
 +          - heading "hello" [level=1]
 +        \`);
        });
@@ -124,8 +124,8 @@ test('should update multiple missing snapshots', async ({ runInlineTest }, testI
       import { test, expect } from '@playwright/test';
       test('test', async ({ page }) => {
         await page.setContent(\`<h1>hello</h1>\`);
-        await expect(page.locator('body')).toMatchAriaSnapshot(\`\`);
-        await expect(page.locator('body')).toMatchAriaSnapshot(\`\`);
+        await expect(page).toMatchAriaSnapshot(\`\`);
+        await expect(page).toMatchAriaSnapshot(\`\`);
       });
     `
   });
@@ -148,12 +148,12 @@ test('should update multiple missing snapshots', async ({ runInlineTest }, testI
        import { test, expect } from '@playwright/test';
        test('test', async ({ page }) => {
          await page.setContent(\`<h1>hello</h1>\`);
--        await expect(page.locator('body')).toMatchAriaSnapshot(\`\`);
--        await expect(page.locator('body')).toMatchAriaSnapshot(\`\`);
-+        await expect(page.locator('body')).toMatchAriaSnapshot(\`
+-        await expect(page).toMatchAriaSnapshot(\`\`);
+-        await expect(page).toMatchAriaSnapshot(\`\`);
++        await expect(page).toMatchAriaSnapshot(\`
 +          - heading "hello" [level=1]
 +        \`);
-+        await expect(page.locator('body')).toMatchAriaSnapshot(\`
++        await expect(page).toMatchAriaSnapshot(\`
 +          - heading "hello" [level=1]
 +        \`);
        });
@@ -256,7 +256,7 @@ test('should generate baseline with special characters', async ({ runInlineTest 
   expect(trimPatch(data)).toBe(`diff --git a/a.spec.ts b/a.spec.ts
 --- a/a.spec.ts
 +++ b/a.spec.ts
-@@ -17,6 +17,27 @@
+@@ -17,6 +17,30 @@
            <li>Item: 1</li>
            <li>Item {a: b}</li>
          </ul>\`);
@@ -265,11 +265,14 @@ test('should generate baseline with special characters', async ({ runInlineTest 
 +          - list:
 +            - group:
 +              - text: "one:"
-+              - link "link1"
++              - link "link1":
++                - /url: "#"
 +              - text: "\\\\\"two"
-+              - link "link2"
++              - link "link2":
++                - /url: "#"
 +              - text: "'three"
-+              - link "link3"
++              - link "link3":
++                - /url: "#"
 +              - text: "\\\`four"
 +            - heading "heading \\\\"name\\\\" [level=1]" [level=1]
 +            - 'button "Click: me"'
@@ -516,7 +519,7 @@ test('should not update snapshots when locator did not match', async ({ runInlin
   expect(fs.existsSync(patchPath)).toBe(false);
   expect(result.output).not.toContain('New baselines created');
   expect(result.output).toContain('Expected: "- heading"');
-  expect(result.output).toContain('Received: <element not found>');
+  expect(result.output).toContain('Error: element(s) not found');
 });
 
 test.describe('update-snapshots none', () => {
@@ -546,7 +549,7 @@ test.describe('update-snapshots all', () => {
         import { test, expect } from '@playwright/test';
         test('test', async ({ page }) => {
           await page.setContent(\`<h1>hello</h1><h1>world</h1>\`);
-          await expect(page.locator('body')).toMatchAriaSnapshot(\`
+          await expect(page).toMatchAriaSnapshot(\`
             - heading "hello"
           \`);
         });
@@ -562,7 +565,7 @@ test.describe('update-snapshots all', () => {
 @@ -3,7 +3,8 @@
          test('test', async ({ page }) => {
            await page.setContent(\`<h1>hello</h1><h1>world</h1>\`);
-           await expect(page.locator('body')).toMatchAriaSnapshot(\`
+           await expect(page).toMatchAriaSnapshot(\`
 -            - heading "hello"
 +            - heading "hello" [level=1]
 +            - heading "world" [level=1]

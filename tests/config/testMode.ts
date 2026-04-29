@@ -14,23 +14,23 @@
  * limitations under the License.
  */
 
-import { start } from '../../packages/playwright-core/lib/outofprocess';
-import type { Playwright } from '../../packages/playwright-core/lib/client/playwright';
+import { oop, client } from '../../packages/playwright-core/lib/coreBundle';
 
-export type TestModeName = 'default' | 'driver' | 'service' | 'service2';
+export type TestModeName = 'default' | 'driver' | 'service' | 'service2' | 'wsl';
+
+const { start } = oop;
 
 interface TestMode {
-  setup(): Promise<Playwright>;
+  setup(): Promise<client.Playwright>;
   teardown(): Promise<void>;
 }
 
 export class DriverTestMode implements TestMode {
-  private _impl: { playwright: Playwright; stop: () => Promise<void>; };
+  private _impl: { playwright: client.Playwright; stop: () => Promise<void>; };
 
   async setup() {
     this._impl = await start({
       NODE_OPTIONS: undefined,  // Hide driver process while debugging.
-      PWTEST_UNDER_TEST: 1,
     });
     return this._impl.playwright;
   }

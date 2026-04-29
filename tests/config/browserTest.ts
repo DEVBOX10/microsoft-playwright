@@ -16,16 +16,19 @@
 
 import * as fs from 'fs';
 import * as os from 'os';
-import type { PageTestFixtures, PageWorkerFixtures } from '../page/pageTestApi';
 import * as path from 'path';
-import type { BrowserContext, BrowserContextOptions, BrowserType, Page } from 'playwright-core';
-import { removeFolders } from '../../packages/playwright-core/lib/utils/fileUtils';
 import { baseTest } from './baseTest';
-import { type RemoteServerOptions, type PlaywrightServer, RunServer, RemoteServer } from './remoteServer';
-import type { Log } from '../../packages/trace/src/har';
-import { parseHar } from '../config/utils';
+import { RunServer, RemoteServer } from './remoteServer';
+import { utils } from '../../packages/playwright-core/lib/coreBundle';
+import { isBidiChannel, parseHar } from '../config/utils';
 import { createSkipTestPredicate } from '../bidi/expectationUtil';
+import type { PageTestFixtures, PageWorkerFixtures } from '../page/pageTestApi';
+import type { RemoteServerOptions, PlaywrightServer } from './remoteServer';
+import type { BrowserContext, BrowserContextOptions, BrowserType, Page } from 'playwright-core';
+import type { Log } from '../../packages/trace/src/har';
 import type { TestInfo } from '@playwright/test';
+
+const { removeFolders, hostPlatform } = utils;
 
 export type BrowserTestWorkerFixtures = PageWorkerFixtures & {
   browserVersion: string;
@@ -36,12 +39,14 @@ export type BrowserTestWorkerFixtures = PageWorkerFixtures & {
   isAndroid: boolean;
   isElectron: boolean;
   isHeadlessShell: boolean;
+  isFrozenWebkit: boolean;
   nodeVersion: { major: number, minor: number, patch: number };
+  isBidi: boolean;
   bidiTestSkipPredicate: (info: TestInfo) => boolean;
 };
 
 interface StartRemoteServer {
-  (kind: 'run-server' | 'launchServer'): Promise<PlaywrightServer>;
+  (kind: 'run-server' | 'launchServer', options?: RemoteServerOptions): Promise<PlaywrightServer>;
   (kind: 'launchServer', options?: RemoteServerOptions): Promise<RemoteServer>;
 }
 
@@ -64,21 +69,21 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     await run(playwright[browserName]);
   }, { scope: 'worker' }],
 
-  allowsThirdParty: [async ({ browserName }, run) => {
+  allowsThirdParty: [async ({ browserName, channel }, run) => {
     if (browserName === 'firefox')
       await run(true);
     else
       await run(false);
   }, { scope: 'worker' }],
 
-  defaultSameSiteCookieValue: [async ({ browserName, platform, macVersion }, run) => {
-    if (browserName === 'chromium' || browserName as any === '_bidiChromium')
+  defaultSameSiteCookieValue: [async ({ browserName, platform, channel, isBidi }, run) => {
+    if (browserName === 'chromium' || isBidi)
       await run('Lax');
-    else if (browserName === 'webkit' && platform === 'linux')
+    else if (browserName === 'webkit' && (platform === 'linux' || channel === 'webkit-wsl'))
       await run('Lax');
     else if (browserName === 'webkit')
       await run('None'); // Windows + older macOS
-    else if (browserName === 'firefox' || browserName as any === '_bidiFirefox')
+    else if (browserName === 'firefox')
       await run('None');
     else
       throw new Error('unknown browser - ' + browserName);
@@ -93,17 +98,29 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     await use({ major: +major, minor: +minor, patch: +patch });
   }, { scope: 'worker' }],
 
+  isBidi: [async ({ channel }, use) => {
+    await use(isBidiChannel(channel));
+  }, { scope: 'worker' }],
+
   isAndroid: [false, { scope: 'worker' }],
   isElectron: [false, { scope: 'worker' }],
   electronMajorVersion: [0, { scope: 'worker' }],
-  isWebView2: [false, { scope: 'worker' }],
 
   isHeadlessShell: [async ({ browserName, channel, headless }, use) => {
-    await use(browserName === 'chromium' && (channel === 'chromium-headless-shell' || channel === 'chromium-tip-of-tree-headless-shell' || (!channel && headless)));
+    const isShell = channel === 'chromium-headless-shell' || (!channel && headless);
+    const isToTShell = channel === 'chromium-tip-of-tree-headless-shell' || (channel === 'chromium-tip-of-tree' && headless);
+    await use(browserName === 'chromium' && (isShell || isToTShell));
+  }, { scope: 'worker' }],
+
+  isFrozenWebkit: [async ({ browserName, isMac, macVersion }, use) => {
+    await use(browserName === 'webkit' && (hostPlatform.startsWith('debian11') || hostPlatform.startsWith('ubuntu20.04') || (isMac && macVersion < 15)));
   }, { scope: 'worker' }],
 
   contextFactory: async ({ _contextFactory }: any, run) => {
-    await run(_contextFactory);
+    await run(async options => {
+      const { context } = await _contextFactory(options);
+      return context;
+    });
   },
 
   createUserDataDir: async ({ mode }, run) => {
@@ -123,7 +140,9 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     await removeFolders(dirs);
   },
 
-  launchPersistent: async ({ createUserDataDir, browserType }, run) => {
+  launchPersistent: async ({ createUserDataDir, browserType, mode }, run) => {
+    test.skip(mode !== 'default', 'Remote persistent contexts are not supported');
+
     let persistentContext: BrowserContext | undefined;
     await run(async options => {
       if (persistentContext)
@@ -137,7 +156,9 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
       await persistentContext.close();
   },
 
-  startRemoteServer: async ({ childProcess, browserType, channel }, run) => {
+  startRemoteServer: async ({ childProcess, browserType, channel, mode }, run) => {
+    test.skip(mode !== 'default', 'Starting remote server is not supported in remote modes');
+
     let server: PlaywrightServer | undefined;
     const fn = async (kind: 'launchServer' | 'run-server', options?: RemoteServerOptions) => {
       if (server)
@@ -148,7 +169,7 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
         server = remoteServer;
       } else {
         const runServer = new RunServer();
-        await runServer.start(childProcess);
+        await runServer.start(childProcess, { artifactsDir: options?.artifactsDir });
         server = runServer;
       }
       return server;

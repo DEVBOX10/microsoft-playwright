@@ -5,9 +5,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// Copied from upstream: https://github.com/puppeteer/puppeteer/blob/main/packages/puppeteer-core/src/bidi/Serializer.ts
+
 import type * as Bidi from './bidiProtocol';
 
-/* eslint-disable curly, indent */
+/* eslint-disable curly */
 
 /**
  * @internal
@@ -121,7 +123,7 @@ export class BidiSerializer {
     }
 
     throw new UnserializableError(
-      'Custom object serialization not possible. Use plain objects instead.'
+        'Custom object serialization not possible. Use plain objects instead.'
     );
   }
 }

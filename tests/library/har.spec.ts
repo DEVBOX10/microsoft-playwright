@@ -16,13 +16,14 @@
  */
 
 import { browserTest as it, expect } from '../config/browserTest';
-import * as path from 'path';
 import fs from 'fs';
 import type { BrowserContext, BrowserContextOptions } from 'playwright-core';
 import type { AddressInfo } from 'net';
 import type { Log } from '../../packages/trace/src/har';
 import { parseHar } from '../config/utils';
-const { createHttp2Server } = require('../../packages/playwright-core/lib/utils');
+import { TestServer } from '../config/testserver';
+import { utils } from '../../packages/playwright-core/lib/coreBundle';
+const { createHttp2Server } = utils;
 
 async function pageWithHar(contextFactory: (options?: BrowserContextOptions) => Promise<BrowserContext>, testInfo: any, options: { outputPath?: string } & Partial<Pick<BrowserContextOptions['recordHar'], 'content' | 'omitContent' | 'mode'>> = {}) {
   const harPath = testInfo.outputPath(options.outputPath || 'test.har');
@@ -42,11 +43,6 @@ async function pageWithHar(contextFactory: (options?: BrowserContextOptions) => 
   };
 }
 
-it('should throw without path', async ({ browser }) => {
-  const error = await browser.newContext({ recordHar: {} as any }).catch(e => e);
-  expect(error.message).toContain('recordHar.path: expected string, got undefined');
-});
-
 it('should have version and creator', async ({ contextFactory, server }, testInfo) => {
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
   await page.goto(server.EMPTY_PAGE);
@@ -61,9 +57,7 @@ it('should have browser', async ({ browserName, browser, contextFactory, server 
   await page.goto(server.EMPTY_PAGE);
   const log = await getLog();
 
-  // _bidiFirefox and _bidiChromium are initialized with 'bidi' as browser name.
-  const harBrowserName = browserName.startsWith('_bidi') ? 'bidi' : browserName;
-  expect(log.browser!.name.toLowerCase()).toBe(harBrowserName);
+  expect(log.browser!.name).toBe(browserName);
   expect(log.browser!.version).toBe(browser.version());
 });
 
@@ -90,17 +84,8 @@ it('should have pages in persistent context', async ({ launchPersistent, browser
   await page.waitForLoadState('domcontentloaded');
   await context.close();
   const log = JSON.parse(fs.readFileSync(harPath).toString())['log'];
-  let pageEntry;
-  if (browserName === 'webkit') {
-  // Explicit locale emulation forces a new page creation when
-  // doing a new context.
-  // See https://github.com/microsoft/playwright/blob/13dd41c2e36a63f35ddef5dc5dec322052d670c6/packages/playwright-core/src/server/browserContext.ts#L232-L242
-    expect(log.pages.length).toBe(2);
-    pageEntry = log.pages[1];
-  } else {
-    expect(log.pages.length).toBe(1);
-    pageEntry = log.pages[0];
-  }
+  expect(log.pages.length).toBe(1);
+  const pageEntry = log.pages[0];
   expect(pageEntry.id).toBeTruthy();
   expect(pageEntry.title).toBe('Hello');
 });
@@ -295,7 +280,7 @@ it('should record request overrides', async ({ contextFactory, server }, testInf
   expect(request.url).toBe(server.EMPTY_PAGE);
   expect(request.method).toBe('POST');
   expect(request.headers).toContainEqual({ name: 'custom', value: 'value' });
-  expect(request.cookies).toContainEqual({ name: 'foo', value: 'bar' });
+  expect(request.cookies).toEqual([]);
   expect(request.postData).toEqual({ 'mimeType': 'text/plain', 'params': [], 'text': 'Hi!' });
 });
 
@@ -508,7 +493,7 @@ it('should record failed request overrides', async ({ contextFactory, server }, 
   expect(request.url).toBe(server.EMPTY_PAGE);
   expect(request.method).toBe('POST');
   expect(request.headers).toContainEqual({ name: 'custom', value: 'value' });
-  expect(request.cookies).toContainEqual({ name: 'foo', value: 'bar' });
+  expect(request.cookies).toEqual([]);
   expect(request.postData).toEqual({ 'mimeType': 'text/plain', 'params': [], 'text': 'Hi!' });
 });
 
@@ -676,8 +661,8 @@ it('should return server address directly from response', async ({ page, server,
   }
 });
 
-it('should return security details directly from response', async ({ contextFactory, httpsServer, browserName, platform }) => {
-  it.fail(browserName === 'webkit' && platform === 'linux', 'https://github.com/microsoft/playwright/issues/6759');
+it('should return security details directly from response', async ({ contextFactory, httpsServer, browserName, platform, channel }) => {
+  it.fail(browserName === 'webkit' && (platform === 'linux' || channel === 'webkit-wsl'), 'https://github.com/microsoft/playwright/issues/6759');
 
   const context = await contextFactory({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
@@ -692,10 +677,7 @@ it('should return security details directly from response', async ({ contextFact
 });
 
 it('should contain http2 for http2 requests', async ({ contextFactory }, testInfo) => {
-  const server = createHttp2Server({
-    key: await fs.promises.readFile(path.join(__dirname, '..', 'config', 'testserver', 'key.pem')),
-    cert: await fs.promises.readFile(path.join(__dirname, '..', 'config', 'testserver', 'cert.pem')),
-  });
+  const server = createHttp2Server(await TestServer.certOptions());
   server.on('stream', stream => {
     stream.respond({
       'content-type': 'text/html; charset=utf-8',
@@ -714,9 +696,9 @@ it('should contain http2 for http2 requests', async ({ contextFactory }, testInf
   server.close();
 });
 
-it('should filter favicon and favicon redirects', async ({ server, browserName, channel, headless, asset, contextFactory }, testInfo) => {
+it('should filter favicon and favicon redirects', async ({ server, browserName, headless, asset, contextFactory, channel }, testInfo) => {
   it.skip(headless && browserName !== 'firefox', 'headless browsers, except firefox, do not request favicons');
-  it.skip(!headless && browserName === 'webkit' && !channel, 'headed webkit does not have a favicon feature');
+  it.skip(!headless && browserName === 'webkit', 'headed webkit does not have a favicon feature');
 
   const { page, getLog } = await pageWithHar(contextFactory, testInfo);
 
@@ -878,7 +860,7 @@ it('should include redirects from API request', async ({ contextFactory, server 
   expect(json.timings).toBeDefined();
 });
 
-it('should not hang on resources served from cache', async ({ contextFactory, server, browserName }, testInfo) => {
+it('should not hang on resources served from cache', async ({ contextFactory, server, browserName, isBidi }, testInfo) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/11435' });
   server.setRoute('/one-style.css', (req, res) => {
     res.writeHead(200, {
@@ -893,7 +875,7 @@ it('should not hang on resources served from cache', async ({ contextFactory, se
   const log = await getLog();
   const entries = log.entries.filter(e => e.request.url.endsWith('one-style.css'));
   // In firefox no request events are fired for cached resources.
-  if (browserName === 'firefox')
+  if (browserName === 'firefox' && !isBidi)
     expect(entries.length).toBe(1);
   else
     expect(entries.length).toBe(2);
@@ -929,8 +911,37 @@ it('should not hang on slow chunked response', async ({ browserName, browser, co
   await page.evaluate(() => (window as any).receivedFirstData);
   const log = await getLog();
 
-  // _bidiFirefox and _bidiChromium are initialized with 'bidi' as browser name.
-  const harBrowserName = browserName.startsWith('_bidi') ? 'bidi' : browserName;
-  expect(log.browser!.name.toLowerCase()).toBe(harBrowserName);
+  expect(log.browser!.name).toBe(browserName);
   expect(log.browser!.version).toBe(browser.version());
+});
+
+it.describe('tracing.startHar', () => {
+  it('should record a HAR with options', async ({ contextFactory, server }, testInfo) => {
+    const context = await contextFactory();
+    const harPath = testInfo.outputPath('tracing.har');
+    await context.tracing.startHar(harPath, { mode: 'minimal', urlFilter: '**/one-style.css' });
+    const page = await context.newPage();
+    await page.goto(server.PREFIX + '/one-style.html');
+    await context.tracing.stopHar();
+    await context.close();
+
+    const log = JSON.parse(fs.readFileSync(harPath).toString()).log as Log;
+    const urls = log.entries.map(e => e.request.url);
+    expect(urls).toEqual([server.PREFIX + '/one-style.css']);
+    // Minimal mode drops body sizes.
+    expect(log.entries[0].request.bodySize).toBe(-1);
+  });
+
+  it('should record a zipped HAR for APIRequestContext', async ({ playwright, server }, testInfo) => {
+    const request = await playwright.request.newContext();
+    const harPath = testInfo.outputPath('tracing.har.zip');
+    await request.tracing.startHar(harPath, { content: 'attach' });
+    await request.get(server.PREFIX + '/simple.json');
+    await request.tracing.stopHar();
+    await request.dispose();
+
+    const resources = await parseHar(harPath);
+    const log = JSON.parse(resources.get('har.har')!.toString()).log as Log;
+    expect(log.entries.some(e => e.request.url === server.PREFIX + '/simple.json')).toBe(true);
+  });
 });

@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, countTimes } from './playwright-test-fixtures';
+import { parseTrace } from '../config/utils';
+import fs from 'fs';
 
 test('should work with connectOptions', async ({ runInlineTest }) => {
   const result = await runInlineTest({
@@ -165,5 +167,69 @@ test('should print debug log when failed to connect', async ({ runInlineTest }) 
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.output).toContain('b-debug-log-string');
-  expect(result.results[0].attachments).toEqual([]);
+  expect(result.results[0].attachments).toEqual([{
+    name: 'error-context',
+    contentType: 'text/markdown',
+    path: expect.stringContaining('error-context.md'),
+  }]);
+});
+
+test('should record trace', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `
+      module.exports = {
+        globalSetup: './global-setup',
+        use: {
+          connectOptions: {
+            wsEndpoint: process.env.CONNECT_WS_ENDPOINT,
+          },
+          trace: 'retain-on-failure',
+        },
+      };
+    `,
+    'global-setup.ts': `
+      import { chromium } from '@playwright/test';
+      module.exports = async () => {
+        const server = await chromium.launchServer();
+        process.env.CONNECT_WS_ENDPOINT = server.wsEndpoint();
+        process.env.DEBUG = 'pw:channel';
+        return () => server.close();
+      };
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({ page }) => {
+        expect(1).toBe(1);
+      });
+      test('fail', async ({ page }) => {
+        expect(1).toBe(2);
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.passed).toBe(1);
+  expect(result.failed).toBe(1);
+
+  // A single tracing artifact should be created. We see it in the logs twice:
+  // as a regular message and wrapped inside a jsonPipe.
+  expect(countTimes(result.output, `"type":"Artifact","initializer"`)).toBe(2);
+
+  expect(fs.existsSync(test.info().outputPath('test-results', 'a-pass', 'trace.zip'))).toBe(false);
+
+  const trace = await parseTrace(test.info().outputPath('test-results', 'a-fail', 'trace.zip'));
+  expect(trace.model.renderActionTree()).toEqual([
+    'Before Hooks',
+    '  Fixture "context"',
+    '    Create context',
+    '  Fixture "page"',
+    '    Create page',
+    'Expect "toBe"',
+    'After Hooks',
+    '  Fixture "page"',
+    '  Fixture "context"',
+    '    Close context',
+    'Attach "error-context"',
+    'Worker Cleanup',
+    '  Fixture "browser"',
+  ]);
 });

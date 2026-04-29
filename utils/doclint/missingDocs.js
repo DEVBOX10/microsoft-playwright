@@ -42,7 +42,7 @@ module.exports = function lint(documentation, jsSources, apiFileName) {
       }
       for (const paramName of params) {
         const found = members.some(member => paramsForMember(member).has(paramName));
-        if (!found)
+        if (!found && !paramName.startsWith('_'))
           errors.push(`Missing documentation for "${className}.${methodName}.${paramName}"`);
       }
     }
@@ -118,7 +118,9 @@ function listMethods(rootNames, apiFileName) {
    * @param {string} methodName
    */
   function shouldSkipMethodByName(className, methodName) {
-    if (methodName.startsWith('_') || methodName === 'T' || methodName === 'toString')
+    if (methodName.startsWith('_') || methodName === 'T')
+      return true;
+    if (methodName === 'toString' && className !== 'Locator')
       return true;
     if (EventEmitter.prototype.hasOwnProperty(methodName))
       return true;

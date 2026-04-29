@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import type { Point, SerializedError } from './channels';
+import type { Point, Rect, SerializedError } from './channels';
 
 export type CallMetadata = {
   id: string;
@@ -25,13 +25,10 @@ export type CallMetadata = {
   type: string;
   method: string;
   params: any;
-  apiName?: string;
+  title?: string;
   // Client is making an internal call that should not show up in
   // the inspector or trace.
   internal?: boolean;
-  // Service-side is making a call to itself, this metadata does not go
-  // through the dispatcher, so is always excluded from inspector / tracing.
-  isServerSide?: boolean;
   // Test runner step id.
   stepId?: string;
   location?: { file: string, line?: number, column?: number };
@@ -39,8 +36,10 @@ export type CallMetadata = {
   error?: SerializedError;
   result?: any;
   point?: Point;
+  box? : Rect;
   objectId?: string;
   pageId?: string;
   frameId?: string;
   potentiallyClosesScope?: boolean;
+  annotate?: boolean;
 };

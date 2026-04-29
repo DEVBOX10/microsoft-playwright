@@ -24,7 +24,7 @@ it('should reject all promises when browser is closed', async ({ browserType }) 
   const page = await (await browser.newContext()).newPage();
   let error: Error | undefined;
   const neverResolves = page.evaluate(() => new Promise(r => {})).catch(e => error = e);
-  await page.evaluate(() => new Promise(f => window.builtinSetTimeout(f, 0)));
+  await page.evaluate(() => new Promise(f => window.builtins.setTimeout(f, 0)));
   await browser.close();
   await neverResolves;
   // WebKit under task-set -c 1 is giving browser, rest are giving target.
@@ -53,27 +53,33 @@ it('should throw if port option is passed for persistent context', async ({ brow
   expect(error!.message).toContain('Cannot specify a port without launching as a server.');
 });
 
-it('should throw if page argument is passed', async ({ browserType, browserName }) => {
-  it.skip(browserName === 'firefox');
+it('should throw if page argument is passed', async ({ browserType, browserName, isBidi }) => {
+  it.skip(browserName === 'firefox' && !isBidi);
 
   let waitError: Error | undefined;
   await browserType.launch({ args: ['http://example.com'] }).catch(e => waitError = e);
   expect(waitError!.message).toContain('can not specify page');
 });
 
-it('should reject if launched browser fails immediately', async ({ mode, browserType, asset, isWindows }) => {
+it('should reject if launched browser fails immediately', async ({ mode, browserType, asset, isWindows, channel }) => {
   it.skip(mode.startsWith('service'));
 
   let waitError: Error | undefined;
   await browserType.launch({ executablePath: asset('dummy_bad_browser_executable.js') }).catch(e => waitError = e);
-  expect(waitError!.message).toContain(isWindows ? 'browserType.launch: spawn UNKNOWN' : 'Browser logs:');
+  if (channel === 'webkit-wsl')
+    expect(waitError!.message).toContain('Cannot specify executablePath when using the \"webkit-wsl\" channel.');
+  else
+    expect(waitError!.message).toContain(isWindows ? 'browserType.launch: spawn UNKNOWN' : 'Browser logs:');
 });
 
-it('should reject if executable path is invalid', async ({ browserType, mode }) => {
+it('should reject if executable path is invalid', async ({ browserType, mode, channel }) => {
   it.skip(mode.startsWith('service'), 'on service mode we dont allow passing custom executable path');
   let waitError: Error | undefined;
   await browserType.launch({ executablePath: 'random-invalid-path' }).catch(e => waitError = e);
-  expect(waitError!.message).toContain('Failed to launch');
+  if (channel === 'webkit-wsl')
+    expect(waitError!.message).toContain('Cannot specify executablePath when using the \"webkit-wsl\" channel.');
+  else
+    expect(waitError!.message).toContain('Failed to launch');
 });
 
 it('should handle timeout', async ({ browserType, mode }) => {

@@ -37,7 +37,7 @@ type StorageStateType = PromiseArg<ReturnType<APIRequestContext['storageState']>
 it.skip(({ mode }) => mode !== 'default');
 
 const __testHookLookup = (hostname: string): LookupAddress[] => {
-  if (hostname === 'localhost' || hostname.endsWith('one.com') || hostname.endsWith('two.com'))
+  if (hostname.endsWith('localhost') || hostname.endsWith('one.com') || hostname.endsWith('two.com'))
     return [{ address: '127.0.0.1', family: 4 }];
   else
     throw new Error(`Failed to resolve hostname: ${hostname}`);
@@ -136,6 +136,20 @@ it('should send secure cookie over http for localhost', async ({ request, server
   const [serverRequest] = await Promise.all([
     server.waitForRequest('/empty.html'),
     request.get(server.EMPTY_PAGE)
+  ]);
+  expect(serverRequest.headers.cookie).toBe('a=v; b=v');
+});
+
+it('should send secure cookie over http for subdomains of localhost', async ({ request, server }) => {
+  server.setRoute('/setcookie.html', (req, res) => {
+    res.setHeader('Set-Cookie', ['a=v; secure', 'b=v']);
+    res.end();
+  });
+  const prefix = `http://a.b.localhost:${server.PORT}`;
+  await request.get(`${prefix}/setcookie.html`, {  __testHookLookup } as any);
+  const [serverRequest] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    request.get(`${prefix}/empty.html`)
   ]);
   expect(serverRequest.headers.cookie).toBe('a=v; b=v');
 });
@@ -351,13 +365,34 @@ it('should preserve local storage on import/export of storage state', async ({ p
         localStorage: [{
           name: 'name1',
           value: 'value1'
-        }]
+        }],
+        ...{
+          indexedDB: [
+            {
+              name: 'db',
+              version: 5,
+              stores: [
+                {
+                  name: 'store',
+                  keyPath: 'id',
+                  autoIncrement: false,
+                  indexes: [],
+                  records: [
+                    {
+                      value: { id: 'foo', name: 'John Doe' }
+                    }
+                  ],
+                }
+              ]
+            }
+          ]
+        },
       },
     ]
   };
   const request = await playwright.request.newContext({ storageState });
   await request.get(server.EMPTY_PAGE);
-  const exportedState = await request.storageState();
+  const exportedState = await request.storageState({ indexedDB: true });
   expect(exportedState).toEqual(storageState);
   await request.dispose();
 });

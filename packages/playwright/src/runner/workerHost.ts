@@ -16,48 +16,62 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { TestGroup } from './testGroups';
-import { stdioChunkToParams } from '../common/ipc';
-import type { RunPayload, SerializedConfig, WorkerInitParams } from '../common/ipc';
+
+import { removeFolders } from '@utils/fileUtils';
+
 import { ProcessHost } from './processHost';
+import { ipc } from '../common';
 import { artifactsFolderName } from '../isomorphic/folders';
-import { removeFolders } from 'playwright-core/lib/utils';
+
+import type { TestGroup } from './testGroups';
+
 
 let lastWorkerIndex = 0;
+
+type WorkerHostOptions = {
+  parallelIndex: number;
+  config: ipc.SerializedConfig;
+  extraEnv: Record<string, string | undefined>;
+  outputDir: string;
+  pauseOnError: boolean;
+  pauseAtEnd: boolean;
+};
 
 export class WorkerHost extends ProcessHost {
   readonly parallelIndex: number;
   readonly workerIndex: number;
   private _hash: string;
-  private _params: WorkerInitParams;
+  private _params: ipc.WorkerInitParams;
   private _didFail = false;
 
-  constructor(testGroup: TestGroup, parallelIndex: number, config: SerializedConfig, extraEnv: Record<string, string | undefined>, outputDir: string) {
+  constructor(testGroup: TestGroup, options: WorkerHostOptions) {
     const workerIndex = lastWorkerIndex++;
-    super(require.resolve('../worker/workerMain.js'), `worker-${workerIndex}`, {
-      ...extraEnv,
+    super(require.resolve('../worker/workerProcessEntry.js'), `worker-${workerIndex}`, {
+      ...options.extraEnv,
       FORCE_COLOR: '1',
       DEBUG_COLORS: process.env.DEBUG_COLORS === undefined ? '1' : process.env.DEBUG_COLORS,
     });
     this.workerIndex = workerIndex;
-    this.parallelIndex = parallelIndex;
+    this.parallelIndex = options.parallelIndex;
     this._hash = testGroup.workerHash;
 
     this._params = {
       workerIndex: this.workerIndex,
-      parallelIndex,
+      parallelIndex: options.parallelIndex,
       repeatEachIndex: testGroup.repeatEachIndex,
       projectId: testGroup.projectId,
-      config,
-      artifactsDir: path.join(outputDir, artifactsFolderName(workerIndex))
+      config: options.config,
+      artifactsDir: path.join(options.outputDir, artifactsFolderName(workerIndex)),
+      pauseOnError: options.pauseOnError,
+      pauseAtEnd: options.pauseAtEnd,
     };
   }
 
   async start() {
     await fs.promises.mkdir(this._params.artifactsDir, { recursive: true });
     return await this.startRunner(this._params, {
-      onStdOut: chunk => this.emit('stdOut', stdioChunkToParams(chunk)),
-      onStdErr: chunk => this.emit('stdErr', stdioChunkToParams(chunk)),
+      onStdOut: chunk => this.emit('stdOut', ipc.stdioChunkToParams(chunk)),
+      onStdErr: chunk => this.emit('stdErr', ipc.stdioChunkToParams(chunk)),
     });
   }
 
@@ -71,12 +85,24 @@ export class WorkerHost extends ProcessHost {
     await super.stop();
   }
 
-  runTestGroup(runPayload: RunPayload) {
+  runTestGroup(runPayload: ipc.RunPayload) {
     this.sendMessageNoReply({ method: 'runTestGroup', params: runPayload });
+  }
+
+  async sendCustomMessage(payload: ipc.CustomMessageRequestPayload) {
+    return await this.sendMessage({ method: 'customMessage', params: payload }) as ipc.CustomMessageResponsePayload;
+  }
+
+  sendResume(payload: ipc.ResumePayload) {
+    this.sendMessageNoReply({ method: 'resume', params: payload });
   }
 
   hash() {
     return this._hash;
+  }
+
+  projectId() {
+    return this._params.projectId;
   }
 
   didFail() {

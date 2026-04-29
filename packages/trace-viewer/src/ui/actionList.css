@@ -14,10 +14,32 @@
   limitations under the License.
 */
 
-.action-title {
+.action-title > .hbox {
+  align-items: center;
+}
+
+.action-title-line {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.action-title-selector {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  color: var(--vscode-tab-inactiveForeground);
+  margin-top: -8px;
+}
+
+.action-title-method {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.action-title-param {
+  color: var(--vscode-editorBracketHighlight-foreground1);
 }
 
 .action-location {
@@ -100,4 +122,11 @@
   cursor: pointer;
   height: 28px;
   align-items: center;
+}
+
+.action-list-container {
+  min-height: 0;
+  flex: auto;
+  display: flex;
+  flex-direction: column;
 }

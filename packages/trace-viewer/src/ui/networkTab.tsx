@@ -14,22 +14,22 @@
  * limitations under the License.
  */
 
-import type { Entry } from '@trace/har';
 import * as React from 'react';
 import type { Boundaries } from './geometry';
 import './networkTab.css';
 import { NetworkResourceDetails } from './networkResourceDetails';
-import { bytesToString, msToString } from '@web/uiUtils';
+import { bytesToString, msToString } from '@isomorphic/formatUtils';
 import { PlaceholderPanel } from './placeholderPanel';
-import { context, type MultiTraceModel } from './modelUtil';
+import { context, type ResourceEntry } from '@isomorphic/trace/traceModel';
+import type { TraceModel } from '@isomorphic/trace/traceModel';
 import { GridView, type RenderedGridCell } from '@web/components/gridView';
 import { SplitView } from '@web/components/splitView';
-import type { ContextEntry } from '../types/entries';
+import type { ContextEntry } from '@isomorphic/trace/entries';
 import { NetworkFilters, defaultFilterState, type FilterState, type ResourceType } from './networkFilters';
 import type { Language } from '@isomorphic/locatorGenerators';
 
 type NetworkTabModel = {
-  resources: Entry[],
+  resources: ResourceEntry[],
   contextIdMap: ContextIdMap,
 };
 
@@ -42,23 +42,25 @@ type RenderedEntry = {
   size: number,
   start: number,
   route: string,
-  resource: Entry,
+  resource: ResourceEntry,
   contextId: string,
 };
 type ColumnName = keyof RenderedEntry;
 type Sorting = { by: ColumnName, negate: boolean};
 const NetworkGridView = GridView<RenderedEntry>;
 
-export function useNetworkTabModel(model: MultiTraceModel | undefined, selectedTime: Boundaries | undefined): NetworkTabModel {
+export function useNetworkTabModel(model: TraceModel | undefined, selectedTime: Boundaries | undefined, pageId?: string): NetworkTabModel {
   const resources = React.useMemo(() => {
     const resources = model?.resources || [];
     const filtered = resources.filter(resource => {
+      if (pageId && resource.pageref !== pageId)
+        return false;
       if (!selectedTime)
         return true;
       return !!resource._monotonicTime && (resource._monotonicTime >= selectedTime.minimum && resource._monotonicTime <= selectedTime.maximum);
     });
     return filtered;
-  }, [model, selectedTime]);
+  }, [model, selectedTime, pageId]);
   const contextIdMap = React.useMemo(() => new ContextIdMap(model), [model]);
   return { resources, contextIdMap };
 }
@@ -66,11 +68,11 @@ export function useNetworkTabModel(model: MultiTraceModel | undefined, selectedT
 export const NetworkTab: React.FunctionComponent<{
   boundaries: Boundaries,
   networkModel: NetworkTabModel,
-  onEntryHovered?: (entry: Entry | undefined) => void,
+  onResourceHovered?: (key: string | undefined) => void,
   sdkLanguage: Language,
-}> = ({ boundaries, networkModel, onEntryHovered, sdkLanguage }) => {
+}> = ({ boundaries, networkModel, onResourceHovered, sdkLanguage }) => {
   const [sorting, setSorting] = React.useState<Sorting | undefined>(undefined);
-  const [selectedEntry, setSelectedEntry] = React.useState<RenderedEntry | undefined>(undefined);
+  const [selectedResourceKey, setSelectedResourceKey] = React.useState<string | undefined>(undefined);
   const [filterState, setFilterState] = React.useState(defaultFilterState);
 
   const { renderedEntries } = React.useMemo(() => {
@@ -80,13 +82,15 @@ export const NetworkTab: React.FunctionComponent<{
     return { renderedEntries };
   }, [networkModel.resources, networkModel.contextIdMap, filterState, sorting, boundaries]);
 
+  const visibleSelectedEntry = React.useMemo(() => (selectedResourceKey ? renderedEntries.find(entry => entry.resource.id === selectedResourceKey) : undefined), [selectedResourceKey, renderedEntries]);
+
   const [columnWidths, setColumnWidths] = React.useState<Map<ColumnName, number>>(() => {
     return new Map(allColumns().map(column => [column, columnWidth(column)]));
   });
 
   const onFilterStateChange = React.useCallback((newFilterState: FilterState) => {
     setFilterState(newFilterState);
-    setSelectedEntry(undefined);
+    setSelectedResourceKey(undefined);
   }, []);
 
   if (!networkModel.resources.length)
@@ -94,11 +98,12 @@ export const NetworkTab: React.FunctionComponent<{
 
   const grid = <NetworkGridView
     name='network'
+    ariaLabel='Network requests'
     items={renderedEntries}
-    selectedItem={selectedEntry}
-    onSelected={item => setSelectedEntry(item)}
-    onHighlighted={item => onEntryHovered?.(item?.resource)}
-    columns={visibleColumns(!!selectedEntry, renderedEntries)}
+    selectedItem={visibleSelectedEntry}
+    onSelected={item => setSelectedResourceKey(item.resource.id)}
+    onHighlighted={item => onResourceHovered?.(item?.resource.id)}
+    columns={visibleColumns(!!visibleSelectedEntry, renderedEntries)}
     columnTitle={columnTitle}
     columnWidths={columnWidths}
     setColumnWidths={setColumnWidths}
@@ -110,14 +115,14 @@ export const NetworkTab: React.FunctionComponent<{
   />;
   return <>
     <NetworkFilters filterState={filterState} onFilterStateChange={onFilterStateChange} />
-    {!selectedEntry && grid}
-    {selectedEntry &&
+    {!visibleSelectedEntry && grid}
+    {visibleSelectedEntry &&
       <SplitView
         sidebarSize={columnWidths.get('name')!}
         sidebarIsFirst={true}
         orientation='horizontal'
         settingName='networkResourceDetails'
-        main={<NetworkResourceDetails resource={selectedEntry.resource} sdkLanguage={sdkLanguage} startTimeOffset={selectedEntry.start} onClose={() => setSelectedEntry(undefined)} />}
+        main={<NetworkResourceDetails resource={visibleSelectedEntry.resource} sdkLanguage={sdkLanguage} startTimeOffset={visibleSelectedEntry.start} onClose={() => setSelectedResourceKey(undefined)} />}
         sidebar={grid}
       />}
   </>;
@@ -193,8 +198,8 @@ const renderCell = (entry: RenderedEntry, column: ColumnName): RenderedGridCell 
     return { body: entry.method };
   if (column === 'status') {
     return {
-      body: entry.status.code > 0 ? entry.status.code : '',
-      title: entry.status.text
+      body: entry.status.code === -1 ? 'canceled' : entry.status.code > 0 ? entry.status.code : '',
+      title: entry.status.code === -1 ? 'canceled' : entry.status.text,
     };
   }
   if (column === 'contentType')
@@ -216,9 +221,9 @@ class ContextIdMap {
   private _lastPageId = 0;
   private _lastApiRequestContextId = 0;
 
-  constructor(model: MultiTraceModel | undefined) {}
+  constructor(model: TraceModel | undefined) {}
 
-  contextId(resource: Entry): string {
+  contextId(resource: ResourceEntry): string {
     if (resource.pageref)
       return this._pageId(resource.pageref);
     else if (resource._apiRequest)
@@ -236,7 +241,7 @@ class ContextIdMap {
     return shortId;
   }
 
-  private _apiRequestContextId(resource: Entry): string {
+  private _apiRequestContextId(resource: ResourceEntry): string {
     const contextEntry = context(resource);
     if (!contextEntry)
       return '';
@@ -260,7 +265,7 @@ function hasMultipleContexts(renderedEntries: RenderedEntry[]): boolean {
   return false;
 }
 
-const renderEntry = (resource: Entry, boundaries: Boundaries, contextIdGenerator: ContextIdMap): RenderedEntry => {
+const renderEntry = (resource: ResourceEntry, boundaries: Boundaries, contextIdGenerator: ContextIdMap): RenderedEntry => {
   const routeStatus = formatRouteStatus(resource);
   let resourceName: string;
   try {
@@ -292,7 +297,7 @@ const renderEntry = (resource: Entry, boundaries: Boundaries, contextIdGenerator
   };
 };
 
-function formatRouteStatus(request: Entry): string {
+function formatRouteStatus(request: ResourceEntry): string {
   if (request._wasAborted)
     return 'aborted';
   if (request._wasContinued)
@@ -359,7 +364,6 @@ function comparator(sortBy: ColumnName) {
 }
 
 const resourceTypePredicates: Record<ResourceType, (contentType: string) => boolean> = {
-  'All': () => true,
   'Fetch': contentType => contentType === 'application/json',
   'HTML': contentType => contentType === 'text/html',
   'CSS': contentType => contentType === 'text/css',
@@ -368,10 +372,9 @@ const resourceTypePredicates: Record<ResourceType, (contentType: string) => bool
   'Image': contentType => contentType.includes('image'),
 };
 
-function filterEntry({ searchValue, resourceType }: FilterState) {
+function filterEntry({ searchValue, resourceTypes }: FilterState) {
   return (entry: RenderedEntry) => {
-    const typePredicate = resourceTypePredicates[resourceType];
-
-    return typePredicate(entry.contentType) && entry.name.url.toLowerCase().includes(searchValue.toLowerCase());
+    const isRightType = resourceTypes.size === 0 || Array.from(resourceTypes).some(type => resourceTypePredicates[type](entry.contentType));
+    return isRightType && entry.name.url.toLowerCase().includes(searchValue.toLowerCase());
   };
 }

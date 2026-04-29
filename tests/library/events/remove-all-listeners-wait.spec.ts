@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
-import { ManualPromise } from '../../../packages/playwright-core/lib/utils/manualPromise';
-import { EventEmitter } from '../../../packages/playwright-core/lib/client/eventEmitter';
+import { iso } from '../../../packages/playwright-core/lib/coreBundle';
+import { EventEmitter } from './utils';
 import { test, expect } from '@playwright/test';
+
+const { ManualPromise } = iso;
 
 test('should not throw with ignoreErrors', async () => {
   const ee = new EventEmitter();

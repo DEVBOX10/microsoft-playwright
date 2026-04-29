@@ -14,77 +14,104 @@
  * limitations under the License.
  */
 
-import url from 'url';
-import path from 'path';
+import colorsLibrary from 'colors/safe';
+export const colors = colorsLibrary;
 
-export const colors: typeof import('../bundles/utils/node_modules/colors/safe') = require('./utilsBundleImpl').colors;
-export const debug: typeof import('../bundles/utils/node_modules/@types/debug') = require('./utilsBundleImpl').debug;
-export const diff: typeof import('../bundles/utils/node_modules/@types/diff') = require('./utilsBundleImpl').diff;
-export const dotenv: typeof import('../bundles/utils/node_modules/dotenv') = require('./utilsBundleImpl').dotenv;
-export const getProxyForUrl: typeof import('../bundles/utils/node_modules/@types/proxy-from-env').getProxyForUrl = require('./utilsBundleImpl').getProxyForUrl;
-export const HttpsProxyAgent: typeof import('../bundles/utils/node_modules/https-proxy-agent').HttpsProxyAgent = require('./utilsBundleImpl').HttpsProxyAgent;
-export const jpegjs: typeof import('../bundles/utils/node_modules/jpeg-js') = require('./utilsBundleImpl').jpegjs;
-export const lockfile: typeof import('../bundles/utils/node_modules/@types/proper-lockfile') = require('./utilsBundleImpl').lockfile;
-export const mime: typeof import('../bundles/utils/node_modules/@types/mime') = require('./utilsBundleImpl').mime;
-export const minimatch: typeof import('../bundles/utils/node_modules/@types/minimatch') = require('./utilsBundleImpl').minimatch;
-export const open: typeof import('../bundles/utils/node_modules/open') = require('./utilsBundleImpl').open;
-export const PNG: typeof import('../bundles/utils/node_modules/@types/pngjs').PNG = require('./utilsBundleImpl').PNG;
-export const program: typeof import('../bundles/utils/node_modules/commander').program = require('./utilsBundleImpl').program;
-export const progress: typeof import('../bundles/utils/node_modules/@types/progress') = require('./utilsBundleImpl').progress;
-export const SocksProxyAgent: typeof import('../bundles/utils/node_modules/socks-proxy-agent').SocksProxyAgent = require('./utilsBundleImpl').SocksProxyAgent;
-export const yaml: typeof import('../bundles/utils/node_modules/yaml') = require('./utilsBundleImpl').yaml;
-export type { Scalar as YAMLScalar, YAMLSeq, YAMLMap, YAMLError, Range as YAMLRange } from '../bundles/utils/node_modules/yaml';
-export const ws: typeof import('../bundles/utils/node_modules/@types/ws') = require('./utilsBundleImpl').ws;
-export const wsServer: typeof import('../bundles/utils/node_modules/@types/ws').WebSocketServer = require('./utilsBundleImpl').wsServer;
-export const wsReceiver = require('./utilsBundleImpl').wsReceiver;
-export const wsSender = require('./utilsBundleImpl').wsSender;
-export type { Command } from '../bundles/utils/node_modules/commander';
-export type { WebSocket, WebSocketServer, RawData as WebSocketRawData, EventEmitter as WebSocketEventEmitter } from '../bundles/utils/node_modules/@types/ws';
-import type { StackFrame } from '@protocol/channels';
+import debugLibrary from 'debug';
+export const debug = debugLibrary;
 
-const StackUtils: typeof import('../bundles/utils/node_modules/@types/stack-utils') = require('./utilsBundleImpl').StackUtils;
-const stackUtils = new StackUtils({ internals: StackUtils.nodeInternals() });
+import * as iniLibrary from 'ini';
+export const ini = iniLibrary;
 
-export function parseStackTraceLine(line: string): StackFrame | null {
-  const frame = stackUtils.parseLine(line);
-  if (!frame)
-    return null;
-  if (!process.env.PWDEBUGIMPL && (frame.file?.startsWith('internal') || frame.file?.startsWith('node:')))
-    return null;
-  if (!frame.file)
-    return null;
-  // ESM files return file:// URLs, see here: https://github.com/tapjs/stack-utils/issues/60
-  const file = frame.file.startsWith('file://') ? url.fileURLToPath(frame.file) : path.resolve(process.cwd(), frame.file);
-  return {
-    file,
-    line: frame.line || 0,
-    column: frame.column || 0,
-    function: frame.function,
-  };
-}
+import * as diffLibrary from 'diff';
+export const diff = diffLibrary;
 
-export function ms(ms: number): string {
-  if (!isFinite(ms))
-    return '-';
+import dotenvLibrary from 'dotenv';
+export const dotenv = dotenvLibrary;
 
-  if (ms === 0)
-    return '0ms';
+export { getProxyForUrl } from 'proxy-from-env';
 
-  if (ms < 1000)
-    return ms.toFixed(0) + 'ms';
+export { HttpsProxyAgent } from 'https-proxy-agent';
 
-  const seconds = ms / 1000;
-  if (seconds < 60)
-    return seconds.toFixed(1) + 's';
+import jpegLibrary from 'jpeg-js';
+export const jpegjs = jpegLibrary;
 
-  const minutes = seconds / 60;
-  if (minutes < 60)
-    return minutes.toFixed(1) + 'm';
+import mimeLibrary from 'mime';
+export const mime = mimeLibrary;
 
-  const hours = minutes / 60;
-  if (hours < 24)
-    return hours.toFixed(1) + 'h';
+import minimatchLibrary from 'minimatch';
+export const minimatch = minimatchLibrary;
 
-  const days = hours / 24;
-  return days.toFixed(1) + 'd';
-}
+import openLibrary from 'open';
+export const open = openLibrary;
+
+export { PNG } from 'pngjs';
+
+export { program } from 'commander';
+export { Option as ProgramOption } from 'commander';
+
+import progressLibrary from 'progress';
+export const progress = progressLibrary;
+
+export { SocksProxyAgent } from 'socks-proxy-agent';
+
+// @ts-ignore
+import wsLibrary, { WebSocketServer, Receiver, Sender } from 'ws';
+export const ws = wsLibrary;
+export const wsServer = WebSocketServer;
+export const wsReceiver = Receiver;
+export const wsSender = Sender;
+
+import yamlLibrary from 'yaml';
+export const yaml = yamlLibrary;
+
+import json5Library from 'json5';
+export const json5 = json5Library;
+
+import sourceMapSupportLibrary from 'source-map-support';
+export const sourceMapSupport = sourceMapSupportLibrary;
+
+import enquirerLibrary from 'enquirer';
+export const enquirer = enquirerLibrary;
+
+import chokidarLibrary from 'chokidar';
+export const chokidar = chokidarLibrary;
+
+import * as getEastAsianWidthLibrary from 'get-east-asian-width';
+export const getEastAsianWidth = getEastAsianWidthLibrary;
+
+export * as yazl from 'yazl';
+export * as yauzl from 'yauzl';
+
+// @ts-expect-error untyped vendored module
+import * as gracefulFsLibrary from 'graceful-fs';
+export const gracefulFs = gracefulFsLibrary;
+
+import retryLibrary from 'retry';
+export const retry = retryLibrary;
+
+// @ts-expect-error untyped vendored module
+import onExitLibrary from 'signal-exit';
+export const onExit = onExitLibrary;
+
+import getStreamLibrary from 'get-stream';
+export const getStream = getStreamLibrary;
+
+import httpProxyAgentLibrary from 'https-proxy-agent';
+export const httpProxyAgent = httpProxyAgentLibrary;
+
+import socksProxyAgentLibrary from 'socks-proxy-agent';
+export const socksProxyAgent = socksProxyAgentLibrary;
+
+export * as z from 'zod';
+
+export { Client } from '@modelcontextprotocol/sdk/client/index.js';
+export { Server } from '@modelcontextprotocol/sdk/server/index.js';
+export { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+export { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+export { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+export { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+export { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+export { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+export { CallToolRequestSchema, ListRootsRequestSchema, ListToolsRequestSchema, PingRequestSchema, ProgressNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+export { zodToJsonSchema } from 'zod-to-json-schema';

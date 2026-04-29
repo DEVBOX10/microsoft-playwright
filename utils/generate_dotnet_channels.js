@@ -109,7 +109,7 @@ function inlineType(type, indent = '', name, level) {
   if (type.type.startsWith('object')) {
     const optional = type.type.endsWith('?');
 
-    const custom = processCustomType(type, optional);
+    const custom = processCustomType(type, optional, name);
     if (custom)
       return custom;
     if (level >= 1) {
@@ -136,7 +136,7 @@ function properties(properties, indent, onlyOptional, parentName, level) {
       if (name === 'android' || name === 'electron')
         continue;
       if (name.startsWith('$mixin')) {
-        visitProperties(mixins.get(value).properties, parentName + toTitleCase(name));
+        visitProperties(mixins.get(value).properties, parentName);
         continue;
       }
       const inner = inlineType(value, indent, parentName + toTitleCase(name), level + 1);
@@ -144,7 +144,10 @@ function properties(properties, indent, onlyOptional, parentName, level) {
         continue;
       ts.push('');
       ts.push(`${indent}[JsonPropertyName("${name}")]`);
-      ts.push(`${indent}public ${inner.ts}${nullableSuffix(inner)} ${toTitleCase(name)} { get; set; }`);
+      let suffix = ''
+      if (!['bool', 'int', 'float', 'System.Text.Json.JsonElement'].includes(inner.ts))
+        suffix = ' = null!;'
+      ts.push(`${indent}public ${inner.ts}${nullableSuffix(inner)} ${toTitleCase(name)} { get; set; }${suffix}`);
       const wrapped = inner.optional ? `tOptional(${inner.scheme})` : inner.scheme;
       scheme.push(`${indent}${name}: ${wrapped},`);
     }
@@ -183,12 +186,14 @@ fs.mkdirSync(dir, { recursive: true });
 
 for (const [name, item] of Object.entries(protocol)) {
   if (item.type === 'interface') {
-    const init = objectType(item.initializer || {}, '');
     const initializerName = name + 'Initializer';
+    const init = objectType(item.initializer || {}, '', false, initializerName);
     const superName = inherits.has(name) ? inherits.get(name) + 'Initializer' : null;
     writeCSharpClass(initializerName, superName, init.ts);
   } else if (item.type === 'object') {
     if (Object.keys(item.properties).length === 0)
+      continue;
+    if (['AXNode', 'SetNetworkCookie', 'NetworkCookie', 'IndexedDBDatabase', 'SetOriginStorage', 'OriginStorage'].includes(name))
       continue;
     const init = objectType(item.properties, '', false, name);
     writeCSharpClass(name, null, init.ts);
@@ -229,7 +234,7 @@ function toTitleCase(name) {
   return name.charAt(0).toUpperCase() + name.substring(1);
 }
 
-function processCustomType(type, optional) {
+function processCustomType(type, optional, fullName) {
   if (type.properties.name
       && type.properties.value
       && inlineType(type.properties.name).ts === 'string'
@@ -253,4 +258,6 @@ function processCustomType(type, optional) {
     && inlineType(type.properties.name).ts === 'string')
     return { ts: 'DeviceDescriptorEntry', scheme: 'tObject()', optional };
 
+  if (fullName === 'BrowserContextInitializerOptions')
+    return { ts: 'System.Text.Json.JsonElement', scheme: 'tObject()', optional };
 }

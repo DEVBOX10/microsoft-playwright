@@ -92,11 +92,11 @@ Running 1 test using 1 worker
 
 The VS Code test runner runs your tests on the default browser of Chrome. To run on other/multiple browsers click the play button's dropdown from the testing sidebar and choose another profile or modify the default profile by clicking **Select Default Profile** and select the browsers you wish to run your tests on.
 
-<img width="1464" alt="selecting browsers" src="https://user-images.githubusercontent.com/13063165/221136731-9d4bc18f-38a4-4adb-997b-5b98c98aec7f.png" />
+<img height="1594" width="2928" alt="selecting browsers" src="https://user-images.githubusercontent.com/13063165/221136731-9d4bc18f-38a4-4adb-997b-5b98c98aec7f.png" />
 
 Choose a specific profile, various profiles or all profiles to run tests on.
 
-<img width="1536" alt="choosing default profiles" src="https://user-images.githubusercontent.com/13063165/221669537-e5df8672-f50d-4ff1-96f9-141cd67e12f8.png" />
+<img height="1760" width="3072" alt="choosing default profiles" src="https://user-images.githubusercontent.com/13063165/221669537-e5df8672-f50d-4ff1-96f9-141cd67e12f8.png" />
 
 
 ## Configure projects for multiple environments
@@ -152,6 +152,7 @@ export default defineConfig({
   ],
 });
 ```
+
 ## Dependencies
 
 Dependencies are a list of projects that need to run before the tests in another project run. They can be useful for configuring the global setup actions so that one project depends on this running first. When using project dependencies, [test reporters](./test-reporters.md) will show the setup tests and the [trace viewer](/trace-viewer.md) will record traces of the setup. You can use the inspector to inspect the DOM snapshot of the trace of your setup tests and you can also use [fixtures](./test-fixtures.md) inside your setup.
@@ -159,7 +160,7 @@ Dependencies are a list of projects that need to run before the tests in another
 In this example the chromium, firefox and webkit projects depend on the setup project.
 
 ```js title="playwright.config.ts"
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   projects: [
@@ -185,6 +186,7 @@ export default defineConfig({
   ],
 });
 ```
+
 ### Running Sequence
 
 When working with tests that have a dependency, the dependency will always run first and once all tests from this project have passed, then the other projects will run in parallel.
@@ -194,7 +196,7 @@ Running order:
 
 2. Tests in the 'chromium', 'webkit' and 'firefox' projects run together. By default, these projects will [run in parallel](./test-parallel.md), subject to the maximum workers limit.
 
-<img width="70%" style={{display: 'flex', margin: 'auto'}} alt="chromium, webkit and firefox projects depend on setup project" loading="lazy" src="https://user-images.githubusercontent.com/13063165/225937080-327b1e63-431f-40e0-90d7-35f21d7a92cb.jpg" />
+<img width="2048" height="1116" style={{display: 'flex', margin: 'auto', width: '70%'}} alt="chromium, webkit and firefox projects depend on setup project" loading="lazy" src="https://user-images.githubusercontent.com/13063165/225937080-327b1e63-431f-40e0-90d7-35f21d7a92cb.jpg" />
 
 If there are more than one dependency then these project dependencies will be run first and in parallel. If the tests from a dependency fails then the tests that rely on this project will not be run.
 
@@ -205,18 +207,20 @@ Running order:
 
 1. The 'e2e tests' project is not run!
 
-<img width="70%" style={{display: 'flex', margin: 'auto'}} alt="Browser login project is blue, database is red and e2e tests relies on both" loading="lazy" src="https://user-images.githubusercontent.com/13063165/225938262-33c1b78f-f092-4762-a478-7f8cbc1e3b21.jpg" />
+<img width="991" height="717" style={{display: 'flex', margin: 'auto', width: '70%'}} alt="Browser login project is blue, database is red and e2e tests relies on both" loading="lazy" src="https://user-images.githubusercontent.com/13063165/225938262-33c1b78f-f092-4762-a478-7f8cbc1e3b21.jpg" />
 
 ### Teardown
 
 You can also teardown your setup by adding a [`property: TestProject.teardown`] property to your setup project. Teardown will run after all dependent projects have run. See the [teardown guide](./test-global-setup-teardown.md#teardown) for more information.
 
 
-<img style={{display: 'flex', margin: 'auto'}} alt="global setup and teardown" loading="lazy" src="https://github.com/microsoft/playwright/assets/13063165/dfcf10a9-f601-4d0c-bd8d-9490e6efbf7a" />
+<img height="622" width="391" style={{display: 'flex', margin: 'auto'}} alt="global setup and teardown" loading="lazy" src="https://github.com/microsoft/playwright/assets/13063165/dfcf10a9-f601-4d0c-bd8d-9490e6efbf7a" />
 
 ### Test filtering
 
-If `--grep/--grep-invert` or `--shard` [option](./test-cli.md#reference) is used, test file name filter is specified in [command line](./test-cli.md) or [test.only()](./api/class-test.md#test-only) is used, it will only apply to the tests from the deepest projects in the project dependency chain. In other words, if a matching test belongs to a project that has project dependencies, Playwright will run all the tests from the project dependencies ignoring the filters.
+All test filtering options, such as `--grep`/`--grep-invert`, `--shard`, filtering directly by location in the command line, or using [`test.only()`](./api/class-test.md#test-only), directly select the primary tests to be run. If those tests belong to a project with dependencies, all tests from those dependencies will also run.
+
+You can pass `--no-deps` command line option to ignore all dependencies and teardowns. Only your directly selected projects will run.
 
 ## Custom project parameters
 

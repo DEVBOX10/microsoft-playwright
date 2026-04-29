@@ -14,22 +14,28 @@
  * limitations under the License.
  */
 
+import mime from 'mime';
+import { ManualPromise } from '@isomorphic/manualPromise';
+import { eventsHelper } from '@utils/eventsHelper';
+import { assert } from '@isomorphic/assert';
+import { calculateSha1 } from '@utils/crypto';
+import { monotonicTime } from '@isomorphic/time';
+import { isTextualMimeType } from '@isomorphic/mimeType';
+import { urlMatches } from '@isomorphic/urlMatch';
+import { getPlaywrightVersion } from '../userAgent';
 import { BrowserContext } from '../browserContext';
-import type { APIRequestEvent, APIRequestFinishedEvent } from '../fetch';
 import { APIRequestContext } from '../fetch';
+import { Frame } from '../frames';
 import { helper } from '../helper';
 import * as network from '../network';
-import type { Worker } from '../page';
+import { nullProgress } from '../progress';
+
+import type { RegisteredListener } from '@utils/eventsHelper';
+import type { APIRequestEvent, APIRequestFinishedEvent } from '../fetch';
 import type { Page } from '../page';
-import type * as har from '@trace/har';
-import { assert, calculateSha1, monotonicTime } from '../../utils';
-import type { RegisteredListener } from '../../utils/eventsHelper';
-import { eventsHelper } from '../../utils/eventsHelper';
-import { mime } from '../../utilsBundle';
-import { ManualPromise } from '../../utils/manualPromise';
-import { getPlaywrightVersion, isTextualMimeType, urlMatches } from '../../utils';
-import { Frame } from '../frames';
+import type { Worker } from '../page';
 import type { HeadersArray, LifecycleEvent } from '../types';
+import type * as har from '@trace/har';
 
 const FALLBACK_HTTP_VERSION = 'HTTP/1.1';
 
@@ -105,6 +111,8 @@ export class HarTracer {
           eventsHelper.addEventListener(this._context, BrowserContext.Events.RequestFulfilled, request => this._onRequestFulfilled(request)),
           eventsHelper.addEventListener(this._context, BrowserContext.Events.RequestContinued, request => this._onRequestContinued(request)),
       );
+      for (const page of this._context.pages())
+        this._createPageEntryIfNeeded(page);
     }
   }
 
@@ -150,7 +158,7 @@ export class HarTracer {
   }
 
   private _onDOMContentLoaded(page: Page, pageEntry: har.Page) {
-    const promise = page.mainFrame().evaluateExpression(String(() => {
+    const promise = page.mainFrame().evaluateExpression(nullProgress, String(() => {
       return {
         title: document.title,
         domContentLoaded: performance.timing.domContentLoadedEventStart,
@@ -164,7 +172,7 @@ export class HarTracer {
   }
 
   private _onLoad(page: Page, pageEntry: har.Page) {
-    const promise = page.mainFrame().evaluateExpression(String(() => {
+    const promise = page.mainFrame().evaluateExpression(nullProgress, String(() => {
       return {
         title: document.title,
         loaded: performance.timing.loadEventStart,
@@ -190,7 +198,7 @@ export class HarTracer {
   private _onAPIRequest(event: APIRequestEvent) {
     if (!this._shouldIncludeEntryWithUrl(event.url.toString()))
       return;
-    const harEntry = createHarEntry(event.method, event.url, undefined, this._options);
+    const harEntry = createHarEntry(undefined, event.method, event.url, undefined, this._options);
     harEntry._apiRequest = true;
     if (!this._options.omitCookies)
       harEntry.request.cookies = event.cookies;
@@ -262,9 +270,7 @@ export class HarTracer {
       return;
 
     const pageEntry = this._createPageEntryIfNeeded(page);
-    const harEntry = createHarEntry(request.method(), url, request.frame()?.guid, this._options);
-    if (pageEntry)
-      harEntry.pageref = pageEntry.id;
+    const harEntry = createHarEntry(pageEntry?.id, request.method(), url, request.frame()?.guid, this._options);
     this._recordRequestHeadersAndCookies(harEntry, request.headers());
     harEntry.request.postData = this._postDataForRequest(request, this._options.content);
     if (!this._options.omitSizes)
@@ -289,7 +295,7 @@ export class HarTracer {
   }
 
   private _recordRequestOverrides(harEntry: har.Entry, request: network.Request) {
-    if (!request._hasOverrides() || !this._options.recordRequestOverrides)
+    if (!request.overrides() || !this._options.recordRequestOverrides)
       return;
     harEntry.request.method = request.method();
     harEntry.request.url = request.url();
@@ -308,7 +314,7 @@ export class HarTracer {
     // In WebKit security details and server ip are reported in Network.loadingFinished, so we populate
     // it here to not hang in case of long chunked responses, see https://github.com/microsoft/playwright/issues/21182.
     if (!this._options.omitServerIP) {
-      this._addBarrier(page || request.serviceWorker(), response.serverAddr().then(server => {
+      this._addBarrier(page || request.serviceWorker(), response.serverAddr(nullProgress).then(server => {
         if (server?.ipAddress)
           harEntry.serverIPAddress = server.ipAddress;
         if (server?.port)
@@ -316,15 +322,11 @@ export class HarTracer {
       }));
     }
     if (!this._options.omitSecurityDetails) {
-      this._addBarrier(page || request.serviceWorker(), response.securityDetails().then(details => {
+      this._addBarrier(page || request.serviceWorker(), response.securityDetails(nullProgress).then(details => {
         if (details)
           harEntry._securityDetails = details;
       }));
     }
-
-    const httpVersion = response.httpVersion();
-    harEntry.request.httpVersion = httpVersion;
-    harEntry.response.httpVersion = httpVersion;
 
     const compressionCalculationBarrier = this._options.omitSizes ? undefined : {
       _encodedBodySize: -1,
@@ -348,7 +350,7 @@ export class HarTracer {
     if (compressionCalculationBarrier)
       this._addBarrier(page || request.serviceWorker(), compressionCalculationBarrier.barrier);
 
-    const promise = response.body().then(buffer => {
+    const promise = response.internalBody().then(buffer => {
       if (this._options.omitScripts && request.resourceType() === 'script') {
         compressionCalculationBarrier?.setDecodedBodySize(0);
         return;
@@ -365,13 +367,18 @@ export class HarTracer {
     });
     this._addBarrier(page || request.serviceWorker(), promise);
 
+    this._addBarrier(page || request.serviceWorker(), response.httpVersion(nullProgress).then(httpVersion => {
+      harEntry.request.httpVersion = httpVersion;
+      harEntry.response.httpVersion = httpVersion;
+    }));
+
     // Response end timing is only available after the response event was received.
     const timing = response.timing();
     harEntry.timings.receive = response.request()._responseEndTiming !== -1 ? helper.millisToRoundishMillis(response.request()._responseEndTiming - timing.responseStart) : -1;
     this._computeHarEntryTotalTime(harEntry);
 
     if (!this._options.omitSizes) {
-      this._addBarrier(page || request.serviceWorker(), response.sizes().then(sizes => {
+      this._addBarrier(page || request.serviceWorker(), response.sizes(nullProgress).then(sizes => {
         harEntry.response.bodySize = sizes.responseBodySize;
         harEntry.response.headersSize = sizes.responseHeadersSize;
         harEntry.response._transferSize = sizes.transferSize;
@@ -451,8 +458,8 @@ export class HarTracer {
     harEntry.response = {
       status: response.status(),
       statusText: response.statusText(),
-      httpVersion: response.httpVersion(),
-      // These are bad values that will be overwritten bellow.
+      httpVersion: FALLBACK_HTTP_VERSION,
+      // These are bad values that will be overwritten below.
       cookies: [],
       headers: [],
       content: {
@@ -488,13 +495,13 @@ export class HarTracer {
     }
 
     this._recordRequestOverrides(harEntry, request);
-    this._addBarrier(page || request.serviceWorker(), request.rawRequestHeaders().then(headers => {
+    this._addBarrier(page || request.serviceWorker(), request.rawRequestHeaders(nullProgress).then(headers => {
       this._recordRequestHeadersAndCookies(harEntry, headers);
     }));
     // Record available headers including redirect location in case the tracing is stopped before
     // response extra info is received (in Chromium).
     this._recordResponseHeaders(harEntry, response.headers());
-    this._addBarrier(page || request.serviceWorker(), response.rawResponseHeaders().then(headers => {
+    this._addBarrier(page || request.serviceWorker(), response.rawResponseHeaders(nullProgress).then(headers => {
       this._recordResponseHeaders(harEntry, headers);
     }));
   }
@@ -605,10 +612,9 @@ export class HarTracer {
 
 }
 
-function createHarEntry(method: string, url: URL, frameref: string | undefined, options: HarTracerOptions): har.Entry {
+function createHarEntry(pageRef: string | undefined, method: string, url: URL, frameref: string | undefined, options: HarTracerOptions): har.Entry {
   const harEntry: har.Entry = {
-    _frameref: options.includeTraceInfo ? frameref : undefined,
-    _monotonicTime: options.includeTraceInfo ? monotonicTime() : undefined,
+    pageref: pageRef,
     startedDateTime: new Date().toISOString(),
     time: -1,
     request: {
@@ -642,6 +648,8 @@ function createHarEntry(method: string, url: URL, frameref: string | undefined, 
       wait: -1,
       receive: -1
     },
+    _frameref: options.includeTraceInfo ? frameref : undefined,
+    _monotonicTime: options.includeTraceInfo ? monotonicTime() : undefined,
   };
   return harEntry;
 }

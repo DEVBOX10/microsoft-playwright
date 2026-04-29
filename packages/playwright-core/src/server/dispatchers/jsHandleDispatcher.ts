@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-import type * as js from '../javascript';
-import type * as channels from '@protocol/channels';
 import { Dispatcher } from './dispatcher';
 import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import { parseSerializedValue, serializeValue } from '../../protocol/serializers';
-import type { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
-import type { ElectronApplicationDispatcher } from './electronDispatcher';
+
+import type * as js from '../javascript';
 import type { FrameDispatcher } from './frameDispatcher';
-import type { CallMetadata } from '../instrumentation';
+import type { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
+import type * as channels from '@protocol/channels';
+import type { Progress } from '@protocol/progress';
 
-export type JSHandleDispatcherParentScope = PageDispatcher | FrameDispatcher | WorkerDispatcher | ElectronApplicationDispatcher;
+export type JSHandleDispatcherParentScope = PageDispatcher | FrameDispatcher | WorkerDispatcher;
 
-export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandleChannel, JSHandleDispatcherParentScope> implements channels.JSHandleChannel {
+export class JSHandleDispatcher<ParentScope extends JSHandleDispatcherParentScope = JSHandleDispatcherParentScope> extends Dispatcher<js.JSHandle, channels.JSHandleChannel, ParentScope> implements channels.JSHandleChannel {
   _type_JSHandle = true;
 
-  protected constructor(scope: JSHandleDispatcherParentScope, jsHandle: js.JSHandle) {
+  static fromJSHandle(scope: JSHandleDispatcherParentScope, handle: js.JSHandle): JSHandleDispatcher {
+    return scope.connection.existingDispatcher<JSHandleDispatcher>(handle) || new JSHandleDispatcher(scope, handle);
+  }
+
+  protected constructor(scope: ParentScope, jsHandle: js.JSHandle) {
     // Do not call this directly, use createHandle() instead.
     super(scope, jsHandle, jsHandle.asElement() ? 'ElementHandle' : 'JSHandle', {
       preview: jsHandle.toString(),
@@ -37,34 +41,39 @@ export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandl
     jsHandle._setPreviewCallback(preview => this._dispatchEvent('previewUpdated', { preview }));
   }
 
-  async evaluateExpression(params: channels.JSHandleEvaluateExpressionParams): Promise<channels.JSHandleEvaluateExpressionResult> {
-    return { value: serializeResult(await this._object.evaluateExpression(params.expression, { isFunction: params.isFunction }, parseArgument(params.arg))) };
+  async evaluateExpression(params: channels.JSHandleEvaluateExpressionParams, progress: Progress): Promise<channels.JSHandleEvaluateExpressionResult> {
+    const jsHandle = await this._object.evaluateExpression(progress, params.expression, { isFunction: params.isFunction }, parseArgument(params.arg));
+    return { value: serializeResult(jsHandle) };
   }
 
-  async evaluateExpressionHandle(params: channels.JSHandleEvaluateExpressionHandleParams): Promise<channels.JSHandleEvaluateExpressionHandleResult> {
-    const jsHandle = await this._object.evaluateExpressionHandle(params.expression, { isFunction: params.isFunction }, parseArgument(params.arg));
-    return { handle: ElementHandleDispatcher.fromJSHandle(this.parentScope(), jsHandle) };
+  async evaluateExpressionHandle(params: channels.JSHandleEvaluateExpressionHandleParams, progress: Progress): Promise<channels.JSHandleEvaluateExpressionHandleResult> {
+    const jsHandle = await this._object.evaluateExpressionHandle(progress, params.expression, { isFunction: params.isFunction }, parseArgument(params.arg));
+    // If "jsHandle" is an ElementHandle, it belongs to the same frame as "this".
+    return { handle: ElementHandleDispatcher.fromJSOrElementHandle(this.parentScope() as FrameDispatcher, jsHandle) };
   }
 
-  async getProperty(params: channels.JSHandleGetPropertyParams): Promise<channels.JSHandleGetPropertyResult> {
-    const jsHandle = await this._object.getProperty(params.name);
-    return { handle: ElementHandleDispatcher.fromJSHandle(this.parentScope(), jsHandle) };
+  async getProperty(params: channels.JSHandleGetPropertyParams, progress: Progress): Promise<channels.JSHandleGetPropertyResult> {
+    const jsHandle = await this._object.getProperty(progress, params.name);
+    // If "jsHandle" is an ElementHandle, it belongs to the same frame as "this".
+    return { handle: ElementHandleDispatcher.fromJSOrElementHandle(this.parentScope() as FrameDispatcher, jsHandle) };
   }
 
-  async getPropertyList(): Promise<channels.JSHandleGetPropertyListResult> {
-    const map = await this._object.getProperties();
+  async getPropertyList(params: channels.JSHandleGetPropertyListParams, progress: Progress): Promise<channels.JSHandleGetPropertyListResult> {
+    const map = await this._object.getProperties(progress);
     const properties = [];
-    for (const [name, value] of map)
-      properties.push({ name, value: ElementHandleDispatcher.fromJSHandle(this.parentScope(), value) });
+    for (const [name, value] of map) {
+      // If "jsHandle" is an ElementHandle, it belongs to the same frame as "this".
+      properties.push({ name, value: ElementHandleDispatcher.fromJSOrElementHandle(this.parentScope() as FrameDispatcher, value) });
+    }
     return { properties };
   }
 
-  async jsonValue(): Promise<channels.JSHandleJsonValueResult> {
-    return { value: serializeResult(await this._object.jsonValue()) };
+  async jsonValue(params: channels.JSHandleJsonValueParams, progress: Progress): Promise<channels.JSHandleJsonValueResult> {
+    return { value: serializeResult(await this._object.jsonValue(progress)) };
   }
 
-  async dispose(_: any, metadata: CallMetadata) {
-    metadata.potentiallyClosesScope = true;
+  async dispose(_: any, progress: Progress) {
+    progress.metadata.potentiallyClosesScope = true;
     this._object.dispose();
     this._dispose();
   }

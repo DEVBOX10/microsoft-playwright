@@ -14,10 +14,15 @@
  * limitations under the License.
  */
 
-import { ms as milliseconds } from 'playwright-core/lib/utilsBundle';
 import path from 'path';
-import { TerminalReporter, formatResultFailure, formatRetry, noColors, stripAnsiEscapes } from './base';
-import type { TestCase, FullResult, TestError } from '../../types/testReporter';
+
+import { noColors } from '@isomorphic/colors';
+import { msToString } from '@isomorphic/formatUtils';
+
+import { TerminalReporter, formatResultFailure, formatRetry } from './base';
+import { stripAnsiEscapes } from '../util';
+
+import type { FullResult, TestCase, TestError } from '../../types/testReporter';
 
 type GitHubLogType = 'debug' | 'notice' | 'warning' | 'error';
 
@@ -36,7 +41,8 @@ class GitHubLogger {
     const configs = Object.entries(options)
         .map(([key, option]) => `${key}=${option}`)
         .join(',');
-    console.log(stripAnsiEscapes(`::${type} ${configs}::${message}`));
+    // eslint-disable-next-line no-restricted-properties
+    process.stdout.write(stripAnsiEscapes(`::${type} ${configs}::${message}\n`));
   }
 
   debug(message: string, options?: GitHubLogOptions) {
@@ -90,7 +96,7 @@ export class GitHubReporter extends TerminalReporter {
   private _printSlowTestAnnotations() {
     this.getSlowTests().forEach(([file, duration]) => {
       const filePath = workspaceRelativePath(path.join(process.cwd(), file));
-      this.githubLogger.warning(`${filePath} took ${milliseconds(duration)}`, {
+      this.githubLogger.warning(`${filePath} took ${msToString(duration)}`, {
         title: 'Slow Test',
         file: filePath,
       });

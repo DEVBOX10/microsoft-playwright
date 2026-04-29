@@ -14,16 +14,18 @@
  * limitations under the License.
  */
 
+import crypto from 'crypto';
+
 import { filterStackFile, formatLocation } from '../util';
-import * as crypto from 'crypto';
+
+import type { FixturesWithLocation } from './config';
 import type { Fixtures } from '../../types/test';
 import type { Location } from '../../types/testReporter';
-import type { FixturesWithLocation } from './config';
 
 export type FixtureScope = 'test' | 'worker';
 type FixtureAuto = boolean | 'all-hooks-included';
 const kScopeOrder: FixtureScope[] = ['test', 'worker'];
-type FixtureOptions = { auto?: FixtureAuto, scope?: FixtureScope, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean };
+type FixtureOptions = { auto?: FixtureAuto, scope?: FixtureScope, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean | 'self' };
 type FixtureTuple = [ value: any, options: FixtureOptions ];
 export type FixtureRegistration = {
   // Fixture registration location.
@@ -50,7 +52,7 @@ export type FixtureRegistration = {
   // Whether this fixture is an option override value set from the config.
   optionOverride?: boolean;
   // Do not generate the step for this fixture, consider it internal.
-  box?: boolean;
+  box?: boolean | 'self';
 };
 export type LoadError = {
   message: string;
@@ -95,6 +97,14 @@ export class FixturePool {
         this._appendFixtureList({ fixtures: selectedOverrides, location: optionOverrides!.location }, !!disallowWorkerFixtures, true);
     }
 
+    if (optionOverrides) {
+      for (const key of overrideKeys) {
+        const registration = this._registrations.get(key);
+        if (registration && !registration.option)
+          this._addLoadError(`Fixture "${key}" cannot be overridden in the configuration "use" section. Only fixtures registered with { option: true } can be set in the config.`, optionOverrides.location);
+      }
+    }
+
     this.digest = this.validate();
   }
 
@@ -103,7 +113,7 @@ export class FixturePool {
     for (const entry of Object.entries(fixtures)) {
       const name = entry[0];
       let value = entry[1];
-      let options: { auto: FixtureAuto, scope: FixtureScope, option: boolean, timeout: number | undefined, customTitle?: string, box?: boolean } | undefined;
+      let options: { auto: FixtureAuto, scope: FixtureScope, option: boolean, timeout: number | undefined, customTitle?: string, box?: boolean | 'self' } | undefined;
       if (isFixtureTuple(value)) {
         options = {
           auto: value[1].auto ?? false,
@@ -128,7 +138,8 @@ export class FixturePool {
           continue;
         }
       } else if (previous) {
-        options = { auto: previous.auto, scope: previous.scope, option: previous.option, timeout: previous.timeout, customTitle: previous.customTitle, box: previous.box };
+        // Note: deliberately not inheriting "options.box" so that fixture override is visible by default.
+        options = { auto: previous.auto, scope: previous.scope, option: previous.option, timeout: previous.timeout, customTitle: previous.customTitle };
       } else if (!options) {
         options = { auto: false, scope: 'test', option: false, timeout: undefined };
       }

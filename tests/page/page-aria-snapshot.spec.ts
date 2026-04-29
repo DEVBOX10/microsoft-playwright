@@ -1,12 +1,11 @@
 /**
- * Copyright 2018 Google Inc. All rights reserved.
- * Modifications copyright (c) Microsoft Corporation.
+ * Copyright (c) Microsoft Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,19 +16,7 @@
 
 import type { Locator } from '@playwright/test';
 import { test as it, expect } from './pageTest';
-
-function unshift(snapshot: string): string {
-  const lines = snapshot.split('\n');
-  let whitespacePrefixLength = 100;
-  for (const line of lines) {
-    if (!line.trim())
-      continue;
-    const match = line.match(/^(\s*)/);
-    if (match && match[1].length < whitespacePrefixLength)
-      whitespacePrefixLength = match[1].length;
-  }
-  return lines.filter(t => t.trim()).map(line => line.substring(whitespacePrefixLength)).join('\n');
-}
+import { unshift } from '../config/utils';
 
 async function checkAndMatchSnapshot(locator: Locator, snapshot: string) {
   expect.soft(await locator.ariaSnapshot()).toBe(unshift(snapshot));
@@ -79,7 +66,8 @@ it('should snapshot complex', async ({ page }) => {
   await checkAndMatchSnapshot(page.locator('body'), `
     - list:
       - listitem:
-        - link "link"
+        - link "link":
+          - /url: about:blank
   `);
 });
 
@@ -149,7 +137,8 @@ it('should snapshot integration', async ({ page }) => {
       - listitem:
         - group: Verified
       - listitem:
-        - link "Sponsor"
+        - link "Sponsor":
+          - /url: about:blank
   `);
 });
 
@@ -220,7 +209,8 @@ it('should include pseudo in text', async ({ page }) => {
   `);
 
   await checkAndMatchSnapshot(page.locator('body'), `
-    - link "worldhello hellobye"
+    - link "worldhello hellobye":
+      - /url: about:blank
   `);
 });
 
@@ -243,7 +233,8 @@ it('should not include hidden pseudo in text', async ({ page }) => {
   `);
 
   await checkAndMatchSnapshot(page.locator('body'), `
-    - link "hello hello"
+    - link "hello hello":
+      - /url: about:blank
   `);
 });
 
@@ -266,7 +257,8 @@ it('should include new line for block pseudo', async ({ page }) => {
   `);
 
   await checkAndMatchSnapshot(page.locator('body'), `
-    - link "world hello hello bye"
+    - link "world hello hello bye":
+      - /url: about:blank
   `);
 });
 
@@ -411,13 +403,19 @@ it('should ignore presentation and none roles', async ({ page }) => {
   `);
 });
 
-it('should treat input value as text in templates', async ({ page }) => {
+it('should treat input value as text in templates, but not for checkbox/radio/file', async ({ page }) => {
   await page.setContent(`
     <input value='hello world'>
+    <input type=file>
+    <input type=checkbox checked>
+    <input type=radio checked>
   `);
 
   await checkAndMatchSnapshot(page.locator('body'), `
     - textbox: hello world
+    - button "Choose File"
+    - checkbox [checked]
+    - radio [checked]
   `);
 });
 
@@ -450,10 +448,12 @@ it('should respect aria-owns', async ({ page }) => {
   // - Disregarding these as aria-owns can't suggest multiple parts by spec.
   await checkAndMatchSnapshot(page.locator('body'), `
     - link "Link 1 Value Paragraph":
+      - /url: about:blank
       - region: Link 1
       - textbox: Value
       - paragraph: Paragraph
     - link "Link 2 Value Paragraph":
+      - /url: about:blank
       - region: Link 2
   `);
 });
@@ -467,6 +467,7 @@ it('should be ok with circular ownership', async ({ page }) => {
 
   await checkAndMatchSnapshot(page.locator('body'), `
     - link "Hello":
+      - /url: about:blank
       - region: Hello
   `);
 });
@@ -488,22 +489,30 @@ it('should escape yaml text in text nodes', async ({ page }) => {
   await checkAndMatchSnapshot(page.locator('body'), `
     - group:
       - text: "one:"
-      - link "link1"
+      - link "link1":
+        - /url: "#"
       - text: "\\\"two"
-      - link "link2"
+      - link "link2":
+        - /url: "#"
       - text: "'three"
-      - link "link3"
+      - link "link3":
+        - /url: "#"
       - text: "\`four"
     - list:
-      - link "one"
+      - link "one":
+        - /url: "#"
       - text: ","
-      - link "two"
+      - link "two":
+        - /url: "#"
       - text: (
-      - link "three"
+      - link "three":
+        - /url: "#"
       - text: ") {"
-      - link "four"
+      - link "four":
+        - /url: "#"
       - text: "} ["
-      - link "five"
+      - link "five":
+        - /url: "#"
       - text: "]"
     - text: "[Select all]"
   `);
@@ -515,13 +524,16 @@ it('should normalize whitespace', async ({ page }) => {
       <summary> one  \n two <a href="#"> link &nbsp;\n  1 </a> </summary>
     </details>
     <input value='  hello   &nbsp; world '>
+    <button>hello\u00ad\u200bworld</button>
   `);
 
   await checkAndMatchSnapshot(page.locator('body'), `
     - group:
       - text: one two
-      - link "link 1"
+      - link "link 1":
+        - /url: "#"
     - textbox: hello world
+    - button "helloworld"
   `);
 
   // Weird whitespace in the template should be normalized.
@@ -530,8 +542,10 @@ it('should normalize whitespace', async ({ page }) => {
       - text: |
           one
           two
-      - link "  link     1 "
+      - link "  link     1 ":
+        - /url: "#"
     - textbox:        hello  world
+    - button "he\u00adlloworld\u200b"
   `);
 });
 
@@ -545,6 +559,7 @@ it('should handle long strings', async ({ page }) => {
 
   await checkAndMatchSnapshot(page.locator('body'), `
     - link:
+      - /url: about:blank
       - region: ${s}
   `);
 });
@@ -559,15 +574,20 @@ it('should escape special yaml characters', async ({ page }) => {
   `);
 
   await checkAndMatchSnapshot(page.locator('body'), `
-    - link "@hello"
+    - link "@hello":
+      - /url: "#"
     - text: "@hello"
-    - link "]hello"
+    - link "]hello":
+      - /url: "#"
     - text: "]hello"
-    - link "hello"
+    - link "hello":
+      - /url: "#"
     - text: hello
-    - link "hello"
+    - link "hello":
+      - /url: "#"
     - text: hello
-    - link "#hello"
+    - link "#hello":
+      - /url: "#"
     - text: "#hello"
   `);
 });
@@ -586,21 +606,29 @@ it('should escape special yaml values', async ({ page }) => {
   `);
 
   await checkAndMatchSnapshot(page.locator('body'), `
-    - link "true"
+    - link "true":
+      - /url: "#"
     - text: "False"
-    - link "NO"
+    - link "NO":
+      - /url: "#"
     - text: "yes"
-    - link "y"
+    - link "y":
+      - /url: "#"
     - text: "N"
-    - link "on"
+    - link "on":
+      - /url: "#"
     - text: "Off"
-    - link "null"
+    - link "null":
+      - /url: "#"
     - text: "NULL"
-    - link "123"
+    - link "123":
+      - /url: "#"
     - text: "123"
-    - link "-1.2"
+    - link "-1.2":
+      - /url: "#"
     - text: "-1.2"
-    - link "-"
+    - link "-":
+      - /url: "#"
     - text: "-"
     - textbox: "555"
   `);
@@ -617,4 +645,132 @@ it('should not report textarea textContent', async ({ page }) => {
   await checkAndMatchSnapshot(page.locator('body'), `
     - textbox: After
   `);
+});
+
+it('should not show visible children of hidden elements', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36296' }  }, async ({ page }) => {
+  await page.setContent(`
+    <div style="visibility: hidden;">
+      <div style="visibility: visible;">
+        <button>Button</button>
+      </div>
+    </div>
+  `);
+
+  expect(await page.locator('body').ariaSnapshot()).toBe('');
+});
+
+it('should not show unhidden children of aria-hidden elements', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36296' }  }, async ({ page }) => {
+  await page.setContent(`
+    <div aria-hidden="true">
+      <div aria-hidden="false">
+        <button>Button</button>
+      </div>
+    </div>
+  `);
+
+  expect(await page.locator('body').ariaSnapshot()).toBe('');
+});
+
+it('should snapshot placeholder when different from the name', async ({ page }) => {
+  await page.setContent(`
+    <input placeholder="Placeholder">
+  `);
+  expect(await page.locator('body').ariaSnapshot()).toContainYaml(`
+    - textbox "Placeholder"
+  `);
+
+  await page.setContent(`
+    <input placeholder="Placeholder" aria-label="Label">
+  `);
+  expect(await page.locator('body').ariaSnapshot()).toContainYaml(`
+    - textbox "Label":
+      - /placeholder: Placeholder
+  `);
+});
+
+it('match values both against regex and string', async ({ page }) => {
+  await page.setContent(`<a href="/auth?r=/">Log in</a>`);
+  await checkAndMatchSnapshot(page.locator('body'), `
+    - link "Log in":
+      - /url: /auth?r=/
+  `);
+});
+
+it('auto-waits the locator and does not include iframes', async ({ page }) => {
+  await page.setContent(`
+    <div>Hello</div>
+  `);
+
+  const snapshotPromise = page.locator('#target').ariaSnapshot();
+  await page.waitForTimeout(2000);
+  await page.setContent(`
+    <div id=target>
+      Hello
+      <iframe srcdoc="<ul><li>Item 1</li><li>Item 2</li></ul>"></iframe>
+    </div>
+  `);
+  expect(await snapshotPromise).toContainYaml(`
+    - text: Hello
+  `);
+});
+
+it('should limit depth', async ({ page }) => {
+  await page.setContent(`
+    <ul id=target>
+      <li>item2</li>
+      <li>
+        <ul>
+          <li>item3</li>
+        </ul>
+      </li>
+    </ul>
+  `);
+
+  const snapshot = await page.locator('#target').ariaSnapshot({ depth: 1 });
+  expect(snapshot).toContainYaml(`
+    - list:
+      - listitem: item2
+      - listitem
+  `);
+});
+
+it('should snapshot a locator inside an iframe', async ({ page }) => {
+  await page.setContent(`
+    <h1>Main Page</h1>
+    <iframe srcdoc="<ul><li>Item 1</li><li>Item 2</li></ul>"></iframe>
+  `);
+
+  const list = page.frames()[1].locator('ul');
+  const snapshot = await list.ariaSnapshot();
+  expect(snapshot).toContainYaml(`
+    - list:
+      - listitem: Item 1
+      - listitem: Item 2
+  `);
+});
+
+it('should snapshot with box from page', async ({ page }) => {
+  await page.setContent(`
+    <button style="position:absolute;left:100px;top:50px;width:80px;height:40px;margin:0;padding:0;border:0;">click</button>
+  `);
+
+  const snapshot = await page.ariaSnapshot({ boxes: true });
+  expect(snapshot).toBe(`- button "click" [box=100,50,80,40]`);
+});
+
+it('should snapshot with box from locator', async ({ page }) => {
+  await page.setContent(`
+    <div style="position:absolute;left:10px;top:20px;width:200px;height:100px;">
+      <button style="position:absolute;left:5px;top:5px;width:60px;height:30px;margin:0;padding:0;border:0;">ok</button>
+    </div>
+  `);
+
+  const snapshot = await page.locator('div').ariaSnapshot({ boxes: true });
+  expect(snapshot).toBe(`- button "ok" [box=15,25,60,30]`);
+});
+
+it('should not include box when option is omitted', async ({ page }) => {
+  await page.setContent(`<button>click</button>`);
+  const snapshot = await page.ariaSnapshot();
+  expect(snapshot).not.toMatch(/\[box=/);
 });

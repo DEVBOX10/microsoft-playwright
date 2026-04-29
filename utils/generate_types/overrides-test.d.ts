@@ -17,15 +17,31 @@
 import type { APIRequestContext, Browser, BrowserContext, BrowserContextOptions, Page, LaunchOptions, ViewportSize, Geolocation, HTTPCredentials, Locator, APIResponse, PageScreenshotOptions } from 'playwright-core';
 export * from 'playwright-core';
 
+export type BlobReporterOptions = { outputDir?: string, fileName?: string };
+export type ListReporterOptions = { printSteps?: boolean };
+export type JUnitReporterOptions = { outputFile?: string, stripANSIControlSequences?: boolean, includeProjectInTestName?: boolean, includeRetries?: boolean };
+export type JsonReporterOptions = { outputFile?: string };
+export type HtmlReporterOptions = {
+  outputFolder?: string;
+  open?: 'always' | 'never' | 'on-failure';
+  host?: string;
+  port?: number;
+  attachmentsBaseURL?: string;
+  title?: string;
+  noSnippets?: boolean;
+  noCopyPrompt?: boolean;
+  doNotInlineAssets?: boolean;
+};
+
 export type ReporterDescription = Readonly<
-  ['blob'] | ['blob', { outputDir?: string, fileName?: string }] |
+  ['blob'] | ['blob', BlobReporterOptions] |
   ['dot'] |
   ['line'] |
-  ['list'] | ['list', { printSteps?: boolean }] |
+  ['list'] | ['list', ListReporterOptions] |
   ['github'] |
-  ['junit'] | ['junit', { outputFile?: string, stripANSIControlSequences?: boolean, includeProjectInTestName?: boolean }] |
-  ['json'] | ['json', { outputFile?: string }] |
-  ['html'] | ['html', { outputFolder?: string, open?: 'always' | 'never' | 'on-failure', host?: string, port?: number, attachmentsBaseURL?: string }] |
+  ['junit'] | ['junit', JUnitReporterOptions] |
+  ['json'] | ['json', JsonReporterOptions] |
+  ['html'] | ['html', HtmlReporterOptions] |
   ['null'] |
   [string] | [string, any]
 >;
@@ -63,11 +79,20 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
   webServer: TestConfigWebServer | null;
 }
 
+export interface TestInfo {
+  snapshotPath(...name: ReadonlyArray<string>): string;
+  snapshotPath(name: string, options: { kind: 'snapshot' | 'screenshot' | 'aria' }): string;
+}
+
 export type TestStatus = 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
 
 export type TestDetailsAnnotation = {
   type: string;
   description?: string;
+};
+
+export type TestAnnotation = TestDetailsAnnotation & {
+  location?: Location;
 };
 
 export type TestDetails = {
@@ -148,6 +173,8 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
     only(title: string, details: TestDetails, body: TestBody<TestArgs & WorkerArgs>): void;
   }
 
+  abort(message?: string): never;
+
   slow(): void;
   slow(condition: boolean, description?: string): void;
   slow(callback: ConditionBody<TestArgs & WorkerArgs>, description?: string): void;
@@ -176,13 +203,13 @@ export type WorkerFixture<R, Args extends {}> = (args: Args, use: (r: R) => Prom
 type TestFixtureValue<R, Args extends {}> = Exclude<R, Function> | TestFixture<R, Args>;
 type WorkerFixtureValue<R, Args extends {}> = Exclude<R, Function> | WorkerFixture<R, Args>;
 export type Fixtures<T extends {} = {}, W extends {} = {}, PT extends {} = {}, PW extends {} = {}> = {
-  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW> | [WorkerFixtureValue<PW[K], W & PW>, { scope: 'worker', timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW> | [WorkerFixtureValue<PW[K], W & PW>, { scope: 'worker', timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 } & {
-  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW> | [TestFixtureValue<PT[K], T & W & PT & PW>, { scope: 'test', timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW> | [TestFixtureValue<PT[K], T & W & PT & PW>, { scope: 'test', timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 } & {
-  [K in Exclude<keyof W, keyof PW | keyof PT>]?: [WorkerFixtureValue<W[K], W & PW>, { scope: 'worker', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in Exclude<keyof W, keyof PW | keyof PT>]?: [WorkerFixtureValue<W[K], W & PW>, { scope: 'worker', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 } & {
-  [K in Exclude<keyof T, keyof PW | keyof PT>]?: TestFixtureValue<T[K], T & W & PT & PW> | [TestFixtureValue<T[K], T & W & PT & PW>, { scope?: 'test', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in Exclude<keyof T, keyof PW | keyof PT>]?: TestFixtureValue<T[K], T & W & PT & PW> | [TestFixtureValue<T[K], T & W & PT & PW>, { scope?: 'test', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 };
 
 type BrowserName = 'chromium' | 'firefox' | 'webkit';
@@ -235,13 +262,12 @@ export interface PlaywrightWorkerOptions {
   connectOptions: ConnectOptions | undefined;
   screenshot: ScreenshotMode | { mode: ScreenshotMode } & Pick<PageScreenshotOptions, 'fullPage' | 'omitBackground'>;
   trace: TraceMode | /** deprecated */ 'retry-with-trace' | { mode: TraceMode, snapshots?: boolean, screenshots?: boolean, sources?: boolean, attachments?: boolean };
-  video: VideoMode | /** deprecated */ 'retry-with-video' | { mode: VideoMode, size?: ViewportSize };
+  video: VideoMode | /** deprecated */ 'retry-with-video' | { mode: VideoMode, size?: ViewportSize, show?: { actions?: { duration?: number, position?: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right', fontSize?: number }, test?: { level?: 'file' | 'title' | 'step', position?: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right', fontSize?: number } } };
 }
 
 export type ScreenshotMode = 'off' | 'on' | 'only-on-failure' | 'on-first-failure';
-export type TraceMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | 'on-all-retries' | 'retain-on-first-failure';
+export type TraceMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | 'on-all-retries' | 'retain-on-first-failure' | 'retain-on-failure-and-retries';
 export type VideoMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry';
-
 export interface PlaywrightTestOptions {
   acceptDownloads: boolean;
   bypassCSP: boolean;
@@ -291,12 +317,16 @@ type CustomProperties<T> = ExcludeProps<T, PlaywrightTestOptions & PlaywrightWor
 export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
 export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
 
+// Use the global URLPattern type if available (Node.js 22+, modern browsers),
+// otherwise fall back to `never` so it disappears from union types.
+type URLPattern = typeof globalThis extends { URLPattern: new (...args: any) => infer T } ? T : never;
 type AsymmetricMatcher = Record<string, any>;
 
 interface AsymmetricMatchers {
   any(sample: unknown): AsymmetricMatcher;
   anything(): AsymmetricMatcher;
   arrayContaining(sample: Array<unknown>): AsymmetricMatcher;
+  arrayOf(sample: unknown): AsymmetricMatcher;
   closeTo(sample: number, precision?: number): AsymmetricMatcher;
   objectContaining(sample: Record<string, unknown>): AsymmetricMatcher;
   stringContaining(sample: string): AsymmetricMatcher;
@@ -305,6 +335,8 @@ interface AsymmetricMatchers {
 
 interface GenericAssertions<R> {
   not: GenericAssertions<R>;
+  resolves: GenericAssertions<R>;
+  rejects: GenericAssertions<R>;
   toBe(expected: unknown): R;
   toBeCloseTo(expected: number, numDigits?: number): R;
   toBeDefined(): R;
@@ -367,9 +399,9 @@ type AllMatchers<R, T> = PageAssertions & LocatorAssertions & APIResponseAsserti
 
 type IfAny<T, Y, N> = 0 extends (1 & T) ? Y : N;
 type Awaited<T> = T extends PromiseLike<infer U> ? U : T;
-type ToUserMatcher<F> = F extends (first: any, ...args: infer Rest) => infer R ? (...args: Rest) => (R extends PromiseLike<infer U> ? Promise<void> : void) : never;
-type ToUserMatcherObject<T, ArgType> = {
-  [K in keyof T as T[K] extends (arg: ArgType, ...rest: any[]) => any ? K : never]: ToUserMatcher<T[K]>;
+type ToUserMatcher<F, DefaultReturnType> = F extends (first: any, ...args: infer Rest) => infer R ? (...args: Rest) => (R extends PromiseLike<infer U> ? Promise<void> : DefaultReturnType) : never;
+type ToUserMatcherObject<T, DefaultReturnType, ArgType> = {
+  [K in keyof T as T[K] extends (arg: ArgType, ...rest: any[]) => any ? K : never]: ToUserMatcher<T[K], DefaultReturnType>;
 };
 
 type MatcherHintColor = (arg: string) => string;
@@ -438,14 +470,14 @@ type MakeMatchers<R, T, ExtendedMatchers> = {
    * If the promise is fulfilled the assertion fails.
    */
   rejects: MakeMatchers<Promise<R>, any, ExtendedMatchers>;
-} & IfAny<T, AllMatchers<R, T>, SpecificMatchers<R, T> & ToUserMatcherObject<ExtendedMatchers, T>>;
+} & IfAny<T, AllMatchers<R, T>, SpecificMatchers<R, T> & ToUserMatcherObject<ExtendedMatchers, R, T>>;
 
 type PollMatchers<R, T, ExtendedMatchers> = {
   /**
    * If you know how to test something, `.not` lets you test its opposite.
    */
   not: PollMatchers<R, T, ExtendedMatchers>;
-} & BaseMatchers<R, T> & ToUserMatcherObject<ExtendedMatchers, T>;
+} & BaseMatchers<R, T> & ToUserMatcherObject<ExtendedMatchers, R, T>;
 
 export type Expect<ExtendedMatchers = {}> = {
   <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }): MakeMatchers<void, T, ExtendedMatchers>;

@@ -15,17 +15,20 @@
  */
 
 
-import type { LocatorEx } from './matchers';
-import type { ExpectMatcherState } from '../../types/test';
-import { kNoElementsFoundError, matcherHint, type MatcherResult } from './matcherHint';
-import { EXPECTED_COLOR } from '../common/expectBundle';
-import { callLogText, sanitizeFilePathBeforeExtension, trimLongString } from '../util';
-import { printReceivedStringContainExpectedSubstring } from './expect';
-import { currentTestInfo } from '../common/globals';
-import type { MatcherReceived } from '@injected/ariaSnapshot';
-import { escapeTemplateString, isString, sanitizeForFilePath } from 'playwright-core/lib/utils';
 import fs from 'fs';
 import path from 'path';
+
+import { escapeTemplateString, isString } from '@isomorphic/stringUtils';
+import { existsAsync } from '@utils/fileUtils';
+
+import { expectTypes, formatMatcherMessage, printReceivedStringContainExpectedSubstring } from './matcherHint';
+import { expectConfig } from './expect';
+
+import type { MatcherResult } from './matcherHint';
+import type { ExpectMatcherStateInternal, FrameEx, LocatorEx } from './matchers';
+import type { MatcherReceived } from '@injected/ariaSnapshot';
+import type { Page } from 'playwright-core';
+
 
 type ToMatchAriaSnapshotExpected = {
   name?: string;
@@ -34,28 +37,23 @@ type ToMatchAriaSnapshotExpected = {
 } | string;
 
 export async function toMatchAriaSnapshot(
-  this: ExpectMatcherState,
-  receiver: LocatorEx,
+  this: ExpectMatcherStateInternal,
+  receiver: LocatorEx | Page,
   expectedParam?: ToMatchAriaSnapshotExpected,
   options: { timeout?: number } = {},
 ): Promise<MatcherResult<string | RegExp, string>> {
   const matcherName = 'toMatchAriaSnapshot';
+  expectTypes(receiver, ['Page', 'Locator'], matcherName);
+  const locator = (receiver as any)._apiName === 'Page' ? undefined : receiver as LocatorEx;
 
-  const testInfo = currentTestInfo();
+  const testInfo = expectConfig().testInfo;
   if (!testInfo)
-    throw new Error(`toMatchAriaSnapshot() must be called during the test`);
+    throw new Error(`${matcherName}() must be called during the test`);
 
-  if (testInfo._projectInternal.ignoreSnapshots)
+  if (expectConfig().ignoreSnapshots)
     return { pass: !this.isNot, message: () => '', name: 'toMatchAriaSnapshot', expected: '' };
 
-  const updateSnapshots = testInfo.config.updateSnapshots;
-  const pathTemplate = testInfo._projectInternal.expect?.toMatchAriaSnapshot?.pathTemplate;
-  const defaultTemplate = '{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}';
-
-  const matcherOptions = {
-    isNot: this.isNot,
-    promise: this.promise,
-  };
+  const updateSnapshots = expectConfig().updateSnapshots;
 
   let expected: string;
   let timeout: number;
@@ -64,17 +62,12 @@ export async function toMatchAriaSnapshot(
     expected = expectedParam;
     timeout = options.timeout ?? this.timeout;
   } else {
-    if (expectedParam?.name) {
-      expectedPath = testInfo._resolveSnapshotPath(pathTemplate, defaultTemplate, [sanitizeFilePathBeforeExtension(expectedParam.name)]);
-    } else {
-      let snapshotNames = (testInfo as any)[snapshotNamesSymbol] as SnapshotNames;
-      if (!snapshotNames) {
-        snapshotNames = { anonymousSnapshotIndex: 0 };
-        (testInfo as any)[snapshotNamesSymbol] = snapshotNames;
-      }
-      const fullTitleWithoutSpec = [...testInfo.titlePath.slice(1), ++snapshotNames.anonymousSnapshotIndex].join(' ');
-      expectedPath = testInfo._resolveSnapshotPath(pathTemplate, defaultTemplate, [sanitizeForFilePath(trimLongString(fullTitleWithoutSpec)) + '.yml']);
-    }
+    const legacyPath = testInfo._resolveSnapshotPaths('aria', expectedParam?.name, 'dontUpdateSnapshotIndex', '.yml').absoluteSnapshotPath;
+    expectedPath = testInfo._resolveSnapshotPaths('aria', expectedParam?.name, 'updateSnapshotIndex').absoluteSnapshotPath;
+    // in 1.51, we changed the default template to use .aria.yml extension
+    // for backwards compatibility, we check for the legacy .yml extension
+    if (!(await existsAsync(expectedPath)) && await existsAsync(legacyPath))
+      expectedPath = legacyPath;
     expected = await fs.promises.readFile(expectedPath, 'utf8').catch(() => '');
     timeout = expectedParam?.timeout ?? this.timeout;
   }
@@ -91,34 +84,48 @@ export async function toMatchAriaSnapshot(
   }
 
   expected = unshift(expected);
-  const { matches: pass, received, log, timedOut } = await receiver._expect('to.match.aria', { expectedValue: expected, isNot: this.isNot, timeout });
-  const typedReceived = received as MatcherReceived | typeof kNoElementsFoundError;
 
-  const messagePrefix = matcherHint(this, receiver, matcherName, 'locator', undefined, matcherOptions, timedOut ? timeout : undefined);
-  const notFound = typedReceived === kNoElementsFoundError;
-  if (notFound) {
-    return {
-      pass: this.isNot,
-      message: () => messagePrefix + `Expected: ${this.utils.printExpected(expected)}\nReceived: ${EXPECTED_COLOR('<element not found>')}` + callLogText(log),
-      name: 'toMatchAriaSnapshot',
-      expected,
-    };
-  }
+  const globalChildren = expectConfig().toMatchAriaSnapshot?.children;
+  if (globalChildren && !expected.match(/^- \/children:/m))
+    expected = `- /children: ${globalChildren}\n` + expected;
 
-  const receivedText = typedReceived.raw;
+  const expectParams = { expectedValue: expected, isNot: this.isNot, timeout };
+  const { matches: pass, received, log, timedOut, errorMessage } = locator ?
+    await (locator as LocatorEx)._expect('to.match.aria', expectParams) :
+    await ((receiver as Page).mainFrame() as FrameEx)._expect('to.match.aria', expectParams);
+  const typedReceived = received?.value as MatcherReceived;
+
   const message = () => {
-    if (pass) {
-      if (notFound)
-        return messagePrefix + `Expected: not ${this.utils.printExpected(expected)}\nReceived: ${receivedText}` + callLogText(log);
-      const printedReceived = printReceivedStringContainExpectedSubstring(receivedText, receivedText.indexOf(expected), expected.length);
-      return messagePrefix + `Expected: not ${this.utils.printExpected(expected)}\nReceived: ${printedReceived}` + callLogText(log);
+    let printedExpected: string | undefined;
+    let printedReceived: string | undefined;
+    let printedDiff: string | undefined;
+    if (errorMessage) {
+      printedExpected = `Expected: ${this.isNot ? 'not ' : ''}${this.utils.printExpected(expected)}`;
+    } else if (pass) {
+      const receivedString = printReceivedStringContainExpectedSubstring(this.utils, typedReceived.raw, typedReceived.raw.indexOf(expected), expected.length);
+      printedExpected = `Expected: not ${this.utils.printExpected(expected)}`;
+      printedReceived = `Received: ${receivedString}`;
     } else {
-      const labelExpected = `Expected`;
-      if (notFound)
-        return messagePrefix + `${labelExpected}: ${this.utils.printExpected(expected)}\nReceived: ${receivedText}` + callLogText(log);
-      return messagePrefix + this.utils.printDiffOrStringify(expected, receivedText, labelExpected, 'Received', false) + callLogText(log);
+      printedDiff = this.utils.printDiffOrStringify(expected, typedReceived.raw, 'Expected', 'Received', false);
     }
+    return formatMatcherMessage(this.utils, {
+      isNot: this.isNot,
+      promise: this.promise,
+      matcherName,
+      expectation: 'expected',
+      locator: locator?.toString(),
+      timeout,
+      timedOut,
+      printedExpected,
+      printedReceived,
+      printedDiff,
+      errorMessage,
+      log,
+    });
   };
+
+  if (errorMessage)
+    return { pass: this.isNot, message, name: 'toMatchAriaSnapshot', expected };
 
   if (!this.isNot) {
     if ((updateSnapshots === 'all') ||
@@ -130,25 +137,19 @@ export async function toMatchAriaSnapshot(
         const relativePath = path.relative(process.cwd(), expectedPath);
         if (updateSnapshots === 'missing') {
           const message = `A snapshot doesn't exist at ${relativePath}, writing actual.`;
-          testInfo._hasNonRetriableError = true;
-          testInfo._failWithError(new Error(message));
-        } else {
-          const message = `A snapshot is generated at ${relativePath}.`;
-          /* eslint-disable no-console */
-          console.log(message);
+          return { pass: true, message: () => '', name: 'toMatchAriaSnapshot', softError: new Error(message), shouldNotRetryTest: true };
         }
+        const message = `A snapshot is generated at ${relativePath}.`;
+        /* eslint-disable no-console */
+        console.log(message);
         return { pass: true, message: () => '', name: 'toMatchAriaSnapshot' };
       } else {
         const suggestedRebaseline = `\`\n${escapeTemplateString(indent(typedReceived.regex, '{indent}  '))}\n{indent}\``;
         if (updateSnapshots === 'missing') {
           const message = 'A snapshot is not provided, generating new baseline.';
-          testInfo._hasNonRetriableError = true;
-          testInfo._failWithError(new Error(message));
+          return { pass: true, message: () => '', name: 'toMatchAriaSnapshot', suggestedRebaseline, softError: new Error(message), shouldNotRetryTest: true };
         }
-        // TODO: ideally, we should return "pass: true" here because this matcher passes
-        // when regenerating baselines. However, we can only access suggestedRebaseline in case
-        // of an error, so we fail here and workaround it in the expect implementation.
-        return { pass: false, message: () => '', name: 'toMatchAriaSnapshot', suggestedRebaseline };
+        return { pass: true, message: () => '', name: 'toMatchAriaSnapshot', suggestedRebaseline };
       }
     }
   }
@@ -158,7 +159,7 @@ export async function toMatchAriaSnapshot(
     expected,
     message,
     pass,
-    actual: received,
+    actual: typedReceived?.raw,
     log,
     timeout: timedOut ? timeout : undefined,
   };
@@ -180,9 +181,3 @@ function unshift(snapshot: string): string {
 function indent(snapshot: string, indent: string): string {
   return snapshot.split('\n').map(line => indent + line).join('\n');
 }
-
-const snapshotNamesSymbol = Symbol('snapshotNames');
-
-type SnapshotNames = {
-  anonymousSnapshotIndex: number;
-};

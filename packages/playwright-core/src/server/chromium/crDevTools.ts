@@ -15,6 +15,7 @@
  */
 
 import fs from 'fs';
+
 import type { CRSession } from './crConnection';
 
 const kBindingName = '__pw_devtools__';
@@ -25,7 +26,6 @@ export class CRDevTools {
   private _preferencesPath: string;
   private _prefs: any;
   private _savePromise: Promise<any>;
-  __testHookOnBinding?: (parsed: any) => any;
 
   constructor(preferencesPath: string) {
     this._preferencesPath = preferencesPath;
@@ -38,8 +38,6 @@ export class CRDevTools {
         return;
       const parsed = JSON.parse(event.payload);
       let result = undefined;
-      if (this.__testHookOnBinding)
-        this.__testHookOnBinding(parsed);
       if (parsed.method === 'getPreferences') {
         if (this._prefs === undefined) {
           try {

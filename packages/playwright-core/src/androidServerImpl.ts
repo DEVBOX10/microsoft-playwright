@@ -1,7 +1,7 @@
 /**
  * Copyright (c) Microsoft Corporation.
  *
- * Licensed under the Apache License, Version 2.0 (the 'License");
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
@@ -14,23 +14,26 @@
  * limitations under the License.
  */
 
-import type { LaunchAndroidServerOptions } from './client/types';
-import { ws } from './utilsBundle';
-import type { WebSocketEventEmitter } from './utilsBundle';
-import type { BrowserServer } from './client/browserType';
-import { createGuid } from './utils';
-import { createPlaywright } from './server/playwright';
+import EventEmitter from 'events';
+
+import { createGuid } from '@utils/crypto';
 import { PlaywrightServer } from './remote/playwrightServer';
+import { createPlaywright } from './server/playwright';
+import { nullProgress, ProgressController } from './server/progress';
+
+import type { BrowserServer } from './client/browserType';
+import type { LaunchAndroidServerOptions } from './client/types';
 
 export class AndroidServerLauncherImpl {
   async launchServer(options: LaunchAndroidServerOptions = {}): Promise<BrowserServer> {
     const playwright = createPlaywright({ sdkLanguage: 'javascript', isServer: true });
     // 1. Pre-connect to the device
-    let devices = await playwright.android.devices({
+    const controller = new ProgressController();
+    let devices = await controller.run(progress => playwright.android.devices(progress, {
       host: options.adbHost,
       port: options.adbPort,
       omitDriverInstall: options.omitDriverInstall,
-    });
+    }));
 
     if (devices.length === 0)
       throw new Error('No devices found');
@@ -53,10 +56,10 @@ export class AndroidServerLauncherImpl {
     const wsEndpoint = await server.listen(options.port, options.host);
 
     // 3. Return the BrowserServer interface
-    const browserServer = new ws.EventEmitter() as (BrowserServer & WebSocketEventEmitter);
+    const browserServer = new EventEmitter() as BrowserServer & EventEmitter;
     browserServer.wsEndpoint = () => wsEndpoint;
-    browserServer.close = () => device.close();
-    browserServer.kill = () => device.close();
+    browserServer.close = () => device.close(nullProgress);
+    browserServer.kill = () => device.close(nullProgress);
     device.on('close', () => {
       server.close();
       browserServer.emit('close');

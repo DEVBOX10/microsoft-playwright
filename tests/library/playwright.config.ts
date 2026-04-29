@@ -16,6 +16,7 @@
 
 import { config as loadEnv } from 'dotenv';
 loadEnv({ path: path.join(__dirname, '..', '..', '.env'), override: true });
+process.env.PWTEST_UNDER_TEST = '1';
 
 import { type Config, type PlaywrightTestOptions, type PlaywrightWorkerOptions, type ReporterDescription } from '@playwright/test';
 import * as path from 'path';
@@ -45,9 +46,9 @@ const reporters = () => {
   const result: ReporterDescription[] = process.env.CI ? [
     ['dot'],
     ['json', { outputFile: path.join(outputDir, 'report.json') }],
-    ['blob', { fileName: `${process.env.PWTEST_BOT_NAME}.zip` }],
+    ['blob'],
   ] : [
-    ['html', { open: 'on-failure' }]
+    ['html', { open: 'on-failure', title: 'Playwright Library Tests' }]
   ];
   return result;
 };
@@ -64,7 +65,6 @@ if (mode === 'service') {
     command: 'npx playwright run-server --port=3333',
     url: 'http://localhost:3333',
     reuseExistingServer: !process.env.CI,
-    env: { PWTEST_UNDER_TEST: '1' }
   };
 }
 if (mode === 'service2') {
@@ -78,6 +78,13 @@ if (mode === 'service2') {
     }
   };
 }
+if (channel === 'webkit-wsl') {
+  connectOptions = { wsEndpoint: 'ws://localhost:3777/' };
+  webServer = {
+    command: 'set PWTEST_UNDER_TEST=1 && set WSLENV=PWTEST_UNDER_TEST && wsl.exe -d playwright -u pwuser -- bash -lc \'/home/pwuser/node/bin/npx playwright run-server --port=3777\'',
+    url: 'http://localhost:3777',
+  };
+}
 
 const config: Config<PlaywrightWorkerOptions & PlaywrightTestOptions & TestModeWorkerOptions> = {
   testDir,
@@ -88,11 +95,12 @@ const config: Config<PlaywrightWorkerOptions & PlaywrightTestOptions & TestModeW
   maxFailures: 200,
   timeout: video ? 60000 : 30000,
   globalTimeout: 5400000,
-  workers: process.env.CI ? 2 : undefined,
+  workers: undefined,
   fullyParallel: !process.env.CI,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 3 : 0,
   reporter: reporters(),
+  tag: process.env.PW_TAG,
   projects: [],
   use: {
     connectOptions,
@@ -105,7 +113,6 @@ for (const browserName of browserNames) {
   const executablePath = getExecutablePath(browserName);
   if (executablePath && !process.env.TEST_WORKER_INDEX)
     console.error(`Using executable at ${executablePath}`);
-  const devtools = process.env.DEVTOOLS === '1';
   const testIgnore: RegExp[] = browserNames.filter(b => b !== browserName).map(b => new RegExp(b));
 
   const projectTemplate: typeof config.projects[0] = {
@@ -119,7 +126,6 @@ for (const browserName of browserNames) {
       video: video ? 'on' : undefined,
       launchOptions: {
         executablePath,
-        devtools
       },
       trace: trace ? 'on' : undefined,
     },
@@ -136,17 +142,20 @@ for (const browserName of browserNames) {
     }
   };
 
-  config.projects.push({
+  const libraryProject = {
     name: `${browserName}-library`,
     testDir: path.join(testDir, 'library'),
     ...projectTemplate,
-  });
+  };
+  config.projects.push(libraryProject);
 
-  config.projects.push({
+  const pageProject = {
     name: `${browserName}-page`,
     testDir: path.join(testDir, 'page'),
     ...projectTemplate,
-  });
+  };
+
+  config.projects.push(pageProject);
 }
 
 export default config;

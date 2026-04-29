@@ -87,18 +87,6 @@ class BrowserTypeExamples
 
 ## async method: BrowserType.connect
 * since: v1.8
-* langs: js
-- returns: <[Browser]>
-
-This method attaches Playwright to an existing browser instance created via [`method: BrowserType.launchServer`].
-
-:::note
-The major and minor version of the Playwright instance that connects needs to match the version of Playwright that launches the browser (1.2.3 → is compatible with 1.2.x).
-:::
-
-## async method: BrowserType.connect
-* since: v1.8
-* langs: python, csharp, java
 - returns: <[Browser]>
 
 This method attaches Playwright to an existing browser instance created via `BrowserType.launchServer` in Node.js.
@@ -107,11 +95,11 @@ This method attaches Playwright to an existing browser instance created via `Bro
 The major and minor version of the Playwright instance that connects needs to match the version of Playwright that launches the browser (1.2.3 → is compatible with 1.2.x).
 :::
 
-### param: BrowserType.connect.wsEndpoint
+### param: BrowserType.connect.endpoint
 * since: v1.10
-- `wsEndpoint` <[string]>
+- `endpoint` <[string]>
 
-A Playwright browser websocket endpoint to connect to. You obtain this endpoint via [`method: BrowserServer.wsEndpoint`].
+A Playwright browser websocket endpoint to connect to. You obtain this endpoint via `BrowserServer.wsEndpoint`.
 
 ### option: BrowserType.connect.headers
 * since: v1.11
@@ -125,13 +113,6 @@ Additional HTTP headers to be sent with web socket connect request. Optional.
 
 Slows down Playwright operations by the specified amount of milliseconds. Useful so that you
 can see what is going on. Defaults to 0.
-
-### option: BrowserType.connect.logger
-* since: v1.14
-* langs: js
-- `logger` <[Logger]>
-
-Logger sink for Playwright logging. Optional.
 
 ### option: BrowserType.connect.timeout
 * since: v1.10
@@ -213,15 +194,21 @@ A CDP websocket endpoint or http url to connect to. For example `http://localhos
 ### option: BrowserType.connectOverCDP.endpointURL
 * since: v1.14
 * langs: js
+* deprecated: Use the first argument instead.
 - `endpointURL` <[string]>
-
-Deprecated, use the first argument instead. Optional.
 
 ### option: BrowserType.connectOverCDP.headers
 * since: v1.11
 - `headers` <[Object]<[string], [string]>>
 
 Additional HTTP headers to be sent with connect request. Optional.
+
+### option: BrowserType.connectOverCDP.isLocal
+* since: v1.58
+- `isLocal` <[boolean]>
+
+Tells Playwright that it runs on the same host as the CDP server. It will enable certain optimizations that rely upon
+the file system being the same between Playwright and the Browser.
 
 ### option: BrowserType.connectOverCDP.slowMo
 * since: v1.11
@@ -230,19 +217,56 @@ Additional HTTP headers to be sent with connect request. Optional.
 Slows down Playwright operations by the specified amount of milliseconds. Useful so that you
 can see what is going on. Defaults to 0.
 
-### option: BrowserType.connectOverCDP.logger
-* since: v1.14
-* langs: js
-- `logger` <[Logger]>
-
-Logger sink for Playwright logging. Optional.
-
 ### option: BrowserType.connectOverCDP.timeout
 * since: v1.11
 - `timeout` <[float]>
 
 Maximum time in milliseconds to wait for the connection to be established. Defaults to
 `30000` (30 seconds). Pass `0` to disable timeout.
+
+### option: BrowserType.connectOverCDP.noDefaults
+* since: v1.53
+- `noDefaults` <[boolean]>
+
+When true, Playwright will not send default overrides to the browser on the default context. This includes
+`Browser.setDownloadBehavior`, `Emulation.setFocusEmulationEnabled`, and `Emulation.setEmulatedMedia`.
+Useful when attaching to a user's daily-driver browser where these overrides would interfere with
+existing browser state. New contexts created via
+[browser.newContext([options])](https://playwright.dev/docs/api/class-browser#browser-new-context)
+are not affected. Defaults to `false`.
+
+
+## async method: BrowserType.connectToWorker
+* since: v1.60
+* langs: js
+- returns: <[Worker]>
+
+This method attaches Playwright to an existing JavaScript engine exposing Chrome DevTools Protocol, for example to a Node.js process or an Electron application.
+
+:::note
+This is only supported on `chromium`.
+:::
+
+**Usage**
+
+```js
+const worker = await playwright.chromium.connectToWorker('http://localhost:9229');
+const global = await worker.evaluate(() => globalThis);
+```
+
+### param: BrowserType.connectToWorker.endpoint
+* since: v1.60
+- `endpoint` <[string]>
+
+A CDP websocket endpoint or http url to connect to. For example `http://localhost:9229/` or `ws://127.0.0.1:9229/something`.
+
+### option: BrowserType.connectToWorker.timeout
+* since: v1.60
+- `timeout` <[float]>
+
+Maximum time in milliseconds to wait for the connection to be established. Defaults to
+`30000` (30 seconds). Pass `0` to disable timeout.
+
 
 ## method: BrowserType.executablePath
 * since: v1.8
@@ -336,11 +360,17 @@ this context will automatically close the browser.
 * since: v1.8
 - `userDataDir` <[path]>
 
-Path to a User Data Directory, which stores browser session data like cookies and local storage. More details for
+Path to a User Data Directory, which stores browser session data like cookies and local storage. Pass an empty string to create a temporary directory.
+
+More details for
 [Chromium](https://chromium.googlesource.com/chromium/src/+/master/docs/user_data_dir.md#introduction) and
-[Firefox](https://developer.mozilla.org/en-US/docs/Mozilla/Command_Line_Options#User_Profile).
-Note that Chromium's user data directory is the **parent** directory of the "Profile Path" seen at `chrome://version`. Pass an empty string to
-use a temporary directory instead.
+[Firefox](https://wiki.mozilla.org/Firefox/CommandLineOptions#User_profile). Chromium's user data directory is the **parent** directory of the "Profile Path" seen at `chrome://version`.
+
+Note that browsers do not allow launching multiple instances with the same User Data Directory.
+
+:::warning
+Chromium/Chrome: Due to recent Chrome policy changes, automating the default Chrome user profile is not supported. Pointing `userDataDir` to Chrome's main "User Data" directory (the profile used for your regular browsing) may result in pages not loading or the browser exiting. Create and use a separate directory (for example, an empty folder) as your automation profile instead. See https://developer.chrome.com/blog/remote-debugging-port for details.
+:::
 
 ### option: BrowserType.launchPersistentContext.-inline- = %%-shared-browser-options-list-v1.8-%%
 * since: v1.8

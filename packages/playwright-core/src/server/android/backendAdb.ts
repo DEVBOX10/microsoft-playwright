@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
-import { debug } from '../../utilsBundle';
-import type * as channels from '@protocol/channels';
-import * as net from 'net';
 import { EventEmitter } from 'events';
+import net from 'net';
+
+import debug from 'debug';
+import { assert } from '@isomorphic/assert';
 import type { Backend, DeviceBackend, SocketBackend } from './android';
-import { assert, createGuid } from '../../utils';
+import type * as channels from '@protocol/channels';
+
 
 export class AdbBackend implements Backend {
   async devices(options: channels.AndroidDevicesOptions = {}): Promise<DeviceBackend[]> {
@@ -113,7 +115,6 @@ function encodeMessage(message: string): Buffer {
 }
 
 class BufferedSocketWrapper extends EventEmitter implements SocketBackend {
-  readonly guid = createGuid();
   private _socket: net.Socket;
   private _buffer = Buffer.from([]);
   private _isSocket = false;

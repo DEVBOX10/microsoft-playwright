@@ -15,25 +15,34 @@
  * limitations under the License.
  */
 
-import { type RegisteredListener, assert, eventsHelper } from '../../utils';
-import type { ConnectionTransport, ProtocolRequest, ProtocolResponse } from '../transport';
-import type { Protocol } from './protocol';
-import { EventEmitter } from 'events';
-import type { RecentLogsCollector } from '../../utils/debugLogger';
-import { debugLogger } from '../../utils/debugLogger';
-import type { ProtocolLogger } from '../types';
+import { debugLogger } from '@utils/debugLogger';
+import { assert } from '@isomorphic/assert';
+import { eventsHelper } from '@utils/eventsHelper';
 import { helper } from '../helper';
 import { ProtocolError } from '../protocolError';
+import { SdkObject } from '../instrumentation';
+
+import type { RegisteredListener } from '@utils/eventsHelper';
+import type { ConnectionTransport, ProtocolRequest, ProtocolResponse } from '../transport';
+import type { Protocol } from './protocol';
+import type { RecentLogsCollector } from '@utils/debugLogger';
+import type { ProtocolLogger } from '../types';
+import type { Progress } from '@protocol/progress';
+
 
 export const ConnectionEvents = {
   Disconnected: Symbol('ConnectionEvents.Disconnected')
+};
+
+export type ConnectionEventMap = {
+  [ConnectionEvents.Disconnected]: [];
 };
 
 // CRPlaywright uses this special id to issue Browser.close command which we
 // should ignore.
 export const kBrowserCloseMessageId = -9999;
 
-export class CRConnection extends EventEmitter {
+export class CRConnection extends SdkObject {
   private _lastId = 0;
   private readonly _transport: ConnectionTransport;
   readonly _sessions = new Map<string, CRSession>();
@@ -43,8 +52,8 @@ export class CRConnection extends EventEmitter {
   readonly rootSession: CRSession;
   _closed = false;
 
-  constructor(transport: ConnectionTransport, protocolLogger: ProtocolLogger, browserLogsCollector: RecentLogsCollector) {
-    super();
+  constructor(parent: SdkObject, transport: ConnectionTransport, protocolLogger: ProtocolLogger, browserLogsCollector: RecentLogsCollector) {
+    super(parent, 'cr-connection');
     this.setMaxListeners(0);
     this._transport = transport;
     this._protocolLogger = protocolLogger;
@@ -97,7 +106,7 @@ export class CRConnection extends EventEmitter {
 
 type SessionEventListener = (method: string, params?: Object) => void;
 
-export class CRSession extends EventEmitter {
+export class CRSession extends SdkObject<Protocol.EventMap & ConnectionEventMap> {
   private readonly _connection: CRConnection;
   private _eventListener?: SessionEventListener;
   private readonly _callbacks = new Map<number, { resolve: (o: any) => void, reject: (e: ProtocolError) => void, error: ProtocolError }>();
@@ -105,25 +114,14 @@ export class CRSession extends EventEmitter {
   private readonly _parentSession: CRSession | null;
   private _crashed: boolean = false;
   private _closed = false;
-  override on: <T extends keyof Protocol.Events | symbol>(event: T, listener: (payload: T extends symbol ? any : Protocol.Events[T extends keyof Protocol.Events ? T : never]) => void) => this;
-  override addListener: <T extends keyof Protocol.Events | symbol>(event: T, listener: (payload: T extends symbol ? any : Protocol.Events[T extends keyof Protocol.Events ? T : never]) => void) => this;
-  override off: <T extends keyof Protocol.Events | symbol>(event: T, listener: (payload: T extends symbol ? any : Protocol.Events[T extends keyof Protocol.Events ? T : never]) => void) => this;
-  override removeListener: <T extends keyof Protocol.Events | symbol>(event: T, listener: (payload: T extends symbol ? any : Protocol.Events[T extends keyof Protocol.Events ? T : never]) => void) => this;
-  override once: <T extends keyof Protocol.Events | symbol>(event: T, listener: (payload: T extends symbol ? any : Protocol.Events[T extends keyof Protocol.Events ? T : never]) => void) => this;
 
   constructor(connection: CRConnection, parentSession: CRSession | null, sessionId: string, eventListener?: SessionEventListener) {
-    super();
+    super(connection, 'cr-session');
     this.setMaxListeners(0);
     this._connection = connection;
     this._parentSession = parentSession;
     this._sessionId = sessionId;
     this._eventListener = eventListener;
-
-    this.on = super.on;
-    this.addListener = super.addListener;
-    this.off = super.removeListener;
-    this.removeListener = super.removeListener;
-    this.once = super.once;
   }
 
   _markAsCrashed() {
@@ -169,7 +167,7 @@ export class CRSession extends EventEmitter {
       Promise.resolve().then(() => {
         if (this._eventListener)
           this._eventListener(object.method!, object.params);
-        this.emit(object.method!, object.params);
+        (this.emit as any)(object.method as any, object.params);
       });
     }
   }
@@ -199,19 +197,17 @@ export class CRSession extends EventEmitter {
   }
 }
 
-export class CDPSession extends EventEmitter {
+export class CDPSession extends SdkObject {
   static Events = {
     Event: 'event',
     Closed: 'close',
   };
 
-  readonly guid: string;
   private _session: CRSession;
   private _listeners: RegisteredListener[] = [];
 
   constructor(parentSession: CRSession, sessionId: string) {
-    super();
-    this.guid = `cdp-session@${sessionId}`;
+    super(parentSession, 'cdp-session');
     this._session = parentSession.createChildSession(sessionId, (method, params) => this.emit(CDPSession.Events.Event, { method, params }));
     this._listeners = [eventsHelper.addEventListener(parentSession, 'Target.detachedFromTarget', (event: Protocol.Target.detachedFromTargetPayload) => {
       if (event.sessionId === sessionId)
@@ -219,16 +215,20 @@ export class CDPSession extends EventEmitter {
     })];
   }
 
-  async send(method: string, params?: any) {
+  async send(progress: Progress, method: string, params?: any) {
+    return await progress.race(this._send(method, params));
+  }
+
+  async detach(progress: Progress) {
+    return await progress.race(this._session.detach());
+  }
+
+  private async _send(method: string, params?: any) {
     return await this._session.send(method as any, params);
   }
 
-  async detach() {
-    return await this._session.detach();
-  }
-
   async attachToTarget(targetId: string) {
-    const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await this._send('Target.attachToTarget', { targetId, flatten: true });
     return new CDPSession(this._session, sessionId);
   }
 

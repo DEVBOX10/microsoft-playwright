@@ -109,6 +109,8 @@ export interface JSONReportError {
 
 export interface JSONReportTestResult {
   workerIndex: number;
+  parallelIndex: number;
+  shardIndex?: number;
   status: TestStatus | undefined;
   duration: number;
   error: TestError | undefined;
@@ -124,6 +126,7 @@ export interface JSONReportTestResult {
     body?: string;
     contentType: string;
   }[];
+  annotations: { type: string, description?: string }[];
   errorLocation?: Location;
 }
 

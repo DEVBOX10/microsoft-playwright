@@ -437,8 +437,8 @@ it.describe('while running', () => {
     await page.clock.install({ time: 0 });
     await page.goto('data:text/html,');
     await page.clock.pauseAt(1000);
-    await page.waitForTimeout(1000);
-    await page.clock.resume();
+    // Internally wait to make sure the clock is paused and not running.
+    await page.waitForTimeout(1111);
     const now = await page.evaluate(() => Date.now());
     expect(now).toBeGreaterThanOrEqual(0);
     expect(now).toBeLessThanOrEqual(1000);
@@ -532,4 +532,83 @@ it.describe('Date.now', () => {
     const dateValue = await page.evaluate('Date.now()');
     expect(dateValue).toBe(1001);
   });
+});
+
+it('AbortSignal.timeout', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39293' } }, async ({ page, browserName }) => {
+  await page.clock.install({ time: 0 });
+  const controller = await page.evaluateHandle(() => {
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(100)
+    ]);
+    const handle = {
+      signal,
+      event: false,
+      handler: false,
+    };
+    signal.addEventListener('abort', () => handle.event = true);
+    signal.onabort = () => handle.handler = true;
+    return handle;
+  });
+  expect(await controller.evaluate(handle => ({
+    signal: handle.signal.aborted,
+    event: handle.event,
+    handler: handle.handler,
+  }))).toEqual({
+    signal: false,
+    event: false,
+    handler: false,
+  });
+  await page.clock.runFor(200);
+  expect(await controller.evaluate(handle => ({
+    signal: handle.signal.aborted,
+    event: handle.event,
+    handler: handle.handler,
+    reason: {
+      name: handle.signal.reason.name,
+      message: handle.signal.reason.message,
+      code: handle.signal.reason.code,
+    },
+  }))).toEqual({
+    signal: true,
+    event: true,
+    handler: true,
+    reason: {
+      name: 'TimeoutError',
+      message: browserName === 'chromium' ? 'signal timed out' : 'The operation timed out.',
+      code: 23,
+    },
+  });
+  expect(await page.evaluate(() => AbortSignal.abort().aborted)).toBe(true);
+});
+
+it('correctly increments Date.now()/performance.now() during blocking execution', {
+  annotation: {
+    type: 'issue',
+    description: 'https://github.com/microsoft/playwright/issues/35362',
+  }
+}, async ({ page, server }) => {
+  await page.clock.setSystemTime(new Date('2026-01-01'));
+  server.setRoute('/repro.html', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+      <html>
+        <body>
+          <script>
+          {
+            const start = performance.now();
+            while (performance.now() - start < 100) { }
+          }
+          {
+            const start = Date.now();
+            while (Date.now() - start < 100) { }
+          }
+          console.log('done');
+          </script>
+        </body>
+      </html>
+    `);
+  });
+  const waitForDone = page.waitForEvent('console', msg => msg.text() === 'done');
+  await page.goto(server.PREFIX + '/repro.html');
+  await waitForDone;
 });

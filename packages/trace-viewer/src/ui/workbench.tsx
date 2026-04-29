@@ -20,79 +20,108 @@ import { ActionList } from './actionList';
 import { CallTab } from './callTab';
 import { LogTab } from './logTab';
 import { ErrorsTab, useErrorsTabModel } from './errorsTab';
-import type { ErrorDescription } from './errorsTab';
-import type { ConsoleEntry } from './consoleTab';
 import { ConsoleTab, useConsoleTabModel } from './consoleTab';
-import type * as modelUtil from './modelUtil';
+import type { TraceModel, SourceLocation, ActionTraceEventInContext, SourceModel } from '@isomorphic/trace/traceModel';
 import { NetworkTab, useNetworkTabModel } from './networkTab';
 import { SnapshotTabsView } from './snapshotTab';
 import { SourceTab } from './sourceTab';
 import { TabbedPane } from '@web/components/tabbedPane';
 import type { TabbedPaneTabModel } from '@web/components/tabbedPane';
 import { Timeline } from './timeline';
+import { usePlayback, PlaybackScrubber } from './playbackControl';
 import { MetadataView } from './metadataView';
 import { AttachmentsTab } from './attachmentsTab';
 import { AnnotationsTab } from './annotationsTab';
 import type { Boundaries } from './geometry';
 import { InspectorTab } from './inspectorTab';
 import { ToolbarButton } from '@web/components/toolbarButton';
-import { useSetting, msToString, clsx } from '@web/uiUtils';
-import type { Entry } from '@trace/har';
+import { useSetting, clsx, usePartitionedState, togglePartition } from '@web/uiUtils';
+import { msToString } from '@isomorphic/formatUtils';
 import './workbench.css';
 import { testStatusIcon, testStatusText } from './testUtils';
 import type { UITestStatus } from './testUtils';
-import type { AfterActionTraceEventAttachment } from '@trace/trace';
 import type { HighlightedElement } from './snapshotTab';
+import type { TestAnnotation } from '@playwright/test';
+import { MetadataWithCommitInfo } from '@testIsomorphic/types';
+import type { ActionGroup } from '@isomorphic/protocolFormatter';
+import { DialogToolbarButton } from '@web/components/dialogToolbarButton';
+import { SettingsView } from './settingsView';
+import { TraceModelContext } from './traceModelContext';
+import type { TreeState } from '@web/components/treeView';
 
-export const Workbench: React.FunctionComponent<{
-  model?: modelUtil.MultiTraceModel,
-  showSourcesFirst?: boolean,
-  rootDir?: string,
-  fallbackLocation?: modelUtil.SourceLocation,
-  isLive?: boolean,
-  hideTimeline?: boolean,
-  status?: UITestStatus,
-  annotations?: { type: string; description?: string; }[];
-  inert?: boolean,
-  onOpenExternally?: (location: modelUtil.SourceLocation) => void,
-  revealSource?: boolean,
-}> = ({ model, showSourcesFirst, rootDir, fallbackLocation, isLive, hideTimeline, status, annotations, inert, onOpenExternally, revealSource }) => {
-  const [selectedCallId, setSelectedCallId] = React.useState<string | undefined>(undefined);
-  const [revealedError, setRevealedError] = React.useState<ErrorDescription | undefined>(undefined);
-  const [revealedAttachment, setRevealedAttachment] = React.useState<[attachment: AfterActionTraceEventAttachment, renderCounter: number] | undefined>(undefined);
-  const [highlightedCallId, setHighlightedCallId] = React.useState<string | undefined>();
-  const [highlightedEntry, setHighlightedEntry] = React.useState<Entry | undefined>();
-  const [highlightedConsoleMessage, setHighlightedConsoleMessage] = React.useState<ConsoleEntry | undefined>();
-  const [selectedNavigatorTab, setSelectedNavigatorTab] = React.useState<string>('actions');
+export type WorkbenchProps = {
+  model: TraceModel | undefined;
+  showSourcesFirst?: boolean;
+  rootDir?: string;
+  fallbackLocation?: SourceLocation;
+  isLive?: boolean;
+  hideTimeline?: boolean;
+  status?: UITestStatus;
+  annotations?: TestAnnotation[];
+  inert?: boolean;
+  onOpenExternally?: (location: SourceLocation) => void;
+  revealSource?: boolean;
+  testRunMetadata?: MetadataWithCommitInfo;
+};
+
+export const Workbench: React.FunctionComponent<WorkbenchProps> = props => {
+  const partition = traceUriToPartition(props.model?.traceUri);
+  return <TraceModelContext.Provider value={props.model}>
+    <PartitionedWorkbench partition={partition} {...props} />
+  </TraceModelContext.Provider>;
+};
+
+const PartitionedWorkbench: React.FunctionComponent<WorkbenchProps & { partition: string }> = props => {
+  const { partition, model, showSourcesFirst, rootDir, fallbackLocation, isLive, hideTimeline, status, annotations, inert, onOpenExternally, revealSource, testRunMetadata } = props;
+
+  // UI settings, shared for all models.
+  const [selectedNavigatorTab, setSelectedNavigatorTab] = useSetting<string>('navigatorTab',  'actions');
   const [selectedPropertiesTab, setSelectedPropertiesTab] = useSetting<string>('propertiesTab', showSourcesFirst ? 'source' : 'call');
-  const [isInspecting, setIsInspectingState] = React.useState(false);
-  const [highlightedElement, setHighlightedElement] = React.useState<HighlightedElement>({ lastEdited: 'none' });
-  const [selectedTime, setSelectedTime] = React.useState<Boundaries | undefined>();
   const [sidebarLocation, setSidebarLocation] = useSetting<'bottom' | 'right'>('propertiesSidebarLocation', 'bottom');
+  const [actionsFilter] = useSetting<ActionGroup[]>('actionsFilter', []);
 
-  const setSelectedAction = React.useCallback((action: modelUtil.ActionTraceEventInContext | undefined) => {
+  // Per-model settings, should be primitive non-retaining types.
+  // These will be turned into per-model state in the following patches.
+  const [selectedCallId, setSelectedCallId] = usePartitionedState<string | undefined>('selectedCallId');
+  const [selectedTime, setSelectedTime] = usePartitionedState<Boundaries | undefined>('selectedTime');
+  const [highlightedCallId, setHighlightedCallId] = usePartitionedState<string | undefined>('highlightedCallId');
+  const [revealedErrorKey, setRevealedErrorKey] = usePartitionedState<string | undefined>('revealedErrorKey');
+  const [revealedAttachmentCallId, setRevealedAttachmentCallId] = usePartitionedState<{ callId: string } | undefined>('revealedAttachmentCallId');
+  const [treeState, setTreeState] = usePartitionedState<TreeState>('treeState', { expandedItems: new Map() });
+  const [actionFilterText, setActionFilterText] = React.useState('');
+
+  togglePartition(partition);
+
+  // Transient state
+  const [highlightedElement, setHighlightedElement] = React.useState<HighlightedElement>({ lastEdited: 'none' });
+  const [isInspecting, setIsInspectingState] = React.useState(false);
+
+  const setSelectedAction = React.useCallback((action: ActionTraceEventInContext | undefined) => {
     setSelectedCallId(action?.callId);
-    setRevealedError(undefined);
-  }, []);
+    setRevealedErrorKey(undefined);
+  }, [setSelectedCallId, setRevealedErrorKey]);
+
+  const actions = React.useMemo(() => model?.filteredActions(actionsFilter), [model, actionsFilter]);
+  const hiddenActionsCount = (model?.actions.length ?? 0) - (actions?.length ?? 0);
 
   const highlightedAction = React.useMemo(() => {
-    return model?.actions.find(a => a.callId === highlightedCallId);
-  }, [model, highlightedCallId]);
+    return actions?.find(a => a.callId === highlightedCallId);
+  }, [actions, highlightedCallId]);
 
-  const setHighlightedAction = React.useCallback((highlightedAction: modelUtil.ActionTraceEventInContext | undefined) => {
+  const setHighlightedAction = React.useCallback((highlightedAction: ActionTraceEventInContext | undefined) => {
     setHighlightedCallId(highlightedAction?.callId);
-  }, []);
+  }, [setHighlightedCallId]);
 
-  const sources = React.useMemo(() => model?.sources || new Map<string, modelUtil.SourceModel>(), [model]);
+  const sources = React.useMemo(() => model?.sources || new Map<string, SourceModel>(), [model]);
 
   React.useEffect(() => {
     setSelectedTime(undefined);
-    setRevealedError(undefined);
-  }, [model]);
+    setRevealedErrorKey(undefined);
+  }, [model, setSelectedTime, setRevealedErrorKey]);
 
   const selectedAction = React.useMemo(() => {
     if (selectedCallId) {
-      const action = model?.actions.find(a => a.callId === selectedCallId);
+      const action = actions?.find(a => a.callId === selectedCallId);
       if (action)
         return action;
     }
@@ -101,33 +130,40 @@ export const Workbench: React.FunctionComponent<{
     if (failedAction)
       return failedAction;
 
-    if (model?.actions.length) {
+    if (actions?.length) {
       // Select the last non-after hooks item.
-      let index = model.actions.length - 1;
-      for (let i = 0; i < model.actions.length; ++i) {
-        if (model.actions[i].apiName === 'After Hooks' && i) {
+      let index = actions.length - 1;
+      for (let i = 0; i < actions.length; ++i) {
+        if (actions[i].title === 'After Hooks' && i) {
           index = i - 1;
           break;
         }
       }
-      return model.actions[index];
+      return actions[index];
     }
-  }, [model, selectedCallId]);
+  }, [model, actions, selectedCallId]);
 
   const activeAction = React.useMemo(() => {
     return highlightedAction || selectedAction;
   }, [selectedAction, highlightedAction]);
 
-  const revealedStack = React.useMemo(() => {
-    if (revealedError)
-      return revealedError.stack;
-    return activeAction?.stack;
-  }, [activeAction, revealedError]);
-
-  const onActionSelected = React.useCallback((action: modelUtil.ActionTraceEventInContext) => {
+  const onActionSelected = React.useCallback((action: ActionTraceEventInContext) => {
     setSelectedAction(action);
     setHighlightedAction(undefined);
   }, [setSelectedAction, setHighlightedAction]);
+
+  const { boundaries } = React.useMemo(() => {
+    const boundaries = { minimum: model?.startTime || 0, maximum: model?.endTime || 30000 };
+    if (boundaries.minimum > boundaries.maximum) {
+      boundaries.minimum = 0;
+      boundaries.maximum = 30000;
+    }
+    // Leave some nice free space on the right hand side.
+    boundaries.maximum += (boundaries.maximum - boundaries.minimum) / 20;
+    return { boundaries };
+  }, [model]);
+
+  const playback = usePlayback(actions || [], selectedAction, onActionSelected, selectedTime, boundaries);
 
   const selectPropertiesTab = React.useCallback((tab: string) => {
     setSelectedPropertiesTab(tab);
@@ -146,15 +182,10 @@ export const Workbench: React.FunctionComponent<{
     selectPropertiesTab('inspector');
   }, [selectPropertiesTab]);
 
-  const revealAttachment = React.useCallback((attachment: AfterActionTraceEventAttachment) => {
+  const revealActionAttachment = React.useCallback((callId: string) => {
     selectPropertiesTab('attachments');
-    setRevealedAttachment(currentValue => {
-      if (!currentValue)
-        return [attachment, 0];
-      const revealCounter = currentValue[1];
-      return [attachment, revealCounter + 1];
-    });
-  }, [selectPropertiesTab]);
+    setRevealedAttachmentCallId({ callId });
+  }, [selectPropertiesTab, setRevealedAttachmentCallId]);
 
   React.useEffect(() => {
     if (revealSource)
@@ -164,9 +195,12 @@ export const Workbench: React.FunctionComponent<{
   const consoleModel = useConsoleTabModel(model, selectedTime);
   const networkModel = useNetworkTabModel(model, selectedTime);
   const errorsModel = useErrorsTabModel(model);
-  const attachments = React.useMemo(() => {
-    return model?.actions.map(a => a.attachments || []).flat() || [];
-  }, [model]);
+
+  const revealedStack = React.useMemo(() => {
+    if (revealedErrorKey !== undefined)
+      return errorsModel.errors.get(revealedErrorKey)?.stack;
+    return activeAction?.stack;
+  }, [activeAction, revealedErrorKey, errorsModel]);
 
   const sdkLanguage = model?.sdkLanguage || 'javascript';
 
@@ -175,6 +209,7 @@ export const Workbench: React.FunctionComponent<{
     title: 'Locator',
     render: () => <InspectorTab
       sdkLanguage={sdkLanguage}
+      isInspecting={isInspecting}
       setIsInspecting={setIsInspecting}
       highlightedElement={highlightedElement}
       setHighlightedElement={setHighlightedElement} />,
@@ -193,13 +228,13 @@ export const Workbench: React.FunctionComponent<{
     id: 'errors',
     title: 'Errors',
     errorCount: errorsModel.errors.size,
-    render: () => <ErrorsTab errorsModel={errorsModel} sdkLanguage={sdkLanguage} revealInSource={error => {
+    render: () => <ErrorsTab errorsModel={errorsModel} testRunMetadata={testRunMetadata} sdkLanguage={sdkLanguage} revealInSource={error => {
       if (error.action)
         setSelectedAction(error.action);
       else
-        setRevealedError(error);
+        setRevealedErrorKey(error.message);
       selectPropertiesTab('source');
-    }} />
+    }} wallTime={model?.wallTime ?? 0} />
   };
 
   // Fallback location w/o action stands for file / test.
@@ -230,20 +265,19 @@ export const Workbench: React.FunctionComponent<{
       boundaries={boundaries}
       selectedTime={selectedTime}
       onAccepted={m => setSelectedTime({ minimum: m.timestamp, maximum: m.timestamp })}
-      onEntryHovered={setHighlightedConsoleMessage}
     />
   };
   const networkTab: TabbedPaneTabModel = {
     id: 'network',
     title: 'Network',
     count: networkModel.resources.length,
-    render: () => <NetworkTab boundaries={boundaries} networkModel={networkModel} onEntryHovered={setHighlightedEntry} sdkLanguage={model?.sdkLanguage ?? 'javascript'} />
+    render: () => <NetworkTab boundaries={boundaries} networkModel={networkModel} sdkLanguage={model?.sdkLanguage ?? 'javascript'} />
   };
   const attachmentsTab: TabbedPaneTabModel = {
     id: 'attachments',
     title: 'Attachments',
-    count: attachments.length,
-    render: () => <AttachmentsTab model={model} revealedAttachment={revealedAttachment} />
+    count: model?.visibleAttachments.length,
+    render: () => <AttachmentsTab revealedAttachmentCallId={revealedAttachmentCallId} />
   };
 
   const tabs: TabbedPaneTabModel[] = [
@@ -273,16 +307,6 @@ export const Workbench: React.FunctionComponent<{
     tabs.splice(1, 0, sourceTab);
   }
 
-  const { boundaries } = React.useMemo(() => {
-    const boundaries = { minimum: model?.startTime || 0, maximum: model?.endTime || 30000 };
-    if (boundaries.minimum > boundaries.maximum) {
-      boundaries.minimum = 0;
-      boundaries.maximum = 30000;
-    }
-    // Leave some nice free space on the right hand side.
-    boundaries.maximum += (boundaries.maximum - boundaries.minimum) / 20;
-    return { boundaries };
-  }, [model]);
 
   let time: number = 0;
   if (!isLive && model && model.endTime >= 0)
@@ -294,23 +318,36 @@ export const Workbench: React.FunctionComponent<{
     id: 'actions',
     title: 'Actions',
     component: <div className='vbox'>
-      {status && <div className='workbench-run-status'>
+      {status && <div className='workbench-run-status' data-testid='workbench-run-status'>
         <span className={clsx('codicon', testStatusIcon(status))}></span>
         <div>{testStatusText(status)}</div>
         <div className='spacer'></div>
         <div className='workbench-run-duration'>{time ? msToString(time) : ''}</div>
       </div>}
+      <div className='workbench-action-filter'>
+        <input
+          type='search'
+          placeholder='Filter actions'
+          aria-label='Filter actions'
+          spellCheck={false}
+          value={actionFilterText}
+          onChange={e => setActionFilterText(e.target.value)}
+        />
+      </div>
       <ActionList
         sdkLanguage={sdkLanguage}
-        actions={model?.actions || []}
+        actions={actions || []}
         selectedAction={model ? selectedAction : undefined}
         selectedTime={selectedTime}
         setSelectedTime={setSelectedTime}
+        treeState={treeState}
+        setTreeState={setTreeState}
         onSelected={onActionSelected}
         onHighlighted={setHighlightedAction}
-        revealAttachment={revealAttachment}
+        revealActionAttachment={revealActionAttachment}
         revealConsole={() => selectPropertiesTab('console')}
         isLive={isLive}
+        actionFilterText={actionFilterText}
       />
     </div>
   };
@@ -320,18 +357,17 @@ export const Workbench: React.FunctionComponent<{
     component: <MetadataView model={model}/>
   };
 
-  return <div className='vbox workbench' {...(inert ? { inert: 'true' } : {})}>
+  const actionsFilterWithCount = selectedNavigatorTab === 'actions' && <ActionsFilterButton counters={model?.actionCounters} hiddenActionsCount={hiddenActionsCount} />;
+
+  return <div className='vbox workbench' {...(inert ? { inert: true } : {})}>
     {!hideTimeline && <Timeline
       model={model}
-      consoleEntries={consoleModel.entries}
       boundaries={boundaries}
-      highlightedAction={highlightedAction}
-      highlightedEntry={highlightedEntry}
-      highlightedConsoleEntry={highlightedConsoleMessage}
       onSelected={onActionSelected}
       sdkLanguage={sdkLanguage}
       selectedTime={selectedTime}
       setSelectedTime={setSelectedTime}
+      scrubber={<PlaybackScrubber playback={playback} />}
     />}
     <SplitView
       sidebarSize={250}
@@ -349,10 +385,12 @@ export const Workbench: React.FunctionComponent<{
           isInspecting={isInspecting}
           setIsInspecting={setIsInspecting}
           highlightedElement={highlightedElement}
-          setHighlightedElement={elementPicked} />}
+          setHighlightedElement={elementPicked}
+          playback={playback} />}
         sidebar={
           <TabbedPane
             tabs={[actionsTab, metadataTab]}
+            rightToolbar={[actionsFilterWithCount]}
             selectedTab={selectedNavigatorTab}
             setSelectedTab={setSelectedNavigatorTab}
           />
@@ -376,3 +414,49 @@ export const Workbench: React.FunctionComponent<{
     />
   </div>;
 };
+
+const ActionsFilterButton: React.FC<{ counters?: Map<string, number>; hiddenActionsCount: number }> = ({ counters, hiddenActionsCount }) => {
+  const [actionsFilter, setActionsFilter] = useSetting<ActionGroup[]>('actionsFilter', []);
+
+  const iconRef = React.useRef<HTMLButtonElement>(null);
+  const buttonChildren = <>
+    {hiddenActionsCount > 0 && <span className='workbench-actions-hidden-count' title={hiddenActionsCount + ' actions hidden by filters'}>{hiddenActionsCount} hidden</span>}
+    <span ref={iconRef} className='codicon codicon-filter'></span>
+  </>;
+
+  return <DialogToolbarButton title='Filter actions' dialogDataTestId='actions-filter-dialog' buttonChildren={buttonChildren} anchorRef={iconRef} >
+    <SettingsView
+      settings={[
+        {
+          type: 'check',
+          value: actionsFilter.includes('getter'),
+          set: value => setActionsFilter(value ? [...actionsFilter, 'getter'] : actionsFilter.filter(a => a !== 'getter')),
+          name: 'Getters',
+          count: counters?.get('getter'),
+        },
+        {
+          type: 'check',
+          value: actionsFilter.includes('route'),
+          set: value => setActionsFilter(value ? [...actionsFilter, 'route'] : actionsFilter.filter(a => a !== 'route')),
+          name: 'Network routes',
+          count: counters?.get('route'),
+        },
+        {
+          type: 'check',
+          value: actionsFilter.includes('configuration'),
+          set: value => setActionsFilter(value ? [...actionsFilter, 'configuration'] : actionsFilter.filter(a => a !== 'configuration')),
+          name: 'Configuration',
+          count: counters?.get('configuration'),
+        },
+      ]}
+    />
+  </DialogToolbarButton>;
+};
+
+function traceUriToPartition(traceUri: string | undefined): string {
+  if (!traceUri)
+    return 'default';
+  const url = new URL(traceUri, 'http://localhost');
+  url.searchParams.delete('timestamp');
+  return url.toString();
+}

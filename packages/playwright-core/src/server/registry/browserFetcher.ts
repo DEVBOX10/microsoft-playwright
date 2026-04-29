@@ -15,33 +15,44 @@
  * limitations under the License.
  */
 
+import * as childProcess from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import childProcess from 'child_process';
-import { existsAsync } from '../../utils/fileUtils';
-import { debugLogger } from '../../utils/debugLogger';
-import { ManualPromise } from '../../utils/manualPromise';
-import { colors, progress as ProgressBar } from '../../utilsBundle';
+
+import ProgressBar from 'progress';
+import colors from 'colors/safe';
+import { ManualPromise } from '@isomorphic/manualPromise';
+import { debugLogger } from '@utils/debugLogger';
+import { existsAsync, removeFolders } from '@utils/fileUtils';
+import { getUserAgent } from '../userAgent';
+import { libPath } from '../../package';
+
 import { browserDirectoryToMarkerFilePath } from '.';
-import { getUserAgent } from '../../utils/userAgent';
+
 import type { DownloadParams } from './oopDownloadBrowserMain';
 
-export async function downloadBrowserWithProgressBar(title: string, browserDirectory: string, executablePath: string | undefined, downloadURLs: string[], downloadFileName: string, downloadConnectionTimeout: number): Promise<boolean> {
+export async function downloadBrowserWithProgressBar(title: string, browserDirectory: string, executablePath: string | undefined, downloadURLs: string[], downloadFileName: string, downloadSocketTimeout: number, force: boolean) {
   if (await existsAsync(browserDirectoryToMarkerFilePath(browserDirectory))) {
     // Already downloaded.
     debugLogger.log('install', `${title} is already downloaded.`);
-    return false;
+    if (force)
+      debugLogger.log('install', `force-downloading ${title}.`);
+    else
+      return;
   }
 
-  const zipPath = path.join(os.tmpdir(), downloadFileName);
+  // Create a unique temporary directory for this download to prevent concurrent downloads from clobbering each other
+  const uniqueTempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'playwright-download-'));
+  const zipPath = path.join(uniqueTempDir, downloadFileName);
+
   try {
     const retryCount = 5;
     for (let attempt = 1; attempt <= retryCount; ++attempt) {
       debugLogger.log('install', `downloading ${title} - attempt #${attempt}`);
       const url = downloadURLs[(attempt - 1) % downloadURLs.length];
       logPolitely(`Downloading ${title}` + colors.dim(` from ${url}`));
-      const { error } = await downloadBrowserWithProgressBarOutOfProcess(title, browserDirectory, url, zipPath, executablePath, downloadConnectionTimeout);
+      const { error } = await downloadBrowserWithProgressBarOutOfProcess(title, browserDirectory, url, zipPath, executablePath, downloadSocketTimeout);
       if (!error) {
         debugLogger.log('install', `SUCCESS installing ${title}`);
         break;
@@ -49,7 +60,7 @@ export async function downloadBrowserWithProgressBar(title: string, browserDirec
       if (await existsAsync(zipPath))
         await fs.promises.unlink(zipPath);
       if (await existsAsync(browserDirectory))
-        await fs.promises.rmdir(browserDirectory, { recursive: true });
+        await removeFolders([browserDirectory]);
       const errorMessage = error?.message || '';
       debugLogger.log('install', `attempt #${attempt} - ERROR: ${errorMessage}`);
       if (attempt >= retryCount)
@@ -60,11 +71,10 @@ export async function downloadBrowserWithProgressBar(title: string, browserDirec
     process.exitCode = 1;
     throw e;
   } finally {
-    if (await existsAsync(zipPath))
-      await fs.promises.unlink(zipPath);
+    // Clean up the temporary directory and its contents
+    await removeFolders([uniqueTempDir]);
   }
   logPolitely(`${title} downloaded to ${browserDirectory}`);
-  return true;
 }
 
 /**
@@ -72,8 +82,8 @@ export async function downloadBrowserWithProgressBar(title: string, browserDirec
  * Thats why we execute it in a separate process and check manually if the destination file exists.
  * https://github.com/microsoft/playwright/issues/17394
  */
-function downloadBrowserWithProgressBarOutOfProcess(title: string, browserDirectory: string, url: string, zipPath: string, executablePath: string | undefined, connectionTimeout: number): Promise<{ error: Error | null }> {
-  const cp = childProcess.fork(path.join(__dirname, 'oopDownloadBrowserMain.js'));
+function downloadBrowserWithProgressBarOutOfProcess(title: string, browserDirectory: string, url: string, zipPath: string, executablePath: string | undefined, socketTimeout: number): Promise<{ error: Error | null }> {
+  const cp = childProcess.fork(libPath('entry', 'oopBrowserDownload.js'));
   const promise = new ManualPromise<{ error: Error | null }>();
   const progress = getDownloadProgress();
   cp.on('message', (message: any) => {
@@ -105,7 +115,7 @@ function downloadBrowserWithProgressBarOutOfProcess(title: string, browserDirect
     url,
     zipPath,
     executablePath,
-    connectionTimeout,
+    socketTimeout,
     userAgent: getUserAgent(),
   };
   cp.send({ method: 'download', params: downloadParams });
@@ -123,6 +133,7 @@ export function logPolitely(toBeLogged: string) {
 type OnProgressCallback = (downloadedBytes: number, totalBytes: number) => void;
 
 function getDownloadProgress(): OnProgressCallback {
+  // eslint-disable-next-line no-restricted-properties
   if (process.stdout.isTTY)
     return getAnimatedDownloadProgress();
   return getBasicDownloadProgress();

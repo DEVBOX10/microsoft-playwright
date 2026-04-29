@@ -15,15 +15,16 @@
  * limitations under the License.
  */
 
-import type { RegisteredListener } from '../../utils/eventsHelper';
-import { eventsHelper } from '../../utils/eventsHelper';
-import type { FFSession } from './ffConnection';
-import type { Page } from '../page';
+import { eventsHelper } from '@utils/eventsHelper';
 import * as network from '../network';
+
+import type { FFSession } from './ffConnection';
+import type { HeadersArray } from '../../server/types';
+import type { RegisteredListener } from '@utils/eventsHelper';
 import type * as frames from '../frames';
+import type { Page } from '../page';
 import type * as types from '../types';
 import type { Protocol } from './protocol';
-import type { HeadersArray } from '../../server/types';
 
 export class FFNetworkManager {
   private _session: FFSession;
@@ -58,8 +59,11 @@ export class FFNetworkManager {
 
   _onRequestWillBeSent(event: Protocol.Network.requestWillBeSentPayload) {
     const redirectedFrom = event.redirectedFrom ? (this._requests.get(event.redirectedFrom) || null) : null;
-    const frame = redirectedFrom ? redirectedFrom.request.frame() : (event.frameId ? this._page._frameManager.frame(event.frameId) : null);
+    const frame = redirectedFrom ? redirectedFrom.request.frame() : (event.frameId ? this._page.frameManager.frame(event.frameId) : null);
     if (!frame)
+      return;
+    // Align with Chromium and WebKit and not expose preflight OPTIONS requests to the client.
+    if (event.method === 'OPTIONS' && !event.isIntercepted)
       return;
     if (redirectedFrom)
       this._requests.delete(redirectedFrom._id);
@@ -68,7 +72,7 @@ export class FFNetworkManager {
     if (event.isIntercepted)
       route = new FFRouteImpl(this._session, request);
     this._requests.set(request._id, request);
-    this._page._frameManager.requestStarted(request.request, route);
+    this._page.frameManager.requestStarted(request.request, route);
   }
 
   _onResponseReceived(event: Protocol.Network.responseReceivedPayload) {
@@ -120,7 +124,7 @@ export class FFNetworkManager {
     response.setRawResponseHeaders(null);
     // Headers size are not available in Firefox.
     response.setResponseHeadersSize(null);
-    this._page._frameManager.requestReceivedResponse(response);
+    this._page.frameManager.requestReceivedResponse(response);
   }
 
   _onRequestFinished(event: Protocol.Network.requestFinishedPayload) {
@@ -140,9 +144,8 @@ export class FFNetworkManager {
       this._requests.delete(request._id);
       response._requestFinished(responseEndTime);
     }
-    if (event.protocolVersion)
-      response._setHttpVersion(event.protocolVersion);
-    this._page._frameManager.reportRequestFinished(request.request, response);
+    response._setHttpVersion(event.protocolVersion ?? null);
+    this._page.frameManager.reportRequestFinished(request.request, response);
   }
 
   _onRequestFailed(event: Protocol.Network.requestFailedPayload) {
@@ -155,13 +158,14 @@ export class FFNetworkManager {
       response.setTransferSize(null);
       response.setEncodedBodySize(null);
       response._requestFinished(-1);
+      response._setHttpVersion(null);
     }
     request.request._setFailureText(event.errorCode);
-    this._page._frameManager.requestFailed(request.request, event.errorCode === 'NS_BINDING_ABORTED');
+    this._page.frameManager.requestFailed(request.request, event.errorCode === 'NS_BINDING_ABORTED');
   }
 }
 
-const causeToResourceType: {[key: string]: string} = {
+const causeToResourceType: {[key: string]: network.ResourceType} = {
   TYPE_INVALID: 'other',
   TYPE_OTHER: 'other',
   TYPE_SCRIPT: 'script',
@@ -179,15 +183,15 @@ const causeToResourceType: {[key: string]: string} = {
   TYPE_FONT: 'font',
   TYPE_MEDIA: 'media',
   TYPE_WEBSOCKET: 'websocket',
-  TYPE_CSP_REPORT: 'other',
+  TYPE_CSP_REPORT: 'cspreport',
   TYPE_XSLT: 'other',
-  TYPE_BEACON: 'other',
+  TYPE_BEACON: 'beacon',
   TYPE_FETCH: 'fetch',
   TYPE_IMAGESET: 'image',
   TYPE_WEB_MANIFEST: 'manifest',
 };
 
-const internalCauseToResourceType: {[key: string]: string} = {
+const internalCauseToResourceType: {[key: string]: network.ResourceType} = {
   TYPE_INTERNAL_EVENTSOURCE: 'eventsource',
 };
 
@@ -203,7 +207,7 @@ class InterceptableRequest {
     let postDataBuffer = null;
     if (payload.postData)
       postDataBuffer = Buffer.from(payload.postData, 'base64');
-    this.request = new network.Request(frame._page._browserContext, frame, null, redirectedFrom ? redirectedFrom.request : null, payload.navigationId,
+    this.request = new network.Request(frame._page.browserContext, frame, null, redirectedFrom ? redirectedFrom.request : null, payload.navigationId,
         payload.url, internalCauseToResourceType[payload.internalCause] || causeToResourceType[payload.cause] || 'other', payload.method, postDataBuffer, payload.headers);
     // "raw" headers are the same as "provisional" headers in Firefox.
     this.request.setRawRequestHeaders(null);

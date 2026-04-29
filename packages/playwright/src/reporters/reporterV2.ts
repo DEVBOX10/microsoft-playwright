@@ -14,7 +14,17 @@
  * limitations under the License.
  */
 
-import type { FullConfig, TestCase, TestError, TestResult, FullResult, TestStep, Reporter, Suite } from '../../types/testReporter';
+import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestError, TestResult, TestStep } from '../../types/testReporter';
+
+export interface ReportConfigureParams {
+  config: FullConfig;
+  reportPath: string;
+}
+
+export interface ReportEndParams {
+  reportPath: string;
+  result: FullResult;
+}
 
 export interface ReporterV2 {
   onConfigure?(config: FullConfig): void;
@@ -22,7 +32,10 @@ export interface ReporterV2 {
   onTestBegin?(test: TestCase, result: TestResult): void;
   onStdOut?(chunk: string | Buffer, test?: TestCase, result?: TestResult): void;
   onStdErr?(chunk: string | Buffer, test?: TestCase, result?: TestResult): void;
+  onTestPaused?(test: TestCase, result: TestResult): Promise<void>;
   onTestEnd?(test: TestCase, result: TestResult): void;
+  onReportConfigure?(params: ReportConfigureParams): void;
+  onReportEnd?(params: ReportEndParams): void;
   onEnd?(result: FullResult): Promise<{ status?: FullResult['status'] } | undefined | void> | void;
   onExit?(): void | Promise<void>;
   onError?(error: TestError): void;
@@ -31,6 +44,8 @@ export interface ReporterV2 {
   printsToStdio?(): boolean;
   version(): 'v2';
 }
+
+export type AnyReporter = ReporterV2 | Reporter;
 
 type StdIOChunk = {
   chunk: string | Buffer;

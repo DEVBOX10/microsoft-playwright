@@ -14,13 +14,30 @@
  * limitations under the License.
  */
 
-import type { TestInfoErrorImpl } from '../common/ipc';
-import { ExpectError } from '../matchers/matcherHint';
 import { serializeError } from '../util';
 
-export function testInfoError(error: Error | any): TestInfoErrorImpl {
+import type { TestInfoError } from '../../types/test';
+import type { MatcherResultProperty } from '../matchers/matcherHint';
+
+export function testInfoError(error: Error | any): TestInfoError {
   const result = serializeError(error);
-  if (error instanceof ExpectError)
-    result.matcherResult = error.matcherResult;
+  const matcherResult = (error instanceof Error ? (error as any).matcherResult : undefined) as MatcherResultProperty | undefined;
+  if (matcherResult) {
+    const serialized: NonNullable<TestInfoError['matcherResult']> = {
+      name: matcherResult.name,
+      pass: matcherResult.pass,
+    };
+    if (matcherResult.expected !== undefined)
+      serialized.expected = matcherResult.expected;
+    if (matcherResult.actual !== undefined)
+      serialized.actual = matcherResult.actual;
+    if (matcherResult.log !== undefined)
+      serialized.log = matcherResult.log;
+    if (matcherResult.timeout !== undefined)
+      serialized.timeout = matcherResult.timeout;
+    if (matcherResult.ariaSnapshot !== undefined)
+      serialized.ariaSnapshot = matcherResult.ariaSnapshot;
+    result.matcherResult = serialized;
+  }
   return result;
 }

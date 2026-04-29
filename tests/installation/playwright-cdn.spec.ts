@@ -24,12 +24,12 @@ const CDNS = [
   'https://cdn.playwright.dev',
 ];
 
-const DL_STAT_BLOCK = /^.*from url: (.*)$\n^.*to location: (.*)$\n^.*response status code: (.*)$\n^.*total bytes: (\d+)$\n^.*download complete, size: (\d+)$\n^.*SUCCESS downloading (\w+) .*$/gm;
+const DL_STAT_BLOCK = /^.*from url: (.*)$\n^.*to location: (.*)$\n^.*response status code: (.*)$\n^.*is chunked: (.*)$\n^.*total bytes: (\d+)$\n^.*download complete, size: (\d+)$\n^.*SUCCESS downloading.*\(playwright ([a-zA-Z-]+) v\d+\).*$/gm;
 
 const parsedDownloads = (rawLogs: string) => {
   const out: { url: string, status: number, name: string }[] = [];
   for (const match of rawLogs.matchAll(DL_STAT_BLOCK)) {
-    const [, url, /* filepath */, status, /* size */, /* receivedBytes */, name] = match;
+    const [, url, /* filepath */, status, /* isChunked */, /* size */, /* receivedBytes */, name] = match;
     out.push({ url, status: Number.parseInt(status, 10), name: name.toLocaleLowerCase() });
   }
   return out;
@@ -46,7 +46,7 @@ for (const cdn of CDNS) {
     expect(result).toHaveLoggedSoftwareDownload(['chromium', 'chromium-headless-shell', 'ffmpeg', 'firefox', 'webkit', ...extraInstalledSoftware]);
     await checkInstalledSoftwareOnDisk((['chromium', 'chromium-headless-shell', 'ffmpeg', 'firefox', 'webkit', ...extraInstalledSoftware]));
     const dls = parsedDownloads(result);
-    for (const software of ['chromium', 'ffmpeg', 'firefox', 'webkit'])
+    for (const software of ['ffmpeg', 'firefox', 'webkit'])
       expect(dls).toContainEqual({ status: 200, name: software, url: expect.stringContaining(cdn) });
     await exec('node sanity.js playwright chromium firefox webkit');
     await exec('node esm-playwright.mjs');
@@ -67,6 +67,64 @@ test(`playwright cdn should race with a timeout`, async ({ exec }) => {
       expectToExitWithError: true
     });
     expect(result).toContain(`timed out after 1000ms`);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test(`playwright cdn should not timeout on redirect`, {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/34686' }
+}, async ({ exec }) => {
+  const server = http.createServer(async (req, res) => {
+    if (req.url !== '/foo.zip') {
+      res.writeHead(307, {
+        'Connection': 'keep-alive',
+        'location': `http://127.0.0.1:${(server.address() as AddressInfo).port}/foo.zip`,
+      });
+      res.flushHeaders();
+      // Keep the connection open, the client is expected to close it.
+      return;
+    }
+    const emptyZip = Buffer.from([
+      0x50, 0x4B, 0x05, 0x06, // EOCD
+      0x00, 0x00,             // Disk number
+      0x00, 0x00,             // Central dir start disk
+      0x00, 0x00,             // Central dir records on this disk
+      0x00, 0x00,             // Total central dir records
+      0x00, 0x00, 0x00, 0x00, // Central dir size
+      0x00, 0x00, 0x00, 0x00, // Offset of start of central dir
+      0x00, 0x00              // ZIP comment length
+    ]);
+    res.socket.setNoDelay(true);
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="empty.zip"',
+      'Content-Length': emptyZip.length,
+    });
+    res.flushHeaders();
+    // Send one byte at a time in small intervals (< 1000ms) during 2 seconds
+    // to keep the second connection slow but alive.
+    for (let i = 0; i < emptyZip.length; i ++) {
+      res.write(emptyZip.subarray(i, i + 1));
+      await new Promise(resolve => setTimeout(resolve, 2000 / emptyZip.length));
+    }
+    res.end();
+  });
+  await new Promise<void>(resolve => server.listen(0, resolve));
+
+  try {
+    await exec('npm i playwright');
+    const result = await exec('npx playwright install chromium', {
+      env: {
+        PLAYWRIGHT_DOWNLOAD_HOST: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+        DEBUG: 'pw:install',
+        PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '1000',
+      },
+      expectToExitWithError: true
+    });
+    // Steps after the extraction will fail, but the download should succeed without timeouts.
+    expect(result).toContain(`pw:install SUCCESS downloading Chrome`);
+    expect(result).not.toContain(`timed out after 1000ms`);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }

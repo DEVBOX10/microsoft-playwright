@@ -94,10 +94,15 @@ docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_prof
 }
 ```
 
-:::note
-Using `--ipc=host` is recommended when using Chrome ([Docker docs](https://docs.docker.com/engine/reference/run/#ipc-settings---ipc)). Chrome can run out of memory without this flag.
-:::
+### Recommended Docker Configuration
 
+When running Playwright in Docker, the following configuration is recommended:
+
+1. **Using [`--init`](https://docs.docker.com/reference/cli/docker/container/run/#init)** Docker flag is recommended to avoid special treatment for processes with PID=1. This is a common reason for zombie processes.
+
+1. **Using `--ipc=host`** is recommended when using Chromium. Without it, Chromium can run out of memory and crash. Learn more about this option in [Docker docs](https://docs.docker.com/reference/cli/docker/container/run/#ipc).
+
+1. **If seeing weird errors when launching Chromium**, try running your container with `docker run --cap-add=SYS_ADMIN` when developing locally.
 
 ### Using on CI
 
@@ -184,6 +189,24 @@ This makes `hostmachine` point to the host's localhost. Your tests should use `h
 :::note
 When running tests remotely, ensure the Playwright version in your tests matches the version running in the Docker container.
 :::
+
+### Connecting using noVNC and GitHub Codespaces
+
+For Docker and GitHub Codespaces environments, you can view and generate tests using the `noVNC` viewer built into the Docker image. In order for the VNC webviewer to be accessible outside of the container, you can enable the `desktop-lite` feature and specify the `webPort` in your `.devcontainer/devcontainer.json` file: 
+
+```json
+{
+  "image": "mcr.microsoft.com/playwright:v1.57.0",
+  "forwardPorts": [6080],
+  "features": {
+    "desktop-lite": {
+      "webPort": "6080"
+    }
+  }
+}
+```
+
+Once this is enabled you can open the port specified in a new browser tab and you will have access to the `noVNC` web viewer. This will enable you to record tests, pick selectors, and use codegen directly on your container.
 
 ## Image tags
 

@@ -4,15 +4,16 @@
 
 "use strict";
 
-const {AddonManager} = ChromeUtils.import("resource://gre/modules/AddonManager.jsm");
-const {TargetRegistry} = ChromeUtils.import("chrome://juggler/content/TargetRegistry.js");
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {PageHandler} = ChromeUtils.import("chrome://juggler/content/protocol/PageHandler.js");
-const {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
+const {AddonManager} = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+const {XPIProvider} = ChromeUtils.importESModule("resource://gre/modules/addons/XPIProvider.sys.mjs");
+const {TargetRegistry} = ChromeUtils.importESModule("chrome://juggler/content/TargetRegistry.js");
+const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+const {PageHandler} = ChromeUtils.importESModule("chrome://juggler/content/protocol/PageHandler.js");
+const {AppConstants} = ChromeUtils.importESModule("resource://gre/modules/AppConstants.sys.mjs");
 
 const helper = new Helper();
 
-class BrowserHandler {
+export class BrowserHandler {
   constructor(session, dispatcher, targetRegistry, startCompletePromise, onclose) {
     this._session = session;
     this._dispatcher = dispatcher;
@@ -49,9 +50,6 @@ class BrowserHandler {
       helper.on(this._targetRegistry, TargetRegistry.Events.TargetDestroyed, this._onTargetDestroyed.bind(this)),
       helper.on(this._targetRegistry, TargetRegistry.Events.DownloadCreated, this._onDownloadCreated.bind(this)),
       helper.on(this._targetRegistry, TargetRegistry.Events.DownloadFinished, this._onDownloadFinished.bind(this)),
-      helper.on(this._targetRegistry, TargetRegistry.Events.ScreencastStopped, sessionId => {
-        this._session.emitEvent('Browser.videoRecordingFinished', {screencastId: '' + sessionId});
-      })
     ];
 
     for (const target of this._targetRegistry.targets())
@@ -103,6 +101,10 @@ class BrowserHandler {
       targetInfo: target.info()
     });
     session.setHandler(new PageHandler(target, session, channel));
+    // Start screencast only after page handler is created, so that
+    // any screencast frames are actually sent to the client.
+    if (target.browserContext().screencastOptions)
+      target.startScreencast(target.browserContext().screencastOptions);
   }
 
   _onTargetDestroyed(target) {
@@ -147,6 +149,10 @@ class BrowserHandler {
       ]);
     }
     await this._startCompletePromise;
+    await Promise.all([
+      ...XPIProvider.startupPromises,
+      ...XPIProvider.enabledAddonsStartupPromises,
+    ]);
     this._onclose();
     Services.startup.quit(Ci.nsIAppStartup.eForceQuit);
   }
@@ -166,7 +172,9 @@ class BrowserHandler {
   ['Browser.clearCache']() {
     // Clearing only the context cache does not work: https://bugzilla.mozilla.org/show_bug.cgi?id=1819147
     Services.cache2.clear();
-    ChromeUtils.clearStyleSheetCache();
+    ChromeUtils.clearResourceCache({
+      types: ["stylesheet"],
+    });
   }
 
   ['Browser.setHTTPCredentials']({browserContextId, credentials}) {
@@ -219,8 +227,12 @@ class BrowserHandler {
     await this._targetRegistry.browserContextForId(browserContextId).setForcedColors(nullToUndefined(forcedColors));
   }
 
-  async ['Browser.setVideoRecordingOptions']({browserContextId, options}) {
-    await this._targetRegistry.browserContextForId(browserContextId).setVideoRecordingOptions(options);
+  async ['Browser.setContrast']({browserContextId, contrast}) {
+    await this._targetRegistry.browserContextForId(browserContextId).setContrast(nullToUndefined(contrast));
+  }
+
+  async ['Browser.setScreencastOptions']({browserContextId, options}) {
+    await this._targetRegistry.browserContextForId(browserContextId).setScreencastOptions(options);
   }
 
   async ['Browser.setUserAgentOverride']({browserContextId, userAgent}) {
@@ -240,11 +252,11 @@ class BrowserHandler {
   }
 
   async ['Browser.setLocaleOverride']({browserContextId, locale}) {
-    await this._targetRegistry.browserContextForId(browserContextId).applySetting('locale', nullToUndefined(locale));
+    await this._targetRegistry.browserContextForId(browserContextId).setLanguageOverride(nullToUndefined(locale));
   }
 
   async ['Browser.setTimezoneOverride']({browserContextId, timezoneId}) {
-    await this._targetRegistry.browserContextForId(browserContextId).applySetting('timezoneId', nullToUndefined(timezoneId));
+    await this._targetRegistry.browserContextForId(browserContextId).setTimezoneOverride(timezoneId);
   }
 
   async ['Browser.setTouchOverride']({browserContextId, hasTouch}) {
@@ -309,6 +321,3 @@ async function waitForWindowClosed(browserWindow) {
 function nullToUndefined(value) {
   return value === null ? undefined : value;
 }
-
-var EXPORTED_SYMBOLS = ['BrowserHandler'];
-this.BrowserHandler = BrowserHandler;

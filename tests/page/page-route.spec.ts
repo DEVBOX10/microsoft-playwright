@@ -71,10 +71,11 @@ it('should unroute', async ({ page, server }) => {
   expect(intercepted).toEqual([1]);
 });
 
-it('should support ? in glob pattern', async ({ page, server }) => {
+it('should not support ? in glob pattern', async ({ page, server }) => {
   server.setRoute('/index', (req, res) => res.end('index-no-hello'));
   server.setRoute('/index123hello', (req, res) => res.end('index123hello'));
   server.setRoute('/index?hello', (req, res) => res.end('index?hello'));
+  server.setRoute('/index1hello', (req, res) => res.end('index1hello'));
 
   await page.route('**/index?hello', async (route, request) => {
     await route.fulfill({ body: 'intercepted any character' });
@@ -91,7 +92,7 @@ it('should support ? in glob pattern', async ({ page, server }) => {
   expect(await page.content()).toContain('index-no-hello');
 
   await page.goto(server.PREFIX + '/index1hello');
-  expect(await page.content()).toContain('intercepted any character');
+  expect(await page.content()).toContain('index1hello');
 
   await page.goto(server.PREFIX + '/index123hello');
   expect(await page.content()).toContain('index123hello');
@@ -165,9 +166,8 @@ it('should properly return navigation response when URL has cookies', async ({ p
   expect(response.status()).toBe(200);
 });
 
-it('should override cookie header', async ({ page, server, browserName }) => {
+it('should not override cookie header', async ({ page, server, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16773' });
-  it.fail(browserName !== 'firefox' && !browserName.includes('bidi'));
 
   await page.goto(server.EMPTY_PAGE);
   await page.evaluate(() => document.cookie = 'original=value');
@@ -183,8 +183,9 @@ it('should override cookie header', async ({ page, server, browserName }) => {
     page.goto(server.EMPTY_PAGE),
   ]);
 
-  expect(cookieValueInRoute).toBe('original=value');
-  expect(serverReq.headers['cookie']).toBe('overridden=value');
+  if (browserName !== 'webkit')
+    expect.soft(cookieValueInRoute).toBe('original=value');
+  expect.soft(serverReq.headers['cookie']).toBe('original=value');
 });
 
 it('should show custom HTTP headers', async ({ page, server }) => {
@@ -343,13 +344,15 @@ it('should send referer', async ({ page, server }) => {
   expect(request.headers['referer']).toBe('http://google.com/');
 });
 
-it('should fail navigation when aborting main resource', async ({ page, server, browserName, isMac, macVersion }) => {
+it('should fail navigation when aborting main resource', async ({ page, server, browserName, isMac, macVersion, isBidi }) => {
   await page.route('**/*', route => route.abort());
   let error = null;
   await page.goto(server.EMPTY_PAGE).catch(e => error = e);
   expect(error).toBeTruthy();
   if (browserName === 'webkit')
     expect(error.message).toContain(isMac && macVersion < 11 ? 'Request intercepted' : 'Blocked by Web Inspector');
+  else if (browserName === 'firefox' && isBidi)
+    expect(error.message).toContain('NS_ERROR_ABORT');
   else if (browserName === 'firefox')
     expect(error.message).toContain('NS_ERROR_FAILURE');
   else
@@ -512,17 +515,14 @@ it('should work with badly encoded server', async ({ page, server }) => {
 it('should work with encoded server - 2', async ({ page, server, browserName }) => {
   // The requestWillBeSent will report URL as-is, whereas interception will
   // report encoded URL for stylesheet. @see crbug.com/759388
+  await page.goto(server.EMPTY_PAGE);
   const requests = [];
   await page.route('**/*', route => {
     void route.continue();
     requests.push(route.request());
   });
-  const response = await page.goto(`data:text/html,<link rel="stylesheet" href="${server.PREFIX}/fonts?helvetica|arial"/>`);
-  expect(response).toBe(null);
-  if (browserName === 'firefox')
-    expect(requests.length).toBe(2); // Firefox DevTools report to navigations in this case as well.
-  else
-    expect(requests.length).toBe(1);
+  await page.setContent(`<link rel="stylesheet" href="${server.PREFIX}/fonts?helvetica|arial"/>`);
+  expect(requests.length).toBe(1);
   expect((await requests[0].response()).status()).toBe(404);
 });
 
@@ -609,7 +609,7 @@ it('should not fulfill with redirect status', async ({ page, server, browserName
   }
 });
 
-it('should support cors with GET', async ({ page, server, browserName }) => {
+it('should support cors with GET', async ({ page, server, browserName, channel }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars*', async (route, request) => {
     const headers = { 'access-control-allow-origin': request.url().endsWith('allow') ? '*' : 'none' };
@@ -736,7 +736,7 @@ it('should respect cors overrides', async ({ page, server, browserName, isAndroi
   }
 });
 
-it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isAndroid, browserName }) => {
+it('should not auto-intercept non-preflight OPTIONS without network interception', async ({ page, server, isAndroid, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20469' });
   it.fixme(isAndroid);
 
@@ -774,6 +774,31 @@ it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isA
     // Preflight for OPTIONS, then OPTIONS, then GET without preflight.
     expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
   }
+});
+
+// Make sure this runs in a new context as preflight results could be cached.
+it('should not auto-intercept non-preflight OPTIONS with network interception', async ({ page, server, isAndroid, browserName, isBidi }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20469' });
+  it.fixme(isAndroid);
+
+  await page.goto(server.EMPTY_PAGE);
+
+  let requests = [];
+  server.setRoute('/something', (request, response) => {
+    requests.push(request.method + ':' + request.url);
+    if (request.method === 'OPTIONS') {
+      response.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, DELETE',
+        'Access-Control-Allow-Headers': '*',
+        'Cache-Control': 'no-cache'
+      });
+      response.end(`Hello`);
+      return;
+    }
+    response.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+    response.end('World');
+  });
 
   // With interception.
   {
@@ -790,10 +815,10 @@ it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isA
     expect.soft(text1).toBe('Hello');
     expect.soft(text2).toBe('World');
     // Preflight for OPTIONS is auto-fulfilled, then OPTIONS, then GET without preflight.
-    if (browserName === 'firefox')
-      expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
-    else
+    if (browserName === 'chromium' || isBidi)
       expect.soft(requests).toEqual(['OPTIONS:/something', 'GET:/something']);
+    else
+      expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
   }
 });
 
@@ -1026,4 +1051,21 @@ it('should intercept when postData is more than 1MB', async ({ page, server }) =
     body: POST_BODY,
   }).catch(e => {}), POST_BODY);
   expect(await interceptionPromise).toBe(POST_BODY);
+});
+
+it('should be able to intercept every navigation to a page controlled by service worker', async ({ page, server, isElectron, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33561' });
+  it.skip(isElectron);
+
+  let interceptions = 0;
+  const URL = server.PREFIX + '/serviceworkers/bug-33561/index.html';
+  await page.route(URL, async route => {
+    ++interceptions;
+    await route.continue();
+  });
+
+  await page.goto(URL);
+  await page.evaluate(() => window['activationPromise']);
+  await page.goto(URL);
+  expect(interceptions).toBe(2);
 });

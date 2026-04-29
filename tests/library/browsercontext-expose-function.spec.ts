@@ -16,7 +16,6 @@
  */
 
 import { contextTest as it, expect } from '../config/browserTest';
-import type { JSHandle } from '@playwright/test';
 
 it('expose binding should work', async ({ context }) => {
   let bindingSource: any;
@@ -45,6 +44,23 @@ it('should work', async ({ context, server }) => {
   expect(result).toEqual({ mul: 36, add: 13, sub: 5, addHandle: 11 });
 });
 
+it('should dispose', async ({ context, server }) => {
+  const binding = await context.exposeFunction('compute', function(a, b) {
+    return a * b;
+  });
+  const page = await context.newPage();
+  const result = await page.evaluate(async function() {
+    return await window['compute'](9, 4);
+  });
+  expect(result).toBe(36);
+  await binding.dispose();
+
+  const e = await page.evaluate(async function() {
+    return await window['compute'](9, 4);
+  }).catch(e => e);
+  expect(e.message).toContain('is not a function');
+});
+
 it('should throw for duplicate registrations', async ({ context, server }) => {
   await context.exposeFunction('foo', () => {});
   await context.exposeFunction('bar', () => {});
@@ -66,25 +82,11 @@ it('should be callable from-inside addInitScript', async ({ context, server }) =
   await context.addInitScript('window["woof"]("context")');
   const page = await context.newPage();
   await page.evaluate('undefined');
-  expect(args).toEqual(['context']);
+  await expect.poll(() => args).toEqual(['context']);
   args = [];
   await page.addInitScript('window["woof"]("page")');
   await page.reload();
-  expect(args).toEqual(['context', 'page']);
-});
-
-it('exposeBindingHandle should work', async ({ context }) => {
-  let target!: JSHandle<any>;
-  await context.exposeBinding('logme', (source, t) => {
-    target = t;
-    return 17;
-  }, { handle: true });
-  const page = await context.newPage();
-  const result = await page.evaluate(async function() {
-    return (window as any)['logme']({ foo: 42 });
-  });
-  expect(await target.evaluate(x => x.foo)).toBe(42);
-  expect(result).toEqual(17);
+  await expect.poll(() => args).toEqual(['context', 'page']);
 });
 
 it('should work with CSP', async ({ page, context, server }) => {

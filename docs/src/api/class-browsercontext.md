@@ -63,45 +63,22 @@ await context.CloseAsync();
 
 ## event: BrowserContext.backgroundPage
 * since: v1.11
+* deprecated: Background pages have been removed from Chromium together with Manifest V2 extensions.
 - argument: <[Page]>
 
-:::note
-Only works with Chromium browser's persistent context.
-:::
-
-Emitted when new background page is created in the context.
-
-```java
-context.onBackgroundPage(backgroundPage -> {
-  System.out.println(backgroundPage.url());
-});
-```
-
-```js
-const backgroundPage = await context.waitForEvent('backgroundpage');
-```
-
-```python async
-background_page = await context.wait_for_event("backgroundpage")
-```
-
-```python sync
-background_page = context.wait_for_event("backgroundpage")
-```
-
-```csharp
-context.BackgroundPage += (_, backgroundPage) =>
-{
-    Console.WriteLine(backgroundPage.Url);
-};
-
-```
+This event is not emitted.
 
 ## property: BrowserContext.clock
 * since: v1.45
 - type: <[Clock]>
 
 Playwright has ability to mock clock and passage of time.
+
+## property: BrowserContext.debugger
+* since: v1.59
+- type: <[Debugger]>
+
+Debugger allows to pause and resume the execution.
 
 ## event: BrowserContext.close
 * since: v1.8
@@ -214,6 +191,30 @@ Context.Dialog += async (_, dialog) =>
 When no [`event: Page.dialog`] or [`event: BrowserContext.dialog`] listeners are present, all dialogs are automatically dismissed.
 :::
 
+## event: BrowserContext.download
+* since: v1.60
+- argument: <[Download]>
+
+Emitted when attachment download started in any page belonging to this context. User can access basic file operations on downloaded content via the passed [Download] instance. See also [`event: Page.download`] to receive events about a specific page.
+
+## event: BrowserContext.frameAttached
+* since: v1.60
+- argument: <[Frame]>
+
+Emitted when a frame is attached in any page belonging to this context. See also [`event: Page.frameAttached`] to receive events about a specific page.
+
+## event: BrowserContext.frameDetached
+* since: v1.60
+- argument: <[Frame]>
+
+Emitted when a frame is detached in any page belonging to this context. See also [`event: Page.frameDetached`] to receive events about a specific page.
+
+## event: BrowserContext.frameNavigated
+* since: v1.60
+- argument: <[Frame]>
+
+Emitted when a frame is navigated to a new url in any page belonging to this context. See also [`event: Page.frameNavigated`] to receive events about navigations in a specific page.
+
 ## event: BrowserContext.page
 * since: v1.8
 - argument: <[Page]>
@@ -265,6 +266,18 @@ Console.WriteLine(await popup.EvaluateAsync<string>("location.href"));
 Use [`method: Page.waitForLoadState`] to wait until the page gets to a particular state (you should not need it in most
 cases).
 :::
+
+## event: BrowserContext.pageClose
+* since: v1.60
+- argument: <[Page]>
+
+Emitted when a page in this context is closed. See also [`event: Page.close`] to receive events about a specific page.
+
+## event: BrowserContext.pageLoad
+* since: v1.60
+- argument: <[Page]>
+
+Emitted when the JavaScript [`load`](https://developer.mozilla.org/en-US/docs/Web/Events/load) event is dispatched in any page belonging to this context. See also [`event: Page.load`] to receive events about a specific page.
 
 ## event: BrowserContext.webError
 * since: v1.38
@@ -354,18 +367,21 @@ await context.AddCookiesAsync(new[] { cookie1, cookie2 });
 ### param: BrowserContext.addCookies.cookies
 * since: v1.8
 - `cookies` <[Array]<[Object]>>
+  - alias-java: Cookie
   - `name` <[string]>
   - `value` <[string]>
-  - `url` ?<[string]> Either url or domain / path are required. Optional.
-  - `domain` ?<[string]> For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com". Either url or domain / path are required. Optional.
-  - `path` ?<[string]> Either url or domain / path are required Optional.
+  - `url` ?<[string]> Either `url` or both `domain` and `path` are required. Optional.
+  - `domain` ?<[string]> For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com". Either `url` or both `domain` and `path` are required. Optional.
+  - `path` ?<[string]> Either `url` or both `domain` and `path` are required. Optional.
   - `expires` ?<[float]> Unix time in seconds. Optional.
   - `httpOnly` ?<[boolean]> Optional.
   - `secure` ?<[boolean]> Optional.
   - `sameSite` ?<[SameSiteAttribute]<"Strict"|"Lax"|"None">> Optional.
+  - `partitionKey` ?<[string]> For partitioned third-party cookies (aka [CHIPS](https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Privacy_sandbox/Partitioned_cookies)), the partition key. Optional.
 
 ## async method: BrowserContext.addInitScript
 * since: v1.8
+- returns: <[Disposable]>
 
 Adds a script which would be evaluated in one of the following scenarios:
 * Whenever a page is created in the browser context or is navigated.
@@ -455,19 +471,16 @@ Script to be evaluated in all pages in the browser context. Optional.
 
 ## method: BrowserContext.backgroundPages
 * since: v1.11
+* deprecated: Background pages have been removed from Chromium together with Manifest V2 extensions.
 - returns: <[Array]<[Page]>>
 
-:::note
-Background pages are only supported on Chromium-based browsers.
-:::
-
-All existing background pages in the context.
+Returns an empty list.
 
 ## method: BrowserContext.browser
 * since: v1.8
 - returns: <[null]|[Browser]>
 
-Returns the browser instance of the context. If it was launched as a persistent context null gets returned.
+Gets the browser instance that owns the context. Returns `null` if the context is created outside of normal browser, e.g. Android or Electron.
 
 ## async method: BrowserContext.clearCookies
 * since: v1.8
@@ -594,6 +607,8 @@ The default browser context cannot be closed.
 ## async method: BrowserContext.cookies
 * since: v1.8
 - returns: <[Array]<[Object]>>
+  - alias-csharp: BrowserContextCookiesResult
+  - alias-java: Cookie
   - `name` <[string]>
   - `value` <[string]>
   - `domain` <[string]>
@@ -602,6 +617,7 @@ The default browser context cannot be closed.
   - `httpOnly` <[boolean]>
   - `secure` <[boolean]>
   - `sameSite` <[SameSiteAttribute]<"Strict"|"Lax"|"None">>
+  - `partitionKey` ?<[string]>
 
 If no URLs are specified, this method returns all cookies. If URLs are specified, only cookies that affect those URLs
 are returned.
@@ -614,6 +630,7 @@ Optional list of URLs.
 
 ## async method: BrowserContext.exposeBinding
 * since: v1.8
+- returns: <[Disposable]>
 
 The method adds a function called [`param: name`] on the `window` object of every frame in every page in the context.
 When called, the function executes [`param: callback`] and returns a [Promise] which resolves to the return value of
@@ -752,19 +769,13 @@ Name of the function on the window object.
 ### param: BrowserContext.exposeBinding.callback
 * since: v1.8
 - `callback` <[function]>
+  - alias-java: BindingCallback
 
 Callback function that will be called in the Playwright's context.
 
-### option: BrowserContext.exposeBinding.handle
-* since: v1.8
-* deprecated: This option will be removed in the future.
-- `handle` <[boolean]>
-
-Whether to pass the argument as a handle, instead of passing by value. When passing a handle, only one argument is
-supported. When passing by value, multiple arguments are supported.
-
 ## async method: BrowserContext.exposeFunction
 * since: v1.8
+- returns: <[Disposable]>
 
 The method adds a function called [`param: name`] on the `window` object of every frame in every page in the context.
 When called, the function executes [`param: callback`] and returns a [Promise] which resolves to the return value of
@@ -950,6 +961,7 @@ Name of the function on the window object.
 ### param: BrowserContext.exposeFunction.callback
 * since: v1.8
 - `callback` <[function]>
+  - alias-java: FunctionCallback
 
 Callback function that will be called in the Playwright's context.
 
@@ -978,6 +990,8 @@ Here are some permissions that may be supported by some browsers:
 * `'clipboard-write'`
 * `'geolocation'`
 * `'gyroscope'`
+* `'local-fonts'`
+* `'local-network-access'`
 * `'magnetometer'`
 * `'microphone'`
 * `'midi-sysex'` (system-exclusive midi)
@@ -985,12 +999,19 @@ Here are some permissions that may be supported by some browsers:
 * `'notifications'`
 * `'payment-handler'`
 * `'storage-access'`
+* `'screen-wake-lock'`
 
 ### option: BrowserContext.grantPermissions.origin
 * since: v1.8
 - `origin` <[string]>
 
 The [origin] to grant permissions to, e.g. "https://example.com".
+
+## method: BrowserContext.isClosed
+* since: v1.59
+- returns: <[boolean]>
+
+Indicates that the browser context is in the process of closing or has already been closed.
 
 ## async method: BrowserContext.newCDPSession
 * since: v1.11
@@ -1045,6 +1066,7 @@ API testing helper associated with this context. Requests made with this API wil
 
 ## async method: BrowserContext.route
 * since: v1.8
+- returns: <[Disposable]>
 
 Routing provides the capability to modify network requests that are made by any page in the browser context. Once route
 is enabled, every request matching the url pattern will stall unless it's continued, fulfilled or aborted.
@@ -1201,11 +1223,17 @@ Enabling routing disables http cache.
 
 ### param: BrowserContext.route.url
 * since: v1.8
+* langs: js
+- `url` <[string]|[RegExp]|[URLPattern]|[function]\([URL]\):[boolean]>
+
+A glob pattern, regex pattern, URL pattern, or predicate that receives a [URL] to match during routing. If [`option: Browser.newContext.baseURL`] is set in the context options and the provided URL is a string that does not start with `*`, it is resolved using the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+
+### param: BrowserContext.route.url
+* since: v1.8
+* langs: python, csharp, java
 - `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]>
 
-A glob pattern, regex pattern or predicate receiving [URL] to match while routing.
-When a [`option: Browser.newContext.baseURL`] via the context options was provided and the passed URL is a path,
-it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+A glob pattern, regex pattern, or predicate that receives a [URL] to match during routing. If [`option: Browser.newContext.baseURL`] is set in the context options and the provided URL is a string that does not start with `*`, it is resolved using the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
 
 ### param: BrowserContext.route.handler
 * since: v1.8
@@ -1470,6 +1498,7 @@ its geolocation.
 ### param: BrowserContext.setGeolocation.geolocation
 * since: v1.8
 - `geolocation` <[null]|[Object]>
+  - alias-java: Geolocation
   - `latitude` <[float]> Latitude between -90 and 90.
   - `longitude` <[float]> Longitude between -180 and 180.
   - `accuracy` ?<[float]> Non-negative accuracy value. Defaults to `0`.
@@ -1494,6 +1523,7 @@ its geolocation.
 
 Whether to emulate network being offline for the browser context.
 
+
 ## async method: BrowserContext.storageState
 * since: v1.8
 - returns: <[Object]>
@@ -1512,7 +1542,7 @@ Whether to emulate network being offline for the browser context.
       - `name` <[string]>
       - `value` <[string]>
 
-Returns storage state for this browser context, contains current cookies and local storage snapshot.
+Returns storage state for this browser context, contains current cookies, local storage snapshot and IndexedDB snapshot.
 
 ## async method: BrowserContext.storageState
 * since: v1.8
@@ -1521,6 +1551,53 @@ Returns storage state for this browser context, contains current cookies and loc
 
 ### option: BrowserContext.storageState.path = %%-storagestate-option-path-%%
 * since: v1.8
+
+### option: BrowserContext.storageState.indexedDB
+* since: v1.51
+- `indexedDB` ?<boolean>
+
+Set to `true` to include [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) in the storage state snapshot.
+If your application uses IndexedDB to store authentication tokens, like Firebase Authentication, enable this.
+
+## async method: BrowserContext.setStorageState
+* since: v1.59
+
+Clears the existing cookies, local storage and IndexedDB entries for all origins and sets the new storage state.
+
+**Usage**
+
+```js
+// Load storage state from a file and apply it to the context.
+await context.setStorageState('state.json');
+```
+
+```java
+// Load storage state from a file and apply it to the context.
+context.setStorageState(Paths.get("state.json"));
+```
+
+```python async
+# Load storage state from a file and apply it to the context.
+await context.set_storage_state("state.json")
+```
+
+```python sync
+# Load storage state from a file and apply it to the context.
+context.set_storage_state("state.json")
+```
+
+```csharp
+// Load storage state from a file and apply it to the context.
+await context.SetStorageStateAsync("state.json");
+```
+
+### param: BrowserContext.setStorageState.storageState = %%-js-python-context-option-storage-state-%%
+* since: v1.59
+* langs: js, python
+
+### param: BrowserContext.setStorageState.storageState = %%-csharp-java-context-option-storage-state-path-%%
+* since: v1.59
+* langs: csharp, java
 
 ## property: BrowserContext.tracing
 * since: v1.12
@@ -1542,9 +1619,18 @@ routes for the [`param: url`].
 
 ### param: BrowserContext.unroute.url
 * since: v1.8
+* langs: js
+- `url` <[string]|[RegExp]|[URLPattern]|[function]\([URL]\):[boolean]>
+
+A glob pattern, regex pattern, URL pattern, or predicate receiving [URL] used to register a routing with
+[`method: BrowserContext.route`].
+
+### param: BrowserContext.unroute.url
+* since: v1.8
+* langs: python, csharp, java
 - `url` <[string]|[RegExp]|[function]\([URL]\):[boolean]>
 
-A glob pattern, regex pattern or predicate receiving [URL] used to register a routing with
+A glob pattern, regex pattern, or predicate receiving [URL] used to register a routing with
 [`method: BrowserContext.route`].
 
 ### param: BrowserContext.unroute.handler

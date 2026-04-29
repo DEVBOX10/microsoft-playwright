@@ -14,20 +14,19 @@
  * limitations under the License.
  */
 
-import type * as channels from '@protocol/channels';
-import { TimeoutError } from './errors';
 import { Android } from './android';
+import { Browser } from './browser';
 import { BrowserType } from './browserType';
 import { ChannelOwner } from './channelOwner';
-import { Electron } from './electron';
+import { TimeoutError } from './errors';
 import { APIRequest } from './fetch';
-import { Selectors, SelectorsOwner } from './selectors';
+import { Selectors } from './selectors';
+
+import type * as channels from '@protocol/channels';
+import type { LaunchOptions } from 'playwright-core';
 
 export class Playwright extends ChannelOwner<channels.PlaywrightChannel> {
   readonly _android: Android;
-  readonly _electron: Electron;
-  readonly _bidiChromium: BrowserType;
-  readonly _bidiFirefox: BrowserType;
   readonly chromium: BrowserType;
   readonly firefox: BrowserType;
   readonly webkit: BrowserType;
@@ -35,6 +34,11 @@ export class Playwright extends ChannelOwner<channels.PlaywrightChannel> {
   selectors: Selectors;
   readonly request: APIRequest;
   readonly errors: { TimeoutError: typeof TimeoutError };
+
+  // Instrumentation.
+  _defaultLaunchOptions?: LaunchOptions;
+  _defaultContextTimeout?: number;
+  _defaultContextNavigationTimeout?: number;
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.PlaywrightInitializer) {
     super(parent, type, guid, initializer);
@@ -46,31 +50,31 @@ export class Playwright extends ChannelOwner<channels.PlaywrightChannel> {
     this.webkit = BrowserType.from(initializer.webkit);
     this.webkit._playwright = this;
     this._android = Android.from(initializer.android);
-    this._electron = Electron.from(initializer.electron);
-    this._bidiChromium = BrowserType.from(initializer.bidiChromium);
-    this._bidiChromium._playwright = this;
-    this._bidiFirefox = BrowserType.from(initializer.bidiFirefox);
-    this._bidiFirefox._playwright = this;
+    this._android._playwright = this;
     this.devices = this._connection.localUtils()?.devices ?? {};
-    this.selectors = new Selectors();
+    this.selectors = new Selectors(this._connection._platform);
     this.errors = { TimeoutError };
-
-    const selectorsOwner = SelectorsOwner.from(initializer.selectors);
-    this.selectors._addChannel(selectorsOwner);
-    this._connection.on('close', () => {
-      this.selectors._removeChannel(selectorsOwner);
-    });
-    (global as any)._playwrightInstance = this;
-  }
-
-  _setSelectors(selectors: Selectors) {
-    const selectorsOwner = SelectorsOwner.from(this._initializer.selectors);
-    this.selectors._removeChannel(selectorsOwner);
-    this.selectors = selectors;
-    this.selectors._addChannel(selectorsOwner);
   }
 
   static from(channel: channels.PlaywrightChannel): Playwright {
     return (channel as any)._object;
+  }
+
+  private _browserTypes(): BrowserType[] {
+    return [this.chromium, this.firefox, this.webkit];
+  }
+
+  _preLaunchedBrowser(): Browser {
+    const browser = Browser.from(this._initializer.preLaunchedBrowser!);
+    browser._connectToBrowserType(this[browser._name as 'chromium' | 'firefox' | 'webkit'], {}, undefined);
+    return browser;
+  }
+
+  _allContexts() {
+    return this._browserTypes().flatMap(type => [...type._contexts]);
+  }
+
+  _allPages() {
+    return this._allContexts().flatMap(context => context.pages());
   }
 }

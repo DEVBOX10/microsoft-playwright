@@ -16,13 +16,16 @@
 
 import path from 'path';
 import util from 'util';
-import type { TestError } from '../../types/testReporter';
-import { isWorkerProcess, setCurrentlyLoadingFileSuite } from './globals';
+
+import * as esmLoaderHost from './esmLoaderHost';
+import { isWorkerProcess, setCurrentlyLoadingFileSuite } from '../globals';
 import { Suite } from './test';
+import { startCollectingFileDeps, stopCollectingFileDeps } from '../transform/compilationCache';
 import { requireOrImport } from '../transform/transform';
 import { filterStackTrace } from '../util';
-import { startCollectingFileDeps, stopCollectingFileDeps } from '../transform/compilationCache';
-import * as esmLoaderHost from './esmLoaderHost';
+
+import type { TestError } from '../../types/testReporter';
+import type { FullConfigInternal } from './config';
 
 export const defaultTimeout = 30000;
 
@@ -30,12 +33,13 @@ export const defaultTimeout = 30000;
 // we make these maps global.
 const cachedFileSuites = new Map<string, Suite>();
 
-export async function loadTestFile(file: string, rootDir: string, testErrors?: TestError[]): Promise<Suite> {
+export async function loadTestFile(file: string, config: FullConfigInternal, testErrors?: TestError[]): Promise<Suite> {
   if (cachedFileSuites.has(file))
     return cachedFileSuites.get(file)!;
-  const suite = new Suite(path.relative(rootDir, file) || path.basename(file), 'file');
+  const suite = new Suite(path.relative(config.config.rootDir, file) || path.basename(file), 'file');
   suite._requireFile = file;
   suite.location = { file, line: 0, column: 0 };
+  suite._tags = [...config.config.tags];
 
   setCurrentlyLoadingFileSuite(suite);
   if (!isWorkerProcess()) {

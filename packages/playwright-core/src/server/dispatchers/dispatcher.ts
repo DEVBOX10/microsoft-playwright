@@ -15,23 +15,27 @@
  */
 
 import { EventEmitter } from 'events';
-import type * as channels from '@protocol/channels';
-import { findValidator, ValidationError, createMetadataValidator, type ValidatorContext } from '../../protocol/validator';
-import { LongStandingScope, assert, compressCallLog, isUnderTest, monotonicTime, rewriteErrorMessage } from '../../utils';
+
+import { getMetainfo } from '@isomorphic/protocolMetainfo';
+import { eventsHelper } from '@utils/eventsHelper';
+import { isUnderTest } from '@utils/debug';
+import { assert } from '@isomorphic/assert';
+import { monotonicTime } from '@isomorphic/time';
+import { rewriteErrorMessage } from '@isomorphic/stackTrace';
+import { ValidationError, createMetadataValidator, findValidator  } from '../../protocol/validator';
 import { TargetClosedError, isTargetClosedError, serializeError } from '../errors';
-import type { CallMetadata } from '../instrumentation';
-import { SdkObject } from '../instrumentation';
-import type { PlaywrightDispatcher } from './playwrightDispatcher';
-import { eventsHelper } from '../..//utils/eventsHelper';
-import type { RegisteredListener } from '../..//utils/eventsHelper';
+import { createRootSdkObject, SdkObject } from '../instrumentation';
 import { isProtocolError } from '../protocolError';
+import { compressCallLog } from '../callLog';
+import { Progress, ProgressController } from '../progress';
 
-export const dispatcherSymbol = Symbol('dispatcher');
+import type { CallMetadata } from '../instrumentation';
+import type { PlaywrightDispatcher } from './playwrightDispatcher';
+import type { RegisteredListener } from '@utils/eventsHelper';
+import type { ValidatorContext } from '../../protocol/validator';
+import type * as channels from '@protocol/channels';
+
 const metadataValidator = createMetadataValidator();
-
-export function existingDispatcher<DispatcherType>(object: any): DispatcherType | undefined {
-  return object[dispatcherSymbol];
-}
 
 let maxDispatchersOverride: number | undefined;
 export function setMaxDispatchersForTest(value: number | undefined) {
@@ -44,25 +48,23 @@ function maxDispatchersForBucket(gcBucket: string) {
   }[gcBucket] ?? 10000;
 }
 
-export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeType extends DispatcherScope> extends EventEmitter implements channels.Channel {
-  private _connection: DispatcherConnection;
-  // Parent is always "isScope".
+export class Dispatcher<Type extends SdkObject, ChannelType, ParentScopeType extends DispatcherScope> extends EventEmitter implements channels.Channel {
+  readonly connection: DispatcherConnection;
   private _parent: ParentScopeType | undefined;
-  // Only "isScope" channel owners have registered dispatchers inside.
   private _dispatchers = new Map<string, DispatcherScope>();
   protected _disposed = false;
   protected _eventListeners: RegisteredListener[] = [];
+  private _activeProgressControllers = new Set<ProgressController>();
 
   readonly _guid: string;
   readonly _type: string;
   readonly _gcBucket: string;
   _object: Type;
-  private _openScope = new LongStandingScope();
 
-  constructor(parent: ParentScopeType | DispatcherConnection, object: Type, type: string, initializer: channels.InitializerTraits<Type>, gcBucket?: string) {
+  constructor(parent: ParentScopeType | DispatcherConnection, object: Type, type: string, initializer: channels.InitializerTraits<ChannelType>, gcBucket?: string) {
     super();
 
-    this._connection = parent instanceof DispatcherConnection ? parent : parent._connection;
+    this.connection = parent instanceof DispatcherConnection ? parent : parent.connection;
     this._parent = parent instanceof DispatcherConnection ? undefined : parent;
 
     const guid = object.guid;
@@ -71,17 +73,15 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
     this._object = object;
     this._gcBucket = gcBucket ?? type;
 
-    (object as any)[dispatcherSymbol] = this;
-
-    this._connection.registerDispatcher(this);
+    this.connection.registerDispatcher(this);
     if (this._parent) {
       assert(!this._parent._dispatchers.has(guid));
       this._parent._dispatchers.set(guid, this);
     }
 
     if (this._parent)
-      this._connection.sendCreate(this._parent, type, guid, initializer);
-    this._connection.maybeDisposeStaleDispatchers(this._gcBucket);
+      this.connection.sendCreate(this._parent, type, guid, initializer);
+    this.connection.maybeDisposeStaleDispatchers(this._gcBucket);
   }
 
   parentScope(): ParentScopeType {
@@ -99,17 +99,16 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
     oldParent._dispatchers.delete(child._guid);
     this._dispatchers.set(child._guid, child);
     child._parent = this;
-    this._connection.sendAdopt(this, child);
+    this.connection.sendAdopt(this, child);
   }
 
-  async _handleCommand(callMetadata: CallMetadata, method: string, validParams: any) {
-    const commandPromise = (this as any)[method](validParams, callMetadata);
+  async _runCommand(callMetadata: CallMetadata, method: string, validParams: any) {
+    const controller = ProgressController.createForSdkObject(this._object, callMetadata);
+    this._activeProgressControllers.add(controller);
     try {
-      return await this._openScope.race(commandPromise);
-    } catch (e) {
-      if (callMetadata.potentiallyClosesScope && isTargetClosedError(e))
-        return await commandPromise;
-      throw e;
+      return await controller.run(progress => (this as any)[method](validParams, progress), validParams?.timeout);
+    } finally {
+      this._activeProgressControllers.delete(controller);
     }
   }
 
@@ -120,35 +119,49 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
       // Just ignore this event outside of tests.
       return;
     }
-    this._connection.sendEvent(this, method as string, params);
+    this.connection.sendEvent(this, method as string, params);
   }
 
   _dispose(reason?: 'gc') {
-    this._disposeRecursively(new TargetClosedError());
-    this._connection.sendDispose(this, reason);
+    this._disposeRecursively(new TargetClosedError(this._object.closeReason()));
+    this.connection.sendDispose(this, reason);
   }
 
   protected _onDispose() {
   }
 
+  async stopPendingOperations(error: Error) {
+    const controllers: ProgressController[] = [];
+    const collect = (dispatcher: DispatcherScope) => {
+      controllers.push(...dispatcher._activeProgressControllers);
+      for (const child of [...dispatcher._dispatchers.values()])
+        collect(child);
+    };
+    collect(this);
+    await Promise.all(controllers.map(controller => controller.abort(error)));
+  }
+
   private _disposeRecursively(error: Error) {
     assert(!this._disposed, `${this._guid} is disposed more than once`);
+    for (const controller of this._activeProgressControllers) {
+      if (!controller.metadata.potentiallyClosesScope)
+        controller.abort(error).catch(() => {});
+    }
     this._onDispose();
     this._disposed = true;
     eventsHelper.removeEventListeners(this._eventListeners);
 
     // Clean up from parent and connection.
     this._parent?._dispatchers.delete(this._guid);
-    const list = this._connection._dispatchersByBucket.get(this._gcBucket);
+    const list = this.connection._dispatchersByBucket.get(this._gcBucket);
     list?.delete(this._guid);
-    this._connection._dispatchers.delete(this._guid);
+    this.connection._dispatcherByGuid.delete(this._guid);
+    this.connection._dispatcherByObject.delete(this._object);
 
     // Dispose all children.
     for (const dispatcher of [...this._dispatchers.values()])
       dispatcher._disposeRecursively(error);
     this._dispatchers.clear();
-    delete (this._object as any)[dispatcherSymbol];
-    this._openScope.close(error);
   }
 
   _debugScopeState(): any {
@@ -163,27 +176,29 @@ export class Dispatcher<Type extends { guid: string }, ChannelType, ParentScopeT
   }
 }
 
-export type DispatcherScope = Dispatcher<any, any, any>;
+export type DispatcherScope = Dispatcher<SdkObject, any, any>;
 
-export class RootDispatcher extends Dispatcher<{ guid: '' }, any, any> {
+export class RootDispatcher extends Dispatcher<SdkObject, any, any> {
   private _initialized = false;
 
   constructor(connection: DispatcherConnection, private readonly createPlaywright?: (scope: RootDispatcher, options: channels.RootInitializeParams) => Promise<PlaywrightDispatcher>) {
-    super(connection, { guid: '' }, 'Root', {});
+    super(connection, createRootSdkObject(), 'Root', {});
   }
 
-  async initialize(params: channels.RootInitializeParams): Promise<channels.RootInitializeResult> {
+  async initialize(params: channels.RootInitializeParams, progress: Progress): Promise<channels.RootInitializeResult> {
+    // Note: progress is deliberately ignored here.
     assert(this.createPlaywright);
     assert(!this._initialized);
     this._initialized = true;
     return {
-      playwright: await this.createPlaywright(this, params),
+      playwright: await progress.race(this.createPlaywright(this, params)),
     };
   }
 }
 
 export class DispatcherConnection {
-  readonly _dispatchers = new Map<string, DispatcherScope>();
+  readonly _dispatcherByGuid = new Map<string, DispatcherScope>();
+  readonly _dispatcherByObject = new Map<any, DispatcherScope>();
   readonly _dispatchersByBucket = new Map<string, Set<string>>();
   onmessage = (message: object) => {};
   private _waitOperations = new Map<string, CallMetadata>();
@@ -195,13 +210,13 @@ export class DispatcherConnection {
 
   sendEvent(dispatcher: DispatcherScope, event: string, params: any) {
     const validator = findValidator(dispatcher._type, event, 'Event');
-    params = validator(params, '', { tChannelImpl: this._tChannelImplToWire.bind(this), binary: this._isLocal ? 'buffer' : 'toBase64' });
+    params = validator(params, '', this._validatorToWireContext());
     this.onmessage({ guid: dispatcher._guid, method: event, params });
   }
 
   sendCreate(parent: DispatcherScope, type: string, guid: string, initializer: any) {
     const validator = findValidator(type, '', 'Initializer');
-    initializer = validator(initializer, '', { tChannelImpl: this._tChannelImplToWire.bind(this), binary: this._isLocal ? 'buffer' : 'toBase64' });
+    initializer = validator(initializer, '', this._validatorToWireContext());
     this.onmessage({ guid: parent._guid, method: '__create__', params: { type, initializer, guid } });
   }
 
@@ -213,10 +228,26 @@ export class DispatcherConnection {
     this.onmessage({ guid: dispatcher._guid, method: '__dispose__', params: { reason } });
   }
 
+  private _validatorToWireContext(): ValidatorContext {
+    return {
+      tChannelImpl: this._tChannelImplToWire.bind(this),
+      binary: this._isLocal ? 'buffer' : 'toBase64',
+      isUnderTest,
+    };
+  }
+
+  private _validatorFromWireContext(): ValidatorContext {
+    return {
+      tChannelImpl: this._tChannelImplFromWire.bind(this),
+      binary: this._isLocal ? 'buffer' : 'fromBase64',
+      isUnderTest,
+    };
+  }
+
   private _tChannelImplFromWire(names: '*' | string[], arg: any, path: string, context: ValidatorContext): any {
     if (arg && typeof arg === 'object' && typeof arg.guid === 'string') {
       const guid = arg.guid;
-      const dispatcher = this._dispatchers.get(guid);
+      const dispatcher = this._dispatcherByGuid.get(guid);
       if (!dispatcher)
         throw new ValidationError(`${path}: no object with guid ${guid}`);
       if (names !== '*' && !names.includes(dispatcher._type))
@@ -235,9 +266,14 @@ export class DispatcherConnection {
     throw new ValidationError(`${path}: expected dispatcher ${names.toString()}`);
   }
 
+  existingDispatcher<DispatcherType>(object: any): DispatcherType | undefined {
+    return this._dispatcherByObject.get(object) as DispatcherType | undefined;
+  }
+
   registerDispatcher(dispatcher: DispatcherScope) {
-    assert(!this._dispatchers.has(dispatcher._guid));
-    this._dispatchers.set(dispatcher._guid, dispatcher);
+    assert(!this._dispatcherByGuid.has(dispatcher._guid));
+    this._dispatcherByGuid.set(dispatcher._guid, dispatcher);
+    this._dispatcherByObject.set(dispatcher._object, dispatcher);
     let list = this._dispatchersByBucket.get(dispatcher._gcBucket);
     if (!list) {
       list = new Set();
@@ -255,7 +291,7 @@ export class DispatcherConnection {
     const disposeCount = (maxDispatchers / 10) | 0;
     this._dispatchersByBucket.set(gcBucket, new Set(dispatchersArray.slice(disposeCount)));
     for (let i = 0; i < disposeCount; ++i) {
-      const d = this._dispatchers.get(dispatchersArray[i]);
+      const d = this._dispatcherByGuid.get(dispatchersArray[i]);
       if (!d)
         continue;
       d._dispose('gc');
@@ -264,9 +300,9 @@ export class DispatcherConnection {
 
   async dispatch(message: object) {
     const { id, guid, method, params, metadata } = message as any;
-    const dispatcher = this._dispatchers.get(guid);
+    const dispatcher = this._dispatcherByGuid.get(guid);
     if (!dispatcher) {
-      this.onmessage({ id, error: serializeError(new TargetClosedError()) });
+      this.onmessage({ id, error: serializeError(new TargetClosedError(undefined)) });
       return;
     }
 
@@ -274,8 +310,9 @@ export class DispatcherConnection {
     let validMetadata: channels.Metadata;
     try {
       const validator = findValidator(dispatcher._type, method, 'Params');
-      validParams = validator(params, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._isLocal ? 'buffer' : 'fromBase64' });
-      validMetadata = metadataValidator(metadata, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._isLocal ? 'buffer' : 'fromBase64' });
+      const validatorContext = this._validatorFromWireContext();
+      validParams = validator(params, '', validatorContext);
+      validMetadata = metadataValidator(metadata, '', validatorContext);
       if (typeof (dispatcher as any)[method] !== 'function')
         throw new Error(`Mismatching dispatcher: "${dispatcher._type}" does not implement "${method}"`);
     } catch (e) {
@@ -283,16 +320,23 @@ export class DispatcherConnection {
       return;
     }
 
-    const sdkObject = dispatcher._object instanceof SdkObject ? dispatcher._object : undefined;
+    const metainfo = getMetainfo({ type: dispatcher._type, method });
+    if (metainfo?.internal) {
+      // For non-js ports, it is easier to detect internal calls here rather
+      // than generate protocol metainfo for each language.
+      validMetadata.internal = true;
+    }
+
+    const sdkObject = dispatcher._object;
     const callMetadata: CallMetadata = {
       id: `call@${id}`,
       location: validMetadata.location,
-      apiName: validMetadata.apiName,
+      title: validMetadata.title,
       internal: validMetadata.internal,
       stepId: validMetadata.stepId,
-      objectId: sdkObject?.guid,
-      pageId: sdkObject?.attribution?.page?.guid,
-      frameId: sdkObject?.attribution?.frame?.guid,
+      objectId: sdkObject.guid,
+      pageId: sdkObject.attribution?.page?.guid,
+      frameId: sdkObject.attribution?.frame?.guid,
       startTime: monotonicTime(),
       endTime: 0,
       type: dispatcher._type,
@@ -301,7 +345,7 @@ export class DispatcherConnection {
       log: [],
     };
 
-    if (sdkObject && params?.info?.waitId) {
+    if (params?.info?.waitId) {
       // Process logs for waitForNavigation/waitForLoadState/etc.
       const info = params.info;
       switch (info.phase) {
@@ -328,42 +372,45 @@ export class DispatcherConnection {
       }
     }
 
-    await sdkObject?.instrumentation.onBeforeCall(sdkObject, callMetadata);
+    await sdkObject.instrumentation.onBeforeCall(sdkObject, callMetadata);
     const response: any = { id };
     try {
-      const result = await dispatcher._handleCommand(callMetadata, method, validParams);
+      // If the dispatcher has been disposed while running the instrumentation call, error out.
+      if (this._dispatcherByGuid.get(guid) !== dispatcher)
+        throw new TargetClosedError(sdkObject.closeReason());
+      const result = await dispatcher._runCommand(callMetadata, method, validParams);
       const validator = findValidator(dispatcher._type, method, 'Result');
-      response.result = validator(result, '', { tChannelImpl: this._tChannelImplToWire.bind(this), binary: this._isLocal ? 'buffer' : 'toBase64' });
+      response.result = validator(result, '', this._validatorToWireContext());
       callMetadata.result = result;
     } catch (e) {
-      if (isTargetClosedError(e) && sdkObject) {
-        const reason = closeReason(sdkObject);
+      if (isTargetClosedError(e)) {
+        const reason = sdkObject.closeReason();
         if (reason)
           rewriteErrorMessage(e, reason);
       } else if (isProtocolError(e)) {
-        if (e.type === 'closed') {
-          const reason = sdkObject ? closeReason(sdkObject) : undefined;
-          e = new TargetClosedError(reason, e.browserLogMessage());
-        } else if (e.type === 'crashed') {
+        if (e.type === 'closed')
+          e = new TargetClosedError(sdkObject.closeReason(), e.browserLogMessage());
+        else if (e.type === 'crashed')
           rewriteErrorMessage(e, 'Target crashed ' + e.browserLogMessage());
-        }
       }
       response.error = serializeError(e);
       // The command handler could have set error in the metadata, do not reset it if there was no exception.
       callMetadata.error = response.error;
     } finally {
       callMetadata.endTime = monotonicTime();
-      await sdkObject?.instrumentation.onAfterCall(sdkObject, callMetadata);
+      await sdkObject.instrumentation.onAfterCall(sdkObject, callMetadata);
+      if (metainfo?.slowMo)
+        await this._doSlowMo(sdkObject);
     }
 
     if (response.error)
       response.log = compressCallLog(callMetadata.log);
     this.onmessage(response);
   }
-}
 
-function closeReason(sdkObject: SdkObject): string | undefined {
-  return sdkObject.attribution.page?._closeReason ||
-    sdkObject.attribution.context?._closeReason ||
-    sdkObject.attribution.browser?._closeReason;
+  private async _doSlowMo(sdkObject: SdkObject): Promise<void> {
+    const slowMo = sdkObject.attribution.browser?.options.slowMo;
+    if (slowMo)
+      await new Promise(f => setTimeout(f, slowMo));
+  }
 }

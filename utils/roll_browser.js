@@ -17,7 +17,7 @@
  */
 
 const path = require('path');
-const { Registry } = require('../packages/playwright-core/lib/server');
+const { Registry } = require('../packages/playwright-core/lib/coreBundle').registry;
 const fs = require('fs');
 const protocolGenerator = require('./protocol-types-generator');
 const {execSync} = require('child_process');
@@ -28,13 +28,15 @@ const CORE_PATH = path.resolve(path.join(__dirname, '..', 'packages', 'playwrigh
 
 function usage() {
   return `
-usage: ${SCRIPT_NAME} <browser> <revision>
+usage: ${SCRIPT_NAME} <browser> <revision> [version]
 
 Roll the <browser> to a specific <revision> and generate new protocol.
+Version is required for chromium-based browsers.
 Supported browsers: chromium, firefox, webkit, ffmpeg, firefox-beta.
 
 Example:
-  ${SCRIPT_NAME} chromium 123456
+  ${SCRIPT_NAME} chromium 123456 123.0.1234.56
+  ${SCRIPT_NAME} webkit 123456
 `;
 }
 
@@ -60,41 +62,64 @@ Example:
     'ff-beta': 'firefox-beta',
     'wk': 'webkit',
   }[args[0].toLowerCase()] ?? args[0].toLowerCase();
-  const descriptors = [browsersJSON.browsers.find(b => b.name === browserName)];
+  const browserTypeName = browserName.split('-')[0];
+  const descriptors = browsersJSON.browsers.filter(b =>
+    b.name === browserName || b.name === `${browserName}-headless-shell`
+  );
 
-  if (!descriptors.every(d => !!d)) {
+  if (!descriptors.length) {
     console.log(`Unknown browser "${browserName}"`);
     console.log(`Try running ${SCRIPT_NAME} --help`);
     process.exit(1);
   }
 
   const revision = args[1];
+  let browserVersion = args[2];
   console.log(`Rolling ${browserName} to ${revision}`);
+  if (browserVersion) {
+    console.log(`Browser version: ${browserVersion}`);
+  } else if (browserTypeName === 'chromium') {
+    console.log(`Chromium-based browsers must provide a version`);
+    process.exit(1);
+  }
 
   // 2. Update browser revisions in browsers.json.
   console.log('\nUpdating revision in browsers.json...');
-  for (const descriptor of descriptors)
+  for (const descriptor of descriptors) {
     descriptor.revision = String(revision);
+    if (browserVersion)
+      descriptor.browserVersion = browserVersion;
+  }
   fs.writeFileSync(path.join(CORE_PATH, 'browsers.json'), JSON.stringify(browsersJSON, null, 2) + '\n');
 
   // 3. Download new browser.
   console.log('\nDownloading new browser...');
   const registry = new Registry(browsersJSON);
   const executable = registry.findExecutable(browserName);
+  await registry.installDeps([executable]);
   await registry.install([...registry.defaultExecutables(), executable]);
 
-  // 4. Update browser version if rolling WebKit / Firefox / Chromium.
-  const browserType = playwright[browserName.split('-')[0]];
+  // 4. Update browser version if rolling WebKit / Firefox, validate if rolling Chromium.
+  const browserType = playwright[browserTypeName];
   if (browserType) {
     const browser = await browserType.launch({
       executablePath: executable.executablePath('javascript'),
     });
-    const browserVersion = await browser.version();
+    const downloadedVersion = await browser.version();
     await browser.close();
-    console.log('\nUpdating browser version in browsers.json...');
-    for (const descriptor of descriptors)
-      descriptor.browserVersion = browserVersion;
-    fs.writeFileSync(path.join(CORE_PATH, 'browsers.json'), JSON.stringify(browsersJSON, null, 2) + '\n');
+
+    if (browserVersion && downloadedVersion !== browserVersion) {
+      console.error(`\nError: Provided browser version "${browserVersion}" does not match downloaded version "${downloadedVersion}".`);
+      console.error(`Please verify that revision ${revision} corresponds to version ${browserVersion}.`);
+      process.exit(1);
+    }
+
+    if (!browserVersion) {
+      console.log('\nUpdating browser version in browsers.json...');
+      for (const descriptor of descriptors)
+        descriptor.browserVersion = downloadedVersion;
+      fs.writeFileSync(path.join(CORE_PATH, 'browsers.json'), JSON.stringify(browsersJSON, null, 2) + '\n');
+    }
   }
 
   if (browserType && descriptors[0].installByDefault) {
@@ -106,8 +131,9 @@ Example:
     // 6. Update docs.
     console.log('\nUpdating documentation...');
     try {
-      process.stdout.write(execSync('npm run --silent doc'));
+      execSync('npm run doc', { stdio: 'inherit' });
     } catch (e) {
+      console.log('npm run doc failed with non-zero exit code. This might have updated generated files.');
     }
   }
   console.log(`\nRolled ${browserName} to ${revision}`);

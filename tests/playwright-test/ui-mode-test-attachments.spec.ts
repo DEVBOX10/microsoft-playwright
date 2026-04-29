@@ -91,7 +91,7 @@ test('should contain string attachment', async ({ runUITest }) => {
   await page.getByTitle('Run all').click();
   await expect(page.getByTestId('status-line')).toHaveText('1/1 passed (100%)');
   await page.getByText('Attachments').click();
-  await page.getByText('attach "note"', { exact: true }).click();
+  await page.getByText('note', { exact: true }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.locator('.expandable-title', { hasText: 'note' }).getByRole('link').click();
   const download = await downloadPromise;
@@ -142,7 +142,7 @@ test('should linkify string attachments', async ({ runUITest, server }) => {
     await attachmentsPane.getByLabel('Third').click();
     const url = server.PREFIX + '/three.html';
     const promise = page.waitForEvent('popup');
-    await attachmentsPane.getByText('[markdown link]').click();
+    await attachmentsPane.getByText('markdown link').dblclick();
     const popup = await promise;
     await expect(popup).toHaveURL(url);
   }
@@ -171,6 +171,35 @@ test('should link from attachment step to attachments view', async ({ runUITest 
   await expect(attachment).not.toBeInViewport();
   await page.getByRole('treeitem', { name: 'attach "my-attachment"' }).getByLabel('Open Attachment').click();
   await expect(attachment).toBeInViewport();
+});
+
+test('attachments from inside boxed fixture should be visible', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/37147' } }, async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test as base } from '@playwright/test';
+
+      const test = base.extend<{ myFixture: void }>({
+        myFixture: [async ({}, use, testInfo) => {
+          await testInfo.attach('my attachment', {
+            body: 'foo',
+            contentType: 'text/plain',
+          });
+          await use();
+        }, { box: true }],
+      });
+
+      test('my test', ({ myFixture }) => {});
+    `,
+  }, { reporter: 'line' }, {});
+  await page.getByText('my test').click();
+  await page.getByTitle('Run all').click();
+  await expect(page.getByTestId('status-line')).toHaveText('1/1 passed (100%)');
+
+  await page.getByRole('treeitem', { name: 'attach "my attachment"' }).getByLabel('Open Attachment').click();
+  await expect(page.getByRole('tabpanel', { name: 'Attachments' })).toMatchAriaSnapshot(`
+    - tabpanel:
+      - button /my attachment/
+  `);
 });
 
 function readAllFromStream(stream: NodeJS.ReadableStream): Promise<Buffer> {

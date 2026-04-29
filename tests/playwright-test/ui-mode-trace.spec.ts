@@ -39,13 +39,42 @@ test('should merge trace events', async ({ runUITest }) => {
       listItem,
       'action list'
   ).toHaveText([
-    /Before Hooks[\d.]+m?s/,
-    /page.setContent[\d.]+m?s/,
-    /expect.toBe[\d.]+m?s/,
-    /locator.clickgetByRole\('button'\)[\d.]+m?s/,
-    /expect.toBe[\d.]+m?s/,
-    /After Hooks[\d.]+m?s/,
+    /Before Hooks/,
+    /Set content/,
+    /Expect "toBe"/,
+    /Click.*getByRole/,
+    /Expect "toBe"/,
+    /After Hooks/,
   ]);
+});
+
+test('should work with non-existing rootDir and testDir outside of it', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/38367' },
+}, async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        testDir: './nothingness',
+        projects: [
+          { name: 'main', testDir: './tests' },
+        ],
+      });
+    `,
+    'tests/a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('example test', async ({ page }) => {
+        await page.setContent('<button>Submit</button>');
+      });
+    `,
+  });
+
+  await page.getByText('example test').dblclick();
+  await expect(page).toMatchAriaSnapshot(`
+    - treeitem /Before Hooks/
+    - treeitem /Set content/ [selected]
+    - treeitem /After Hooks/
+  `);
 });
 
 test('should merge web assertion events', async ({  runUITest }, testInfo) => {
@@ -66,14 +95,14 @@ test('should merge web assertion events', async ({  runUITest }, testInfo) => {
       listItem,
       'action list'
   ).toHaveText([
-    /Before Hooks[\d.]+m?s/,
-    /page.setContent[\d.]+m?s/,
-    /expect.toBeVisiblelocator\('button'\)[\d.]+m?s/,
-    /After Hooks[\d.]+m?s/,
+    /Before Hooks/,
+    /Set content/,
+    /Expect "toBeVisible".*locator/,
+    /After Hooks/,
   ]);
 });
 
-test('should merge screenshot assertions', async ({  runUITest }, testInfo) => {
+test('should merge screenshot assertions', async ({ runUITest }) => {
   const { page } = await runUITest({
     'a.test.ts': `
       import { test, expect } from '@playwright/test';
@@ -91,11 +120,12 @@ test('should merge screenshot assertions', async ({  runUITest }, testInfo) => {
       listItem,
       'action list'
   ).toHaveText([
-    /Before Hooks[\d.]+m?s/,
-    /page.setContent[\d.]+m?s/,
-    /expect.toHaveScreenshot[\d.]+m?s/,
-    /After Hooks[\d.]+m?s/,
-    /Worker Cleanup[\d.]+m?s/,
+    /Before Hooks/,
+    /Set content/,
+    /Expect "toHaveScreenshot"/,
+    /After Hooks/,
+    /Attach "error-context"/,
+    /Worker Cleanup/,
   ]);
 });
 
@@ -110,7 +140,9 @@ test('should locate sync assertions in source', async ({ runUITest }) => {
   });
 
   await page.getByText('trace test').dblclick();
-  await page.getByText('expect.toBe').click();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
+  await page.getByText('Expect "toBe"').click();
 
   await expect(
       page.locator('.CodeMirror .source-line-running'),
@@ -137,17 +169,72 @@ test('should show snapshots for sync assertions', async ({ runUITest }) => {
       listItem,
       'action list'
   ).toHaveText([
-    /Before Hooks[\d.]+m?s/,
-    /page\.setContent[\d.]+m?s/,
-    /locator\.clickgetByRole\('button'\)[\d.]+m?s/,
-    /expect\.toBe[\d.]+m?s/,
-    /After Hooks[\d.]+m?s/,
+    /Before Hooks/,
+    /Set content/,
+    /Click.*getByRole/,
+    /Expect "toBe"/,
+    /After Hooks/,
   ]);
 
   await expect(
       page.frameLocator('iframe.snapshot-visible[name=snapshot]').locator('button'),
       'verify snapshot'
   ).toHaveText('Submit');
+});
+
+test('should show snapshots for steps', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35285' }
+}, async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test.beforeEach(async ({ page }) => {
+        await page.setContent('<div>initial</div>');
+      });
+      test('steps test', async ({ page }) => {
+        await test.step('first', async () => {
+          await page.setContent("<div>foo</div>");
+        });
+        await test.step('middle', async () => {
+          await page.setContent("<div>bar</div>");
+        });
+        await test.step('last', async () => {
+          await page.setContent("<div>baz</div>");
+        });
+      });
+    `,
+  });
+
+  await page.getByText('steps test').dblclick();
+
+  await expect(page).toMatchAriaSnapshot(`
+    - tree:
+      - treeitem /Before Hooks/
+      - treeitem /first/
+      - treeitem /middle/
+      - treeitem /last/
+      - treeitem /After Hooks/
+  `);
+
+  await page.getByTestId('actions-tree').getByText('first').click();
+  const snapshot = page.frameLocator('iframe.snapshot-visible[name=snapshot]').locator('div');
+
+  await page.getByText('After', { exact: true }).click();
+  await expect(snapshot).toHaveText('foo');
+  await page.getByText('Before', { exact: true }).click();
+  await expect(snapshot).toHaveText('initial');
+
+  await page.getByTestId('actions-tree').getByText('middle').click();
+  await page.getByText('After', { exact: true }).click();
+  await expect(snapshot).toHaveText('bar');
+  await page.getByText('Before', { exact: true }).click();
+  await expect(snapshot).toHaveText('foo');
+
+  await page.getByTestId('actions-tree').getByText('last').click();
+  await page.getByText('After', { exact: true }).click();
+  await expect(snapshot).toHaveText('baz');
+  await page.getByText('Before', { exact: true }).click();
+  await expect(snapshot).toHaveText('bar');
 });
 
 test('should show image diff', async ({ runUITest }) => {
@@ -168,6 +255,8 @@ test('should show image diff', async ({ runUITest }) => {
   });
 
   await page.getByText('vrt test').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Failed');
+
   await page.getByText(/Attachments/).click();
   await expect(page.getByText('Diff', { exact: true })).toBeVisible();
   await expect(page.getByText('Actual', { exact: true })).toBeVisible();
@@ -218,11 +307,10 @@ test('should not fail on internal page logs', async ({ runUITest, server }) => {
       listItem,
       'action list'
   ).toHaveText([
-    /Before Hooks[\d.]+m?s/,
-    /browser.newContext[\d.]+m?s/,
-    /browserContext.newPage[\d.]+m?s/,
-    /page.goto/,
-    /browserContext.storageState[\d.]+m?s/,
+    /Before Hooks/,
+    /Create context/,
+    /Create page/,
+    /Navigate to "\/empty.html"/,
     /After Hooks/,
   ]);
 });
@@ -245,9 +333,9 @@ test('should not show caught errors in the errors tab', async ({ runUITest }, te
       listItem,
       'action list'
   ).toHaveText([
-    /Before Hooks[\d.]+m?s/,
-    /page.setContent/,
-    /expect.toBeCheckedlocator.*[\d.]+m?s/,
+    /Before Hooks/,
+    /Set content/,
+    /Expect "toBeChecked".*locator/,
     /After Hooks/,
   ]);
 
@@ -284,6 +372,8 @@ test('should show errors with causes in the error tab', async ({ runUITest }) =>
   });
 
   await page.getByText('pass').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Failed');
+
   await page.getByText('Errors', { exact: true }).click();
   await expect(page.locator('.tab-errors')).toContainText(`Error: wrapper-message
 [cause]: Error: outer-message
@@ -331,6 +421,8 @@ test('should show request source context id', async ({ runUITest, server }) => {
   });
 
   await page.getByText('pass').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
   await page.getByText('Network', { exact: true }).click();
   await expect(page.locator('span').filter({ hasText: 'Source' })).toBeVisible();
   await expect(page.getByText('page#1')).toBeVisible();
@@ -351,18 +443,18 @@ test('should work behind reverse proxy', { annotation: { type: 'issue', descript
   });
 
   const uiModeUrl = new URL(page.url());
-  reverseProxy.forwardTo(+uiModeUrl.port, { prefix: '/subdir', preserveHostname: true });
+  reverseProxy.forwardTo(+uiModeUrl.port, { removePrefix: '/subdir', preserveHostname: true });
   await page.goto(`${reverseProxy.URL}/subdir${uiModeUrl.pathname}?${uiModeUrl.searchParams}`);
 
   await page.getByText('trace test').dblclick();
 
-  await expect(page.getByTestId('actions-tree')).toMatchAriaSnapshot(`
+  await expect(page).toMatchAriaSnapshot(`
     - tree:
-      - treeitem /Before Hooks \\d+[hmsp]+/
-      - treeitem /page\\.setContent \\d+[hmsp]+/
-      - treeitem /locator\\.clickgetByRole\\('button'\\) \\d+[hmsp]+/
-      - treeitem /expect\\.toBe \\d+[hmsp]+/ [selected]
-      - treeitem /After Hooks \\d+[hmsp]+/
+      - treeitem /Before Hooks/
+      - treeitem /Set content/
+      - treeitem /Click.*getByRole/
+      - treeitem /Expect "toBe"/
+      - treeitem /After Hooks/
   `);
 
   await expect(
@@ -385,12 +477,12 @@ test('should filter actions tab on double-click', async ({ runUITest, server }) 
   const actionsTree = page.getByTestId('actions-tree');
   await expect(actionsTree.getByRole('treeitem')).toHaveText([
     /Before Hooks/,
-    /page.goto/,
+    /Navigate to "\/empty.html"/,
     /After Hooks/,
   ]);
-  await actionsTree.getByRole('treeitem', { name: 'page.goto' }).dblclick();
+  await actionsTree.getByRole('treeitem', { name: 'Navigate to "\/empty.html"' }).dblclick();
   await expect(actionsTree.getByRole('treeitem')).toHaveText([
-    /page.goto/,
+    /Navigate to "\/empty.html"/,
   ]);
 });
 
@@ -417,11 +509,83 @@ test('should show custom fixture titles in actions tree', async ({ runUITest }) 
   await page.getByText('fixture test').dblclick();
   const listItem = page.getByTestId('actions-tree').getByRole('treeitem');
   await expect(listItem, 'action list').toHaveText([
-    /Before Hooks[\d.]+m?s/,
-    /My Custom Fixture[\d.]+m?s/,
-    /fixture2[\d.]+m?s/,
-    /After Hooks[\d.]+m?s/,
+    /Before Hooks/,
+    /Fixture "My Custom Fixture"/,
+    /Fixture "fixture2"/,
+    /After Hooks/,
   ]);
+});
+
+test('should collapse log entries to a single line', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+
+      test('multiline test', async ({ page }) => {
+        await page.keyboard.type(\`line1
+line2\`);
+      });
+    `,
+  });
+
+  await page.getByText('multiline test').dblclick();
+  const listItem = page.getByTestId('actions-tree').getByRole('treeitem');
+  await expect(listItem, 'action list').toHaveText([
+    /Before Hooks/,
+    /Type "line1\\nline2"/,
+    /After Hooks/,
+  ]);
+});
+
+
+test('should hide boxed fixtures and contents, reveal upon show all actions setting', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+
+      const test = base.extend({
+        fixture: [async ({ page }, use) => {
+          await page.setContent('<div>hello</div>');
+          await use();
+        }, { auto: true, boxed: true }],
+      });
+
+      test('example', async ({ page }) => {
+        await expect(page.locator('body')).toBeVisible();
+      });
+    `,
+  });
+
+  await page.getByText('example').dblclick();
+  await expect(page).toMatchAriaSnapshot(`
+    - tree:
+      - treeitem /Before Hooks/
+      - treeitem /Expect "toBeVisible"/
+      - treeitem /After Hooks/
+  `);
+
+  await page.getByRole('button', { name: 'Filter actions' }).click();
+  await page.locator('.setting').getByText('Network routes').click();
+  await page.locator('.setting').getByText('Getters').click();
+  await page.locator('.setting').getByText('Configuration').click();
+  await page.getByRole('button', { name: 'Filter actions' }).click();
+
+  await page.getByTestId('actions-tree').getByRole('treeitem', { name: 'Before Hooks' }).locator('.codicon-chevron-right').click();
+  await page.getByTestId('actions-tree').getByRole('treeitem', { name: 'Fixture "fixture"' }).locator('.codicon-chevron-right').click();
+
+  await expect(page).toMatchAriaSnapshot(`
+    - tree:
+      - treeitem /Before Hooks/:
+        - group:
+          - treeitem /Fixture "browser"/
+          - treeitem /Fixture "context"/
+          - treeitem /Fixture "page"/
+          - treeitem /Fixture "fixture"/:
+            - group:
+              - treeitem /Set content/
+      - treeitem /Expect "toBeVisible"/
+      - treeitem /After Hooks/
+  `);
 });
 
 test('attachments tab shows all but top-level .push attachments', async ({ runUITest }) => {
@@ -450,16 +614,17 @@ test('attachments tab shows all but top-level .push attachments', async ({ runUI
   });
 
   await page.getByRole('treeitem', { name: 'attachment test' }).dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
   const actionsTree = page.getByTestId('actions-tree');
   await actionsTree.getByRole('treeitem', { name: 'step' }).click();
   await page.keyboard.press('ArrowRight');
-  await expect(actionsTree, 'attach() and top-level attachments.push calls are shown as actions').toMatchAriaSnapshot(`
+  await expect(page, 'attach() and top-level attachments.push calls are shown as actions').toMatchAriaSnapshot(`
     - tree:
       - treeitem /step/:
         - group:
-          - treeitem /attach \\"foo-attach\\"/
-      - treeitem /attach \\"bar-push\\"/
-      - treeitem /attach \\"bar-attach\\"/
+          - treeitem /Attach \\"foo-attach\\"/
+      - treeitem /Attach \\"bar-attach\\"/
   `);
   await page.getByRole('tab', { name: 'Attachments' }).click();
   await expect(page.getByRole('tabpanel', { name: 'Attachments' })).toMatchAriaSnapshot(`
@@ -485,10 +650,12 @@ test('skipped steps should have an indicator', async ({ runUITest }) => {
   });
 
   await page.getByRole('treeitem', { name: 'test with steps' }).dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
   const actionsTree = page.getByTestId('actions-tree');
   await actionsTree.getByRole('treeitem', { name: 'outer' }).click();
   await page.keyboard.press('ArrowRight');
-  await expect(actionsTree).toMatchAriaSnapshot(`
+  await expect(page).toMatchAriaSnapshot(`
     - tree:
       - treeitem /outer/ [expanded]:
         - group:
@@ -498,4 +665,179 @@ test('skipped steps should have an indicator', async ({ runUITest }) => {
   const skippedMarker = actionsTree.getByRole('treeitem', { name: 'skipped1' }).locator('.action-skipped');
   await expect(skippedMarker).toBeVisible();
   await expect(skippedMarker).toHaveAccessibleName('skipped');
+});
+
+test('should show copy prompt button in errors tab', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.spec.ts': `
+import { test, expect } from '@playwright/test';
+test('fails', async ({ page }) => {
+  await page.setContent('<button>Submit</button>');
+  expect(1).toBe(2);
+});
+    `.trim(),
+  });
+
+  await page.getByText('fails').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Failed');
+
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByText('Errors', { exact: true }).click();
+  await page.locator('.tab-errors').getByRole('button', { name: 'Copy prompt' }).click();
+  await page.waitForFunction(() => navigator.clipboard.readText());
+  const prompt = await page.evaluate(() => navigator.clipboard.readText());
+  expect(prompt, 'contains error').toContain('expect(received).toBe(expected)');
+  expect(prompt.replaceAll('\r\n', '\n'), 'contains test sources').toContain(`
+  1 | import { test, expect } from '@playwright/test';
+  2 | test('fails', async ({ page }) => {
+  3 |   await page.setContent('<button>Submit</button>');
+> 4 |   expect(1).toBe(2);
+    |             ^ Error: expect(received).toBe(expected) // Object.is equality
+  5 | });
+    `.trim());
+});
+
+test('should indicate current test status', async ({ runUITest, createLatch }) => {
+  const latch = createLatch();
+  const { page } = await runUITest({
+    'a.spec.ts': `
+import { test, expect } from '@playwright/test';
+test('basic pass', async ({ page }) => {
+  await page.setContent('<button>Submit</button>');
+  ${latch.blockingCode}
+  expect(1).toBe(1);
+});
+test('basic fail', async ({ page }) => {
+  await page.setContent('<button>Submit</button>');
+  expect(1).toBe(2);
+});
+    `.trim(),
+  });
+
+  await page.getByTestId('test-tree').getByText('basic pass').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Running');
+  latch.open();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
+  await page.getByTestId('test-tree').getByText('basic fail').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Failed');
+});
+
+test('should be able to create and dispose APIRequestContext inside Promise.all', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, request } from '@playwright/test';
+      test('create api request contexts', async ({ }) => {
+        await Promise.all(Array.from({ length: 100 }).map(async () => {
+          let delay = Math.floor(Math.random() * 501);
+          await new Promise(res => setTimeout(res, delay));
+
+          const apiContext = await request.newContext();
+          delay = Math.floor(Math.random() * 501);
+          await new Promise(res => setTimeout(res, delay));
+          await apiContext.dispose();
+        }));
+      });
+    `,
+  });
+
+  await page.getByText('create api request contexts').dblclick();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
+  await expect(page.getByTestId('status-line')).toHaveText('1/1 passed (100%)');
+
+  await page.getByText('Errors', { exact: true }).click();
+  await expect(page.locator('.tab-errors')).toHaveText('No errors');
+
+  const listItem = page.getByTestId('actions-tree').getByRole('treeitem');
+  await expect(
+      listItem,
+      'action list'
+  ).toHaveText([
+    /Before Hooks/,
+    ...Array.from({ length: 100 }).map(() => /Create request context/),
+    /After Hooks/,
+  ]);
+});
+
+test('should partition action tree state by test', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test1', async ({ page }) => {
+        await page.setContent('<button>Submit</button>');
+        await page.evaluate('1+1');
+      });
+      test('test2', async ({ page }) => {
+        await page.setContent('<button>Submit</button>');
+        await page.evaluate('1+1');
+      });
+    `,
+  });
+
+  await page.getByTitle('Run all').click();
+  await page.getByTestId('test-tree').getByText('test1').click();
+  await expect(page.getByTestId('workbench-run-status')).toContainText('Passed');
+
+  const actionsTree = page.getByTestId('actions-tree');
+  await actionsTree.getByRole('treeitem', { name: 'After Hooks' }).click();
+  await page.keyboard.press('ArrowRight');
+
+  await expect(page).toMatchAriaSnapshot(`
+    - treeitem /After Hooks/ [expanded] [selected]:
+      - group:
+        - treeitem /Fixture \"page\"/
+        - treeitem /Fixture \"context\"/
+  `);
+
+  await page.getByTestId('test-tree').getByText('test2').click();
+
+  await expect(page).toMatchAriaSnapshot(`
+    - treeitem /Evaluate/ [selected]
+    - treeitem /After Hooks/ [expanded=false]:
+      - /children: equal
+  `);
+
+  await page.getByTestId('test-tree').getByText('test1').click();
+
+  await expect(page).toMatchAriaSnapshot(`
+    - treeitem /Evaluate/ [selected=false]
+    - treeitem /After Hooks/ [expanded] [selected]:
+      - group:
+        - treeitem /Fixture \"page\"/
+        - treeitem /Fixture \"context\"/
+  `);
+});
+
+test('should update state on subsequent run', async ({ runUITest, writeFiles }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test1', async ({ page }) => {
+        await page.evaluate('1+1');
+      });
+    `,
+  });
+  await page.getByTestId('test-tree').getByText('test1').click();
+  await page.keyboard.press('Enter');
+
+  await expect(page).toMatchAriaSnapshot(`
+    - treeitem /Evaluate/ [selected]
+  `);
+
+  await writeFiles({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('test1', async ({ page }) => {
+        expect(1).toBe(2);
+        await page.evaluate('1+1');
+      });
+    `,
+  });
+
+  await page.keyboard.press('Enter');
+
+  await expect(page).toMatchAriaSnapshot(`
+    - treeitem /Expect \"toBe\"/
+  `);
 });

@@ -23,12 +23,14 @@ import type { Page } from '@playwright/test';
 it('should create new context @smoke', async function({ browser }) {
   expect(browser.contexts().length).toBe(0);
   const context = await browser.newContext();
-  expect(browser.contexts().length).toBe(1);
-  expect(browser.contexts().indexOf(context) !== -1).toBe(true);
+  expect(browser.contexts()).toEqual([context]);
   expect(browser).toBe(context.browser());
+  const context2 = await browser.newContext();
+  expect(browser.contexts()).toEqual([context, context2]);
   await context.close();
-  expect(browser.contexts().length).toBe(0);
+  expect(browser.contexts()).toEqual([context2]);
   expect(browser).toBe(context.browser());
+  await context2.close();
 });
 
 it('should be able to click across browser contexts', async function({ browser }) {
@@ -253,8 +255,8 @@ it('should be able to navigate after disabling javascript', async ({ browser, se
   await context.close();
 });
 
-it('should not hang on promises after disabling javascript', async ({ browserName, contextFactory }) => {
-  it.fixme(browserName === 'firefox');
+it('should not hang on promises after disabling javascript', async ({ browserName, contextFactory, isBidi }) => {
+  it.fixme(browserName === 'firefox' && !isBidi);
   const context = await contextFactory({ javaScriptEnabled: false });
   const page = await context.newPage();
   expect(await page.evaluate(() => 1)).toBe(1);
@@ -291,6 +293,34 @@ it('should work with offline option', async ({ browser, server, browserName }) =
   await context.close();
 });
 
+it('fetch with keepalive should throw when offline', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35701' },
+}, async ({ contextFactory, server }) => {
+  const context = await contextFactory();
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  const url = server.PREFIX + '/fetch';
+  server.setRoute('/fetch', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify('hello'));
+  });
+
+  const okResponse = await page.evaluate(url => fetch(url, { cache: 'no-store', keepalive: true }).then(response => response.json()), url);
+  expect(okResponse).toEqual('hello');
+
+  await context.setOffline(true);
+  const offlineResponse = await page.evaluate(async url => {
+    try {
+      const response = await fetch(url, { cache: 'no-store', keepalive: true });
+      return await response.json();
+    } catch {
+      return 'error';
+    }
+  }, url);
+  expect(offlineResponse).toEqual('error');
+});
+
 it('should emulate navigator.onLine', async ({ browser, server }) => {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -299,6 +329,22 @@ it('should emulate navigator.onLine', async ({ browser, server }) => {
   expect(await page.evaluate(() => window.navigator.onLine)).toBe(false);
   await context.setOffline(false);
   expect(await page.evaluate(() => window.navigator.onLine)).toBe(true);
+  await context.close();
+});
+
+it('should emulate offline event', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/37295' } }, async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const events = await page.evaluateHandle(() => {
+    const events = [];
+    window.addEventListener('offline', () => events.push('offline'));
+    window.addEventListener('online', () => events.push('online'));
+    return events;
+  });
+  await context.setOffline(true);
+  expect(await events.jsonValue()).toEqual(['offline']);
+  await context.setOffline(false);
+  expect(await events.jsonValue()).toEqual(['offline', 'online']);
   await context.close();
 });
 
@@ -341,4 +387,25 @@ it('default user agent', async ({ launchPersistent, browser, page, mode }) => {
   it.skip(mode !== 'default');
   const { userAgent } = await (browser as any)._channel.defaultUserAgentForTest();
   expect(await page.evaluate(() => navigator.userAgent)).toBe(userAgent);
+});
+
+it('should create two pages in parallel in various contexts', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/34586' }
+}, async ({ browser }) => {
+  const context1 = await browser.newContext();
+  const context2 = await browser.newContext();
+  await Promise.all([
+    context1.newPage(),
+    context1.newPage(),
+    context2.newPage(),
+    context2.newPage(),
+  ]);
+  await context1.close();
+  await context2.close();
+  const context3 = await browser.newContext();
+  await Promise.all([
+    context3.newPage(),
+    context3.newPage(),
+  ]);
+  await context3.close();
 });

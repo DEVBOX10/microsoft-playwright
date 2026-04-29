@@ -72,6 +72,25 @@ test('should prioritize command line timeout over project timeout', async ({ run
   expect(result.output).toContain('Test timeout of 500ms exceeded.');
 });
 
+test('should support failOnFlakyTests config option', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+        module.exports = {
+          failOnFlakyTests: true,
+          retries: 1
+        };
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('flake', async ({}, testInfo) => {
+        expect(testInfo.retry).toBe(1);
+      });
+    `,
+  }, { 'retries': 1 });
+  expect(result.exitCode).not.toBe(0);
+  expect(result.flaky).toBe(1);
+});
+
 test('should read config from --config, resolve relative testDir', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'my.config.ts': `
@@ -327,6 +346,25 @@ test('should print nice error when project is unknown', async ({ runInlineTest }
   expect(output).toContain('Project(s) "suite3" not found. Available projects: "suite1", "suite2"');
 });
 
+test('should print nice error when project is unknown and launching UI mode', async ({ runInlineTest }) => {
+  // Prevent UI mode from opening and the test never finishing
+  test.setTimeout(5000);
+  const { output, exitCode } = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = { projects: [
+        { name: 'suite1' },
+        { name: 'suite2' },
+      ] };
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}, testInfo) => {});
+    `
+  }, { project: 'suite3', ui: true });
+  expect(exitCode).toBe(1);
+  expect(output).toContain('Project(s) "suite3" not found. Available projects: "suite1", "suite2"');
+});
+
 test('should filter by project list, case-insensitive', async ({ runInlineTest }) => {
   const { passed, failed, outputLines, skipped } = await runInlineTest({
     'playwright.config.ts': `
@@ -390,6 +428,24 @@ test('should print nice error when some of the projects are unknown', async ({ r
   }, { project: ['suitE1', 'suIte3', 'SUite4'] });
   expect(exitCode).toBe(1);
   expect(output).toContain('Project(s) "suIte3", "SUite4" not found. Available projects: "suite1", "suite2"');
+});
+
+test('should print nice error when project name is not stable', async ({ runInlineTest }) => {
+  const { output, exitCode } = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = { projects: [
+        { name: \`calculated \$\{Date.now()\}\` },
+      ] };
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}, testInfo) => {
+        console.log(testInfo.project.name);
+      });
+    `
+  });
+  expect(exitCode).toBe(1);
+  expect(output).toContain('not found in the worker process. Make sure project name does not change.');
 });
 
 test('should work without config file', async ({ runInlineTest }) => {
@@ -494,6 +550,18 @@ test('should throw when workers option is invalid', async ({ runInlineTest }) =>
 
   expect(result.exitCode).toBe(1);
   expect(result.output).toContain('config.workers must be a number or percentage');
+});
+
+test('should throw when workers is negative via CLI (regression for #39938)', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `module.exports = {};`,
+    'a.test.ts': `
+      import { test } from '@playwright/test';
+      test('pass', () => {});
+    `,
+  }, { workers: -1 });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Workers must be a positive number');
 });
 
 test('should work with undefined values and base', async ({ runInlineTest }) => {
@@ -605,8 +673,8 @@ test('should merge configs', async ({ runInlineTest }) => {
         use: { foo: 1, bar: 2 },
         expect: { timeout: 12 },
         projects: [
-          { name: 'B', timeout: 40, use: {} },
-          { name: 'A', timeout: 50, use: {} }
+          { name: 'A', timeout: 50, use: {} },
+          { name: 'B', timeout: 40 },
         ],
         webServer: [{
           command: 'echo 123',
@@ -615,6 +683,33 @@ test('should merge configs', async ({ runInlineTest }) => {
 
       // Should not add an empty project list.
       expect(defineConfig({}, {}).projects).toBeUndefined();
+    `,
+    'a.test.ts': `
+      import { test } from '@playwright/test';
+      test('pass', async ({}) => {});
+    `
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test('should merge projects in the config', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      import { defineConfig, expect } from '@playwright/test';
+      const baseConfig = defineConfig({
+        projects: [{ name: 'A', timeout: 5_000 }, { name: 'B', timeout: 6_000 }],
+      });
+      const derivedConfig = defineConfig(baseConfig, {
+        projects: [{ name: 'A', timeout: 7_000 }, { name: 'C', timeout: 8_000 }],
+      });
+
+      expect(derivedConfig).toEqual(expect.objectContaining({
+        projects: [
+          { name: 'A', timeout: 7_000, use: {} },
+          { name: 'B', timeout: 6_000 },
+          { name: 'C', timeout: 8_000 },
+        ],
+      }));
     `,
     'a.test.ts': `
       import { test } from '@playwright/test';
@@ -660,4 +755,36 @@ test('should merge ct configs', async ({ runInlineTest }) => {
     `
   });
   expect(result.exitCode).toBe(0);
+});
+
+test('should throw on invalid config.tsconfig option', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      export default {
+        tsconfig: true,
+      };
+    `,
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`config.tsconfig must be a string`);
+});
+
+test('should throw on nonexistant config.tsconfig', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      export default {
+        tsconfig: './does-not-exist.json',
+      };
+    `,
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`config.tsconfig does not exist`);
+});
+
+test('should throw on invalid --tsconfig', async ({ runInlineTest }) => {
+  const result = await runInlineTest({}, { 'tsconfig': 'does-not-exist.json' });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`--tsconfig "does-not-exist.json" does not exist`);
 });

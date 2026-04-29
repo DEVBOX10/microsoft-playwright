@@ -6,9 +6,6 @@ on:
       - main
       - release-*
   pull_request:
-    paths-ignore:
-      - 'browser_patches/**'
-      - 'docs/**'
     types: [ labeled ]
     branches:
       - main
@@ -31,10 +28,10 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
-        os: [ubuntu-20.04, ubuntu-24.04]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: ${{ matrix.browser }} chromium
@@ -52,16 +49,14 @@ jobs:
       matrix:
         # Intel: *-large
         # Arm64: *-xlarge
-        os: [macos-13-large, macos-13-xlarge, macos-14-large, macos-14-xlarge]
+        os: [macos-15-large, macos-15-xlarge, macos-26-large, macos-26-xlarge]
         browser: [chromium, firefox, webkit]
         include:
-          - os: macos-15-large
-            browser: webkit
-          - os: macos-15-xlarge
-            browser: webkit
+        - os: macos-14-xlarge
+          browser: chromium
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: ${{ matrix.browser }} chromium
@@ -80,7 +75,7 @@ jobs:
         browser: [chromium, firefox, webkit]
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: ${{ matrix.browser }} chromium
@@ -102,9 +97,11 @@ jobs:
           node_version: 20
         - os: ubuntu-latest
           node_version: 22
+        - os: ubuntu-latest
+          node_version: 24
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - run: npm install -g yarn@1
     - run: npm install -g pnpm@8
     - name: Setup Ubuntu Binary Installation # TODO: Remove when https://github.com/electron/electron/issues/42510 is fixed
@@ -130,20 +127,18 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
-        os: [ubuntu-24.04, macos-14-xlarge, windows-latest]
+        os: [ubuntu-24.04, macos-15-xlarge, windows-latest]
         include:
           # We have different binaries per Ubuntu version for WebKit.
-          - browser: webkit
-            os: ubuntu-20.04
           - browser: webkit
             os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: ${{ matrix.browser }} chromium
-        command: npm run test -- --project=${{ matrix.browser }}-* --headed
+        command: npm run test -- --project=${{ matrix.browser }}-* --headed --workers=2
         bot-name: "${{ matrix.browser }}-headed-${{ matrix.os }}"
         flakiness-client-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_CLIENT_ID }}
         flakiness-tenant-id: ${{ secrets.AZURE_FLAKINESS_DASHBOARD_TENANT_ID }}
@@ -156,9 +151,9 @@ jobs:
       fail-fast: false
       matrix:
         mode: [driver, service]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: chromium
@@ -178,13 +173,18 @@ jobs:
       matrix:
         include:
           - browser: chromium
+            runs-on: ubuntu-22.04
           - browser: firefox
+            runs-on: ubuntu-22.04
+          # See https://github.com/microsoft/playwright/issues/35586
           - browser: webkit
+            runs-on: ubuntu-24.04
           - browser: chromium
+            runs-on: ubuntu-22.04
             channel: chromium-tip-of-tree
-    runs-on: ubuntu-20.04
+    runs-on: ${{ matrix.runs-on }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: ${{ matrix.browser }} chromium ${{ matrix.channel }}
@@ -205,9 +205,9 @@ jobs:
       fail-fast: false
       matrix:
         channel: [chrome, chrome-beta, msedge, msedge-beta, msedge-dev]
-        runs-on: [ubuntu-20.04, macos-latest, windows-latest]
+        runs-on: [ubuntu-22.04, macos-latest, windows-latest]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: ${{ matrix.channel }}
@@ -226,10 +226,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, macos-13, windows-latest]
+        # Note: we keep older versions here, assuming they are more likely to break with ToT builds.
+        os: [ubuntu-22.04, macos-15, windows-latest]
         headed: ['--headed', '']
+        exclude:
+          # Tested in tests_primary.yml already
+          - os: ubuntu-22.04
+            headed: ''
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: chromium-tip-of-tree
@@ -248,9 +253,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04]
+        os: [ubuntu-22.04]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: chromium-tip-of-tree-headless-shell
@@ -269,9 +274,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, windows-latest, macos-latest]
+        os: [ubuntu-22.04, windows-latest, macos-latest]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         browsers-to-install: firefox-beta chromium
@@ -287,13 +292,12 @@ jobs:
     name: "build-playwright-driver"
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v6
+    - uses: actions/setup-node@v6
       with:
-        node-version: 18
+        node-version: 20
     - run: npm ci
     - run: npm run build
-    - run: npx playwright install-deps
     - run: utils/build/build-playwright-driver.sh
 
   test_channel_chromium:
@@ -305,7 +309,7 @@ jobs:
         runs-on: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.runs-on }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: ./.github/actions/run-test
       with:
         # TODO: this should pass --no-shell.

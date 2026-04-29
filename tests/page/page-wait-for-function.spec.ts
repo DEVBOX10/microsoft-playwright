@@ -44,10 +44,10 @@ it('should poll on interval', async ({ page, server }) => {
   const polling = 100;
   const timeDelta = await page.waitForFunction(() => {
     if (!window['__startTime']) {
-      window['__startTime'] = window.builtinDate.now();
+      window['__startTime'] = window.builtins.Date.now();
       return false;
     }
-    return window.builtinDate.now() - window['__startTime'];
+    return window.builtins.Date.now() - window['__startTime'];
   }, {}, { polling });
   expect(await timeDelta.jsonValue()).not.toBeLessThan(polling);
 });
@@ -105,10 +105,10 @@ it('should work with strict CSP policy', async ({ page, server }) => {
   server.setCSP('/empty.html', 'script-src ' + server.PREFIX);
   await page.goto(server.EMPTY_PAGE);
   let error = null;
-  await Promise.all([
-    page.waitForFunction(() => window['__FOO'] === 'hit', {}, { polling: 'raf' }).catch(e => error = e),
-    page.evaluate(() => window['__FOO'] = 'hit')
-  ]);
+  const p = page.waitForFunction(() => window['__FOO'] === 'hit', {}, { polling: 'raf' }).catch(e => error = e);
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => window['__FOO'] = 'hit');
+  await p;
   expect(error).toBe(null);
 });
 

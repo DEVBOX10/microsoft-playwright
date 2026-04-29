@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { stripAnsi } from '../config/utils';
 import { test, expect } from './pageTest';
 
 test.describe('toBeChecked', () => {
@@ -54,7 +55,13 @@ test.describe('toBeChecked', () => {
     await page.setContent('<input type=checkbox></input>');
     const locator = page.locator('input');
     const error = await expect(locator).toBeChecked({ timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain(`expect.toBeChecked with timeout 1000ms`);
+    expect(stripAnsi(error.message)).toContain(`expect(locator).toBeChecked() failed
+
+Locator:  locator('input')
+Expected: checked
+Received: unchecked
+Timeout:  1000ms`);
+    expect(stripAnsi(error.message)).toContain(`- Expect "toBeChecked" with timeout 1000ms`);
   });
 
   test('with not', async ({ page }) => {
@@ -73,30 +80,58 @@ test.describe('toBeChecked', () => {
     await page.setContent('<input type=checkbox checked></input>');
     const locator = page.locator('input');
     const error = await expect(locator).not.toBeChecked({ timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain(`expect.not.toBeChecked with timeout 1000ms`);
-    expect(error.message).toContain(`locator resolved to <input checked type="checkbox"/>`);
+    expect(stripAnsi(error.message)).toContain(`expect(locator).not.toBeChecked() failed
+
+Locator:  locator('input')
+Expected: not checked
+Received: checked
+Timeout:  1000ms`);
+    expect(stripAnsi(error.message)).toContain(`- Expect "not toBeChecked" with timeout 1000ms`);
+    expect(stripAnsi(error.message)).toContain(`locator resolved to <input checked type="checkbox"/>`);
   });
 
   test('fail with checked:false', async ({ page }) => {
     await page.setContent('<input type=checkbox checked></input>');
     const locator = page.locator('input');
     const error = await expect(locator).toBeChecked({ checked: false, timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain(`expect.toBeChecked with timeout 1000ms`);
+    expect(stripAnsi(error.message)).toContain(`expect(locator).toBeChecked({ checked: false }) failed
+
+Locator:  locator('input')
+Expected: unchecked
+Received: checked
+Timeout:  1000ms`);
+    expect(stripAnsi(error.message)).toContain(`- Expect "toBeChecked" with timeout 1000ms`);
+    expect(stripAnsi(error.message)).toContain(`locator resolved to <input checked type="checkbox"/>`);
   });
 
   test('fail with indeterminate: true', async ({ page }) => {
     await page.setContent('<input type=checkbox></input>');
     const locator = page.locator('input');
     const error = await expect(locator).toBeChecked({ indeterminate: true, timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain(`expect.toBeChecked with timeout 1000ms`);
+    expect(stripAnsi(error.message)).toContain(`expect(locator).toBeChecked({ indeterminate: true }) failed
+
+Locator:  locator('input')
+Expected: indeterminate
+Received: unchecked
+Timeout:  1000ms`);
+    expect(stripAnsi(error.message)).toContain(`- Expect "toBeChecked" with timeout 1000ms`);
   });
 
   test('fail missing', async ({ page }) => {
     await page.setContent('<div>no inputs here</div>');
     const locator2 = page.locator('input2');
     const error = await expect(locator2).not.toBeChecked({ timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain(`expect.not.toBeChecked with timeout 1000ms`);
-    expect(error.message).toContain('waiting for locator(\'input2\')');
+    expect(stripAnsi(error.message)).toContain(`expect(locator).not.toBeChecked() failed
+
+Locator: locator('input2')
+Expected: not checked
+Timeout: 1000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "not toBeChecked" with timeout 1000ms
+  - waiting for locator('input2')
+`);
   });
 
   test('with role', async ({ page }) => {
@@ -417,14 +452,14 @@ test.describe('toBeHidden', () => {
   test('fail', async ({ page }) => {
     await page.setContent('<input></input>');
     const locator = page.locator('input');
-    const error = await expect(locator).toBeHidden({ timeout: 1000 }).catch(e => e);
+    const error = await expect(locator).toBeHidden({ timeout: 3000 }).catch(e => e);
     expect(error.message).toContain(`locator resolved to <input/>`);
   });
 
   test('fail with not', async ({ page }) => {
     await page.setContent('<button style="display: none"></button>');
     const locator = page.locator('button');
-    const error = await expect(locator).not.toBeHidden({ timeout: 1000 }).catch(e => e);
+    const error = await expect(locator).not.toBeHidden({ timeout: 3000 }).catch(e => e);
     expect(error.message).toContain(`locator resolved to <button></button>`);
   });
 
@@ -432,7 +467,16 @@ test.describe('toBeHidden', () => {
     await page.setContent('<div></div>');
     const locator = page.locator('button');
     const error = await expect(locator).not.toBeHidden({ timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain(`expect.not.toBeHidden with timeout 1000ms`);
+    expect(stripAnsi(error.message)).toContain(`expect(locator).not.toBeHidden() failed
+
+Locator: locator('button')
+Expected: not hidden
+Timeout: 1000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "not toBeHidden" with timeout 1000ms
+`);
   });
 
   test('with impossible timeout .not', async ({ page }) => {
@@ -530,9 +574,10 @@ test.describe(() => {
     test('text content type', async ({ page, server }) => {
       const res = await page.request.get(`${server.PREFIX}/text-content-type`);
       const error = await expect(res).toBeOK().catch(e => e);
+      expect(stripAnsi(error.message)).toContain(`expect(response).toBeOK() failed`);
       expect(error.message).toContain(`→ GET ${server.PREFIX}/text-content-type`);
       expect(error.message).toContain(`← 404 Not Found`);
-      expect(error.message).toContain(`Text error`);
+      expect(stripAnsi(error.message)).toContain(`Response text:\nText error`);
     });
 
     test('no content type', async ({ page, server }) => {
@@ -618,7 +663,7 @@ test.describe('toBeAttached', () => {
   test('fail with not', async ({ page }) => {
     await page.setContent('<input></input>');
     const locator = page.locator('input');
-    const error = await expect(locator).not.toBeAttached({ timeout: 1000 }).catch(e => e);
+    const error = await expect(locator).not.toBeAttached({ timeout: 3000 }).catch(e => e);
     expect(error.message).toContain(`locator resolved to <input/>`);
   });
 

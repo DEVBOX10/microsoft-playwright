@@ -19,6 +19,7 @@ type Point = { x: number, y: number };
 export type ActionName =
   'check' |
   'click' |
+  'hover' |
   'closePage' |
   'fill' |
   'navigate' |
@@ -36,10 +37,13 @@ export type ActionName =
 export type ActionBase = {
   name: ActionName,
   signals: Signal[],
+  ariaSnapshot?: string,
+  preconditionSelector?: string,
 };
 
 export type ActionWithSelector = ActionBase & {
   selector: string,
+  ref?: string,
 };
 
 export type ClickAction = ActionWithSelector & {
@@ -47,6 +51,11 @@ export type ClickAction = ActionWithSelector & {
   button: 'left' | 'middle' | 'right',
   modifiers: number,
   clickCount: number,
+  position?: Point,
+};
+
+export type HoverAction = ActionWithSelector & {
+  name: 'hover',
   position?: Point,
 };
 
@@ -77,9 +86,8 @@ export type ClosesPageAction = ActionBase & {
   name: 'closePage',
 };
 
-export type PressAction = ActionBase & {
+export type PressAction = ActionWithSelector & {
   name: 'press',
-  selector: string,
   key: string,
   modifiers: number,
 };
@@ -116,12 +124,12 @@ export type AssertVisibleAction = ActionWithSelector & {
 
 export type AssertSnapshotAction = ActionWithSelector & {
   name: 'assertSnapshot',
-  snapshot: string,
+  ariaSnapshot: string,
 };
 
-export type Action = ClickAction | CheckAction | ClosesPageAction | OpenPageAction | UncheckAction | FillAction | NavigateAction | PressAction | SelectAction | SetInputFilesAction | AssertTextAction | AssertValueAction | AssertCheckedAction | AssertVisibleAction | AssertSnapshotAction;
+export type Action = ClickAction | HoverAction | CheckAction | ClosesPageAction | OpenPageAction | UncheckAction | FillAction | NavigateAction | PressAction | SelectAction | SetInputFilesAction | AssertTextAction | AssertValueAction | AssertCheckedAction | AssertVisibleAction | AssertSnapshotAction;
 export type AssertAction = AssertCheckedAction | AssertValueAction | AssertTextAction | AssertVisibleAction | AssertSnapshotAction;
-export type PerformOnRecordAction = ClickAction | CheckAction | UncheckAction | PressAction | SelectAction;
+export type PerformOnRecordAction = ClickAction | HoverAction | CheckAction | UncheckAction | PressAction | SelectAction;
 
 // Signals.
 
@@ -151,6 +159,7 @@ export type DialogSignal = BaseSignal & {
 export type Signal = NavigationSignal | PopupSignal | DownloadSignal | DialogSignal;
 
 export type FrameDescription = {
+  pageGuid: string;
   pageAlias: string;
   framePath: string[];
 };
@@ -161,4 +170,10 @@ export type ActionInContext = {
   action: Action;
   startTime: number;
   endTime?: number;
+};
+
+export type SignalInContext = {
+  frame: FrameDescription;
+  signal: Signal;
+  timestamp: number;
 };

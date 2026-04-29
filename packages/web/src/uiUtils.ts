@@ -14,8 +14,8 @@
   limitations under the License.
 */
 
-import type { EffectCallback } from 'react';
 import React from 'react';
+
 
 // Recalculates the value when dependencies change.
 export function useAsyncMemo<T>(fn: () => Promise<T>, deps: React.DependencyList, initialValue: T, resetValue?: T) {
@@ -36,76 +36,35 @@ export function useAsyncMemo<T>(fn: () => Promise<T>, deps: React.DependencyList
   return value;
 }
 
-// Tracks the element size and returns it's contentRect (always has x=0, y=0).
+// Tracks the element's bounding box.
 export function useMeasure<T extends Element>() {
   const ref = React.useRef<T | null>(null);
-  const [measure, setMeasure] = React.useState(new DOMRect(0, 0, 10, 10));
-  React.useLayoutEffect(() => {
-    const target = ref.current;
-    if (!target)
-      return;
-
-    const bounds = target.getBoundingClientRect();
-
-    setMeasure(new DOMRect(0, 0, bounds.width, bounds.height));
-
-    const resizeObserver = new ResizeObserver((entries: any) => {
-      const entry = entries[entries.length - 1];
-      if (entry && entry.contentRect)
-        setMeasure(entry.contentRect);
-    });
-    resizeObserver.observe(target);
-    return () => resizeObserver.disconnect();
-  }, [ref]);
+  const [measure] = useMeasureForRef(ref);
   return [measure, ref] as const;
 }
 
-export function msToString(ms: number): string {
-  if (ms < 0 || !isFinite(ms))
-    return '-';
+export function useMeasureForRef<T extends Element>(ref?: React.RefObject<T | null>): [DOMRect, () => void] {
+  const [measure, setMeasure] = React.useState(new DOMRect(0, 0, 10, 10));
+  const recalculateMeasure = React.useCallback(() => {
+    const target = ref?.current;
+    if (target)
+      setMeasure(target.getBoundingClientRect());
+  }, [ref]);
 
-  if (ms === 0)
-    return '0';
-
-  if (ms < 1000)
-    return ms.toFixed(0) + 'ms';
-
-  const seconds = ms / 1000;
-  if (seconds < 60)
-    return seconds.toFixed(1) + 's';
-
-  const minutes = seconds / 60;
-  if (minutes < 60)
-    return minutes.toFixed(1) + 'm';
-
-  const hours = minutes / 60;
-  if (hours < 24)
-    return hours.toFixed(1) + 'h';
-
-  const days = hours / 24;
-  return days.toFixed(1) + 'd';
-}
-
-export function bytesToString(bytes: number): string {
-  if (bytes < 0 || !isFinite(bytes))
-    return '-';
-
-  if (bytes === 0)
-    return '0';
-
-  if (bytes < 1000)
-    return bytes.toFixed(0);
-
-  const kb = bytes / 1024;
-  if (kb < 1000)
-    return kb.toFixed(1) + 'K';
-
-  const mb = kb / 1024;
-  if (mb < 1000)
-    return mb.toFixed(1) + 'M';
-
-  const gb = mb / 1024;
-  return gb.toFixed(1) + 'G';
+  React.useLayoutEffect(() => {
+    const target = ref?.current;
+    if (!target)
+      return;
+    recalculateMeasure();
+    const resizeObserver = new ResizeObserver(recalculateMeasure);
+    resizeObserver.observe(target);
+    window.addEventListener('resize', recalculateMeasure);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', recalculateMeasure);
+    };
+  }, [recalculateMeasure, ref]);
+  return [measure, recalculateMeasure];
 }
 
 export function lowerBound<S, T>(array: S[], object: T, comparator: (object: T, b: S) => number, left?: number, right?: number): number {
@@ -166,6 +125,34 @@ export function useSetting<S>(name: string | undefined, defaultValue: S): [S, Re
   return [value, setValueWrapper];
 }
 
+const partitions = new Map<string, Record<string, any>>();
+const hooks = new Map<string, { setter: React.Dispatch<React.SetStateAction<any>>, defaultValue: any }>();
+let currentPartition: string | undefined;
+
+export function usePartitionedState<S>(name: string, defaultValue?: S): [S, React.Dispatch<React.SetStateAction<S>>] {
+  const [value, setValue] = React.useState<S | undefined>();
+  hooks.set(name, { setter: setValue, defaultValue });
+
+  const setValueWrapper = React.useCallback((newValue: React.SetStateAction<S>) => {
+    const state = partitions.get(currentPartition || 'default') || {};
+    state[name] = newValue;
+    partitions.set(currentPartition || 'default', state);
+    setValue(newValue as S);
+  }, [name]);
+
+  return [value as S, setValueWrapper];
+}
+
+export function togglePartition(partition: string) {
+  if (currentPartition === partition)
+    return;
+
+  currentPartition = partition;
+  const store = partitions.get(partition) || {};
+  for (const [name, value] of hooks.entries())
+    value.setter(store[name] || value.defaultValue);
+}
+
 declare global {
   interface Window {
     saveSettings?(): void;
@@ -175,11 +162,11 @@ declare global {
 export class Settings {
   onChangeEmitter = new EventTarget();
 
-  getString(name: string, defaultValue: string): string {
+  getString<T extends string>(name: string, defaultValue: T): T {
     return localStorage[name] || defaultValue;
   }
 
-  setString(name: string, value: string) {
+  setString<T extends string>(name: string, value: T) {
     localStorage[name] = value;
     this.onChangeEmitter.dispatchEvent(new Event(name));
     window.saveSettings?.();
@@ -232,7 +219,7 @@ export const kWebLinkRe = new RegExp('(?:[a-zA-Z][a-zA-Z0-9+.-]{2,}:\\/\\/|www\\
  * If `trigger` is called while a flash is ongoing, the ongoing flash will be cancelled and after 50ms a new flash is started.
  * @returns [flash, trigger]
  */
-export function useFlash(): [boolean, EffectCallback] {
+export function useFlash(): [boolean, React.EffectCallback] {
   const [flash, setFlash] = React.useState(false);
   const trigger = React.useCallback<React.EffectCallback>(() => {
     const timeouts: any[] = [];
@@ -247,4 +234,14 @@ export function useFlash(): [boolean, EffectCallback] {
     return () => timeouts.forEach(clearTimeout);
   }, [setFlash]);
   return [flash, trigger];
+}
+
+export function useCookies() {
+  const cookies = React.useMemo(() => {
+    return document.cookie.split('; ').filter(v => v.includes('=')).map(kv => {
+      const separator = kv.indexOf('=');
+      return [kv.substring(0, separator), kv.substring(separator + 1)];
+    });
+  }, []);
+  return cookies;
 }

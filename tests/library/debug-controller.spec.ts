@@ -15,14 +15,16 @@
  */
 
 import { expect, playwrightTest as baseTest } from '../config/browserTest';
-import { PlaywrightServer } from '../../packages/playwright-core/lib/remote/playwrightServer';
-import { createGuid } from '../../packages/playwright-core/lib/utils/crypto';
+import { remote, utils } from '../../packages/playwright-core/lib/coreBundle';
+const { PlaywrightServer } = remote;
 import { Backend } from '../config/debugControllerBackend';
 import type { Browser, BrowserContext } from '@playwright/test';
 import type * as channels from '@protocol/channels';
-import { roundBox } from '../page/pageTest';
+import { roundBox } from '../config/utils';
 
-type BrowserWithReuse = Browser & { _newContextForReuse: () => Promise<BrowserContext> };
+const { createGuid } = utils;
+
+type BrowserWithReuse = Browser & { newContextForReuse: () => Promise<BrowserContext> };
 type Fixtures = {
   wsEndpoint: string;
   backend: channels.DebugControllerChannel;
@@ -51,11 +53,18 @@ const test = baseTest.extend<Fixtures>({
     await use(async () => {
       const browser = await browserType.connect(wsEndpoint, {
         headers: {
-          'x-playwright-launch-options': JSON.stringify((browserType as any)._defaultLaunchOptions),
-          'x-playwright-reuse-context': '1',
+          'x-playwright-launch-options': JSON.stringify((browserType as any)._playwright._defaultLaunchOptions),
         },
       }) as BrowserWithReuse;
       browsers.push(browser);
+
+      let context: BrowserContext | undefined;
+      browser.newContextForReuse = async () => {
+        if (context)
+          await (browser as any)._disconnectFromReusedContext('reusedContext');
+        context = await (browser as any)._newContextForReuse();
+        return context;
+      };
       return browser;
     });
     for (const browser of browsers)
@@ -67,7 +76,11 @@ const test = baseTest.extend<Fixtures>({
 });
 
 test.slow(true, 'All controller tests are slow');
-test.skip(({ mode }) => mode.startsWith('service'));
+test.skip(({ mode }) => mode.startsWith('service') || mode === 'driver');
+
+// Force a separate worker to avoid registered selector engines from other tests.
+// See https://github.com/microsoft/playwright/pull/37103.
+test.use({ launchOptions: [async ({ launchOptions }, use) => use(launchOptions), { scope: 'worker' }] });
 
 test('should pick element', async ({ backend, connectedBrowser }) => {
   const events = [];
@@ -75,7 +88,7 @@ test('should pick element', async ({ backend, connectedBrowser }) => {
 
   await backend.setRecorderMode({ mode: 'inspecting' });
 
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const [page] = context.pages();
 
   await page.setContent('<button>Submit</button>');
@@ -105,7 +118,7 @@ test('should report pages', async ({ backend, connectedBrowser }) => {
   backend.on('stateChanged', event => events.push(event));
   await backend.setReportStateChanged({ enabled: true });
 
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const page1 = await context.newPage();
   const page2 = await context.newPage();
   await page1.close();
@@ -128,34 +141,30 @@ test('should report pages', async ({ backend, connectedBrowser }) => {
   ]);
 });
 
-test('should navigate all', async ({ backend, connectedBrowser }) => {
-  const context = await connectedBrowser._newContextForReuse();
-  const page1 = await context.newPage();
-  const page2 = await context.newPage();
-
-  await backend.navigate({ url: 'data:text/plain,Hello world' });
-
-  expect(await page1.evaluate(() => window.location.href)).toBe('data:text/plain,Hello world');
-  expect(await page2.evaluate(() => window.location.href)).toBe('data:text/plain,Hello world');
-});
-
 test('should reset for reuse', async ({ backend, connectedBrowser }) => {
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const page1 = await context.newPage();
   const page2 = await context.newPage();
-  await backend.navigate({ url: 'data:text/plain,Hello world' });
+  await page1.goto('data:text/plain,Hello world');
+  await page2.goto('data:text/plain,Hello world');
 
-  const context2 = await connectedBrowser._newContextForReuse();
+  const context2 = await connectedBrowser.newContextForReuse();
+  expect(context2.pages().length).toBe(1);
+  expect(context2.pages()[0]).not.toBe(page1);
   expect(await context2.pages()[0].evaluate(() => window.location.href)).toBe('about:blank');
+  // Note: ideally, `page1` would be unaccessible, because it was disposed.
+  // However, we currently do not check that, and since it keeps the same guid, sending
+  // messages to the server keeps working.
   expect(await page1.evaluate(() => window.location.href)).toBe('about:blank');
   expect(await page2.evaluate(() => window.location.href).catch(e => e.message)).toContain('Target page, context or browser has been closed');
 });
 
 test('should highlight all', async ({ backend, connectedBrowser }) => {
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const page1 = await context.newPage();
   const page2 = await context.newPage();
-  await backend.navigate({ url: 'data:text/html,<button>Submit</button>' });
+  await page1.goto('data:text/html,<button>Submit</button>');
+  await page2.goto('data:text/html,<button>Submit</button>');
   await backend.highlight({ selector: 'button' });
   await expect(page1.getByText('locator(\'button\')')).toBeVisible();
   await expect(page2.getByText('locator(\'button\')')).toBeVisible();
@@ -170,7 +179,7 @@ test('should record', async ({ backend, connectedBrowser }) => {
 
   await backend.setRecorderMode({ mode: 'recording' });
 
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const [page] = context.pages();
 
   await page.setContent('<button>Submit</button>');
@@ -207,7 +216,7 @@ test('should record custom data-testid', async ({ backend, connectedBrowser }) =
   backend.on('sourceChanged', event => events.push(event));
 
   // 1. "Show browser" (or "run test").
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const page = await context.newPage();
   await page.setContent(`<div data-custom-id='one'>One</div>`);
 
@@ -236,7 +245,7 @@ test('test', async ({ page }) => {
 
 test('should reset routes before reuse', async ({ server, connectedBrowserFactory }) => {
   const browser1 = await connectedBrowserFactory();
-  const context1 = await browser1._newContextForReuse();
+  const context1 = await browser1.newContextForReuse();
   await context1.route(server.PREFIX + '/title.html', route => route.fulfill({ body: '<title>Hello</title>', contentType: 'text/html' }));
   const page1 = await context1.newPage();
   await page1.route(server.PREFIX + '/consolelog.html', route => route.fulfill({ body: '<title>World</title>', contentType: 'text/html' }));
@@ -248,7 +257,7 @@ test('should reset routes before reuse', async ({ server, connectedBrowserFactor
   await browser1.close();
 
   const browser2 = await connectedBrowserFactory();
-  const context2 = await browser2._newContextForReuse();
+  const context2 = await browser2.newContextForReuse();
   const page2 = await context2.newPage();
 
   await page2.goto(server.PREFIX + '/title.html');
@@ -261,9 +270,9 @@ test('should reset routes before reuse', async ({ server, connectedBrowserFactor
 test('should highlight inside iframe', async ({ backend, connectedBrowser }, testInfo) => {
   testInfo.annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33146' });
 
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const page = await context.newPage();
-  await backend.navigate({ url: `data:text/html,<div>bar</div><iframe srcdoc="<div>bar</div>"/>` });
+  await page.goto(`data:text/html,<div>bar</div><iframe srcdoc="<div>bar</div>"/>`);
 
 
   await page.frameLocator('iframe').getByText('bar').highlight();
@@ -285,9 +294,9 @@ test('should highlight inside iframe', async ({ backend, connectedBrowser }, tes
 });
 
 test('should highlight aria template', async ({ backend, connectedBrowser }, testInfo) => {
-  const context = await connectedBrowser._newContextForReuse();
+  const context = await connectedBrowser.newContextForReuse();
   const page = await context.newPage();
-  await backend.navigate({ url: `data:text/html,<button>Submit</button>` });
+  await page.goto(`data:text/html,<button>Submit</button>`);
 
   const button = page.getByRole('button');
   const highlight = page.locator('x-pw-highlight');
@@ -302,7 +311,6 @@ test('should highlight aria template', async ({ backend, connectedBrowser }, tes
 });
 
 test('should report error in aria template', async ({ backend }) => {
-  await backend.navigate({ url: `data:text/html,<button>Submit</button>` });
   const error = await backend.highlight({ ariaTemplate: `- button "Submit` }).catch(e => e);
   expect(error.message).toContain('Unterminated string:');
 });

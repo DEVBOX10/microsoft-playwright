@@ -15,75 +15,112 @@
  */
 
 import { baseTest } from '../config/baseTest';
-import * as path from 'path';
-import type { ElectronApplication, Page, Electron } from '@playwright/test';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import type { ElectronApplication, Electron, Page } from '@playwright/electron';
+import { electron } from '@playwright/electron';
 import type { PageTestFixtures, PageWorkerFixtures } from '../page/pageTestApi';
 import type { TraceViewerFixtures } from '../config/traceViewerFixtures';
 import { traceViewerFixtures } from '../config/traceViewerFixtures';
-export { expect } from '@playwright/test';
+import { utils } from '../../packages/playwright-core/lib/coreBundle';
+import { inheritAndCleanEnv } from '../config/utils';
 
-type ElectronTestFixtures = PageTestFixtures & {
-  electronApp: ElectronApplication;
+export { expect, selectors } from '@playwright/electron';
+
+const { removeFolders } = utils;
+
+type LocalFixtures = PageTestFixtures & {
   launchElectronApp: (appFile: string, args?: string[], options?: Parameters<Electron['launch']>[0]) => Promise<ElectronApplication>;
-  newWindow: () => Promise<Page>;
+  newWindow: (app: ElectronApplication) => Promise<Page>;
+  createUserDataDir: () => Promise<string>;
 };
 
-export const electronTest = baseTest.extend<TraceViewerFixtures>(traceViewerFixtures).extend<ElectronTestFixtures, PageWorkerFixtures>({
-  browserVersion: [({}, use) => use(process.env.ELECTRON_CHROMIUM_VERSION), { scope: 'worker' }],
-  browserMajorVersion: [({}, use) =>  use(Number(process.env.ELECTRON_CHROMIUM_VERSION.split('.')[0])), { scope: 'worker' }],
-  electronMajorVersion: [({}, use) => use(parseInt(require('electron/package.json').version.split('.')[0], 10)), { scope: 'worker' }],
-  isAndroid: [false, { scope: 'worker' }],
-  isElectron: [true, { scope: 'worker' }],
-  isWebView2: [false, { scope: 'worker' }],
-  isHeadlessShell: [false, { scope: 'worker' }],
+type LocalWorkerFixtures = PageWorkerFixtures & {
+  sharedApp: ElectronApplication;
+};
 
-  launchElectronApp: async ({ playwright }, use) => {
-    // This env prevents 'Electron Security Policy' console message.
-    process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
-    const apps: ElectronApplication[] = [];
-    await use(async (appFile: string, args: string[] = [], options?: Parameters<Electron['launch']>[0]) => {
-      const app = await playwright._electron.launch({ ...options, args: [path.join(__dirname, appFile), ...args] });
-      apps.push(app);
-      return app;
-    });
-    for (const app of apps)
-      await app.close();
-  },
+export const electronTest = baseTest
+    .extend<TraceViewerFixtures>(traceViewerFixtures)
+    .extend<LocalFixtures, LocalWorkerFixtures>({
+      browserVersion: [({}, use) => use(process.env.ELECTRON_CHROMIUM_VERSION), { scope: 'worker' }],
+      browserMajorVersion: [({}, use) =>  use(Number(process.env.ELECTRON_CHROMIUM_VERSION.split('.')[0])), { scope: 'worker' }],
+      electronMajorVersion: [({}, use) => use(parseInt(require('electron/package.json').version.split('.')[0], 10)), { scope: 'worker' }],
+      isBidi: [false, { scope: 'worker' }],
+      isAndroid: [false, { scope: 'worker' }],
+      isElectron: [true, { scope: 'worker' }],
+      isHeadlessShell: [false, { scope: 'worker' }],
+      isFrozenWebkit: [false, { scope: 'worker' }],
 
-  electronApp: async ({ launchElectronApp }, use) => {
-    await use(await launchElectronApp('electron-app.js'));
-  },
+      createUserDataDir: async ({}, run) => {
+        const dirs: string[] = [];
+        // We do not put user data dir in testOutputPath,
+        // because we do not want to upload them as test result artifacts.
+        await run(async () => {
+          const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'playwright-test-'));
+          dirs.push(dir);
+          return dir;
+        });
+        await removeFolders(dirs);
+      },
 
-  newWindow: async ({ electronApp }, run) => {
-    const windows: Page[] = [];
-    await run(async () => {
-      const [window] = await Promise.all([
-        electronApp.waitForEvent('window'),
-        electronApp.evaluate(async electron => {
-          // Avoid "Error: Cannot create BrowserWindow before app is ready".
-          await electron.app.whenReady();
-          const window = new electron.BrowserWindow({
-            width: 800,
-            height: 600,
-            // Sandboxed windows share process with their window.open() children
-            // and can script them. We use that heavily in our tests.
-            webPreferences: { sandbox: true }
+      sharedApp: [async ({}, use) => {
+        const userDataDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'playwright-test-'));
+        const app = await electron.launch({
+          args: [path.join(__dirname, 'electron-app.js')],
+          env: inheritAndCleanEnv({
+            // Prevents 'Electron Security Policy' console message.
+            ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+            PWTEST_ELECTRON_USER_DATA_DIR: userDataDir,
+          }),
+        });
+        await use(app);
+        await app.close();
+        await removeFolders([userDataDir]);
+      }, { scope: 'worker' }],
+
+      newWindow: async ({}, use) => {
+        await use(async (app: ElectronApplication) => {
+          const [page] = await Promise.all([
+            app.waitForEvent('window'),
+            app.evaluate(({ BrowserWindow }) => {
+              const window = new BrowserWindow({
+                width: 800,
+                height: 600,
+                webPreferences: { sandbox: true },
+              });
+              void window.loadURL('about:blank');
+            }),
+          ]);
+          return page;
+        });
+      },
+
+      page: async ({ sharedApp, newWindow }, use) => {
+        const page = await newWindow(sharedApp);
+        await use(page);
+        for (const window of sharedApp.windows())
+          await window.close().catch(() => {});
+      },
+
+      launchElectronApp: async ({ createUserDataDir }, use) => {
+        const apps: ElectronApplication[] = [];
+        const userDataDir = await createUserDataDir();
+        await use(async (appFile: string, args: string[] = [], options?: Parameters<Electron['launch']>[0]) => {
+          const app = await electron.launch({
+            ...options,
+            args: [path.join(__dirname, appFile), ...args],
+            env: inheritAndCleanEnv({
+              // Prevents 'Electron Security Policy' console message.
+              ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+              ...options?.env,
+              PWTEST_ELECTRON_USER_DATA_DIR: userDataDir,
+            }),
           });
-          await window.loadURL('about:blank');
-        })
-      ]);
-      windows.push(window);
-      return window;
+          apps.push(app);
+          return app;
+        });
+        for (const app of apps)
+          await app.close();
+      },
     });
-    for (const window of windows)
-      await window.close();
-  },
-
-  page: async ({ newWindow }, run) => {
-    await run(await newWindow());
-  },
-
-  context: async ({ electronApp }, run) => {
-    await run(electronApp.context());
-  },
-});

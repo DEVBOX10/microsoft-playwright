@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import type { FullConfig, TestCase, TestError, TestResult, FullResult, TestStep } from '../../types/testReporter';
-import type { Suite } from '../common/test';
-import type { ReporterV2 } from './reporterV2';
+import type { ReportConfigureParams, ReportEndParams, ReporterV2 } from './reporterV2';
+import type { FullConfig, FullResult, TestCase, TestError, TestResult, TestStep } from '../../types/testReporter';
+import type { test } from '../common';
 
 export class Multiplexer implements ReporterV2 {
   private _reporters: ReporterV2[];
@@ -34,7 +34,7 @@ export class Multiplexer implements ReporterV2 {
       wrap(() => reporter.onConfigure?.(config));
   }
 
-  onBegin(suite: Suite) {
+  onBegin(suite: test.Suite) {
     for (const reporter of this._reporters)
       wrap(() => reporter.onBegin?.(suite));
   }
@@ -54,9 +54,24 @@ export class Multiplexer implements ReporterV2 {
       wrap(() => reporter.onStdErr?.(chunk, test, result));
   }
 
+  async onTestPaused(test: TestCase, result: TestResult) {
+    for (const reporter of this._reporters)
+      await wrapAsync(() => reporter.onTestPaused?.(test, result));
+  }
+
   onTestEnd(test: TestCase, result: TestResult) {
     for (const reporter of this._reporters)
       wrap(() => reporter.onTestEnd?.(test, result));
+  }
+
+  onReportConfigure(params: ReportConfigureParams): void {
+    for (const reporter of this._reporters)
+      wrap(() => reporter.onReportConfigure?.(params));
+  }
+
+  onReportEnd(params: ReportEndParams): void {
+    for (const reporter of this._reporters)
+      wrap(() => reporter.onReportEnd?.(params));
   }
 
   async onEnd(result: FullResult) {
@@ -101,6 +116,7 @@ async function wrapAsync<T>(callback: () => T | Promise<T>) {
   try {
     return await callback();
   } catch (e) {
+    // eslint-disable-next-line no-console
     console.error('Error in reporter', e);
   }
 }
@@ -109,6 +125,7 @@ function wrap(callback: () => void) {
   try {
     callback();
   } catch (e) {
+    // eslint-disable-next-line no-console
     console.error('Error in reporter', e);
   }
 }

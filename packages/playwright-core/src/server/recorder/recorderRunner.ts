@@ -14,23 +14,26 @@
  * limitations under the License.
  */
 
-import { serializeExpectedTextValues } from '../../utils';
+import { serializeExpectedTextValues } from '@isomorphic/expectUtils';
 import { toKeyboardModifiers } from '../codegen/language';
-import { serverSideCallMetadata } from '../instrumentation';
-import type { Page } from '../page';
-import type * as actions from '@recorder/actions';
-import type * as types from '../types';
 import { buildFullSelector, mainFrameForAction } from './recorderUtils';
+import { Progress } from '../progress';
 
-export async function performAction(pageAliases: Map<Page, string>, actionInContext: actions.ActionInContext) {
-  const callMetadata = serverSideCallMetadata();
+import type { Page } from '../page';
+import type * as types from '../types';
+import type * as actions from '@recorder/actions';
+import type { Frame } from '../frames';
+
+export async function performAction(progress: Progress, pageAliases: Map<Page, string>, actionInContext: actions.ActionInContext) {
   const mainFrame = mainFrameForAction(pageAliases, actionInContext);
+  return await performActionImpl(progress, mainFrame, actionInContext);
+}
+
+async function performActionImpl(progress: Progress, mainFrame: Frame, actionInContext: actions.ActionInContext) {
   const { action } = actionInContext;
 
-  const kActionTimeout = 5000;
-
   if (action.name === 'navigate') {
-    await mainFrame.goto(callMetadata, action.url, { timeout: kActionTimeout });
+    await mainFrame.goto(progress, action.url);
     return;
   }
 
@@ -38,7 +41,7 @@ export async function performAction(pageAliases: Map<Page, string>, actionInCont
     throw Error('Not reached');
 
   if (action.name === 'closePage') {
-    await mainFrame._page.close(callMetadata);
+    await mainFrame._page.close(progress);
     return;
   }
 
@@ -46,82 +49,83 @@ export async function performAction(pageAliases: Map<Page, string>, actionInCont
 
   if (action.name === 'click') {
     const options = toClickOptions(action);
-    await mainFrame.click(callMetadata, selector, { ...options, timeout: kActionTimeout, strict: true });
+    await mainFrame.click(progress, selector, { ...options, strict: true });
+    return;
+  }
+
+  if (action.name === 'hover') {
+    await mainFrame.hover(progress, selector, { position: action.position, strict: true });
     return;
   }
 
   if (action.name === 'press') {
     const modifiers = toKeyboardModifiers(action.modifiers);
     const shortcut = [...modifiers, action.key].join('+');
-    await mainFrame.press(callMetadata, selector, shortcut, { timeout: kActionTimeout, strict: true });
+    await mainFrame.press(progress, selector, shortcut, { strict: true });
     return;
   }
 
   if (action.name === 'fill') {
-    await mainFrame.fill(callMetadata, selector, action.text, { timeout: kActionTimeout, strict: true });
+    await mainFrame.fill(progress, selector, action.text, { strict: true });
     return;
   }
 
   if (action.name === 'setInputFiles') {
-    await mainFrame.setInputFiles(callMetadata, selector, { selector, payloads: [], timeout: kActionTimeout, strict: true });
+    await mainFrame.setInputFiles(progress, selector, { selector, payloads: [], strict: true });
     return;
   }
 
   if (action.name === 'check') {
-    await mainFrame.check(callMetadata, selector, { timeout: kActionTimeout, strict: true });
+    await mainFrame.check(progress, selector, { strict: true });
     return;
   }
 
   if (action.name === 'uncheck') {
-    await mainFrame.uncheck(callMetadata, selector, { timeout: kActionTimeout, strict: true });
+    await mainFrame.uncheck(progress, selector, { strict: true });
     return;
   }
 
   if (action.name === 'select') {
     const values = action.options.map(value => ({ value }));
-    await mainFrame.selectOption(callMetadata, selector, [], values, { timeout: kActionTimeout, strict: true });
+    await mainFrame.selectOption(progress, selector, [], values, { strict: true });
     return;
   }
 
   if (action.name === 'assertChecked') {
-    await mainFrame.expect(callMetadata, selector, {
+    await mainFrame.expect(progress, selector, {
       selector,
       expression: 'to.be.checked',
       expectedValue: { checked: action.checked },
       isNot: !action.checked,
-      timeout: kActionTimeout,
     });
     return;
   }
 
   if (action.name === 'assertText') {
-    await mainFrame.expect(callMetadata, selector, {
+    await mainFrame.expect(progress, selector, {
       selector,
       expression: 'to.have.text',
       expectedText: serializeExpectedTextValues([action.text], { matchSubstring: true, normalizeWhiteSpace: true }),
       isNot: false,
-      timeout: kActionTimeout,
     });
     return;
   }
 
   if (action.name === 'assertValue') {
-    await mainFrame.expect(callMetadata, selector, {
+    await mainFrame.expect(progress, selector, {
       selector,
       expression: 'to.have.value',
       expectedValue: action.value,
       isNot: false,
-      timeout: kActionTimeout,
     });
     return;
   }
 
   if (action.name === 'assertVisible') {
-    await mainFrame.expect(callMetadata, selector, {
+    await mainFrame.expect(progress, selector, {
       selector,
       expression: 'to.be.visible',
       isNot: false,
-      timeout: kActionTimeout,
     });
     return;
   }

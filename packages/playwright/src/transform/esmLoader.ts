@@ -16,14 +16,20 @@
 
 import fs from 'fs';
 import url from 'url';
+
 import { addToCompilationCache, currentFileDepsCollector, serializeCompilationCache, startCollectingFileDeps, stopCollectingFileDeps } from './compilationCache';
-import { transformHook, resolveHook, setTransformConfig, shouldTransform, setSingleTSConfig } from './transform';
 import { PortTransport } from './portTransport';
+import { resolveHook, setSingleTSConfig, setTransformConfig, shouldTransform, transformHook } from './transform';
 import { fileIsModule } from '../util';
+
+// Before each import of the ESM module, a preflight request with the .esm.preflight extension is issued.
+// When handled, it is resolved similarly to the reqular import, but loading it yields empty content.
+const esmPreflightExtension = '.esm.preflight';
 
 // Node < 18.6: defaultResolve takes 3 arguments.
 // Node >= 18.6: nextResolve from the chain takes 2 arguments.
-async function resolve(specifier: string, context: { parentURL?: string }, defaultResolve: Function) {
+async function resolve(originalSpecifier: string, context: { parentURL?: string }, defaultResolve: Function) {
+  let specifier = originalSpecifier.replace(esmPreflightExtension, '');
   if (context.parentURL && context.parentURL.startsWith('file://')) {
     const filename = url.fileURLToPath(context.parentURL);
     const resolved = resolveHook(filename, specifier);
@@ -36,15 +42,28 @@ async function resolve(specifier: string, context: { parentURL?: string }, defau
   if (result?.url && result.url.startsWith('file://'))
     currentFileDepsCollector()?.add(url.fileURLToPath(result.url));
 
+  if (originalSpecifier.endsWith(esmPreflightExtension))
+    result.url = result.url + esmPreflightExtension;
   return result;
 }
+
+// non-js files have undefined
+// some js files have null
+// {module/commonjs}-typescript are changed to {module,commonjs} because we handle typescript ourselves
+const kSupportedFormats = new Map([
+  ['commonjs', 'commonjs'],
+  ['module', 'module'],
+  ['commonjs-typescript', 'commonjs'],
+  ['module-typescript', 'module'],
+  [null, null],
+  [undefined, undefined]
+]);
 
 // Node < 18.6: defaultLoad takes 3 arguments.
 // Node >= 18.6: nextLoad from the chain takes 2 arguments.
 async function load(moduleUrl: string, context: { format?: string }, defaultLoad: Function) {
   // Bail out for wasm, json, etc.
-  // non-js files have context.format === undefined
-  if (context.format !== 'commonjs' && context.format !== 'module' && context.format !== undefined)
+  if (!kSupportedFormats.has(context.format))
     return defaultLoad(moduleUrl, context, defaultLoad);
 
   // Bail for built-in modules.
@@ -52,37 +71,33 @@ async function load(moduleUrl: string, context: { format?: string }, defaultLoad
     return defaultLoad(moduleUrl, context, defaultLoad);
 
   const filename = url.fileURLToPath(moduleUrl);
+  const isPreflight = moduleUrl.endsWith(esmPreflightExtension);
+
   // Bail for node_modules.
   if (!shouldTransform(filename))
     return defaultLoad(moduleUrl, context, defaultLoad);
 
-  const code = fs.readFileSync(filename, 'utf-8');
-  const transformed = transformHook(code, filename, moduleUrl);
+  const originalModuleUrl = isPreflight ? moduleUrl.slice(0, -esmPreflightExtension.length) : moduleUrl;
+  const originalFilename = isPreflight ? url.fileURLToPath(originalModuleUrl) : filename;
 
-  // Flush the source maps to the main thread, so that errors during import() are source-mapped.
+  const code = fs.readFileSync(originalFilename, 'utf-8');
+  const transformed = transformHook(code, originalFilename, originalModuleUrl);
+
+  // Flush the source maps to the main thread, so that errors after import() are source-mapped.
   if (transformed.serializedCache)
-    await transport?.send('pushToCompilationCache', { cache: transformed.serializedCache });
+    transport?.post('pushToCompilationCache', { cache: transformed.serializedCache });
 
   // Output format is required, so we determine it manually when unknown.
   // shortCircuit is required by Node >= 18.6 to designate no more loaders should be called.
   return {
-    format: context.format || (fileIsModule(filename) ? 'module' : 'commonjs'),
-    source: transformed.code,
+    format: kSupportedFormats.get(context.format) || (fileIsModule(originalFilename) ? 'module' : 'commonjs'),
+    source: isPreflight ? `void 0;` : transformed.code,
     shortCircuit: true,
   };
 }
 
 let transport: PortTransport | undefined;
 
-// Node.js < 20
-function globalPreload(context: { port: MessagePort }) {
-  transport = createTransport(context.port);
-  return `
-    globalThis.__esmLoaderPortPreV20 = port;
-  `;
-}
-
-// Node.js >= 20
 function initialize(data: { port: MessagePort }) {
   transport = createTransport(data?.port);
 }
@@ -120,4 +135,4 @@ function createTransport(port: MessagePort) {
 }
 
 
-module.exports = { resolve, load, globalPreload, initialize };
+module.exports = { initialize, load, resolve };

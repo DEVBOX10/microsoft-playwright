@@ -16,6 +16,7 @@
 
 import { test, expect, playwrightCtConfigText } from './playwright-test-fixtures';
 import path from 'path';
+import url from 'url';
 
 test('should return the location of a syntax error', async ({ runInlineTest }) => {
   const result = await runInlineTest({
@@ -1083,4 +1084,235 @@ test('should remove import css', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
+});
+
+test('should dynamically import re-exported cjs namespace', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35812' },
+}, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'node_modules/helper/package.json': `
+      {
+        "type": "module",
+        "main": "./index.cjs",
+        "exports": {
+          ".": {
+            "import": "./index.js",
+            "require": "./index.cjs",
+            "default": "./index.js"
+          }
+        }
+      }
+    `,
+    'node_modules/helper/index.js': `
+      import * as mod from './index.cjs'
+      const { $ } = mod;
+      export { $ };
+    `,
+    'node_modules/helper/modules.cjs': `
+      "use strict";
+
+      function __toCommonJS(props) {
+        const result = {};
+        Object.defineProperty(result, '__esModule', { value: true });
+        for (const prop of Object.getOwnPropertyNames(props))
+          Object.defineProperty(result, prop, { enumerable: true, get: props[prop] });
+        return result;
+      }
+
+      function __reExport(to, from) {
+        for (const prop of Object.getOwnPropertyNames(from)) {
+          if (prop !== 'default' && !to.hasOwnProperty(prop))
+            Object.defineProperty(to, prop, { get: () => from[prop], enumerable: true });
+        }
+      }
+
+      module.exports = { __toCommonJS, __reExport };
+    `,
+    'node_modules/helper/index.cjs': `
+      "use strict";
+      const { __toCommonJS, __reExport } = require('./modules.cjs');
+
+      module.exports = __toCommonJS({});
+      __reExport(module.exports, require('./inner.cjs'));
+
+      // Annotate the CommonJS export names for ESM import in node:
+      0 && (module.exports = { ...require('./inner.cjs') });
+    `,
+    'node_modules/helper/inner.cjs': `
+      "use strict";
+      const { __toCommonJS, __reExport } = require('./modules.cjs');
+
+      const $ = '$ value';
+      module.exports = __toCommonJS({ $: () => $ });
+
+      // Annotate the CommonJS export names for ESM import in node:
+      0 && (module.exports = { $ });
+    `,
+    'package.json': `
+      { "type": "commonjs" }
+    `,
+    'a.test.js': `
+      const { test, expect } = require('@playwright/test');
+      test('pass', async () => {
+        const $ = (await import('helper')).$;
+        expect($).toBe('$ value');
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should compose with a custom ESM loader before playwright', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39172' },
+}, async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'package.json': JSON.stringify({ type: 'module' }),
+    'custom-loader.mjs': `
+      export async function resolve(specifier, context, nextResolve) {
+        console.log('%% resolve ' + specifier);
+        return nextResolve(specifier, context);
+      }
+
+      export async function load(url, context, nextLoad) {
+        const result = await nextLoad(url, context);
+        console.log('%% load ' + url + ' source=' + result.source);
+        return result;
+      }
+    `,
+    'playwright.config.ts': `
+      import { register } from 'node:module';
+      register('./custom-loader.mjs', import.meta.url);
+
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        projects: [{ name: 'foo' }],
+        build: { external: ['*'] },
+      });
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass', () => {
+        expect(1 + 1).toBe(2);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const testFile = url.pathToFileURL(testInfo.outputPath('a.test.js')).toString();
+  const expectedSequence = [
+    `resolve ${testFile}.esm.preflight`,
+    // no load for preflight, it falls through to the node default loader which cannot resolve it and thus errors out
+    `resolve ${testFile}`,
+    `load ${testFile} source=`,
+    `resolve @playwright/test`,
+  ];
+  expect(result.outputLines).toEqual([
+    ...expectedSequence, // test collection
+    ...expectedSequence, // worker
+  ]);
+});
+
+test('should compose with a custom ESM loader after playwright', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39172' },
+}, async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'package.json': JSON.stringify({ type: 'module' }),
+    'custom-loader.mjs': `
+      import fs from 'node:fs';
+      import { fileURLToPath } from 'url';
+      const outputDir = ${JSON.stringify(url.pathToFileURL(testInfo.outputDir).toString())};
+      export async function resolve(specifier, context, nextResolve) {
+        if (specifier.startsWith(outputDir)) {
+          console.log('%% resolve ' + specifier);
+          fs.readFileSync(fileURLToPath(specifier)); // throw if file does not exist
+        }
+        return nextResolve(specifier, context);
+      }
+
+      export async function load(url, context, nextLoad) {
+        const result = await nextLoad(url, context);
+        if (url.startsWith(outputDir)) {
+          console.log('%% load ' + url + ' source=' + result.source);
+          fs.readFileSync(fileURLToPath(url)); // throw if file does not exist
+        }
+        return result;
+      }
+    `,
+    'register-loader.mjs': `
+      import { register } from 'node:module';
+      register('./custom-loader.mjs', import.meta.url);
+    `,
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        projects: [{ name: 'foo' }],
+        build: { external: ['*'] },
+      });
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass', () => {
+        expect(1 + 1).toBe(2);
+      });
+    `,
+  }, {}, {
+    NODE_OPTIONS: `--import ${url.pathToFileURL(testInfo.outputPath('register-loader.mjs')).toString()}`,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  const outputDir = url.pathToFileURL(testInfo.outputDir).toString();
+  const expectedSequence = [
+    `resolve ${outputDir}/playwright.config.ts`,
+    `resolve ${outputDir}/playwright.config.ts`,
+    `resolve ${outputDir}/a.test.js`,
+    `resolve ${outputDir}/a.test.js`,
+    `load ${outputDir}/a.test.js source=`,
+  ];
+  expect(result.outputLines).toEqual([
+    ...expectedSequence, // test collection
+    ...expectedSequence, // worker
+  ]);
+});
+
+test('preflight should survive faulty ESM loader ahead of playwright', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39172' },
+}, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'package.json': JSON.stringify({ type: 'module' }),
+    'custom-loader.mjs': `
+      export async function resolve(specifier, context, nextResolve) {
+        if (specifier.endsWith('.esm.preflight'))
+          throw new Error('could not find file, what the heck is preflight?');
+        return nextResolve(specifier, context);
+      }
+
+      export async function load(url, context, nextLoad) {
+        return await nextLoad(url, context);
+      }
+    `,
+    'playwright.config.ts': `
+      import { register } from 'node:module';
+      register('./custom-loader.mjs', import.meta.url);
+
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        projects: [{ name: 'foo' }],
+        build: { external: ['*'] },
+      });
+    `,
+    'a.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('pass', () => {
+        expect(1 + 1).toBe(2);
+      });
+    `,
+  }, {}, { DEBUG: 'pw:test' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('Failed to load preflight');
+  expect(result.output).toContain('what the heck is preflight');
 });

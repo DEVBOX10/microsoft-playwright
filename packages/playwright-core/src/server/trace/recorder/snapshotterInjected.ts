@@ -49,6 +49,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
   const kCurrentSrcAttribute = '__playwright_current_src__';
   const kBoundingRectAttribute = '__playwright_bounding_rect__';
   const kPopoverOpenAttribute = '__playwright_popover_open_';
+  const kDialogOpenAttribute = '__playwright_dialog_open_';
 
   // Symbols for our own info on Nodes/StyleSheets.
   const kSnapshotFrameId = Symbol('__playwright_snapshot_frameid_');
@@ -85,6 +86,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
   class Streamer {
     private _lastSnapshotNumber = 0;
     private _staleStyleSheets = new Set<CSSStyleSheet>();
+    private _modifiedStyleSheets = new Set<CSSStyleSheet>();
     private _readingStyleSheet = false;  // To avoid invalidating due to our own reads.
     private _fakeBase: HTMLBaseElement;
     private _observer: MutationObserver;
@@ -104,6 +106,10 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'insertRule', invalidateCSSGroupingRule);
       this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'deleteRule', invalidateCSSGroupingRule);
       this._interceptNativeGetter(window.CSSGroupingRule.prototype, 'cssRules', invalidateCSSGroupingRule);
+      this._interceptNativeSetter(window.StyleSheet.prototype, 'disabled', (sheet: StyleSheet) => {
+        if (sheet instanceof CSSStyleSheet)
+          this._invalidateStyleSheet(sheet as CSSStyleSheet);
+      });
       this._interceptNativeAsyncMethod(window.CSSStyleSheet.prototype, 'replace', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
 
       this._fakeBase = document.createElement('base');
@@ -190,6 +196,18 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       });
     }
 
+    private _interceptNativeSetter(obj: any, prop: string, cb: (thisObj: any, result: any) => void) {
+      const descriptor = Object.getOwnPropertyDescriptor(obj, prop)!;
+      Object.defineProperty(obj, prop, {
+        ...descriptor,
+        set: function(value: any) {
+          const result = descriptor.set!.call(this, value);
+          cb(this, value);
+          return result;
+        },
+      });
+    }
+
     private _handleMutations(list: MutationRecord[]) {
       for (const mutation of list)
         ensureCachedData(mutation.target).attributesCached = undefined;
@@ -199,6 +217,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       if (this._readingStyleSheet)
         return;
       this._staleStyleSheets.add(sheet);
+      if (sheet.href !== null)
+        this._modifiedStyleSheets.add(sheet);
     }
 
     private _updateStyleElementStyleSheetTextIfNeeded(sheet: CSSStyleSheet, forceText?: boolean): string | undefined {
@@ -308,6 +328,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
     private _getSheetText(sheet: CSSStyleSheet): string {
       this._readingStyleSheet = true;
       try {
+        if (sheet.disabled)
+          return '';
         const rules: string[] = [];
         for (const rule of sheet.cssRules)
           rules.push(rule.cssText);
@@ -317,9 +339,11 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
       }
     }
 
-    captureSnapshot(): SnapshotData | undefined {
+    captureSnapshot(needsReset: boolean): SnapshotData | undefined {
       const timestamp = performance.now();
       const snapshotNumber = ++this._lastSnapshotNumber;
+      if (needsReset)
+        this.reset();
       let nodeCounter = 0;
       let shadowDomNesting = 0;
       let headNesting = 0;
@@ -347,8 +371,13 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
         }
         if (removeNoScript && nodeName === 'NOSCRIPT')
           return;
-        if (nodeName === 'META' && (node as HTMLMetaElement).httpEquiv.toLowerCase() === 'content-security-policy')
-          return;
+        if (nodeName === 'META') {
+          const httpEquiv = (node as HTMLMetaElement).httpEquiv.toLowerCase();
+          // Drop META directives that can navigate, set cookies, or otherwise
+          // affect the trace viewer when the recorded snapshot is rendered.
+          if (httpEquiv === 'content-security-policy' || httpEquiv === 'refresh' || httpEquiv === 'set-cookie')
+            return;
+        }
         // Skip iframes which are inside document's head as they are not visible.
         // See https://github.com/microsoft/playwright/issues/12005.
         if ((nodeName === 'IFRAME' || nodeName === 'FRAME') && headNesting)
@@ -456,6 +485,12 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
             expectValue(value);
             attrs[kPopoverOpenAttribute] = value;
           }
+          if (nodeName === 'DIALOG' && (element as HTMLDialogElement).open) {
+            const value = (element as HTMLDialogElement).matches(':modal') ? 'modal' : 'true';
+            expectValue(kDialogOpenAttribute);
+            expectValue(value);
+            attrs[kDialogOpenAttribute] = value;
+          }
           if (element.scrollTop) {
             expectValue(kScrollTopAttribute);
             expectValue(element.scrollTop);
@@ -542,6 +577,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
               continue;
             if (nodeName === 'FRAME' && name === 'src')
               continue;
+            if (nodeName === 'DIALOG' && name === 'open')
+              continue;
             let value = element.attributes[i].value;
             if (nodeName === 'META')
               value = this.__sanitizeMetaAttribute(name, value, (node as HTMLMetaElement).httpEquiv);
@@ -603,7 +640,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: 
         collectionTime: 0,
       };
 
-      for (const sheet of this._staleStyleSheets) {
+      for (const sheet of this._modifiedStyleSheets) {
         if (sheet.href === null)
           continue;
         const content = this._updateLinkStyleSheetTextIfNeeded(sheet, snapshotNumber);

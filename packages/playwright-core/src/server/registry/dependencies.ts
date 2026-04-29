@@ -14,19 +14,21 @@
  * limitations under the License.
  */
 
+import * as childProcess from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
-import * as os from 'os';
-import childProcess from 'child_process';
-import * as utils from '../../utils';
-import { spawnAsync } from '../../utils/spawnAsync';
-import { hostPlatform, isOfficiallySupportedPlatform } from '../../utils/hostPlatform';
-import { buildPlaywrightCLICommand, registry } from '.';
-import { deps } from './nativeDeps';
-import { getPlaywrightVersion } from '../../utils/userAgent';
 
-const BIN_DIRECTORY = path.join(__dirname, '..', '..', '..', 'bin');
-const languageBindingVersion = process.env.PW_CLI_DISPLAY_VERSION || require('../../../package.json').version;
+import { wrapInASCIIBox } from '@utils/ascii';
+import { hostPlatform, isOfficiallySupportedPlatform } from '@utils/hostPlatform';
+import { spawnAsync } from '@utils/spawnAsync';
+import { getPlaywrightVersion } from '../userAgent';
+import { deps } from './nativeDeps';
+
+import { packageJSON, binPath } from '../../package';
+import { buildPlaywrightCLICommand, registry } from '.';
+
+const languageBindingVersion = process.env.PW_CLI_DISPLAY_VERSION || packageJSON.version;
 
 const dockerVersionFilePath = '/ms-playwright/.docker-info';
 export async function writeDockerVersion(dockerImageNameTemplate: string) {
@@ -76,12 +78,12 @@ export type DependencyGroup = 'chromium' | 'firefox' | 'webkit' | 'tools';
 export async function installDependenciesWindows(targets: Set<DependencyGroup>, dryRun: boolean): Promise<void> {
   if (targets.has('chromium')) {
     const command = 'powershell.exe';
-    const args = ['-ExecutionPolicy', 'Bypass', '-File', path.join(BIN_DIRECTORY, 'install_media_pack.ps1')];
+    const args = ['-ExecutionPolicy', 'Bypass', '-File', path.join(binPath, 'install_media_pack.ps1')];
     if (dryRun) {
       console.log(`${command} ${quoteProcessArgs(args).join(' ')}`); // eslint-disable-line no-console
       return;
     }
-    const { code } = await spawnAsync(command, args, { cwd: BIN_DIRECTORY, stdio: 'inherit' });
+    const { code } = await spawnAsync(command, args, { cwd: binPath, stdio: 'inherit' });
     if (code !== 0)
       throw new Error('Failed to install windows dependencies!');
   }
@@ -269,7 +271,7 @@ export async function validateDependenciesLinux(sdkLanguage: string, linuxLddDir
     ]);
   }
 
-  throw new Error('\n' + utils.wrapInASCIIBox(errorLines.join('\n'), 1));
+  throw new Error('\n' + wrapInASCIIBox(errorLines.join('\n'), 1));
 }
 
 function isSharedLib(basename: string) {

@@ -6,6 +6,716 @@ toc_max_heading_level: 2
 
 import LiteYouTube from '@site/src/components/LiteYouTube';
 
+## Version 1.59
+
+### 🎬 Screencast
+
+New [`property: Page.screencast`] API provides a unified interface for capturing page content with:
+- Screencast recordings
+- Action annotations
+- Visual overlays
+- Real-time frame capture
+- Agentic video receipts
+
+<center>
+<img src="https://raw.githubusercontent.com/microsoft/playwright/main/docs/src/images/release-notes-1.59-screencast-demo.gif" alt="Demo" width="500" height="313" />
+</center>
+
+
+**Screencast recording** — record video with precise start/stop control, as an alternative to the [`option: Browser.newContext.recordVideo`] option:
+
+```js
+await page.screencast.start({ path: 'video.webm' });
+// ... perform actions ...
+await page.screencast.stop();
+```
+
+**Action annotations** — enable built-in visual annotations that highlight interacted elements and display action titles during recording:
+
+```js
+await page.screencast.showActions({ position: 'top-right' });
+```
+
+[`method: Screencast.showActions`] accepts `position` (`'top-left'`, `'top'`, `'top-right'`, `'bottom-left'`, `'bottom'`, `'bottom-right'`), `duration` (ms per annotation), and `fontSize` (px). Returns a disposable to stop showing actions.
+
+Action annotations can also be enabled in test fixtures via the `video` option:
+
+```js
+// playwright.config.ts
+export default defineConfig({
+  use: {
+    video: {
+      mode: 'on',
+      show: {
+        actions: { position: 'top-left' },
+        test: { position: 'top-right' },
+      },
+    },
+  },
+});
+```
+
+**Visual overlays** — add chapter titles and custom HTML overlays on top of the page for richer narration:
+
+```js
+await page.screencast.showChapter('Adding TODOs', {
+  description: 'Type and press enter for each TODO',
+  duration: 1000,
+});
+
+await page.screencast.showOverlay('<div style="color: red">Recording</div>');
+```
+
+**Real-time frame capture** — stream JPEG-encoded frames for custom processing like thumbnails, live previews, AI vision, and more:
+
+```js
+await page.screencast.start({
+  onFrame: ({ data }) => sendToVisionModel(data),
+  size: { width: 800, height: 600 },
+});
+```
+
+**Agentic video receipts** — coding agents can produce video evidence of their work. After completing a task, an agent can record a walkthrough video with rich annotations for human review:
+
+```js
+await page.screencast.start({ path: 'receipt.webm' });
+await page.screencast.showActions({ position: 'top-right' });
+
+await page.screencast.showChapter('Verifying checkout flow', {
+  description: 'Added coupon code support per ticket #1234',
+});
+
+// Agent performs the verification steps...
+await page.locator('#coupon').fill('SAVE20');
+await page.locator('#apply-coupon').click();
+await expect(page.locator('.discount')).toContainText('20%');
+
+await page.screencast.showChapter('Done', {
+  description: 'Coupon applied, discount reflected in total',
+});
+
+await page.screencast.stop();
+```
+
+The resulting video serves as a receipt: chapter titles provide context, action annotations highlight each interaction, and the visual walkthrough is faster to review than text logs.
+
+### 🔗 Interoperability
+
+New [`method: Browser.bind`] API makes a launched browser available for `playwright-cli`, `@playwright/mcp`, and other clients to connect to.
+
+**Bind a browser** — start a browser and bind it so others can connect:
+
+```js
+const { endpoint } = await browser.bind('my-session', {
+  workspaceDir: '/my/project',
+});
+```
+
+**Connect from playwright-cli** — connect to the running browser from your favorite coding agent.
+
+```bash
+playwright-cli attach my-session
+playwright-cli -s my-session snapshot
+```
+
+**Connect from @playwright/mcp** — or point your MCP server to the running browser.
+
+```bash
+@playwright/mcp --endpoint=my-session
+```
+
+**Connect from a Playwright client** — use API to connect to the browser. Multiple clients at a time are supported!
+
+```js
+const browser = await chromium.connect(endpoint);
+```
+
+Pass `host` and `port` options to bind over WebSocket instead of a named pipe:
+
+```js
+const { endpoint } = await browser.bind('my-session', {
+  host: 'localhost',
+  port: 0,
+});
+// endpoint is a ws:// URL
+```
+
+Call [`method: Browser.unbind`] to stop accepting new connections.
+
+### 📊 Observability
+
+Run `playwright-cli show` to open the Dashboard that lists all the bound browsers, their statuses, and allows interacting with them:
+- See what your agent is doing on the background browsers
+- Click into the sessions for manual interventions
+- Open DevTools to inspect pages from the background browsers.
+
+<center>
+<img src="https://raw.githubusercontent.com/microsoft/playwright/main/docs/src/images/release-notes-1.59-dashboard.png" alt="Demo" width="1169" height="835" />
+</center>
+
+- `playwright-cli` binds all of its browsers automatically, so you can see what your agents are doing.
+- Pass `PLAYWRIGHT_DASHBOARD=1` env variable to see all `@playwright/test` browsers in the dashboard.
+
+### 🐛 CLI debugger for agents
+
+Coding agents can now run `npx playwright test --debug=cli` to attach and debug tests over `playwright-cli` — perfect for automatically fixing tests in agentic workflows:
+
+```bash
+$ npx playwright test --debug=cli
+### Debugging Instructions
+- Run "playwright-cli attach tw-87b59e" to attach to this test
+
+$ playwright-cli attach tw-87b59e
+### Session `tw-87b59e` created, attached to `tw-87b59e`.
+Run commands with: playwright-cli --session=tw-87b59e <command>
+### Paused
+- Navigate to "/" at output/tests/example.spec.ts:4
+
+$ playwright-cli --session tw-87b59e step-over
+### Page
+- Page URL: https://playwright.dev/
+- Page Title: Fast and reliable end-to-end testing for modern web apps | Playwright
+### Paused
+- Expect "toHaveTitle" at output/tests/example.spec.ts:7
+```
+
+### 📋 CLI trace analysis for agents
+
+Coding agents can run `npx playwright trace` to explore [Playwright Trace](./trace-viewer.md) and understand failing or flaky tests from the command line:
+
+```bash
+$ npx playwright trace open test-results/example-has-title-chromium/trace.zip
+  Title:        example.spec.ts:3 › has title
+
+$ npx playwright trace actions --grep="expect"
+     # Time       Action                                                  Duration
+  ──── ─────────  ─────────────────────────────────────────────────────── ────────
+    9. 0:00.859  Expect "toHaveTitle"                                        5.1s  ✗
+
+$ npx playwright trace action 9
+  Expect "toHaveTitle"
+  Error: expect(page).toHaveTitle(expected) failed
+    Expected pattern: /Wrong Title/
+    Received string:  "Fast and reliable end-to-end testing for modern web apps | Playwright"
+    Timeout: 5000ms
+  Snapshots
+    available: before, after
+    usage:     npx playwright trace snapshot 9 --name <before|after>
+
+$ npx playwright trace snapshot 9 --name after
+### Page
+- Page Title: Fast and reliable end-to-end testing for modern web apps | Playwright
+
+$ npx playwright trace close
+```
+
+### ♻️ `await using`
+
+Many APIs now return [async disposables](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol/asyncDispose), enabling the `await using` syntax for automatic cleanup:
+
+```js
+await using page = await context.newPage();
+{
+  await using route = await page.route('**/*', route => route.continue());
+  await using script = await page.addInitScript('console.log("init script here")');
+  await page.goto('https://playwright.dev');
+  // do something
+}
+// route and init script have been removed at this point
+```
+
+### 🔍 Snapshots and Locators
+
+- Method [`method: Page.ariaSnapshot`] to capture the aria snapshot of the page — equivalent to `page.locator('body').ariaSnapshot()`.
+- Options `depth` and `mode` in [`method: Locator.ariaSnapshot`].
+- Method [`method: Locator.normalize`] converts a locator to follow best practices like test ids and aria roles.
+- Method [`method: Page.pickLocator`] enters an interactive mode where hovering over elements highlights them and shows the corresponding locator. Click an element to get its [Locator] back. Use [`method: Page.cancelPickLocator`] to cancel.
+
+### New APIs
+
+#### Screencast
+
+- [`property: Page.screencast`] provides video recording, real-time frame streaming, and overlay management.
+- Methods [`method: Screencast.start`] and [`method: Screencast.stop`] for recording and frame capture.
+- Methods [`method: Screencast.showActions`] and [`method: Screencast.hideActions`] for action annotations.
+- Methods [`method: Screencast.showChapter`] and [`method: Screencast.showOverlay`] for visual overlays.
+- Methods [`method: Screencast.showOverlays`] and [`method: Screencast.hideOverlays`] for overlay visibility control.
+
+#### Storage, Console and Errors
+
+- Method [`method: BrowserContext.setStorageState`] clears existing cookies, local storage, and IndexedDB for all origins and sets a new storage state — no need to create a new context.
+- Methods [`method: Page.clearConsoleMessages`] and [`method: Page.clearPageErrors`] to clear stored messages and errors.
+- Option `filter` in [`method: Page.consoleMessages`] and [`method: Page.pageErrors`] controls which messages are returned.
+- Method [`method: ConsoleMessage.timestamp`].
+
+#### Miscellaneous
+
+- [`property: BrowserContext.debugger`] provides programmatic control over the Playwright debugger.
+- Method [`method: BrowserContext.isClosed`].
+- Method [`method: Request.existingResponse`] returns the response without waiting.
+- Method [`method: Response.httpVersion`] returns the HTTP version used by the response.
+- Events [`event: CDPSession.event`] and [`event: CDPSession.close`] for CDP sessions.
+- Option `live` in [`method: Tracing.start`] for real-time trace updates.
+- Option `artifactsDir` in [`method: BrowserType.launch`] to configure the artifacts directory.
+
+### 🛠️ Other improvements
+
+- UI Mode has an option to only show tests affected by source changes.
+- UI Mode and Trace Viewer have improved action filtering.
+- HTML Reporter shows the list of runs from the same worker.
+- HTML Reporter allows filtering test steps for quick search.
+- New trace mode `'retain-on-failure-and-retries'` records a trace for each test run and retains all traces when an attempt fails — great for comparing a passing trace with a failing one from a flaky test.
+
+### Breaking Changes ⚠️
+
+- Removed macOS 14 support for WebKit. We recommend upgrading your macOS version, or keeping an older Playwright version.
+- Removed `@playwright/experimental-ct-svelte` package.
+
+### Browser Versions
+
+- Chromium 147.0.7727.15
+- Mozilla Firefox 148.0.2
+- WebKit 26.4
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 146
+- Microsoft Edge 146
+
+
+## Version 1.58
+
+### Timeline
+
+If you're using [merged reports](./test-sharding.md#merging-reports-from-multiple-environments), the HTML report Speedboard tab now shows the Timeline:
+
+![Timeline chart in the HTML report](./images/timeline.png)
+
+### UI Mode and Trace Viewer Improvements
+
+- New 'system' theme option follows your OS dark/light mode preference
+- Search functionality (Cmd/Ctrl+F) is now available in code editors
+- Network details panel has been reorganized for better usability
+- JSON responses are now automatically formatted for readability
+
+Thanks to [@cpAdm](https://github.com/cpAdm) for contributing these improvements!
+
+### Miscellaneous
+
+[`method: BrowserType.connectOverCDP`] now accepts an `isLocal` option. When set to `true`, it tells Playwright that it runs on the same host as the CDP server, enabling file system optimizations.
+
+### Breaking Changes ⚠️
+
+- Removed `_react` and `_vue` selectors. See [locators guide](./locators.md) for alternatives.
+
+- Removed `:light` selector engine suffix. Use standard CSS selectors instead.
+
+- Option `devtools` from [`method: BrowserType.launch`] has been removed. Use `args: ['--auto-open-devtools-for-tabs']` instead.
+
+- Removed macOS 13 support for WebKit. We recommend to upgrade your macOS version, or keep using an older Playwright version.
+
+### Browser Versions
+
+- Chromium 145.0.7632.6
+- Mozilla Firefox 146.0.1
+- WebKit 26.0
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 144
+- Microsoft Edge 144
+
+## Version 1.57
+
+### Speedboard
+
+In HTML reporter, there's a new tab we call "Speedboard":
+
+![Speedboard](./images/speedboard.png)
+
+It shows you all your executed tests sorted by slowness,
+and can help you understand where your test suite is taking longer than expected.
+Take a look at yours - maybe you'll find some tests that are spending a longer time waiting than they should!
+
+### Chrome for Testing
+
+Playwright now runs on [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) builds rather than Chromium. Headed mode uses `chrome`; headless mode uses `chrome-headless-shell`. Existing tests should continue to pass after upgrading to v1.57.
+
+We're expecting no functional changes to come from this switch. The biggest change is the new icon and title in your toolbar.
+
+![new and old logo](./images/cft-logo-change.png)
+
+If you still see an unexpected behaviour change, please [file an issue](https://github.com/microsoft/playwright/issues/new).
+
+On Arm64 Linux, Playwright continues to use Chromium.
+
+### Waiting for webserver output
+
+[`property: TestConfig.webServer`] added a `wait` field. Pass a regular expression, and Playwright will wait until the webserver logs match it.
+
+```js
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  webServer: {
+    command: 'npm run start',
+    wait: {
+      stdout: /Listening on port (?<my_server_port>\d+)/
+    },
+  },
+});
+```
+
+If you include a named capture group into the expression, then Playwright will provide the capture group contents via environment variables:
+
+```js
+import { test, expect } from '@playwright/test';
+
+test.use({ baseURL: `http://localhost:${process.env.MY_SERVER_PORT ?? 3000}` });
+
+test('homepage', async ({ page }) => {
+  await page.goto('/');
+});
+```
+
+This is not just useful for capturing varying ports of dev servers. You can also use it to wait for readiness of a service that doesn't expose an HTTP readiness check, but instead prints a readiness message to stdout or stderr.
+
+### Breaking Change
+
+After 3 years of being deprecated, we removed `page.accessibility` from our API. Please use other libraries such as [Axe](https://www.deque.com/axe/) if you need to test page accessibility. See our Node.js [guide](https://playwright.dev/docs/accessibility-testing) for integration with Axe.
+
+### New APIs
+
+- New property [`property: TestConfig.tag`] adds a tag to all tests in this run. This is useful when using [merge-reports](./test-sharding.md#merging-reports-from-multiple-shards).
+- [`event: Worker.console`] event is emitted when JavaScript within the worker calls one of console API methods, e.g. console.log or console.dir. [`method: Worker.waitForEvent`] can be used to wait for it.
+- [`method: Locator.description`] returns locator description previously set with [`method: Locator.describe`], and [`method: Locator.toString`] now uses the description when available.
+- New option [`option: Locator.click.steps`] in [`method: Locator.click`] and [`method: Locator.dragTo`] that configures the number of `mousemove` events emitted while moving the mouse pointer to the target element.
+- Network requests issued by [Service Workers](./service-workers.md#network-events-and-routing) are now reported and can be routed through the [BrowserContext](./api/class-browsercontext.md), only in Chromium. You can opt out using the `PLAYWRIGHT_DISABLE_SERVICE_WORKER_NETWORK` environment variable.
+- Console messages from Service Workers are dispatched through [`event: Worker.console`]. You can opt out of this using the `PLAYWRIGHT_DISABLE_SERVICE_WORKER_CONSOLE` environment variable.
+
+### Miscellaneous
+
+- Playwright docker images switched from Node.js v22 to Node.js v24 LTS.
+
+### Browser Versions
+
+- Chromium 143.0.7499.4
+- Mozilla Firefox 144.0.2
+- WebKit 26.0
+
+## Version 1.56
+
+<LiteYouTube
+  id="_AifxZGxwuk"
+  title="Playwright 1.56 - Introducing Playwright Test Agents"
+/>
+
+### Playwright Test Agents
+
+Introducing Playwright Test Agents, three custom agent definitions designed to guide LLMs through the core process of building a Playwright test:
+
+* **🎭 planner** explores the app and produces a Markdown test plan
+
+* **🎭 generator** transforms the Markdown plan into the Playwright Test files
+
+* **🎭 healer** executes the test suite and automatically repairs failing tests
+
+Run `npx playwright init-agents` with your client of choice to generate the latest agent definitions:
+
+```bash
+# Generate agent files for each agentic loop
+# Visual Studio Code
+npx playwright init-agents --loop=vscode
+# Claude Code
+npx playwright init-agents --loop=claude
+# opencode
+npx playwright init-agents --loop=opencode
+```
+
+[Learn more about Playwright Test Agents](./test-agents.md)
+
+### New APIs
+
+- New methods [`method: Page.consoleMessages`] and [`method: Page.pageErrors`] for retrieving the most recent console messages from the page
+- New method [`method: Page.requests`] for retrieving the most recent network requests from the page
+- Added [`--test-list` and `--test-list-invert`](./test-cli.md#test-list) to allow manual specification of specific tests from a file
+
+### UI Mode and HTML Reporter
+
+- Added option to `'html'` reporter to disable the "Copy prompt" button
+- Added option to `'html'` reporter and UI Mode to merge files, collapsing test and describe blocks into a single unified list
+- Added option to UI Mode mirroring the `--update-snapshots` options
+- Added option to UI Mode to run only a single worker at a time
+
+### Breaking Changes
+
+- Event [`event: BrowserContext.backgroundPage`] has been deprecated and will not be emitted. Method [`method: BrowserContext.backgroundPages`] will return an empty list
+
+### Miscellaneous
+
+- Aria snapshots render and compare `input` `placeholder`
+- Added environment variable `PLAYWRIGHT_TEST` to Playwright worker processes to allow discriminating on testing status
+
+### Browser Versions
+
+- Chromium 141.0.7390.37
+- Mozilla Firefox 142.0.1
+- WebKit 26.0
+
+## Version 1.55
+
+### New APIs
+
+- New Property [`property: TestStepInfo.titlePath`] Returns the full title path starting from the test file, including test and step titles.
+
+### Codegen
+
+- Automatic `toBeVisible()` assertions: Codegen can now generate automatic `toBeVisible()` assertions for common UI interactions. This feature can be enabled in the Codegen settings UI.
+
+### Breaking Changes
+
+- ⚠️ Dropped support for Chromium extension manifest v2.
+
+### Miscellaneous
+
+- Added support for Debian 13 "Trixie".
+
+### Browser Versions
+
+- Chromium 140.0.7339.16
+- Mozilla Firefox 141.0
+- WebKit 26.0
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 139
+- Microsoft Edge 139
+
+## Version 1.54
+
+### Highlights
+
+- New cookie property `partitionKey` in [`method: BrowserContext.cookies`] and [`method: BrowserContext.addCookies`]. This property allows to save and restore partitioned cookies. See [CHIPS MDN article](https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Privacy_sandbox/Partitioned_cookies) for more information. Note that browsers have different support and defaults for cookie partitioning.
+
+- New option `noSnippets` to disable code snippets in the html report.
+  ```js
+  import { defineConfig } from '@playwright/test';
+
+  export default defineConfig({
+    reporter: [['html', { noSnippets: true }]]
+  });
+  ```
+
+- New property `location` in test annotations, for example in [`property: TestResult.annotations`] and [`property: TestInfo.annotations`]. It shows where the annotation like `test.skip` or `test.fixme` was added.
+
+### Command Line
+
+- New option `--user-data-dir` in multiple commands. You can specify the same user data dir to reuse browsing state, like authentication, between sessions.
+  ```bash
+  npx playwright codegen --user-data-dir=./user-data
+  ```
+
+- Option `-gv` has been removed from the `npx playwright test` command. Use `--grep-invert` instead.
+
+- `npx playwright open` does not open the test recorder anymore. Use `npx playwright codegen` instead.
+
+### Miscellaneous
+
+- Support for Node.js 16 has been removed.
+
+- Support for Node.js 18 has been deprecated, and will be removed in the future.
+
+### Browser Versions
+
+- Chromium 139.0.7258.5
+- Mozilla Firefox 140.0.2
+- WebKit 26.0
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 140
+- Microsoft Edge 140
+
+## Version 1.53
+
+### Trace Viewer and HTML Reporter Updates
+
+- New Steps in Trace Viewer and HTML reporter:
+  <img src="https://github.com/user-attachments/assets/1963ff7d-4070-41be-a79b-4333176921a2" alt="New Trace Viewer Steps" width="1562" height="1364" />
+- New option in `'html'` reporter to set the title of a specific test run:
+  ```js
+  import { defineConfig } from '@playwright/test';
+
+  export default defineConfig({
+    reporter: [['html', { title: 'Custom test run #1028' }]]
+  });
+  ```
+
+### Miscellaneous
+
+- New option [`option: TestInfo.snapshotPath.kind`] in [`method: TestInfo.snapshotPath`] controls which snapshot path template is used.
+- New method [`method: Locator.describe`] to describe a locator. Used for trace viewer and reports.
+  ```js
+  const button = page.getByTestId('btn-sub').describe('Subscribe button');
+  await button.click();
+  ```
+- `npx playwright install --list` will now list all installed browsers, versions and locations.
+
+### Browser Versions
+
+- Chromium 138.0.7204.4
+- Mozilla Firefox 139.0
+- WebKit 18.5
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 137
+- Microsoft Edge 137
+
+## Version 1.52
+
+### Highlights
+
+- New method [`method: LocatorAssertions.toContainClass`] to ergonomically assert individual class names on the element.
+
+  ```ts
+  await expect(page.getByRole('listitem', { name: 'Ship v1.52' })).toContainClass('done');
+  ```
+
+- [Aria Snapshots](./aria-snapshots.md) got two new properties: [`/children`](./aria-snapshots.md#strict-matching) for strict matching and [`/url`](./aria-snapshots.md#links) for links.
+
+  ```ts
+  await expect(locator).toMatchAriaSnapshot(`
+    - list
+      - /children: equal
+      - listitem: Feature A
+      - listitem:
+        - link "Feature B":
+          - /url: "https://playwright.dev"
+  `);
+  ```
+
+### Test Runner
+
+- New property [`property: TestProject.workers`] allows to specify the number of concurrent worker processes to use for a test project. The global limit of property [`property: TestConfig.workers`] still applies.
+- New [`property: TestConfig.failOnFlakyTests`] option to fail the test run if any flaky tests are detected, similarly to `--fail-on-flaky-tests`. This is useful for CI/CD environments where you want to ensure that all tests are stable before deploying.
+- New property [`property: TestResult.annotations`] contains annotations for each test retry.
+
+### Miscellaneous
+
+- New option [`option: APIRequest.newContext.maxRedirects`] in [`method: APIRequest.newContext`] to control the maximum number of redirects.
+- HTML reporter now supports *NOT filtering* via `!@my-tag` or `!my-file.spec.ts` or `!p:my-project`.
+
+### Breaking Changes
+
+- Glob URL patterns in methods like [`method: Page.route`] do not support `?` and `[]` anymore. We recommend using regular expressions instead.
+- Method [`method: Route.continue`] does not allow to override the `Cookie` header anymore. If a `Cookie` header is provided, it will be ignored, and the cookie will be loaded from the browser's cookie store. To set custom cookies, use [`method: BrowserContext.addCookies`].
+- macOS 13 is now deprecated and will no longer receive WebKit updates. Please upgrade to a more recent macOS version to continue benefiting from the latest WebKit improvements.
+
+### Browser Versions
+
+- Chromium 136.0.7103.25
+- Mozilla Firefox 137.0
+- WebKit 18.4
+
+This version was also tested against the following stable channels:
+
+- Google Chrome 135
+- Microsoft Edge 135
+
+## Version 1.51
+
+### StorageState for indexedDB
+
+* New option [`option: BrowserContext.storageState.indexedDB`] for [`method: BrowserContext.storageState`] allows to save and restore IndexedDB contents. Useful when your application uses [IndexedDB API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) to store authentication tokens, like Firebase Authentication.
+
+  Here is an example following the [authentication guide](./auth.md#basic-shared-account-in-all-tests):
+
+  ```js title="tests/auth.setup.ts"
+  import { test as setup, expect } from '@playwright/test';
+  import path from 'path';
+
+  const authFile = path.join(__dirname, '../playwright/.auth/user.json');
+
+  setup('authenticate', async ({ page }) => {
+    await page.goto('/');
+    // ... perform authentication steps ...
+
+    // make sure to save indexedDB
+    await page.context().storageState({ path: authFile, indexedDB: true });
+  });
+  ```
+
+### Copy as prompt
+
+New "Copy prompt" button on errors in the HTML report, trace viewer and UI mode. Click to copy a pre-filled LLM prompt that contains the error message and useful context for fixing the error.
+
+  <img src="https://github.com/user-attachments/assets/f3654407-dd6d-4240-9845-0d96df2bf30a" alt="Copy prompt" width="2178" height="1592" />
+
+### Filter visible elements
+
+New option [`option: Locator.filter.visible`] for [`method: Locator.filter`] allows matching only visible elements.
+
+  ```js title="example.spec.ts"
+  test('some test', async ({ page }) => {
+    // Ignore invisible todo items.
+    const todoItems = page.getByTestId('todo-item').filter({ visible: true });
+    // Check there are exactly 3 visible ones.
+    await expect(todoItems).toHaveCount(3);
+  });
+  ```
+
+### Git information in HTML report
+
+Set option [`property: TestConfig.captureGitInfo`] to capture git information into [`property: TestConfig.metadata`].
+
+  ```js title="playwright.config.ts"
+  import { defineConfig } from '@playwright/test';
+
+  export default defineConfig({
+    captureGitInfo: { commit: true, diff: true }
+  });
+  ```
+
+  HTML report will show this information when available:
+
+  <img src="https://github.com/user-attachments/assets/f5b3f6f4-aa08-4a24-816c-7edf33ef0c37" alt="Git information in the report" width="2514" height="406" />
+
+### Test Step improvements
+
+A new [TestStepInfo] object is now available in test steps. You can add step attachments or skip the step under some conditions.
+
+  ```js
+  test('some test', async ({ page, isMobile }) => {
+    // Note the new "step" argument:
+    await test.step('here is my step', async step => {
+      step.skip(isMobile, 'not relevant on mobile layouts');
+
+      // ...
+      await step.attach('my attachment', { body: 'some text' });
+      // ...
+    });
+  });
+  ```
+
+### Miscellaneous
+
+* New option `contrast` for methods [`method: Page.emulateMedia`] and [`method: Browser.newContext`] allows to emulate the `prefers-contrast` media feature.
+* New option [`option: APIRequest.newContext.failOnStatusCode`] makes all fetch requests made through the [APIRequestContext] throw on response codes other than 2xx and 3xx.
+* Assertion [`method: PageAssertions.toHaveURL`] now supports a predicate.
+
+### Browser Versions
+
+* Chromium 134.0.6998.35
+* Mozilla Firefox 135.0
+* WebKit 18.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 133
+* Microsoft Edge 133
+
+
 ## Version 1.50
 
 ### Test runner
@@ -54,7 +764,7 @@ import LiteYouTube from '@site/src/components/LiteYouTube';
 ### UI updates
 
 * Updated default HTML reporter to improve display of attachments.
-* New button for picking elements to produce aria snapshots.
+* New button in Codegen for picking elements to produce aria snapshots.
 * Additional details (such as keys pressed) are now displayed alongside action API calls in traces.
 * Display of `canvas` content in traces is error-prone. Display is now disabled by default, and can be enabled via the `Display canvas content` UI setting.
 * `Call` and `Network` panels now display additional time information.
@@ -224,7 +934,7 @@ The Network tab in the UI mode and trace viewer has several nice improvements:
 - better display of query string parameters
 - preview of font assets
 
-![Network tab now has filters](https://github.com/user-attachments/assets/4bd1b67d-90bd-438b-a227-00b9e86872e2)
+<img src="https://github.com/user-attachments/assets/4bd1b67d-90bd-438b-a227-00b9e86872e2" alt="Network tab now has filters" width="1712" height="418" />
 
 
 ### `--tsconfig` CLI option
@@ -240,7 +950,7 @@ npx playwright test --tsconfig tsconfig.test.json
 
 You can now pass [`URLSearchParams`](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams) and `string` as query parameters to [APIRequestContext]:
 
-```ts
+```js
 test('query params', async ({ request }) => {
   const searchParams = new URLSearchParams();
   searchParams.set('userId', 1);
@@ -289,7 +999,7 @@ Playwright now allows you to supply client-side certificates, so that server can
 
 The following snippet sets up a client certificate for `https://example.com`:
 
-```ts
+```js
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -330,7 +1040,7 @@ There are two ways to use the router fixture:
 
 Here is an example of reusing your existing MSW handlers in the test.
 
-```ts
+```js
 import { handlers } from '@src/mocks/handlers';
 
 test.beforeEach(async ({ router }) => {
@@ -423,7 +1133,7 @@ See [the clock guide](./clock.md) for more details.
 - New options [`property: TestConfig.respectGitIgnore`] and [`property: TestProject.respectGitIgnore`] control whether files matching `.gitignore` patterns are excluded when searching for tests.
 
 - New property `timeout` is now available for custom expect matchers. This property takes into account `playwright.config.ts` and `expect.configure()`.
-  ```ts
+  ```js
   import { expect as baseExpect } from '@playwright/test';
 
   export const expect = baseExpect.extend({
@@ -438,12 +1148,12 @@ See [the clock guide](./clock.md) for more details.
 ### Miscellaneous
 
 - Method [`method: Locator.setInputFiles`] now supports uploading a directory for `<input type=file webkitdirectory>` elements.
-  ```ts
+  ```js
   await page.getByLabel('Upload directory').setInputFiles(path.join(__dirname, 'mydir'));
   ```
 
 - Multiple methods like [`method: Locator.click`] or [`method: Locator.press`] now support a `ControlOrMeta` modifier key. This key maps to `Meta` on macOS and maps to `Control` on Windows and Linux.
-  ```ts
+  ```js
   // Press the common keyboard shortcut Control+S or Meta+S to trigger a "Save" operation.
   await page.keyboard.press('ControlOrMeta+S');
   ```
@@ -627,7 +1337,7 @@ This version was also tested against the following stable channels:
 
 ### UI Mode Updates
 
-![Playwright UI Mode](https://github.com/microsoft/playwright/assets/9881434/61ca7cfc-eb7a-4305-8b62-b6c9f098f300)
+<img src="https://github.com/microsoft/playwright/assets/9881434/61ca7cfc-eb7a-4305-8b62-b6c9f098f300" alt="Playwright UI Mode" width="2304" height="1492" />
 
 * See tags in the test list.
 * Filter by tags by typing `@fast` or clicking on the tag itself.
@@ -696,7 +1406,7 @@ test('test customer login', {
 npx playwright test --grep @fast
 ```
 
-- `--project` command line [flag](./test-cli#reference) now supports '*' wildcard:
+- `--project` command line [flag](./test-cli#all-options) now supports '*' wildcard:
 ```sh
 npx playwright test --project='*mobile*'
 ```
@@ -760,7 +1470,7 @@ This version was also tested against the following stable channels:
 
 ### Test Generator Update
 
-![Playwright Test Generator](https://github.com/microsoft/playwright/assets/9881434/e8d67e2e-f36d-4301-8631-023948d3e190)
+<img src="https://github.com/microsoft/playwright/assets/9881434/e8d67e2e-f36d-4301-8631-023948d3e190" alt="Playwright Test Generator" width="2788" height="1824" />
 
 New tools to generate assertions:
 - "Assert visibility" tool generates [`method: LocatorAssertions.toBeVisible`].
@@ -920,7 +1630,7 @@ This version was also tested against the following stable channels:
 
 ### UI Mode Updates
 
-![Playwright UI Mode](https://github.com/microsoft/playwright/assets/746130/8ba27be0-58fd-4f62-8561-950480610369)
+<img src="https://github.com/microsoft/playwright/assets/746130/8ba27be0-58fd-4f62-8561-950480610369" alt="Playwright UI Mode" width="1230" height="722" />
 
 1. Zoom into time range.
 1. Network panel redesign.
@@ -1080,11 +1790,11 @@ This version was also tested against the following stable channels:
 
 * UI mode is now available in VSCode Playwright extension via a new "Show trace viewer" button:
 
-  ![Playwright UI Mode](https://github.com/microsoft/playwright/assets/746130/13094128-259b-477a-8bbb-c1181178e8a2)
+  <img src="https://github.com/microsoft/playwright/assets/746130/13094128-259b-477a-8bbb-c1181178e8a2" alt="Playwright UI Mode" width="1274" height="722" />
 
 * UI mode and trace viewer mark network requests handled with [`method: Page.route`] and [`method: BrowserContext.route`] handlers, as well as those issued via the [API testing](./api-testing):
 
-  ![Trace Viewer](https://github.com/microsoft/playwright/assets/746130/0df2d4b6-faa3-465c-aff3-c435b430bfe1)
+  <img src="https://github.com/microsoft/playwright/assets/746130/0df2d4b6-faa3-465c-aff3-c435b430bfe1" alt="Trace Viewer" width="1970" height="1204" />
 
 * New option `maskColor` for methods [`method: Page.screenshot`], [`method: Locator.screenshot`], [`method: PageAssertions.toHaveScreenshot#1`] and [`method: LocatorAssertions.toHaveScreenshot#1`] to change default masking color:
   ```js
@@ -1137,7 +1847,7 @@ This version was also tested against the following stable channels:
 ### Highlights
 
 * UI Mode now shows steps, fixtures and attachments:
-  ![UI Mode attachments](https://github.com/microsoft/playwright/assets/746130/1d280419-d79a-4a56-b2dc-54d631281d56)
+  <img src="https://github.com/microsoft/playwright/assets/746130/1d280419-d79a-4a56-b2dc-54d631281d56" alt="UI Mode attachments" width="2306" height="1754" />
 * New property [`property: TestProject.teardown`] to specify a project that needs to run after this
   and all dependent projects have finished. Teardown is useful to cleanup any resources acquired by this project.
 
@@ -1305,7 +2015,7 @@ This version was also tested against the following stable channels:
 
 New [UI Mode](./test-ui-mode.md) lets you explore, run and debug tests. Comes with a built-in watch mode.
 
-![Playwright UI Mode](https://user-images.githubusercontent.com/746130/227004851-3901a691-4f8e-43d6-8d6b-cbfeafaeb999.png)
+<img src="https://user-images.githubusercontent.com/746130/227004851-3901a691-4f8e-43d6-8d6b-cbfeafaeb999.png" alt="Playwright UI Mode" width="2784" height="1824" />
 
 Engage with a new flag `--ui`:
 
@@ -1498,9 +2208,9 @@ This version was also tested against the following stable channels:
 
   ```html
   <select multiple>
-    <option value="red">Red</div>
-    <option value="green">Green</div>
-    <option value="blue">Blue</div>
+    <option value="red">Red</option>
+    <option value="green">Green</option>
+    <option value="blue">Blue</option>
   </select>
   ```
 
@@ -1560,16 +2270,16 @@ This version was also tested against the following stable channels:
 
 * **Record at Cursor in VSCode.** You can run the test, position the cursor at the end of the test and continue generating the test.
 
-![New VSCode Extension](https://user-images.githubusercontent.com/746130/202005839-aba2eeba-217b-424d-8496-8b4f5fa72f41.png)
+<img src="https://user-images.githubusercontent.com/746130/202005839-aba2eeba-217b-424d-8496-8b4f5fa72f41.png" alt="New VSCode Extension" width="2704" height="1814" />
 
 * **Live Locators in VSCode.** You can hover and edit locators in VSCode to get them  highlighted in the opened browser.
 * **Live Locators in CodeGen.** Generate a locator for any element on the page using "Explore" tool.
 
-![Locator Explorer](https://user-images.githubusercontent.com/746130/201796876-01567a0b-ca61-4a9d-b12b-04786c471671.png)
+<img src="https://user-images.githubusercontent.com/746130/201796876-01567a0b-ca61-4a9d-b12b-04786c471671.png" alt="Locator Explorer" width="1382" height="1090" />
 
 * **Codegen and Trace Viewer Dark Theme.** Automatically picked up from operating system settings.
 
-![Dark Theme](https://user-images.githubusercontent.com/746130/201797969-603f74df-d7cf-4c56-befd-798dbd269796.png)
+<img src="https://user-images.githubusercontent.com/746130/201797969-603f74df-d7cf-4c56-befd-798dbd269796.png" alt="Dark Theme" width="2418" height="1726" />
 
 
 ### Test Runner
@@ -1746,13 +2456,13 @@ This version was also tested against the following stable channels:
 * Pick selector.
 * Record new test from current page state.
 
-![vscode extension screenshot](https://user-images.githubusercontent.com/746130/183781999-1b9fdbc5-cfae-47d6-b4f7-5d4ae89716a8.jpg)
+<img src="https://user-images.githubusercontent.com/746130/183781999-1b9fdbc5-cfae-47d6-b4f7-5d4ae89716a8.jpg" alt="vscode extension screenshot" width="2560" height="1039" />
 
 ### Test Runner
 
 * [`method: Test.step`] now returns the value of the step function:
 
-    ```ts
+    ```js
     test('should work', async ({ page }) => {
       const pageTitle = await test.step('get title', async () => {
         await page.goto('https://playwright.dev');
@@ -1796,7 +2506,7 @@ This version was also tested against the following stable channels:
 
 Launch multiple web servers, databases, or other processes by passing an array of configurations:
 
-```ts title="playwright.config.ts"
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   webServer: [
@@ -1836,7 +2546,7 @@ Linux support looks like this:
 
 It is now possible to call [`method: Test.describe`] to create suites without a title. This is useful for giving a group of tests a common option with [`method: Test.use`].
 
-```ts
+```js
 test.describe(() => {
   test.use({ colorScheme: 'dark' });
 
@@ -1927,7 +2637,7 @@ npx playwright open --save-har=github.har.zip https://github.com/microsoft
 
 Alternatively, you can record HAR programmatically:
 
-```ts
+```js
 const context = await browser.newContext({
   recordHar: { path: 'github.har.zip' }
 });
@@ -1938,7 +2648,7 @@ await context.close();
 Use the new methods [`method: Page.routeFromHAR`] or [`method: BrowserContext.routeFromHAR`] to serve matching responses from the [HAR](http://www.softwareishard.com/blog/har-12-spec/) file:
 
 
-```ts
+```js
 await context.routeFromHAR('github.har.zip');
 ```
 
@@ -1951,7 +2661,7 @@ You can now use [`method: Route.fallback`] to defer routing to other handlers.
 
 Consider the following example:
 
-```ts
+```js
 // Remove a header from all requests.
 test.beforeEach(async ({ page }) => {
   await page.route('**/*', async route => {
@@ -1988,7 +2698,7 @@ Read more about [component testing with Playwright](./test-components).
 ### Miscellaneous
 
 * If there's a service worker that's in your way, you can now easily disable it with a new context option `serviceWorkers`:
-  ```ts title="playwright.config.ts"
+  ```js title="playwright.config.ts"
   export default {
     use: {
       serviceWorkers: 'block',
@@ -1996,7 +2706,7 @@ Read more about [component testing with Playwright](./test-components).
   };
   ```
 * Using `.zip` path for `recordHar` context option automatically zips the resulting HAR:
-  ```ts
+  ```js
   const context = await browser.newContext({
     recordHar: {
       path: 'github.har.zip',
@@ -2005,7 +2715,7 @@ Read more about [component testing with Playwright](./test-components).
   ```
 * If you intend to edit HAR by hand, consider using the `"minimal"` HAR recording mode
   that only records information that is essential for replaying:
-  ```ts
+  ```js
   const context = await browser.newContext({
     recordHar: {
       path: 'github.har',
@@ -2035,15 +2745,15 @@ WebServer is now considered "ready" if request to the specified url has any of t
 
 - Components Testing (preview)
 
-  Playwright Test can now test your [React](https://reactjs.org/),
-  [Vue.js](https://vuejs.org/) or [Svelte](https://svelte.dev/) components.
+  Playwright Test can now test your [React](https://reactjs.org/)
+  or [Vue.js](https://vuejs.org/) components.
   You can use all the features
   of Playwright Test (such as parallelization, emulation & debugging) while running components
   in real browsers.
 
   Here is what a typical component test looks like:
 
-  ```ts title="App.spec.tsx"
+  ```js title="App.spec.tsx"
   import { test, expect } from '@playwright/experimental-ct-react';
   import App from './App';
 
@@ -2181,7 +2891,7 @@ This version was also tested against the following stable channels:
 
 - Playwright Test now adds [`property: TestConfig.fullyParallel`] mode. By default, Playwright Test parallelizes between files. In fully parallel mode, tests inside a single file are also run in parallel. You can also use `--fully-parallel` command line flag.
 
-  ```ts title="playwright.config.ts"
+  ```js title="playwright.config.ts"
   export default {
     fullyParallel: true,
   };
@@ -2189,7 +2899,7 @@ This version was also tested against the following stable channels:
 
 - [`property: TestProject.grep`] and [`property: TestProject.grepInvert`] are now configurable per project. For example, you can now
   configure smoke tests project using `grep`:
-  ```ts title="playwright.config.ts"
+  ```js title="playwright.config.ts"
   export default {
     projects: [
       {
@@ -2426,7 +3136,7 @@ This version was also tested against the following stable channels:
 
 Playwright 1.17 introduces [frame locators](./api/class-framelocator) - a locator to the iframe on the page. Frame locators capture the logic sufficient to retrieve the `iframe` and then locate elements in that iframe. Frame locators are strict by default, will wait for `iframe` to appear and can be used in Web-First assertions.
 
-![Graphics](https://user-images.githubusercontent.com/746130/142082759-2170db38-370d-43ec-8d41-5f9941f57d83.png)
+<img src="https://user-images.githubusercontent.com/746130/142082759-2170db38-370d-43ec-8d41-5f9941f57d83.png" alt="Graphics" width="600" height="237" />
 
 Frame locators can be created with either [`method: Page.frameLocator`] or [`method: Locator.frameLocator`] method.
 
@@ -2448,14 +3158,14 @@ Playwright Trace Viewer is now **available online** at https://trace.playwright.
 - New trace metadata tab with browser details
 - Snapshots now have URL bar
 
-![image](https://user-images.githubusercontent.com/746130/141877831-29e37cd1-e574-4bd9-aab5-b13a463bb4ae.png)
+<img src="https://user-images.githubusercontent.com/746130/141877831-29e37cd1-e574-4bd9-aab5-b13a463bb4ae.png" alt="image" width="2230" height="1562" />
 
 ### HTML Report Update
 
 - HTML report now supports dynamic filtering
 - Report is now a **single static HTML file** that could be sent by e-mail or as a slack attachment.
 
-![image](https://user-images.githubusercontent.com/746130/141877402-e486643d-72c7-4db3-8844-ed2072c5d676.png)
+<img src="https://user-images.githubusercontent.com/746130/141877402-e486643d-72c7-4db3-8844-ed2072c5d676.png" alt="image" width="2494" height="1624" />
 
 ### Ubuntu ARM64 support + more
 
@@ -2498,7 +3208,7 @@ Now you can:
 
 To do a request on behalf of Playwright's Page, use **new [`property: Page.request`] API**:
 
-```ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('context fetch', async ({ page }) => {
@@ -2510,7 +3220,7 @@ test('context fetch', async ({ page }) => {
 
 To do a stand-alone request from node.js to an API endpoint, use **new [`request` fixture](./api/class-fixtures#fixtures-request)**:
 
-```ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('context fetch', async ({ request }) => {
@@ -2528,7 +3238,7 @@ It is now possible to do response interception by combining [API Testing](./api-
 
 For example, we can blur all the images on the page:
 
-```ts
+```js
 import { test, expect } from '@playwright/test';
 import jimp from 'jimp'; // image processing library
 
@@ -2561,7 +3271,7 @@ $ npx playwright test --reporter=html
 The HTML reporter has all the information about tests and their failures, including surfacing
 trace and image artifacts.
 
-![html reporter](https://user-images.githubusercontent.com/746130/138324311-94e68b39-b51a-4776-a446-f60037a77f32.png)
+<img src="https://user-images.githubusercontent.com/746130/138324311-94e68b39-b51a-4776-a446-f60037a77f32.png" alt="html reporter" width="720" height="1536" />
 
 Read more about [our reporters](./test-reporters#html-reporter).
 
@@ -2574,7 +3284,7 @@ Defaults to the `state: 'visible'`.
 
 Comes especially handy when working with lists:
 
-```ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('context fetch', async ({ page }) => {
@@ -2654,7 +3364,7 @@ Its now possible to emulate the `forced-colors` CSS media feature by passing it 
 
 #### 🤝 `test.parallel()` run tests in the same file in parallel
 
-```ts
+```js
 test.describe.parallel('group', () => {
   test('runs in parallel 1', async ({ page }) => {
   });
@@ -2711,7 +3421,7 @@ await locator.click();
 
 Learn more in the [documentation](./api/class-locator).
 
-#### 🧩 Experimental [**React**](./other-locators.md#react-locator) and [**Vue**](./other-locators.md#vue-locator) selector engines
+#### 🧩 Experimental [**React**](./other-locators.md) and [**Vue**](./other-locators.md) selector engines
 
 React and Vue selectors allow selecting elements by its component name and/or property values. The syntax is very similar to [attribute selectors](https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors) and supports all attribute selector operators.
 
@@ -2720,7 +3430,7 @@ await page.locator('_react=SubmitButton[enabled=true]').click();
 await page.locator('_vue=submit-button[enabled=true]').click();
 ```
 
-Learn more in the [react selectors documentation](./other-locators.md#react-locator) and the [vue selectors documentation](./other-locators.md#vue-locator).
+Learn more in the [react selectors documentation](./other-locators.md) and the [vue selectors documentation](./other-locators.md).
 
 #### ✨ New [**`nth`**](./other-locators.md#n-th-element-locator) and [**`visible`**](./other-locators.md#css-matching-only-visible-elements) selector engines
 
@@ -2779,7 +3489,7 @@ List of all new assertions:
 
 Declares a group of tests that should always be run serially. If one of the tests fails, all subsequent tests are skipped. All tests in a group are retried together.
 
-```ts
+```js
 test.describe.serial('group', () => {
   test('runs first', async ({ page }) => { /* ... */ });
   test('runs second', async ({ page }) => { /* ... */ });
@@ -2792,7 +3502,7 @@ Learn more in the [documentation](./api/class-test#test-describe-serial).
 
 Split long tests into multiple steps using `test.step()` API:
 
-```ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('test', async ({ page }) => {
@@ -2811,7 +3521,7 @@ Step information is exposed in reporters API.
 
 To launch a server during the tests, use the [`webServer`](./test-webserver) option in the configuration file. The server will wait for a given url to be available before running the tests, and the url will be passed over to Playwright as a [`baseURL`](./api/class-testoptions#test-options-base-url) when creating a context.
 
-```ts title="playwright.config.ts"
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   webServer: {
@@ -2895,7 +3605,7 @@ npm i -D @playwright/test
 
 Simple test `tests/foo.spec.ts`:
 
-```ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }) => {
@@ -2922,7 +3632,7 @@ npx playwright test
 
 Traces are recorded using the new [`property: BrowserContext.tracing`] API:
 
-```ts
+```js
 const browser = await chromium.launch();
 const context = await browser.newContext();
 
@@ -2945,7 +3655,7 @@ npx playwright show-trace trace.zip
 
 That will open the following GUI:
 
-![image](https://user-images.githubusercontent.com/746130/121109654-d66c4480-c7c0-11eb-8d4d-eb70d2b03811.png)
+<img src="https://user-images.githubusercontent.com/746130/121109654-d66c4480-c7c0-11eb-8d4d-eb70d2b03811.png" alt="image" width="2424" height="1544" />
 
 👉 Read more in [trace viewer documentation](./trace-viewer.md).
 

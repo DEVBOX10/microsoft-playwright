@@ -14,31 +14,30 @@
  * limitations under the License.
  */
 
-import { expectTypes, callLogText } from '../util';
-import { kNoElementsFoundError, matcherHint } from './matcherHint';
+import { expectTypes, formatMatcherMessage } from './matcherHint';
+
 import type { MatcherResult } from './matcherHint';
-import type { ExpectMatcherState } from '../../types/test';
 import type { Locator } from 'playwright-core';
+import type { ExpectResult } from 'playwright-core/lib/client/frame';
+import type { ExpectMatcherStateInternal } from './matchers';
 
 export async function toBeTruthy(
-  this: ExpectMatcherState,
+  this: ExpectMatcherStateInternal,
   matcherName: string,
-  receiver: Locator,
-  receiverType: string,
+  locator: Locator,
+  receiverType: 'Locator',
   expected: string,
   arg: string,
-  query: (isNot: boolean, timeout: number) => Promise<{ matches: boolean, log?: string[], received?: any, timedOut?: boolean }>,
+  query: (isNot: boolean, timeout: number) => Promise<ExpectResult>,
   options: { timeout?: number } = {},
 ): Promise<MatcherResult<any, any>> {
-  expectTypes(receiver, [receiverType], matcherName);
-
-  const matcherOptions = {
-    isNot: this.isNot,
-    promise: this.promise,
-  };
+  expectTypes(locator, [receiverType], matcherName);
 
   const timeout = options.timeout ?? this.timeout;
-  const { matches: pass, log, timedOut, received } = await query(!!this.isNot, timeout);
+
+  const { matches: pass, log, timedOut, received, errorMessage } = await query(!!this.isNot, timeout);
+  const receivedValue = received?.value;
+
   if (pass === !this.isNot) {
     return {
       name: matcherName,
@@ -48,28 +47,39 @@ export async function toBeTruthy(
     };
   }
 
-  const notFound = received === kNoElementsFoundError ? received : undefined;
   let printedReceived: string | undefined;
   let printedExpected: string | undefined;
   if (pass) {
     printedExpected = `Expected: not ${expected}`;
-    printedReceived = `Received: ${notFound ? kNoElementsFoundError : expected}`;
+    printedReceived = errorMessage ? '' : `Received: ${expected}`;
   } else {
     printedExpected = `Expected: ${expected}`;
-    printedReceived = `Received: ${notFound ? kNoElementsFoundError : received}`;
+    printedReceived = errorMessage ? '' : `Received: ${receivedValue}`;
   }
   const message = () => {
-    const header = matcherHint(this, receiver, matcherName, 'locator', arg, matcherOptions, timedOut ? timeout : undefined);
-    const logText = callLogText(log);
-    return `${header}${printedExpected}\n${printedReceived}${logText}`;
+    return formatMatcherMessage(this.utils, {
+      isNot: this.isNot,
+      promise: this.promise,
+      matcherName,
+      expectation: arg,
+      locator: locator.toString(),
+      timeout,
+      timedOut,
+      printedExpected,
+      printedReceived,
+      errorMessage,
+      log,
+    });
   };
+
   return {
     message,
     pass,
-    actual: received,
+    actual: receivedValue,
     name: matcherName,
     expected,
     log,
     timeout: timedOut ? timeout : undefined,
+    ariaSnapshot: received?.ariaSnapshot,
   };
 }

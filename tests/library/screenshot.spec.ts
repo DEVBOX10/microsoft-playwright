@@ -22,9 +22,7 @@ import { verifyViewport } from '../config/utils';
 browserTest.describe('page screenshot', () => {
   browserTest.skip(({ browserName, headless }) => browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
 
-  browserTest('should run in parallel in multiple pages', async ({ server, contextFactory, browserName, isHeadlessShell }) => {
-    browserTest.fixme(browserName === 'chromium' && !isHeadlessShell, 'https://github.com/microsoft/playwright/issues/33330');
-
+  browserTest('should run in parallel in multiple pages', async ({ server, contextFactory }) => {
     const context = await contextFactory();
     const N = 5;
     const pages = await Promise.all(Array(N).fill(0).map(async () => {
@@ -52,7 +50,7 @@ browserTest.describe('page screenshot', () => {
     await context.close();
   });
 
-  browserTest('should work with a mobile viewport and clip', async ({ browser, server, browserName, channel }) => {
+  browserTest('should work with a mobile viewport and clip', async ({ browser, server, browserName }) => {
     browserTest.skip(browserName === 'firefox');
 
     const context = await browser.newContext({ viewport: { width: 320, height: 480 }, isMobile: true });
@@ -75,7 +73,6 @@ browserTest.describe('page screenshot', () => {
   });
 
   browserTest('should work with device scale factor', async ({ browser, server, isMac, browserName }) => {
-    browserTest.fixme(isMac && browserName === 'webkit');
     const context = await browser.newContext({ viewport: { width: 320, height: 480 }, deviceScaleFactor: 2 });
     const page = await context.newPage();
     await page.goto(server.PREFIX + '/grid.html');
@@ -102,6 +99,18 @@ browserTest.describe('page screenshot', () => {
     await context.close();
   });
 
+  browserTest('should produce screenshot of correct size with scale:css and null viewport', async ({ browser, server }) => {
+    const context = await browser.newContext({ viewport: null });
+    const page = await context.newPage();
+    await page.goto(server.PREFIX + '/grid.html');
+    const [innerWidth, innerHeight] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
+    const screenshot = await page.screenshot({ scale: 'css' });
+    const decoded = PNG.sync.read(screenshot);
+    expect(decoded.width).toBe(innerWidth);
+    expect(decoded.height).toBe(innerHeight);
+    await context.close();
+  });
+
   browserTest('should work with device scale factor, clip and scale:css', async ({ browser, server }) => {
     const context = await browser.newContext({ viewport: { width: 500, height: 500 }, deviceScaleFactor: 3 });
     const page = await context.newPage();
@@ -111,7 +120,7 @@ browserTest.describe('page screenshot', () => {
     await context.close();
   });
 
-  browserTest('should throw if screenshot size is too large with device scale factor', async ({ browser, browserName, isMac }) => {
+  browserTest('should throw if screenshot size is too large with device scale factor', async ({ browser, browserName, isMac, isBidi }) => {
     browserTest.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16727' });
     const context = await browser.newContext({ viewport: { width: 500, height: 500 }, deviceScaleFactor: 2 });
     const page = await context.newPage();
@@ -123,7 +132,7 @@ browserTest.describe('page screenshot', () => {
     {
       await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: 16384px; background: red;'></div>`);
       const exception = await page.screenshot({ fullPage: true }).catch(e => e);
-      if (browserName === 'firefox' || (browserName === 'webkit' && !isMac))
+      if ((browserName === 'firefox' && !isBidi) || (browserName === 'webkit' && !isMac))
         expect(exception.message).toContain('Cannot take screenshot larger than 32767');
 
       const image = await page.screenshot({ fullPage: true, scale: 'css' });
@@ -132,8 +141,12 @@ browserTest.describe('page screenshot', () => {
     await context.close();
   });
 
-  browserTest('should work with large size', async ({ browserName, headless, platform, contextFactory }) => {
+  browserTest('should work with large size', {
+    annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/4038' },
+  }, async ({ browserName, headless, platform, contextFactory, channel }) => {
     browserTest.fixme(browserName === 'chromium' && !headless && platform === 'linux', 'Chromium has gpu problems on linux with large screenshots');
+    // TODO: figure this out. https://github.com/microsoft/playwright/issues/38476
+    browserTest.fixme(platform === 'darwin' && browserName === 'chromium', 'SwiftShader is forced on Mac, and does not render below 8192px');
     browserTest.slow(true, 'Large screenshot is slow');
 
     const context = await contextFactory();
@@ -203,8 +216,8 @@ browserTest.describe('page screenshot', () => {
 browserTest.describe('element screenshot', () => {
   browserTest.skip(({ browserName, headless }) => browserName === 'firefox' && !headless);
 
-  browserTest('element screenshot should work with a mobile viewport', async ({ browser, server, browserName }) => {
-    browserTest.skip(browserName === 'firefox');
+  browserTest('element screenshot should work with a mobile viewport', async ({ browser, server, browserName, isBidi }) => {
+    browserTest.skip(browserName === 'firefox' && !isBidi);
 
     const context = await browser.newContext({ viewport: { width: 320, height: 480 }, isMobile: true });
     const page = await context.newPage();
@@ -216,9 +229,8 @@ browserTest.describe('element screenshot', () => {
     await context.close();
   });
 
-  browserTest('element screenshot should work with device scale factor', async ({ browser, server, browserName, isMac }) => {
-    browserTest.skip(browserName === 'firefox');
-    browserTest.fixme(isMac && browserName === 'webkit');
+  browserTest('element screenshot should work with device scale factor', async ({ browser, server, browserName, isBidi }) => {
+    browserTest.skip(browserName === 'firefox' && !isBidi);
 
     const context = await browser.newContext({ viewport: { width: 320, height: 480 }, deviceScaleFactor: 2 });
     const page = await context.newPage();

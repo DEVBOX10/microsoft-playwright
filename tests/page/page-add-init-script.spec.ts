@@ -84,7 +84,36 @@ it('should work after a cross origin navigation', async ({ page, server }) => {
   expect(await page.evaluate(() => window['result'])).toBe(123);
 });
 
-it('init script should run only once in iframe', async ({ page, server, browserName }) => {
+it('should remove init script after dispose', async ({ page, server }) => {
+  const disposable = await page.addInitScript(function() {
+    window['injected'] = 123;
+  });
+  await page.goto(server.PREFIX + '/tamperable.html');
+  expect(await page.evaluate(() => window['result'])).toBe(123);
+
+  await disposable.dispose();
+  await page.goto(server.PREFIX + '/tamperable.html');
+  expect(await page.evaluate(() => window['result'])).toBe(undefined);
+});
+
+it('should remove one of multiple init scripts after dispose', async ({ page, server }) => {
+  const disposable1 = await page.addInitScript(function() {
+    window['script1'] = 1;
+  });
+  await page.addInitScript(function() {
+    window['script2'] = 2;
+  });
+  await page.goto(server.PREFIX + '/tamperable.html');
+  expect(await page.evaluate(() => window['script1'])).toBe(1);
+  expect(await page.evaluate(() => window['script2'])).toBe(2);
+
+  await disposable1.dispose();
+  await page.goto(server.PREFIX + '/tamperable.html');
+  expect(await page.evaluate(() => window['script1'])).toBe(undefined);
+  expect(await page.evaluate(() => window['script2'])).toBe(2);
+});
+
+it('init script should run only once in iframe', async ({ page, server, browserName, isBidi }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26992' });
   const messages = [];
   page.on('console', event => {
@@ -95,17 +124,6 @@ it('init script should run only once in iframe', async ({ page, server, browserN
   await page.goto(server.PREFIX + '/frames/one-frame.html');
   expect(messages).toEqual([
     'init script: /frames/one-frame.html',
-    'init script: ' + (browserName === 'firefox' ? 'no url yet' : '/frames/frame.html'),
+    'init script: ' + (browserName === 'firefox' && !isBidi ? 'no url yet' : '/frames/frame.html'),
   ]);
-});
-
-it('init script should run only once in popup', async ({ page, browserName }) => {
-  await page.context().addInitScript(() => {
-    window['callCount'] = (window['callCount'] || 0) + 1;
-  });
-  const [popup] = await Promise.all([
-    page.waitForEvent('popup'),
-    page.evaluate(() => window.open('about:blank')),
-  ]);
-  expect(await popup.evaluate('callCount')).toEqual(1);
 });

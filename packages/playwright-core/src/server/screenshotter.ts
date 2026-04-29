@@ -15,16 +15,18 @@
  * limitations under the License.
  */
 
-import type * as dom from './dom';
-import type { Rect } from '../common/types';
+import { MultiMap } from '@isomorphic/multimap';
+import { assert } from '@isomorphic/assert';
 import { helper } from './helper';
-import type { Page } from './page';
+
+import type * as dom from './dom';
 import type { Frame } from './frames';
-import type { ParsedSelector } from '../utils/isomorphic/selectorParser';
-import type * as types from './types';
+import type { Page } from './page';
 import type { Progress } from './progress';
-import { assert } from '../utils';
-import { MultiMap } from '../utils/multimap';
+import type * as types from './types';
+import type { Rect } from '@isomorphic/types';
+import type { ParsedSelector } from '@isomorphic/selectorParser';
+
 
 declare global {
   interface Window {
@@ -171,12 +173,11 @@ export class Screenshotter {
     this._queue = new TaskQueue();
   }
 
-  private async _originalViewportSize(progress: Progress): Promise<{ viewportSize: types.Size, originalViewportSize: types.Size | null }> {
-    const originalViewportSize = this._page.viewportSize();
-    let viewportSize = originalViewportSize;
+  private async _originalViewportSize(progress: Progress): Promise<types.Size> {
+    let viewportSize = this._page.emulatedSize()?.viewport;
     if (!viewportSize)
       viewportSize = await this._page.mainFrame().waitForFunctionValueInUtility(progress, () => ({ width: window.innerWidth, height: window.innerHeight }));
-    return { viewportSize, originalViewportSize };
+    return viewportSize;
   }
 
   private async _fullPageSize(progress: Progress): Promise<types.Size> {
@@ -201,132 +202,126 @@ export class Screenshotter {
 
   async screenshotPage(progress: Progress, options: ScreenshotOptions): Promise<Buffer> {
     const format = validateScreenshotOptions(options);
-    return this._queue.postTask(async () => {
+    return this._queue._postTask(async () => {
       progress.log('taking page screenshot');
-      const { viewportSize } = await this._originalViewportSize(progress);
+      const viewportSize = await this._originalViewportSize(progress);
       await this._preparePageForScreenshot(progress, this._page.mainFrame(), options.style, options.caret !== 'initial', options.animations === 'disabled');
-      progress.throwIfAborted(); // Avoid restoring after failure - should be done by cleanup.
-
-      if (options.fullPage) {
-        const fullPageSize = await this._fullPageSize(progress);
-        let documentRect = { x: 0, y: 0, width: fullPageSize.width, height: fullPageSize.height };
-        const fitsViewport = fullPageSize.width <= viewportSize.width && fullPageSize.height <= viewportSize.height;
-        if (options.clip)
-          documentRect = trimClipToSize(options.clip, documentRect);
-        const buffer = await this._screenshot(progress, format, documentRect, undefined, fitsViewport, options);
-        progress.throwIfAborted(); // Avoid restoring after failure - should be done by cleanup.
+      try {
+        if (options.fullPage) {
+          const fullPageSize = await this._fullPageSize(progress);
+          let documentRect = { x: 0, y: 0, width: fullPageSize.width, height: fullPageSize.height };
+          const fitsViewport = fullPageSize.width <= viewportSize.width && fullPageSize.height <= viewportSize.height;
+          if (options.clip)
+            documentRect = trimClipToSize(options.clip, documentRect);
+          return await this._screenshot(progress, format, documentRect, undefined, fitsViewport, options);
+        }
+        const viewportRect = options.clip ? trimClipToSize(options.clip, viewportSize) : { x: 0, y: 0, ...viewportSize };
+        return await this._screenshot(progress, format, undefined, viewportRect, true, options);
+      } finally {
         await this._restorePageAfterScreenshot();
-        return buffer;
       }
-
-      const viewportRect = options.clip ? trimClipToSize(options.clip, viewportSize) : { x: 0, y: 0, ...viewportSize };
-      const buffer = await this._screenshot(progress, format, undefined, viewportRect, true, options);
-      progress.throwIfAborted(); // Avoid restoring after failure - should be done by cleanup.
-      await this._restorePageAfterScreenshot();
-      return buffer;
     });
   }
 
   async screenshotElement(progress: Progress, handle: dom.ElementHandle, options: ScreenshotOptions): Promise<Buffer> {
     const format = validateScreenshotOptions(options);
-    return this._queue.postTask(async () => {
+    return this._queue._postTask(async () => {
       progress.log('taking element screenshot');
-      const { viewportSize } = await this._originalViewportSize(progress);
+      const viewportSize = await this._originalViewportSize(progress);
 
       await this._preparePageForScreenshot(progress, handle._frame, options.style, options.caret !== 'initial', options.animations === 'disabled');
-      progress.throwIfAborted(); // Do not do extra work.
+      try {
+        await handle._waitAndScrollIntoViewIfNeeded(progress, true /* waitForVisible */);
 
-      await handle._waitAndScrollIntoViewIfNeeded(progress, true /* waitForVisible */);
+        const boundingBox = await handle.boundingBox(progress);
+        assert(boundingBox, 'Node is either not visible or not an HTMLElement');
+        assert(boundingBox.width !== 0, 'Node has 0 width.');
+        assert(boundingBox.height !== 0, 'Node has 0 height.');
 
-      progress.throwIfAborted(); // Do not do extra work.
-      const boundingBox = await handle.boundingBox();
-      assert(boundingBox, 'Node is either not visible or not an HTMLElement');
-      assert(boundingBox.width !== 0, 'Node has 0 width.');
-      assert(boundingBox.height !== 0, 'Node has 0 height.');
-
-      const fitsViewport = boundingBox.width <= viewportSize.width && boundingBox.height <= viewportSize.height;
-      progress.throwIfAborted(); // Avoid extra work.
-      const scrollOffset = await this._page.mainFrame().waitForFunctionValueInUtility(progress, () => ({ x: window.scrollX, y: window.scrollY }));
-      const documentRect = { ...boundingBox };
-      documentRect.x += scrollOffset.x;
-      documentRect.y += scrollOffset.y;
-      const buffer = await this._screenshot(progress, format, helper.enclosingIntRect(documentRect), undefined, fitsViewport, options);
-      progress.throwIfAborted(); // Avoid restoring after failure - should be done by cleanup.
-      await this._restorePageAfterScreenshot();
-      return buffer;
+        const fitsViewport = boundingBox.width <= viewportSize.width && boundingBox.height <= viewportSize.height;
+        const scrollOffset = await this._page.mainFrame().waitForFunctionValueInUtility(progress, () => ({ x: window.scrollX, y: window.scrollY }));
+        const documentRect = { ...boundingBox };
+        documentRect.x += scrollOffset.x;
+        documentRect.y += scrollOffset.y;
+        return await this._screenshot(progress, format, helper.enclosingIntRect(documentRect), undefined, fitsViewport, options);
+      } finally {
+        await this._restorePageAfterScreenshot();
+      }
     });
   }
 
-  async _preparePageForScreenshot(progress: Progress, frame: Frame, screenshotStyle: string | undefined, hideCaret: boolean, disableAnimations: boolean) {
+  private async _preparePageForScreenshot(progress: Progress, frame: Frame, screenshotStyle: string | undefined, hideCaret: boolean, disableAnimations: boolean) {
     if (disableAnimations)
       progress.log('  disabled all CSS animations');
-    const syncAnimations = this._page._delegate.shouldToggleStyleSheetToSyncAnimations();
-    await this._page.safeNonStallingEvaluateInAllFrames('(' + inPagePrepareForScreenshots.toString() + `)(${JSON.stringify(screenshotStyle)}, ${hideCaret}, ${disableAnimations}, ${syncAnimations})`, 'utility');
-    if (!process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY) {
-      progress.log('waiting for fonts to load...');
-      await frame.nonStallingEvaluateInExistingContext('document.fonts.ready', 'utility').catch(() => {});
-      progress.log('fonts loaded');
+    const syncAnimations = this._page.delegate.shouldToggleStyleSheetToSyncAnimations();
+    await progress.race(this._page.safeNonStallingEvaluateInAllFrames('(' + inPagePrepareForScreenshots.toString() + `)(${JSON.stringify(screenshotStyle)}, ${hideCaret}, ${disableAnimations}, ${syncAnimations})`, 'utility'));
+    try {
+      if (!process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY) {
+        progress.log('waiting for fonts to load...');
+        await progress.race(frame.nonStallingEvaluateInExistingContext('document.fonts.ready', 'utility').catch(() => {}));
+        progress.log('fonts loaded');
+      }
+    } catch (error) {
+      await progress.race(this._restorePageAfterScreenshot());
+      throw error;
     }
-    progress.cleanupWhenAborted(() => this._restorePageAfterScreenshot());
   }
 
-  async _restorePageAfterScreenshot() {
+  private async _restorePageAfterScreenshot() {
     await this._page.safeNonStallingEvaluateInAllFrames('window.__pwCleanupScreenshot && window.__pwCleanupScreenshot()', 'utility');
   }
 
-  async _maskElements(progress: Progress, options: ScreenshotOptions): Promise<() => Promise<void>> {
-    const framesToParsedSelectors: MultiMap<Frame, ParsedSelector> = new MultiMap();
-
-    const cleanup = async () => {
-      await Promise.all([...framesToParsedSelectors.keys()].map(async frame => {
-        await frame.hideHighlight();
-      }));
-    };
-
+  private async _maskElements(progress: Progress, options: ScreenshotOptions): Promise<() => Promise<void>> {
     if (!options.mask || !options.mask.length)
-      return cleanup;
+      return () => Promise.resolve();
 
-    await Promise.all((options.mask || []).map(async ({ frame, selector }) => {
+    const framesToParsedSelectors: MultiMap<Frame, ParsedSelector> = new MultiMap();
+    await progress.race(Promise.all((options.mask || []).map(async ({ frame, selector }) => {
       const pair = await frame.selectors.resolveFrameForSelector(selector);
       if (pair)
         framesToParsedSelectors.set(pair.frame, pair.info.parsed);
-    }));
-    progress.throwIfAborted(); // Avoid extra work.
+    })));
 
-    await Promise.all([...framesToParsedSelectors.keys()].map(async frame => {
-      await frame.maskSelectors(framesToParsedSelectors.get(frame), options.maskColor || '#F0F');
-    }));
-    progress.cleanupWhenAborted(cleanup);
-    return cleanup;
+    const frames = [...framesToParsedSelectors.keys()];
+    const cleanup = async () => {
+      await Promise.all(frames.map(frame => frame.hideHighlight()));
+    };
+
+    try {
+      const promises = frames.map(frame => frame.maskSelectors(framesToParsedSelectors.get(frame), options.maskColor || '#F0F'));
+      await progress.race(Promise.all(promises));
+      return cleanup;
+    } catch (error) {
+      cleanup().catch(() => {});
+      throw error;
+    }
   }
 
   private async _screenshot(progress: Progress, format: 'png' | 'jpeg', documentRect: types.Rect | undefined, viewportRect: types.Rect | undefined, fitsViewport: boolean, options: ScreenshotOptions): Promise<Buffer> {
     if ((options as any).__testHookBeforeScreenshot)
-      await (options as any).__testHookBeforeScreenshot();
-    progress.throwIfAborted(); // Screenshotting is expensive - avoid extra work.
+      await progress.race((options as any).__testHookBeforeScreenshot());
+
     const shouldSetDefaultBackground = options.omitBackground && format === 'png';
-    if (shouldSetDefaultBackground) {
-      await this._page._delegate.setBackgroundColor({ r: 0, g: 0, b: 0, a: 0 });
-      progress.cleanupWhenAborted(() => this._page._delegate.setBackgroundColor());
-    }
-    progress.throwIfAborted(); // Avoid extra work.
-
-    const cleanupHighlight = await this._maskElements(progress, options);
-    progress.throwIfAborted(); // Avoid extra work.
-
-    const quality = format === 'jpeg' ? options.quality ?? 80 : undefined;
-    const buffer = await this._page._delegate.takeScreenshot(progress, format, documentRect, viewportRect, quality, fitsViewport, options.scale || 'device');
-    progress.throwIfAborted(); // Avoid restoring after failure - should be done by cleanup.
-
-    await cleanupHighlight();
-    progress.throwIfAborted(); // Avoid restoring after failure - should be done by cleanup.
-
     if (shouldSetDefaultBackground)
-      await this._page._delegate.setBackgroundColor();
-    progress.throwIfAborted(); // Avoid side effects.
-    if ((options as any).__testHookAfterScreenshot)
-      await (options as any).__testHookAfterScreenshot();
-    return buffer;
+      await progress.race(this._page.delegate.setBackgroundColor({ r: 0, g: 0, b: 0, a: 0 }));
+    const cleanupHighlight = await this._maskElements(progress, options);
+
+    try {
+      const quality = format === 'jpeg' ? options.quality ?? 80 : undefined;
+      const buffer = await this._page.delegate.takeScreenshot(progress, format, documentRect, viewportRect, quality, fitsViewport, options.scale || 'device');
+      await progress.race(cleanupHighlight());
+      if (shouldSetDefaultBackground)
+        await progress.race(this._page.delegate.setBackgroundColor());
+      if ((options as any).__testHookAfterScreenshot)
+        await progress.race((options as any).__testHookAfterScreenshot());
+      return buffer;
+    } catch (error) {
+      // Cleanup without blocking, it will be done before the next playwright action.
+      cleanupHighlight().catch(() => {});
+      if (shouldSetDefaultBackground)
+        this._page.delegate.setBackgroundColor().catch(() => {});
+      throw error;
+    }
   }
 }
 
@@ -337,7 +332,7 @@ class TaskQueue {
     this._chain = Promise.resolve();
   }
 
-  postTask(task: () => any): Promise<any> {
+  _postTask(task: () => any): Promise<any> {
     const result = this._chain.then(task);
     this._chain = result.catch(() => {});
     return result;

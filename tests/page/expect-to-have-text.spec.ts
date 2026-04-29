@@ -35,8 +35,15 @@ test.describe('toHaveText with regex', () => {
     await page.setContent('<div id=node>Text content</div>');
     const locator = page.locator('#node');
     const error = await expect(locator).toHaveText(/Text 2/, { timeout: 1000 }).catch(e => e);
-    expect(stripAnsi(error.message)).toContain('Expected pattern: /Text 2/');
-    expect(stripAnsi(error.message)).toContain('Received string:  "Text content"');
+    expect(stripAnsi(error.message)).toContain(`expect(locator).toHaveText(expected) failed
+
+Locator: locator('#node')
+Expected pattern: /Text 2/
+Received string:  "Text content"
+Timeout: 1000ms
+
+Call log:
+`);
   });
 });
 
@@ -59,6 +66,29 @@ test.describe('toContainText with regex', () => {
   });
 });
 
+test.describe('toContainText with string', () => {
+  test('pass', async ({ page }) => {
+    await page.setContent('<div id=node>Text   content</div>');
+    const locator = page.locator('#node');
+    await expect(locator).toContainText('content');
+  });
+
+  test('fail', async ({ page }) => {
+    await page.setContent('<div id=node>Text content</div>');
+    const locator = page.locator('#node');
+    const error = await expect(locator).toContainText('foo', { timeout: 1000 }).catch(e => e);
+    expect(stripAnsi(error.message)).toContain(`expect(locator).toContainText(expected) failed
+
+Locator: locator('#node')
+Expected substring: "foo"
+Received string:    "Text content"
+Timeout: 1000ms
+
+Call log:
+`);
+  });
+});
+
 test.describe('toHaveText with text', () => {
   test('pass', async ({ page }) => {
     await page.setContent('<div id=node><span></span>Text \ncontent&nbsp;    </div>');
@@ -71,6 +101,8 @@ test.describe('toHaveText with text', () => {
     await expect(locator).toHaveText('text CONTENT', { ignoreCase: true });
     // Should support falsy ignoreCase.
     await expect(locator).not.toHaveText('TEXT', { ignoreCase: false });
+    // Should normalize soft hyphens.
+    await expect(locator).toHaveText('T\u00ade\u00adxt content');
   });
 
   test('pass contain', async ({ page }) => {
@@ -89,8 +121,8 @@ test.describe('toHaveText with text', () => {
     await page.setContent('<div id=node>Text content</div>');
     const locator = page.locator('#node');
     const error = await expect(locator).toHaveText('Text', { timeout: 1000 }).catch(e => e);
-    expect(stripAnsi(error.message)).toContain('Expected string: "Text"');
-    expect(stripAnsi(error.message)).toContain('Received string: "Text content"');
+    expect(stripAnsi(error.message)).toContain('Expected: "Text"');
+    expect(stripAnsi(error.message)).toContain('Received: "Text content"');
   });
 
   test('pass eventually', async ({ page }) => {
@@ -132,8 +164,27 @@ test.describe('toHaveText with text', () => {
   test('fail with impossible timeout', async ({ page }) => {
     await page.setContent('<div id=node>Text content</div>');
     const error = await expect(page.locator('#node')).toHaveText('Text', { timeout: 1 }).catch(e => e);
-    expect(stripAnsi(error.message)).toContain('Expected string: "Text"');
-    expect(stripAnsi(error.message)).toContain('Received string: "Text content"');
+    expect(stripAnsi(error.message)).toContain('Expected: "Text"');
+    expect(stripAnsi(error.message)).toContain('Received: "Text content"');
+  });
+
+  test('do not show "element(s) not found" when the real failure is a string mismatch', async ({ page }) => {
+    test.skip(process.env.PW_CLOCK === 'frozen', 'The element is attached after 1 second.');
+    await page.setContent(`
+      <div>Initial</div>
+      <script>
+        const field = document.querySelector('div');
+        setTimeout(() => {
+          field.id = 'field';
+          field.textContent = 'Final value';
+        }, 1000);
+      </script>
+    `);
+
+    const cell = page.locator('#field');
+    const error = await expect(cell).toHaveText('Something', { timeout: 3000 }).catch(e => e);
+    expect(stripAnsi(error.message)).toContain('Expected: "Something"');
+    expect(stripAnsi(error.message)).toContain('Received: "Final value"');
   });
 });
 
@@ -150,15 +201,15 @@ test.describe('not.toHaveText', () => {
     await page.setContent('<div id=node>Text content</div>');
     const locator = page.locator('#node');
     const error = await expect(locator).not.toHaveText('Text content', { timeout: 1000 }).catch(e => e);
-    expect(stripAnsi(error.message)).toContain('Expected string: not "Text content"');
-    expect(stripAnsi(error.message)).toContain('Received string: "Text content');
+    expect(stripAnsi(error.message)).toContain('Expected: not "Text content"');
+    expect(stripAnsi(error.message)).toContain('Received: "Text content');
   });
 
   test('should work when selector does not match', async ({ page }) => {
     await page.setContent('<div>hello</div>');
     const error = await expect(page.locator('span')).not.toHaveText('hello', { timeout: 1000 }).catch(e => e);
-    expect(stripAnsi(error.message)).toContain('Expected string: not "hello"');
-    expect(stripAnsi(error.message)).toContain('Received: <element(s) not found>');
+    expect(stripAnsi(error.message)).toContain('Expected: not "hello"');
+    expect(stripAnsi(error.message)).toContain('Error: element(s) not found');
     expect(stripAnsi(error.message)).toContain('waiting for locator(\'span\')');
   });
 });
@@ -206,7 +257,9 @@ test.describe('toHaveText with array', () => {
     await page.setContent('<div></div>');
     const locator = page.locator('p');
     const error = await expect(locator).not.toHaveText([], { timeout: 1000 }).catch(e => e);
-    expect(error.message).toContain('expect.not.toHaveText with timeout 1000ms');
+    expect(stripAnsi(error.message)).toContain(`expect(locator).not.toHaveText(expected)`);
+    expect(stripAnsi(error.message)).toContain(`Timeout:  1000ms`);
+    expect(stripAnsi(error.message)).toContain(`- Expect "not toHaveText" with timeout 1000ms`);
   });
 
   test('pass eventually empty', async ({ page }) => {
@@ -222,10 +275,24 @@ test.describe('toHaveText with array', () => {
     await page.setContent('<div>Text 1</div><div>Text 3</div>');
     const locator = page.locator('div');
     const error = await expect(locator).toHaveText(['Text 1', /Text \d/, 'Extra'], { timeout: 1000 }).catch(e => e);
-    expect(stripAnsi(error.message)).toContain('-   "Extra"');
-    expect(error.message).toContain('expect.toHaveText with timeout 1000ms');
-    expect(error.message).toContain('waiting for locator(\'div\')');
-    expect(error.message).toContain('locator resolved to 2 elements');
+    expect(stripAnsi(error.message)).toContain(`expect(locator).toHaveText(expected) failed
+
+Locator: locator('div')
+Timeout: 1000ms
+- Expected  - 1
++ Received  + 0
+
+  Array [
+    \"Text 1\",
+    \"Text 3\",
+-   \"Extra\",
+  ]
+
+Call log:
+  - Expect \"toHaveText\" with timeout 1000ms
+  - waiting for locator('div')
+`);
+    expect(stripAnsi(error.message)).toContain('locator resolved to 2 elements');
   });
 
   test('fail on repeating array matchers', async ({ page }) => {

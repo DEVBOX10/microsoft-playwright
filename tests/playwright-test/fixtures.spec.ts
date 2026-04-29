@@ -596,7 +596,7 @@ test('should understand worker fixture params in overrides calling base', async 
       ]};
     `,
   });
-  const outputs = result.results.map(r => r.stdout[0].text.replace(/\s/g, ''));
+  const outputs = result.results.map(r => r.stdout.filter(output => 'text' in output)[0].text.replace(/\s/g, ''));
   expect(outputs.sort()).toEqual(['foo-p1-override-bar', 'foo-p2-override-bar', 'foo-p3-override-bar']);
 });
 
@@ -815,4 +815,38 @@ test('automatic worker fixtures should start before automatic test fixtures', as
     'TEST FIXTURE 2',
     'WORKER FIXTURE 2',
   ]);
+});
+
+test('should error if use is not called', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        fixture: async ({}, use) => {
+          return 123;
+        },
+      });
+
+      test('test', async ({ fixture }) => {
+      });
+    `,
+  });
+  expect(result.failed).toBe(1);
+  expect(result.output).toContain(`use() was not called in fixture "fixture"`);
+});
+
+test('should not treat fixtures as thenable promise', async ({ runInlineTest }) => {
+  const { results } = await runInlineTest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        then: async ({}, use) => await use(() => 'test-function'),
+      });
+
+      test('should not treat fixtures as thenable promise', async ({ then }) => {
+        expect(typeof then).toBe('function');
+      });
+    `,
+  });
+  expect(results[0].status).toBe('passed');
 });

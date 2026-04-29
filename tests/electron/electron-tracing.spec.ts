@@ -15,48 +15,38 @@
  */
 
 import { electronTest as test, expect } from './electronTest';
-import fs from 'fs';
-import path from 'path';
 
 test.skip(({ trace }) => trace === 'on');
 
-test('should record trace', async ({ newWindow, server, runAndTrace }) => {
-  const traceViewer = await runAndTrace(async () => {
-    const window = await newWindow();
-    await window.goto(server.PREFIX + '/input/button.html');
-    await window.click('button');
-    expect(await window.evaluate('result')).toBe('Clicked');
-  });
+test('should record trace', async ({ launchElectronApp, newWindow, server, showTraceViewer }, testInfo) => {
+  const app = await launchElectronApp('electron-app.js');
+  const page = await newWindow(app);
+  const traceFile = testInfo.outputPath('trace.zip');
+  await app.context().tracing.start({ snapshots: true, screenshots: true, sources: true });
+  await page.goto(server.PREFIX + '/input/button.html');
+  await page.click('button');
+  expect(await page.evaluate('result')).toBe('Clicked');
+  await app.context().tracing.stop({ path: traceFile });
+  const traceViewer = await showTraceViewer(traceFile);
   await expect(traceViewer.actionTitles).toHaveText([
-    /page.goto/,
-    /page.click/,
-    /page.evaluate/,
+    /Navigate/,
+    /Click/,
+    /Evaluate/,
   ]);
 });
 
-test('should support custom protocol', async ({ electronApp, newWindow, server, runAndTrace }) => {
-  const window = await newWindow();
-  await electronApp.evaluate(({ BrowserWindow }) => {
+test('should support custom protocol', async ({ launchElectronApp, newWindow, showTraceViewer }, testInfo) => {
+  const app = await launchElectronApp('electron-app.js');
+  const page = await newWindow(app);
+  await app.evaluate(({ BrowserWindow }) => {
     void BrowserWindow.getAllWindows()[0].loadURL('vscode-file://index.html');
   });
-  const traceViewer = await runAndTrace(async () => {
-    await window.click('button');
-  });
-  const frame = await traceViewer.snapshotFrame('page.click');
+  const traceFile = testInfo.outputPath('trace.zip');
+  await app.context().tracing.start({ snapshots: true, screenshots: true, sources: true });
+  await page.click('button');
+  await app.context().tracing.stop({ path: traceFile });
+  const traceViewer = await showTraceViewer(traceFile);
+  const frame = await traceViewer.snapshotFrame('Click');
   await expect(frame.locator('button')).toHaveCSS('color', 'rgb(255, 0, 0)');
   await expect(frame.locator('button')).toHaveCSS('font-weight', '700');
-});
-
-test('should respect tracesDir and name', async ({ launchElectronApp, server }, testInfo) => {
-  const tracesDir = testInfo.outputPath('traces');
-  const electronApp = await launchElectronApp('electron-window-app.js', [], { tracesDir });
-
-  await electronApp.context().tracing.start({ name: 'name1', snapshots: true });
-  const page = await electronApp.firstWindow();
-  await page.goto(server.PREFIX + '/one-style.html');
-  await electronApp.context().tracing.stopChunk({ path: testInfo.outputPath('trace1.zip') });
-  expect(fs.existsSync(path.join(tracesDir, 'name1.trace'))).toBe(true);
-  expect(fs.existsSync(path.join(tracesDir, 'name1.network'))).toBe(true);
-
-  await electronApp.close();
 });

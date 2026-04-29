@@ -82,8 +82,8 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v5
+    - uses: actions/setup-node@v6
       with:
         node-version: lts/*
     - name: Install dependencies
@@ -92,7 +92,7 @@ jobs:
       run: npx playwright install --with-deps
     - name: Run Playwright tests
       run: npx playwright test
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v5
       if: ${{ !cancelled() }}
       with:
         name: playwright-report
@@ -117,11 +117,11 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
-        python-version: '3.11'
+        python-version: '3.13'
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -130,7 +130,7 @@ jobs:
       run: python -m playwright install --with-deps
     - name: Run your tests
       run: pytest --tracing=retain-on-failure
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v5
       if: ${{ !cancelled() }}
       with:
         name: playwright-traces
@@ -149,11 +149,11 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-java@v3
+    - uses: actions/checkout@v5
+    - uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
-        java-version: '17'
+        java-version: '25'
     - name: Build & Install
       run: mvn -B install -D skipTests --no-transfer-progress
     - name: Ensure browsers are installed
@@ -174,9 +174,9 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Setup dotnet
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 8.0.x
     - name: Build & Install
@@ -211,8 +211,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v%%VERSION%%-noble
       options: --user 1001
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
       - name: Install dependencies
@@ -236,11 +236,11 @@ jobs:
       image: mcr.microsoft.com/playwright/python:v%%VERSION%%-noble
       options: --user 1001
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -265,11 +265,11 @@ jobs:
       image: mcr.microsoft.com/playwright/java:v%%VERSION%%-noble
       options: --user 1001
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v3
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '25'
       - name: Build & Install
         run: mvn -B install -D skipTests --no-transfer-progress
       - name: Run tests
@@ -291,9 +291,9 @@ jobs:
       image: mcr.microsoft.com/playwright/dotnet:v%%VERSION%%-noble
       options: --user 1001
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup dotnet
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
       - run: dotnet build
@@ -316,8 +316,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.deployment_status.state == 'success'
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v5
+    - uses: actions/setup-node@v6
       with:
         node-version: lts/*
     - name: Install dependencies
@@ -340,10 +340,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.deployment_status.state == 'success'
     steps:
-    - uses: actions/checkout@v4
-      uses: actions/setup-python@v4
+    - uses: actions/checkout@v5
+      uses: actions/setup-python@v6
       with:
-        python-version: '3.11'
+        python-version: '3.13'
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -367,11 +367,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.deployment_status.state == 'success'
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-java@v3
+    - uses: actions/checkout@v5
+    - uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
-        java-version: '17'
+        java-version: '25'
     - name: Build & Install
       run: mvn -B install -D skipTests --no-transfer-progress
     - name: Install Playwright
@@ -393,9 +393,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.deployment_status.state == 'success'
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Setup dotnet
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 8.0.x
     - run: dotnet build
@@ -427,12 +427,12 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         # Force a non-shallow checkout, so that we can reference $GITHUB_BASE_REF.
         # See https://github.com/actions/checkout for more details.
         fetch-depth: 0
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v6
       with:
         node-version: lts/*
     - name: Install dependencies
@@ -440,11 +440,11 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Run changed Playwright tests
-      run: npx playwright test --only-changed=$GITHUB_BASE_REF
+      run: npx playwright test --only-changed=origin/$GITHUB_BASE_REF
       if: github.event_name == 'pull_request'
     - name: Run Playwright tests
       run: npx playwright test
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v5
       if: ${{ !cancelled() }}
       with:
         name: playwright-report
@@ -454,15 +454,7 @@ jobs:
 
 ### Docker
 
-We have a [pre-built Docker image](./docker.md) which can either be used directly or as a reference to update your existing Docker definitions.
-
-Suggested configuration
-1. Using `--ipc=host` is also recommended when using Chromium. Without it Chromium can run out of memory
-   and crash. Learn more about this option in [Docker docs](https://docs.docker.com/reference/cli/docker/container/run/#ipc).
-1. Seeing other weird errors when launching Chromium? Try running your container
-   with `docker run --cap-add=SYS_ADMIN` when developing locally.
-1. Using `--init` Docker flag or [dumb-init](https://github.com/Yelp/dumb-init) is recommended to avoid special
-   treatment for processes with PID=1. This is a common reason for zombie processes.
+We have a [pre-built Docker image](./docker.md) which can either be used directly or as a reference to update your existing Docker definitions. Make sure to follow the [Recommended Docker Configuration](./docker.md#recommended-docker-configuration) to ensure the best performance.
 
 ### Azure Pipelines
 
@@ -483,9 +475,9 @@ pool:
   vmImage: ubuntu-latest
 
 steps:
-- task: NodeTool@0
+- task: UseNode@1
   inputs:
-    versionSpec: '18'
+    version: '22'
   displayName: 'Install Node.js'
 - script: npm ci
   displayName: 'npm ci'
@@ -507,7 +499,7 @@ pool:
 steps:
 - task: UsePythonVersion@0
   inputs:
-    versionSpec: '3.11'
+    versionSpec: '3.13'
   displayName: 'Use Python'
 - script: |
     python -m pip install --upgrade pip
@@ -527,9 +519,9 @@ pool:
   vmImage: ubuntu-latest
 
 steps:
-- task: JavaToolInstaller@0
+- task: JavaToolInstaller@1
   inputs:
-    versionSpec: '17'
+    versionSpec: '25'
     jdkArchitectureOption: 'x64'
     jdkSourceOption: AzureStorage
 - script: mvn -B install -D skipTests --no-transfer-progress
@@ -575,9 +567,9 @@ pool:
   vmImage: ubuntu-latest
 
 steps:
-- task: NodeTool@0
+- task: UseNode@1
   inputs:
-    versionSpec: '18'
+    version: '22'
   displayName: 'Install Node.js'
 
 - script: npm ci
@@ -656,9 +648,9 @@ strategy:
       project: webkit
       shard: 3/3
 steps:
-- task: NodeTool@0
+- task: UseNode@1
   inputs:
-    versionSpec: '18'
+    version: '22'
   displayName: 'Install Node.js'
 
 - script: npm ci
@@ -683,9 +675,9 @@ pool:
 container: mcr.microsoft.com/playwright:v%%VERSION%%-noble
 
 steps:
-- task: NodeTool@0
+- task: UseNode@1
   inputs:
-    versionSpec: '18'
+    version: '22'
   displayName: 'Install Node.js'
 
 - script: npm ci
@@ -707,7 +699,7 @@ container: mcr.microsoft.com/playwright/python:v%%VERSION%%-noble
 steps:
 - task: UsePythonVersion@0
   inputs:
-    versionSpec: '3.11'
+    versionSpec: '3.13'
   displayName: 'Use Python'
 
 - script: |
@@ -727,9 +719,9 @@ pool:
 container: mcr.microsoft.com/playwright/java:v%%VERSION%%-noble
 
 steps:
-- task: JavaToolInstaller@0
+- task: JavaToolInstaller@1
   inputs:
-    versionSpec: '17'
+    versionSpec: '25'
     jdkArchitectureOption: 'x64'
     jdkSourceOption: AzureStorage
 
@@ -804,7 +796,7 @@ Sharding in CircleCI is indexed with 0 which means that you will need to overrid
       executor: pw-noble-development
       parallelism: 4
       steps:
-        - run: SHARD="$((${CIRCLE_NODE_INDEX}+1))"; npx playwright test -- --shard=${SHARD}/${CIRCLE_NODE_TOTAL}
+        - run: SHARD="$((${CIRCLE_NODE_INDEX}+1))"; npx playwright test --shard=${SHARD}/${CIRCLE_NODE_TOTAL}
   ```
 
 ### Jenkins

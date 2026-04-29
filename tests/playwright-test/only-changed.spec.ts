@@ -14,23 +14,7 @@
  * limitations under the License.
  */
 
-import { test as baseTest, expect, playwrightCtConfigText } from './playwright-test-fixtures';
-import { execSync } from 'node:child_process';
-
-const test = baseTest.extend<{ git(command: string): void }>({
-  git: async ({}, use, testInfo) => {
-    const baseDir = testInfo.outputPath();
-
-    const git = (command: string) => execSync(`git ${command}`, { cwd: baseDir, stdio: process.env.PWTEST_DEBUG ? 'inherit' : 'ignore' });
-
-    git(`init --initial-branch=main`);
-    git(`config --local user.name "Robert Botman"`);
-    git(`config --local user.email "botty@mcbotface.com"`);
-    git(`config --local core.autocrlf false`);
-
-    await use((command: string) => git(command));
-  },
-});
+import { test, expect, playwrightCtConfigText } from './playwright-test-fixtures';
 
 test.slow();
 
@@ -182,7 +166,7 @@ test('should throw nice error message if git doesnt work', async ({ runInlineTes
   expect(result.output, 'contains git command output').toContain('unknown revision or path not in the working tree');
 });
 
-test('should suppport component tests', async ({ runInlineTest, git, writeFiles }) => {
+test('should support component tests', async ({ runInlineTest, git, writeFiles }) => {
   await writeFiles({
     'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,

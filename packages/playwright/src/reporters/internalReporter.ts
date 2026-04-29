@@ -15,13 +15,18 @@
  */
 
 import fs from 'fs';
-import { codeFrameColumns } from '../transform/babelBundle';
-import type { FullConfig, TestCase, TestError, TestResult, FullResult, TestStep } from '../../types/testReporter';
-import { Suite } from '../common/test';
+
+import { monotonicTime } from '@isomorphic/time';
+
 import { internalScreen, prepareErrorStack, relativeFilePath } from './base';
-import type { ReporterV2 } from './reporterV2';
-import { monotonicTime } from 'playwright-core/lib/utils';
 import { Multiplexer } from './multiplexer';
+import { test as testNs } from '../common';
+import * as babel from '../transform/babelBundle';
+import { wrapReporterAsV2 } from './reporterV2';
+
+import type { AnyReporter, ReporterV2 } from './reporterV2';
+import type { FullConfig, FullResult, TestCase, TestError, TestResult, TestStep } from '../../types/testReporter';
+
 
 export class InternalReporter implements ReporterV2 {
   private _reporter: ReporterV2;
@@ -30,8 +35,8 @@ export class InternalReporter implements ReporterV2 {
   private _startTime: Date | undefined;
   private _monotonicStartTime: number | undefined;
 
-  constructor(reporters: ReporterV2[]) {
-    this._reporter = new Multiplexer(reporters);
+  constructor(reporters: AnyReporter[]) {
+    this._reporter = new Multiplexer(reporters.map(wrapReporterAsV2));
   }
 
   version(): 'v2' {
@@ -45,7 +50,7 @@ export class InternalReporter implements ReporterV2 {
     this._reporter.onConfigure?.(config);
   }
 
-  onBegin(suite: Suite) {
+  onBegin(suite: testNs.Suite) {
     this._didBegin = true;
     this._reporter.onBegin?.(suite);
   }
@@ -62,6 +67,11 @@ export class InternalReporter implements ReporterV2 {
     this._reporter.onStdErr?.(chunk, test, result);
   }
 
+  async onTestPaused(test: TestCase, result: TestResult) {
+    this._addSnippetToTestErrors(test, result);
+    return await this._reporter.onTestPaused?.(test, result);
+  }
+
   onTestEnd(test: TestCase, result: TestResult) {
     this._addSnippetToTestErrors(test, result);
     this._reporter.onTestEnd?.(test, result);
@@ -70,7 +80,7 @@ export class InternalReporter implements ReporterV2 {
   async onEnd(result: { status: FullResult['status'] }) {
     if (!this._didBegin) {
       // onBegin was not reported, emit it.
-      this.onBegin(new Suite('', 'root'));
+      this.onBegin(new testNs.Suite('', 'root'));
     }
     return await this._reporter.onEnd?.({
       ...result,
@@ -112,17 +122,20 @@ export class InternalReporter implements ReporterV2 {
   }
 }
 
-function addLocationAndSnippetToError(config: FullConfig, error: TestError, file?: string) {
+export function addLocationAndSnippetToError(config: FullConfig, error: TestError, file?: string) {
   if (error.stack && !error.location)
     error.location = prepareErrorStack(error.stack).location;
   const location = error.location;
   if (!location)
     return;
 
+  if (!!error.snippet)
+    return;
+
   try {
     const tokens = [];
     const source = fs.readFileSync(location.file, 'utf8');
-    const codeFrame = codeFrameColumns(source, { start: location }, { highlightCode: true });
+    const codeFrame = babel.codeFrameColumns(source, { start: location }, { highlightCode: true });
     // Convert /var/folders to /private/var/folders on Mac.
     if (!file || fs.realpathSync(file) !== location.file) {
       tokens.push(internalScreen.colors.gray(`   at `) + `${relativeFilePath(internalScreen, config, location.file)}:${location.line}`);

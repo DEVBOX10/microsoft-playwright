@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-import { debugLogger } from '../utils/debugLogger';
 import type { BrowserContext } from './browserContext';
 import type { LocalUtils } from './localUtils';
 import type { Route } from './network';
-import type { URLMatch } from '../utils';
 import type { Page } from './page';
+import type { URLMatch } from '@isomorphic/urlMatch';
 
 type HarNotFoundAction = 'abort' | 'fallback';
 
@@ -30,7 +29,7 @@ export class HarRouter {
   private _options: { urlMatch?: URLMatch; baseURL?: string; };
 
   static async create(localUtils: LocalUtils, file: string, notFoundAction: HarNotFoundAction, options: { urlMatch?: URLMatch }): Promise<HarRouter> {
-    const { harId, error } = await localUtils._channel.harOpen({ file });
+    const { harId, error } = await localUtils.harOpen({ file });
     if (error)
       throw new Error(error);
     return new HarRouter(localUtils, harId!, notFoundAction, options);
@@ -46,7 +45,7 @@ export class HarRouter {
   private async _handle(route: Route) {
     const request = route.request();
 
-    const response = await this._localUtils._channel.harLookup({
+    const response = await this._localUtils.harLookup({
       harId: this._harId,
       url: request.url(),
       method: request.method(),
@@ -56,7 +55,7 @@ export class HarRouter {
     });
 
     if (response.action === 'redirect') {
-      debugLogger.log('api', `HAR: ${route.request().url()} redirected to ${response.redirectURL}`);
+      route._platform.log('api', `HAR: ${route.request().url()} redirected to ${response.redirectURL}`);
       await route._redirectNavigationRequest(response.redirectURL!);
       return;
     }
@@ -69,16 +68,35 @@ export class HarRouter {
       // test when HAR was recorded but we'd abort it immediately.
       if (response.status === -1)
         return;
+
+
+      // route.fulfill does not support multiple set-cookie headers. We need to merge them into one.
+      const transformedHeaders = response.headers!.reduce((headersMap, { name, value }) => {
+        if (name.toLowerCase() !== 'set-cookie') {
+          // non-set-cookie header gets set as-is
+          headersMap[name] = value;
+        } else {
+          // first set-cookie header gets included as-is
+          if (!headersMap['set-cookie'])
+            headersMap['set-cookie'] = value;
+          else
+            // subsequent set-cookie headers get appended to existing header
+            headersMap['set-cookie'] += `\n${value}`;
+
+        }
+        return headersMap;
+      }, {} as Record<string, string>);
+
       await route.fulfill({
         status: response.status,
-        headers: Object.fromEntries(response.headers!.map(h => [h.name, h.value])),
+        headers: transformedHeaders,
         body: response.body!
       });
       return;
     }
 
     if (response.action === 'error')
-      debugLogger.log('api', 'HAR: ' + response.message!);
+      route._platform.log('api', 'HAR: ' + response.message!);
     // Report the error, but fall through to the default handler.
 
     if (this._notFoundAction === 'abort') {
@@ -102,6 +120,6 @@ export class HarRouter {
   }
 
   dispose() {
-    this._localUtils._channel.harClose({ harId: this._harId }).catch(() => {});
+    this._localUtils.harClose({ harId: this._harId }).catch(() => {});
   }
 }

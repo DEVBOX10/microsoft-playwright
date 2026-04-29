@@ -24,7 +24,17 @@ import { generateCurlCommand, generateFetchCall } from '../third_party/devtools'
 import { CopyToClipboardTextButton } from './copyToClipboard';
 import { getAPIRequestCodeGen } from './codegen';
 import type { Language } from '@isomorphic/locatorGenerators';
-import { msToString } from '@web/uiUtils';
+import { isJsonMimeType, isXmlMimeType } from '@isomorphic/mimeType';
+import { useAsyncMemo, useSetting } from '@web/uiUtils';
+import { msToString } from '@isomorphic/formatUtils';
+import type { Entry } from '@trace/har';
+import { useTraceModel } from './traceModelContext';
+import { Expandable } from '@web/components/expandable';
+import { Toolbar } from '@web/components/toolbar';
+
+type RequestBody = { text: string, mimeType?: string } | null;
+type ResponseBody = { dataUrl?: string, text?: string, mimeType?: string, font?: BufferSource } | null;
+
 
 export const NetworkResourceDetails: React.FunctionComponent<{
   resource: ResourceSnapshot;
@@ -32,108 +42,179 @@ export const NetworkResourceDetails: React.FunctionComponent<{
   startTimeOffset: number;
   onClose: () => void;
 }> = ({ resource, sdkLanguage, startTimeOffset, onClose }) => {
-  const [selectedTab, setSelectedTab] = React.useState('request');
+  const [selectedTab, setSelectedTab] = React.useState('headers');
+  const model = useTraceModel();
+
+  const requestBody = useAsyncMemo<RequestBody>(async () => {
+    if (model && resource.request.postData) {
+      const requestContentTypeHeader = resource.request.headers.find(q => q.name.toLowerCase() === 'content-type');
+      const requestContentType = requestContentTypeHeader ? requestContentTypeHeader.value : '';
+      if (resource.request.postData._sha1) {
+        const response = await fetch(model.createRelativeUrl(`sha1/${resource.request.postData._sha1}`));
+        return { text: await response.text(), mimeType: requestContentType };
+      } else {
+        return { text: resource.request.postData.text, mimeType: requestContentType };
+      }
+    } else {
+      return null;
+    }
+  }, [resource], null);
 
   return <TabbedPane
-    dataTestId='network-request-details'
-    leftToolbar={[<ToolbarButton key='close' icon='close' title='Close' onClick={onClose}></ToolbarButton>]}
+    leftToolbar={[<ToolbarButton key='close' icon='close' title='Close' onClick={onClose} />]}
+    rightToolbar={[<CopyDropdown key='dropdown' requestBody={requestBody} resource={resource} sdkLanguage={sdkLanguage} />]}
     tabs={[
       {
-        id: 'request',
-        title: 'Request',
-        render: () => <RequestTab resource={resource} sdkLanguage={sdkLanguage} startTimeOffset={startTimeOffset} />,
+        id: 'headers',
+        title: 'Headers',
+        render: () => <HeadersTab resource={resource} startTimeOffset={startTimeOffset} />,
+      },
+      {
+        id: 'payload',
+        title: 'Payload',
+        render: () => <PayloadTab resource={resource} requestBody={requestBody} />,
       },
       {
         id: 'response',
         title: 'Response',
-        render: () => <ResponseTab resource={resource}/>,
-      },
-      {
-        id: 'body',
-        title: 'Body',
-        render: () => <BodyTab resource={resource}/>,
+        render: () => <ResponseTab resource={resource} />,
       },
     ]}
     selectedTab={selectedTab}
     setSelectedTab={setSelectedTab} />;
 };
 
-const RequestTab: React.FunctionComponent<{
-  resource: ResourceSnapshot;
-  sdkLanguage: Language;
-  startTimeOffset: number;
-}> = ({ resource, sdkLanguage, startTimeOffset }) => {
-  const [requestBody, setRequestBody] = React.useState<{ text: string, mimeType?: string } | null>(null);
 
-  React.useEffect(() => {
-    const readResources = async  () => {
-      if (resource.request.postData) {
-        const requestContentTypeHeader = resource.request.headers.find(q => q.name.toLowerCase() === 'content-type');
-        const requestContentType = requestContentTypeHeader ? requestContentTypeHeader.value : '';
-        if (resource.request.postData._sha1) {
-          const response = await fetch(`sha1/${resource.request.postData._sha1}`);
-          setRequestBody({ text: formatBody(await response.text(), requestContentType), mimeType: requestContentType });
-        } else {
-          setRequestBody({ text: formatBody(resource.request.postData.text, requestContentType), mimeType: requestContentType });
-        }
-      } else {
-        setRequestBody(null);
-      }
-    };
-    readResources();
-  }, [resource]);
+const CopyDropdown: React.FC<{
+  resource: Entry,
+  sdkLanguage: Language,
+  requestBody: RequestBody,
+}> = ({ resource, sdkLanguage, requestBody }) => {
+  const model = useTraceModel();
+  const copiedDescription = <><span className='codicon codicon-check' style={{ marginRight: '5px' }} /> Copied </>;
+  const copyAsPlaywright = async () => getAPIRequestCodeGen(sdkLanguage).generatePlaywrightRequestCall(resource.request, requestBody?.text);
+  return (
+    <div className='copy-request-dropdown'>
+      <ToolbarButton className='copy-request-dropdown-toggle'>
+        <span className='codicon codicon-copy' style={{ marginRight: '5px' }}/>
+        Copy request
+        <span className='codicon codicon-chevron-down' style={{ marginLeft: '5px' }}/>
+      </ToolbarButton>
 
-  return <div className='network-request-details-tab'>
-    <div className='network-request-details-header'>General</div>
-    <div className='network-request-details-url'>{`URL: ${resource.request.url}`}</div>
-    <div className='network-request-details-general'>{`Method: ${resource.request.method}`}</div>
-    {resource.response.status !== -1 && <div className='network-request-details-general' style={{ display: 'flex' }}>
-      Status Code: <span className={statusClass(resource.response.status)} style={{ display: 'inline-flex' }}>
-        {`${resource.response.status} ${resource.response.statusText}`}
-      </span></div>}
-    {resource.request.queryString.length ? <>
-      <div className='network-request-details-header'>Query String Parameters</div>
-      <div className='network-request-details-headers'>
-        {resource.request.queryString.map(param => `${param.name}: ${param.value}`).join('\n')}
+      <div className='copy-request-dropdown-menu'>
+        <CopyToClipboardTextButton description='Copy as cURL' copiedDescription={copiedDescription} value={() => generateCurlCommand(model, resource)}/>
+        <CopyToClipboardTextButton description='Copy as Fetch' copiedDescription={copiedDescription} value={() => generateFetchCall(model, resource)}/>
+        <CopyToClipboardTextButton description='Copy as Playwright' copiedDescription={copiedDescription} value={copyAsPlaywright}/>
       </div>
-    </> : null}
-    <div className='network-request-details-header'>Request Headers</div>
-    <div className='network-request-details-headers'>{resource.request.headers.map(pair => `${pair.name}: ${pair.value}`).join('\n')}</div>
-    <div className='network-request-details-header'>Time</div>
-    <div className='network-request-details-general'>{`Start: ${msToString(startTimeOffset)}`}</div>
-    <div className='network-request-details-general'>{`Duration: ${msToString(resource.time)}`}</div>
-
-    <div className='network-request-details-copy'>
-      <CopyToClipboardTextButton description='Copy as cURL' value={() => generateCurlCommand(resource)} />
-      <CopyToClipboardTextButton description='Copy as Fetch' value={() => generateFetchCall(resource)} />
-      <CopyToClipboardTextButton description='Copy as Playwright' value={async () => getAPIRequestCodeGen(sdkLanguage).generatePlaywrightRequestCall(resource.request, requestBody?.text)} />
     </div>
+  );
+};
 
-    {requestBody && <div className='network-request-details-header'>Request Body</div>}
-    {requestBody && <CodeMirrorWrapper text={requestBody.text} mimeType={requestBody.mimeType} readOnly lineNumbers={true}/>}
+const FormatToggleButton: React.FC<{
+  toggled: boolean;
+  error?: boolean;
+  onToggle: () => void;
+}> = ({ toggled, error, onToggle }) => {
+  return <ToolbarButton icon='json' title='Pretty print' toggled={toggled} errorBadge={error ? 'Formatting failed' : undefined} onClick={e => {
+    e.stopPropagation();
+    onToggle();
+  }}/>;
+};
+
+const ExpandableSection: React.FC<{
+  title: string;
+  showCount?: boolean,
+  data?: { name: string, value: React.ReactNode }[],
+  children?: React.ReactNode
+  titleChildren?: React.ReactNode;
+  className?: string;
+}> = ({ title, data, showCount, children, titleChildren, className }) => {
+  const [expanded, setExpanded] = useSetting(`trace-viewer-network-details-${title.replaceAll(' ', '-')}`, true);
+  return <Expandable
+    expanded={expanded}
+    setExpanded={setExpanded}
+    expandOnTitleClick
+    title={
+      <>
+        <span className='network-request-details-header'>{title}
+          {showCount && <span className='network-request-details-header-count'> × {data?.length ?? 0}</span>}
+        </span>
+        { titleChildren }
+      </>
+    }
+    className={className}
+  >
+    {data && <table className='network-request-details-table'>
+      <tbody>
+        {data.map(({ name, value }, index) => (
+          value !== null &&
+          (<tr key={index}>
+            <td>{name}</td>
+            <td>{value}</td>
+          </tr>)
+        ))}
+      </tbody>
+    </table>}
+    {children}
+  </Expandable>;
+};
+
+const HeadersTab: React.FunctionComponent<{
+  resource: ResourceSnapshot;
+  startTimeOffset: number;
+}> = ({ resource, startTimeOffset }) => {
+  const generalData = React.useMemo(() =>
+    Object.entries({
+      'URL': resource.request.url,
+      'Method': resource.request.method,
+      'Status Code': resource.response.status === -1 ? 'canceled' : resource.response.status > 0 && <span className={statusClass(resource.response.status)}> {resource.response.status} {resource.response.statusText}</span>,
+      'Start': msToString(startTimeOffset),
+      'Duration': msToString(resource.time),
+    }).map(([name, value]) => ({ name, value })),
+  [resource, startTimeOffset]);
+
+  return <div className='vbox network-request-details-tab'>
+    <ExpandableSection title='General' data={generalData} />
+    <ExpandableSection title='Request Headers' showCount data={resource.request.headers} />
+    <ExpandableSection title='Response Headers' showCount data={resource.response.headers} />
+  </div>;
+};
+
+const PayloadTab: React.FunctionComponent<{
+  resource: ResourceSnapshot;
+  requestBody: RequestBody,
+}> = ({ resource, requestBody }) => {
+  const [showFormatted, setShowFormatted] = useSetting('trace-viewer-network-details-show-formatted-payload', true);
+  const hasQueryString = resource.request.queryString.length > 0;
+  const hasRequestBody = !!(requestBody || resource.request.postData);
+  const formatResult = useFormattedBody(requestBody, showFormatted);
+
+  return <div className='vbox network-request-details-tab'>
+    {!hasQueryString && !hasRequestBody && <em className='network-request-no-payload'>No payload for this request.</em>}
+    {hasQueryString && <ExpandableSection title='Query String Parameters' showCount data={resource.request.queryString}/>}
+    {requestBody && <ExpandableSection title='Request Body' className='network-request-request-body' titleChildren={
+      <>
+        <div style={{ margin: 'auto' }}></div>
+        <FormatToggleButton toggled={showFormatted} error={formatResult.error} onToggle={() => setShowFormatted(!showFormatted)} />
+      </>
+    }>
+      <CodeMirrorWrapper text={formatResult.text} mimeType={requestBody.mimeType} readOnly lineNumbers={true}/>
+    </ExpandableSection>}
   </div>;
 };
 
 const ResponseTab: React.FunctionComponent<{
   resource: ResourceSnapshot;
 }> = ({ resource }) => {
-  return <div className='network-request-details-tab'>
-    <div className='network-request-details-header'>Response Headers</div>
-    <div className='network-request-details-headers'>{resource.response.headers.map(pair => `${pair.name}: ${pair.value}`).join('\n')}</div>
-  </div>;
-};
-
-const BodyTab: React.FunctionComponent<{
-  resource: ResourceSnapshot;
-}> = ({ resource }) => {
-  const [responseBody, setResponseBody] = React.useState<{ dataUrl?: string, text?: string, mimeType?: string, font?: BufferSource } | null>(null);
+  const model = useTraceModel();
+  const [responseBody, setResponseBody] = React.useState<ResponseBody>(null);
 
   React.useEffect(() => {
     const readResources = async  () => {
-      if (resource.response.content._sha1) {
+      if (model && resource.response.content._sha1) {
         const useBase64 = resource.response.content.mimeType.includes('image');
         const isFont = resource.response.content.mimeType.includes('font');
-        const response = await fetch(`sha1/${resource.response.content._sha1}`);
+        const response = await fetch(model.createRelativeUrl(`sha1/${resource.response.content._sha1}`));
         if (useBase64) {
           const blob = await response.blob();
           const reader = new FileReader();
@@ -144,8 +225,7 @@ const BodyTab: React.FunctionComponent<{
           const font = await response.arrayBuffer();
           setResponseBody({ font });
         } else {
-          const formattedBody = formatBody(await response.text(), resource.response.content.mimeType);
-          setResponseBody({ text: formattedBody, mimeType: resource.response.content.mimeType });
+          setResponseBody({ text: await response.text(), mimeType: resource.response.content.mimeType });
         }
       } else {
         setResponseBody(null);
@@ -153,13 +233,22 @@ const BodyTab: React.FunctionComponent<{
     };
 
     readResources();
-  }, [resource]);
+  }, [resource, model]);
 
-  return <div className='network-request-details-tab'>
+  const [showFormattedResponse, setShowFormattedResponse] = useSetting('trace-viewer-network-details-show-formatted-response', true);
+  const formatResult = useFormattedBody(responseBody, showFormattedResponse);
+
+  return <div className='vbox network-request-details-tab'>
     {!resource.response.content._sha1 && <div>Response body is not available for this request.</div>}
     {responseBody && responseBody.font && <FontPreview font={responseBody.font} />}
-    {responseBody && responseBody.dataUrl && <img draggable='false' src={responseBody.dataUrl} />}
-    {responseBody && responseBody.text && <CodeMirrorWrapper text={responseBody.text} mimeType={responseBody.mimeType} readOnly lineNumbers={true}/>}
+    {responseBody && responseBody.dataUrl && <div><img draggable='false' src={responseBody.dataUrl} /></div>}
+    {responseBody && responseBody.text !== undefined && <div className='vbox network-response-body'>
+      <CodeMirrorWrapper text={formatResult.text} mimeType={responseBody.mimeType} readOnly lineNumbers={true}/>
+      <Toolbar noShadow={true} noMinHeight={true} className='network-response-toolbar'>
+        <div style={{ margin: 'auto' }}></div>
+        <FormatToggleButton toggled={showFormattedResponse} error={formatResult.error} onToggle={() => setShowFormattedResponse(!showFormattedResponse)} />
+      </Toolbar>
+    </div>}
   </div>;
 };
 
@@ -207,24 +296,62 @@ function statusClass(statusCode: number): string {
   return 'red-circle';
 }
 
-function formatBody(body: string | null, contentType: string): string {
-  if (body === null)
-    return 'Loading...';
+const kInlineTagPattern = /<[^>]+>[^<]*<\//;
 
-  const bodyStr = body;
-  if (bodyStr === '')
-    return '<Empty>';
+function formatXml(xml: string, indent = '  ') {
+  let depth = 0;
+  const lines: string[] = [];
+  const tokens = xml.replace(/>\s*</g, '>\n<').split('\n');
 
-  if (contentType.includes('application/json')) {
-    try {
-      return JSON.stringify(JSON.parse(bodyStr), null, 2);
-    } catch (err) {
-      return bodyStr;
+  for (const token of tokens) {
+    const trimmed = token.trim();
+    if (!trimmed)
+      continue;
+
+    if (trimmed.startsWith('</')) {
+      depth = Math.max(depth - 1, 0);
+      lines.push(indent.repeat(depth) + trimmed);
+    } else if (trimmed.endsWith('/>') || trimmed.startsWith('<?') || kInlineTagPattern.test(trimmed)) {
+      lines.push(indent.repeat(depth) + trimmed);
+    } else if (trimmed.startsWith('<')) {
+      lines.push(indent.repeat(depth) + trimmed);
+      depth++;
+    } else {
+      lines.push(indent.repeat(depth) + trimmed);
     }
   }
 
-  if (contentType.includes('application/x-www-form-urlencoded'))
-    return decodeURIComponent(bodyStr);
-
-  return bodyStr;
+  return lines.join('\n');
 }
+
+function formatBody(body: string, contentType?: string): string {
+  if (!body.trim() || !contentType)
+    return body;
+
+  if (isJsonMimeType(contentType))
+    return JSON.stringify(JSON.parse(body), null, 2);
+
+  if (isXmlMimeType(contentType))
+    return formatXml(body);
+
+  if (contentType.includes('application/x-www-form-urlencoded'))
+    return decodeURIComponent(body);
+
+  return body;
+}
+
+const useFormattedBody = (body: RequestBody | ResponseBody, showFormatted: boolean) => {
+  return React.useMemo(() => {
+    if (body?.text === undefined)
+      return { text: '' };
+
+    if (!showFormatted)
+      return { text: body.text };
+
+    try {
+      return { text: formatBody(body.text, body.mimeType) };
+    } catch {
+      return { text: body.text, error: true };
+    }
+  }, [body, showFormatted]);
+};

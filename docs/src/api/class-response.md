@@ -49,6 +49,8 @@ You can use [`method: Response.allHeaders`] for complete list of headers that in
 ## async method: Response.headersArray
 * since: v1.15
 - returns: <[Array]<[Object]>>
+  - alias-csharp: Header
+  - alias-java: HttpHeader
   - `name` <[string]> Name of the header.
   - `value` <[string]> Value of the header.
 
@@ -79,6 +81,12 @@ Returns all values of the headers matching the name, for example `set-cookie`. T
 - `name` <[string]>
 
 Name of the header.
+
+## async method: Response.httpVersion
+* since: v1.59
+- returns: <[string]>
+
+Returns the http version used by the response.
 
 ## async method: Response.json
 * since: v1.8
@@ -113,6 +121,8 @@ Returns the matching [Request] object.
 ## async method: Response.securityDetails
 * since: v1.13
 - returns: <[null]|[Object]>
+  - alias-csharp: ResponseSecurityDetailsResult
+  - alias-java: SecurityDetails
   - `issuer` ?<[string]> Common Name component of the Issuer field.
     from the certificate. This should only be used for informational purposes. Optional.
   - `protocol` ?<[string]> The specific TLS protocol used. (e.g. `TLS 1.3`). Optional.
@@ -128,6 +138,8 @@ Returns SSL and other security information.
 ## async method: Response.serverAddr
 * since: v1.13
 - returns: <[null]|[Object]>
+  - alias-csharp: ResponseServerAddrResult
+  - alias-java: ServerAddr
   - `ipAddress` <[string]> IPv4 or IPV6 address of the server.
   - `port` <[int]>
 

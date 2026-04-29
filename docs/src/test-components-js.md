@@ -40,11 +40,12 @@ test('event should work', async ({ mount }) => {
 
 ## How to get started
 
-Adding Playwright Test to an existing project is easy. Below are the steps to enable Playwright Test for a React, Vue or Svelte project.
+Adding Playwright Test to an existing project is easy. Below are the steps to enable Playwright Test for a React or Vue project.
 
 ### Step 1: Install Playwright Test for components for your respective framework
 
 <Tabs
+  groupId="js-package-manager"
   defaultValue="npm"
   values={[
     {label: 'npm', value: 'npm'},
@@ -103,10 +104,10 @@ component is mounted using this script. It can be either a `.js`, `.ts`, `.jsx` 
 ### Step 2. Create a test file `src/App.spec.{ts,tsx}`
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Svelte', value: 'svelte'},
     {label: 'Vue', value: 'vue'},
   ]
 }>
@@ -149,20 +150,6 @@ If using TypeScript and Vue make sure to add a `vue.d.ts` file to your project:
 
 ```js
 declare module '*.vue';
-```
-
-</TabItem>
-
-<TabItem value="svelte">
-
-```js title="app.spec.ts"
-import { test, expect } from '@playwright/experimental-ct-svelte';
-import App from './App.svelte';
-
-test('should work', async ({ mount }) => {
-  const component = await mount(App);
-  await expect(component).toContainText('Learn Svelte');
-});
 ```
 
 </TabItem>
@@ -284,6 +271,29 @@ Here is how component testing works:
 
 Playwright is using [Vite](https://vitejs.dev/) to create the components bundle and serve it.
 
+## Best practices and pitfalls
+
+Component tests are most reliable when they embrace the fact that the test runs in Node.js while the mounted component runs in the browser.
+
+### Prefer mounting inside each test
+
+Keep `mount()` close to the assertions that use it. Mounting in `beforeEach` makes it harder to see which component state belongs to which test and tends to hide accidental coupling between tests.
+
+```js
+test('renders the product name', async ({ mount }) => {
+  const component = await mount(<ProductCard name="Playwright" />);
+  await expect(component).toContainText('Playwright');
+});
+```
+
+### Module mocks do not cross the Node/browser boundary
+
+Module-level mocks such as `vi.mock()` or `jest.mock()` run in the test process. The component bundle runs in the browser, so those mocks do not automatically affect what the component imports at runtime. Prefer passing test-specific behavior through [`hooksConfig`](#hooks) and configuring it in `playwright/index.{js,ts,jsx,tsx}` with `beforeMount`.
+
+### Reset browser state when a component depends on globals
+
+Component testing may reuse the browser `context` and `page` between tests as a performance optimization. If a component depends on global browser state such as `localStorage`, cookies, singleton services, or router state, reset that state in your test setup or in [`beforeMount`](#hooks) so each test starts from a known baseline.
+
 ## API reference
 
 ### props
@@ -291,10 +301,10 @@ Playwright is using [Vite](https://vitejs.dev/) to create the components bundle 
 Provide props to a component when mounted.
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Svelte', value: 'svelte'},
     {label: 'Vue', value: 'vue'},
   ]
 }>
@@ -306,17 +316,6 @@ import { test } from '@playwright/experimental-ct-react';
 
 test('props', async ({ mount }) => {
   const component = await mount(<Component msg="greetings" />);
-});
-```
-
-</TabItem>
-<TabItem value="svelte">
-
-```js title="component.spec.ts"
-import { test } from '@playwright/experimental-ct-svelte';
-
-test('props', async ({ mount }) => {
-  const component = await mount(Component, { props: { msg: 'greetings' } });
 });
 ```
 
@@ -349,10 +348,10 @@ test('props', async ({ mount }) => {
 Provide callbacks/events to a component when mounted.
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Svelte', value: 'svelte'},
     {label: 'Vue', value: 'vue'},
   ]
 }>
@@ -364,17 +363,6 @@ import { test } from '@playwright/experimental-ct-react';
 
 test('callback', async ({ mount }) => {
   const component = await mount(<Component onClick={() => {}} />);
-});
-```
-
-</TabItem>
-<TabItem value="svelte">
-
-```js title="component.spec.ts"
-import { test } from '@playwright/experimental-ct-svelte';
-
-test('event', async ({ mount }) => {
-  const component = await mount(Component, { on: { click() {} } });
 });
 ```
 
@@ -407,10 +395,10 @@ test('event', async ({ mount }) => {
 Provide children/slots to a component when mounted.
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Svelte', value: 'svelte'},
     {label: 'Vue', value: 'vue'},
   ]
 }>
@@ -422,17 +410,6 @@ import { test } from '@playwright/experimental-ct-react';
 
 test('children', async ({ mount }) => {
   const component = await mount(<Component>Child</Component>);
-});
-```
-
-</TabItem>
-<TabItem value="svelte">
-
-```js title="component.spec.ts"
-import { test } from '@playwright/experimental-ct-svelte';
-
-test('slot', async ({ mount }) => {
-  const component = await mount(Component, { slots: { default: 'Slot' } });
 });
 ```
 
@@ -465,10 +442,11 @@ test('children', async ({ mount }) => {
 You can use `beforeMount` and `afterMount` hooks to configure your app. This lets you set up things like your app router, fake server etc. giving you the flexibility you need. You can also pass custom configuration from the `mount` call from a test, which is accessible from the `hooksConfig` fixture. This includes any config that needs to be run before or after mounting the component. An example of configuring a router is provided below:
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Vue3', value: 'vue3'},
+    {label: 'Vue', value: 'vue'},
   ]
 }>
   <TabItem value="react">
@@ -502,7 +480,7 @@ You can use `beforeMount` and `afterMount` hooks to configure your app. This let
 
   </TabItem>
 
-  <TabItem value="vue3">
+  <TabItem value="vue">
 
   ```js title="playwright/index.ts"
   import { beforeMount, afterMount } from '@playwright/experimental-ct-vue/hooks';
@@ -540,10 +518,10 @@ You can use `beforeMount` and `afterMount` hooks to configure your app. This let
 Unmount the mounted component from the DOM. This is useful for testing the component's behavior upon unmounting. Use cases include testing an "Are you sure you want to leave?" modal or ensuring proper cleanup of event handlers to prevent memory leaks.
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Svelte', value: 'svelte'},
     {label: 'Vue', value: 'vue'},
   ]
 }>
@@ -555,18 +533,6 @@ import { test } from '@playwright/experimental-ct-react';
 
 test('unmount', async ({ mount }) => {
   const component = await mount(<Component/>);
-  await component.unmount();
-});
-```
-
-</TabItem>
-<TabItem value="svelte">
-
-```js title="component.spec.ts"
-import { test } from '@playwright/experimental-ct-svelte';
-
-test('unmount', async ({ mount }) => {
-  const component = await mount(Component);
   await component.unmount();
 });
 ```
@@ -601,10 +567,10 @@ test('unmount', async ({ mount }) => {
 Update props, slots/children, and/or events/callbacks of a mounted component. These component inputs can change at any time and are typically provided by the parent component, but sometimes it is necessary to ensure that your components behave appropriately to new inputs.
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Svelte', value: 'svelte'},
     {label: 'Vue', value: 'vue'},
   ]
 }>
@@ -619,22 +585,6 @@ test('update', async ({ mount }) => {
   await component.update(
       <Component msg="greetings" onClick={() => {}}>Child</Component>
   );
-});
-```
-
-</TabItem>
-<TabItem value="svelte">
-
-```js title="component.spec.ts"
-import { test } from '@playwright/experimental-ct-svelte';
-
-test('update', async ({ mount }) => {
-  const component = await mount(Component);
-  await component.update({
-    props: { msg: 'greetings' },
-    on: { click() {} },
-    slots: { default: 'Child' }
-  });
 });
 ```
 
@@ -678,7 +628,7 @@ Playwright provides an **experimental** `router` fixture to intercept and handle
 
 Here is an example of reusing your existing MSW handlers in the test.
 
-```ts
+```js
 import { handlers } from '@src/mocks/handlers';
 
 test.beforeEach(async ({ router }) => {
@@ -694,7 +644,7 @@ test('example test', async ({ mount }) => {
 
 You can also introduce a one-off handler for a specific test.
 
-```ts
+```js
 import { http, HttpResponse } from 'msw';
 
 test('example test', async ({ mount, router }) => {
@@ -709,7 +659,7 @@ test('example test', async ({ mount, router }) => {
 
 ## Frequently asked questions
 
-### What's the difference between `@playwright/test` and `@playwright/experimental-ct-{react,svelte,vue}`?
+### What's the difference between `@playwright/test` and `@playwright/experimental-ct-{react,vue}`?
 
 ```js
 test('…', async ({ mount, page, context }) => {
@@ -717,13 +667,13 @@ test('…', async ({ mount, page, context }) => {
 });
 ```
 
-`@playwright/experimental-ct-{react,svelte,vue}` wrap `@playwright/test` to provide an additional built-in component-testing specific fixture called `mount`:
+`@playwright/experimental-ct-{react,vue}` wrap `@playwright/test` to provide an additional built-in component-testing specific fixture called `mount`:
 
 <Tabs
+  groupId="js-framework"
   defaultValue="react"
   values={[
     {label: 'React', value: 'react'},
-    {label: 'Svelte', value: 'svelte'},
     {label: 'Vue', value: 'vue'},
   ]
 }>
@@ -748,26 +698,6 @@ test('should work', async ({ mount }) => {
 ```js
 import { test, expect } from '@playwright/experimental-ct-vue';
 import HelloWorld from './HelloWorld.vue';
-
-test.use({ viewport: { width: 500, height: 500 } });
-
-test('should work', async ({ mount }) => {
-  const component = await mount(HelloWorld, {
-    props: {
-      msg: 'Greetings',
-    },
-  });
-  await expect(component).toContainText('Greetings');
-});
-```
-
-</TabItem>
-
-<TabItem value="svelte">
-
-```js
-import { test, expect } from '@playwright/experimental-ct-svelte';
-import HelloWorld from './HelloWorld.svelte';
 
 test.use({ viewport: { width: 500, height: 500 } });
 
@@ -852,6 +782,14 @@ export default defineConfig({
   },
 });
 ```
+
+### How do I use CSS imports?
+
+If you have a component that imports CSS, Vite will handle it automatically. You can also use CSS pre-processors such as Sass, Less, or Stylus, and Vite will handle them as well without any additional configuration. However, corresponding CSS pre-processor needs to be installed.
+
+Vite has a hard requirement that all CSS Modules are named `*.module.[css extension]`. If you have a custom build config for your project normally and have imports of the form `import styles from 'styles.css'` you must rename your files to properly indicate they are to be treated as modules. You could also write a Vite plugin to handle this for you.
+
+Check [Vite documentation](https://vite.dev/guide/features#css) for more details.
 
 ### How can I test components that uses Pinia?
 

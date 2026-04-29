@@ -15,39 +15,46 @@
  * limitations under the License.
  */
 
-import type { Size, Point, TimeoutOptions, HeadersArray } from '../common/types';
-export type { Size, Point, Rect, Quad, TimeoutOptions, HeadersArray } from '../common/types';
+import type { HeadersArray, Point, Size } from '@isomorphic/types';
+export type { HeadersArray, Point, Quad, Rect, Size } from '@isomorphic/types';
 import type * as channels from '@protocol/channels';
+import type { ProxySettings } from '@utils/network';
 
 export type StrictOptions = {
   strict?: boolean,
 };
 
-export type QueryOnSelectorOptions = StrictOptions & TimeoutOptions;
+export type QueryOnSelectorOptions = StrictOptions;
 
-export type WaitForElementOptions = TimeoutOptions & StrictOptions & { state?: 'attached' | 'detached' | 'visible' | 'hidden' } & { omitReturnValue?: boolean };
-
-export type WaitForFunctionOptions = TimeoutOptions & { pollingInterval?: number };
+export type WaitForElementOptions = StrictOptions & { state?: 'attached' | 'detached' | 'visible' | 'hidden' } & { omitReturnValue?: boolean };
 
 export type LifecycleEvent = 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
 export const kLifecycleEvents: Set<LifecycleEvent> = new Set(['load', 'domcontentloaded', 'networkidle', 'commit']);
 
-export type NavigateOptions = TimeoutOptions & {
+export type NavigateOptions = {
   waitUntil?: LifecycleEvent,
 };
 
-export type CommonActionOptions = TimeoutOptions & StrictOptions & {
+export type CommonActionOptions = StrictOptions & {
   force?: boolean,
+  noAutoWaiting?: boolean,
 };
 
 export type PointerActionWaitOptions = CommonActionOptions & {
   trial?: boolean;
 };
 
-export type PageScreencastOptions = {
+export type VideoOptions = {
   width: number,
   height: number,
   outputFile: string,
+};
+
+export type ScreencastFrame = {
+  buffer: Buffer,
+  frameSwapWallTime: number,
+  viewportWidth: number,
+  viewportHeight: number,
 };
 
 export type Credentials = {
@@ -84,6 +91,8 @@ export type ReducedMotion = 'no-preference' | 'reduce' | 'no-override';
 
 export type ForcedColors = 'active' | 'none' | 'no-override';
 
+export type Contrast = 'no-preference' | 'more' | 'no-override';
+
 export type DeviceDescriptor = {
   userAgent: string,
   viewport: Size,
@@ -93,13 +102,7 @@ export type DeviceDescriptor = {
   defaultBrowserType: 'chromium' | 'firefox' | 'webkit'
 };
 export type Devices = { [name: string]: DeviceDescriptor };
-
-export type ProxySettings = {
-  server: string,
-  bypass?: string,
-  username?: string,
-  password?: string
-};
+export type { ProxySettings } from '@utils/network';
 
 export type KeyboardModifier = 'Alt' | 'Control' | 'Meta' | 'Shift';
 export type SmartKeyboardModifier = KeyboardModifier |  'ControlOrMeta';
@@ -113,6 +116,7 @@ export type PointerActionOptions = {
 export type DragActionOptions = {
   sourcePosition?: Point;
   targetPosition?: Point;
+  steps?: number;
 };
 
 
@@ -150,9 +154,9 @@ export type NormalizedContinueOverrides = {
 
 export type EmulatedSize = { viewport: Size, screen: Size };
 
-export type LaunchOptions = channels.BrowserTypeLaunchOptions & {
-  useWebSocket?: boolean,
+export type LaunchOptions = Omit<channels.BrowserTypeLaunchParams, 'timeout'> & {
   proxyOverride?: ProxySettings,
+  socksProxyPort?: number,
 };
 
 export type BrowserContextOptions = channels.BrowserNewContextOptions & {

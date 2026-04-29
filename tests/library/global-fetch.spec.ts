@@ -16,9 +16,9 @@
 
 import os from 'os';
 import * as util from 'util';
-import { getPlaywrightVersion } from '../../packages/playwright-core/lib/utils/userAgent';
+import { getPlaywrightVersion } from '../../packages/playwright-core/lib/coreBundle';
 import { expect, playwrightTest as base } from '../config/browserTest';
-import { kTargetClosedErrorMessage } from 'tests/config/errors';
+import { kTargetClosedErrorMessage } from '../config/errors';
 
 const it = base.extend({
   context: async ({}, use) => {
@@ -70,7 +70,7 @@ it('should support global timeout option', async ({ playwright, server }) => {
   const request = await playwright.request.newContext({ timeout: 100 });
   server.setRoute('/empty.html', (req, res) => {});
   const error = await request.get(server.EMPTY_PAGE).catch(e => e);
-  expect(error.message).toContain('Request timed out after 100ms');
+  expect(error.message).toContain('apiRequestContext.get: Timeout 100ms exceeded');
   await request.dispose();
 });
 
@@ -255,7 +255,9 @@ it('should set playwright as user-agent', async ({ playwright, server, isWindows
 });
 
 it('should be able to construct with context options', async ({ playwright, browserType, server }) => {
-  const request = await playwright.request.newContext((browserType as any)._defaultContextOptions);
+  const defaultContextOptions = {};
+  await (playwright as any)._instrumentation.runBeforeCreateRequestContext(defaultContextOptions);
+  const request = await playwright.request.newContext(defaultContextOptions);
   const response = await request.get(server.EMPTY_PAGE);
   expect(response.ok()).toBeTruthy();
   await request.dispose();
@@ -283,7 +285,7 @@ it('should abort requests when context is disposed', async ({ playwright, server
   ]);
   for (const result of results.slice(0, -1)) {
     expect(result instanceof Error).toBeTruthy();
-    expect(result.message).toContain(kTargetClosedErrorMessage);
+    expect(result.message).toContain('Request context disposed.');
   }
   await connectionClosed;
   await request.dispose();
@@ -437,6 +439,8 @@ it('should return body for failing requests', async ({ playwright, server }) => 
   await request.dispose();
 });
 
+const HTTP_METHODS = ['GET', 'PUT', 'POST', 'OPTIONS', 'HEAD', 'PATCH'] as const;
+
 it('should throw an error when maxRedirects is exceeded', async ({ playwright, server }) => {
   server.setRedirect('/a/redirect1', '/b/c/redirect2');
   server.setRedirect('/b/c/redirect2', '/b/c/redirect3');
@@ -444,7 +448,7 @@ it('should throw an error when maxRedirects is exceeded', async ({ playwright, s
   server.setRedirect('/b/c/redirect4', '/simple.json');
 
   const request = await playwright.request.newContext();
-  for (const method of ['GET', 'PUT', 'POST', 'OPTIONS', 'HEAD', 'PATCH']) {
+  for (const method of HTTP_METHODS) {
     for (const maxRedirects of [1, 2, 3])
       await expect(async () => request.fetch(`${server.PREFIX}/a/redirect1`, { method: method, maxRedirects: maxRedirects })).rejects.toThrow('Max redirect count exceeded');
   }
@@ -456,7 +460,7 @@ it('should not follow redirects when maxRedirects is set to 0', async ({ playwri
   server.setRedirect('/b/c/redirect2', '/simple.json');
 
   const request = await playwright.request.newContext();
-  for (const method of ['GET', 'PUT', 'POST', 'OPTIONS', 'HEAD', 'PATCH']){
+  for (const method of HTTP_METHODS){
     const response = await request.fetch(`${server.PREFIX}/a/redirect1`, { method, maxRedirects: 0 });
     expect(response.headers()['location']).toBe('/b/c/redirect2');
     expect(response.status()).toBe(302);
@@ -469,8 +473,56 @@ it('should throw an error when maxRedirects is less than 0', async ({ playwright
   server.setRedirect('/b/c/redirect2', '/simple.json');
 
   const request = await playwright.request.newContext();
-  for (const method of ['GET', 'PUT', 'POST', 'OPTIONS', 'HEAD', 'PATCH'])
+  for (const method of HTTP_METHODS)
     await expect(async () => request.fetch(`${server.PREFIX}/a/redirect1`, { method, maxRedirects: -1 })).rejects.toThrow(`'maxRedirects' must be greater than or equal to '0'`);
+  await request.dispose();
+});
+
+it('should not follow redirects when maxRedirects is set to 0 in newContext', async ({ playwright, server }) => {
+  server.setRedirect('/a/redirect1', '/b/c/redirect2');
+  server.setRedirect('/b/c/redirect2', '/simple.json');
+
+  const request = await playwright.request.newContext({ maxRedirects: 0 });
+  for (const method of HTTP_METHODS) {
+    const response = await request.fetch(`${server.PREFIX}/a/redirect1`, { method });
+    expect(response.headers()['location']).toBe('/b/c/redirect2');
+    expect(response.status()).toBe(302);
+  }
+  await request.dispose();
+});
+
+it('should follow redirects up to maxRedirects limit set in newContext', async ({ playwright, server }) => {
+  server.setRedirect('/a/redirect1', '/b/c/redirect2');
+  server.setRedirect('/b/c/redirect2', '/b/c/redirect3');
+  server.setRedirect('/b/c/redirect3', '/b/c/redirect4');
+  server.setRedirect('/b/c/redirect4', '/simple.json');
+
+  for (const maxRedirects of [1, 2, 3, 4]) {
+    const request = await playwright.request.newContext({ maxRedirects });
+    for (const method of HTTP_METHODS) {
+      if (maxRedirects < 4) {
+        await expect(async () => request.fetch(`${server.PREFIX}/a/redirect1`, { method }))
+            .rejects.toThrow('Max redirect count exceeded');
+      } else {
+        const response = await request.fetch(`${server.PREFIX}/a/redirect1`, { method });
+        expect(response.status()).toBe(200);
+      }
+    }
+    await request.dispose();
+  }
+});
+
+it('should use maxRedirects from fetch when provided, overriding newContext', async ({ playwright, server }) => {
+  server.setRedirect('/a/redirect1', '/b/c/redirect2');
+  server.setRedirect('/b/c/redirect2', '/b/c/redirect3');
+  server.setRedirect('/b/c/redirect3', '/b/c/redirect4');
+  server.setRedirect('/b/c/redirect4', '/simple.json');
+
+  const request = await playwright.request.newContext({ maxRedirects: 1 });
+  for (const method of HTTP_METHODS) {
+    const response = await request.fetch(`${server.PREFIX}/a/redirect1`, { method, maxRedirects: 4 });
+    expect(response.status()).toBe(200);
+  }
   await request.dispose();
 });
 
@@ -534,5 +586,29 @@ it('should retry ECONNRESET', {
   expect(response.status()).toBe(200);
   expect(await response.text()).toBe('Hello!');
   expect(requestCount).toBe(4);
+  await request.dispose();
+});
+
+it('should throw when failOnStatusCode is set to true inside APIRequest context options', async ({ playwright, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/34204' });
+  const request = await playwright.request.newContext({ failOnStatusCode: true });
+  server.setRoute('/empty.html', (req, res) => {
+    res.writeHead(404, { 'Content-Length': 10, 'Content-Type': 'text/plain' });
+    res.end('Not found.');
+  });
+  const error = await request.fetch(server.EMPTY_PAGE).catch(e => e);
+  expect(error.message).toContain('404 Not Found');
+  await request.dispose();
+});
+
+it('should not throw when failOnStatusCode is set to false inside APIRequest context options', async ({ playwright, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/34204' });
+  const request = await playwright.request.newContext({ failOnStatusCode: false });
+  server.setRoute('/empty.html', (req, res) => {
+    res.writeHead(404, { 'Content-Length': 10, 'Content-Type': 'text/plain' });
+    res.end('Not found.');
+  });
+  const response = await request.fetch(server.EMPTY_PAGE);
+  expect(response.status()).toBe(404);
   await request.dispose();
 });

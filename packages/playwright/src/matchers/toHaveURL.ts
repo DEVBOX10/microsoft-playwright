@@ -14,42 +14,21 @@
  * limitations under the License.
  */
 
-import type { Page } from 'playwright-core';
-import type { ExpectMatcherState } from '../../types/test';
-import { EXPECTED_COLOR, printReceived } from '../common/expectBundle';
-import { matcherHint, type MatcherResult } from './matcherHint';
-import { constructURLBasedOnBaseURL, urlMatches } from 'playwright-core/lib/utils';
-import { colors } from 'playwright-core/lib/utilsBundle';
-import { printReceivedStringContainExpectedResult, printReceivedStringContainExpectedSubstring } from './expect';
+import { urlMatches } from '@isomorphic/urlMatch';
 
-export async function toHaveURL(
-  this: ExpectMatcherState,
+import { formatMatcherMessage, printReceivedStringContainExpectedResult } from './matcherHint';
+
+import type { MatcherResult } from './matcherHint';
+import type { Page } from 'playwright-core';
+import type { ExpectMatcherStateInternal } from './matchers';
+
+export async function toHaveURLWithPredicate(
+  this: ExpectMatcherStateInternal,
   page: Page,
-  expected: string | RegExp | ((url: URL) => boolean),
+  expected: (url: URL) => boolean,
   options?: { ignoreCase?: boolean; timeout?: number },
 ): Promise<MatcherResult<string | RegExp, string>> {
   const matcherName = 'toHaveURL';
-  const expression = 'page';
-  const matcherOptions = {
-    isNot: this.isNot,
-    promise: this.promise,
-  };
-
-  if (
-    !(typeof expected === 'string') &&
-    !(expected && 'test' in expected && typeof expected.test === 'function') &&
-    !(typeof expected === 'function')
-  ) {
-    throw new Error(
-        [
-          // Always display `expected` in expectation place
-          matcherHint(this, undefined, matcherName, expression, undefined, matcherOptions),
-          `${colors.bold('Matcher error')}: ${EXPECTED_COLOR('expected')} value must be a string, regular expression, or predicate`,
-          this.utils.printWithType('Expected', expected, this.utils.printExpected,),
-        ].join('\n\n'),
-    );
-  }
-
   const timeout = options?.timeout ?? this.timeout;
   const baseURL: string | undefined = (page.context() as any)._options.baseURL;
   let conditionSucceeded = false;
@@ -65,9 +44,7 @@ export async function toHaveURL(
               urlMatches(
                   baseURL?.toLocaleLowerCase(),
                   lastCheckedURLString.toLocaleLowerCase(),
-                  typeof expected === 'string'
-                    ? expected.toLocaleLowerCase()
-                    : expected,
+                  expected,
               )
             );
           }
@@ -94,10 +71,7 @@ export async function toHaveURL(
       toHaveURLMessage(
           this,
           matcherName,
-          expression,
-          typeof expected === 'string'
-            ? constructURLBasedOnBaseURL(baseURL, expected)
-            : expected,
+          expected,
           lastCheckedURLString,
           this.isNot,
           true,
@@ -109,45 +83,42 @@ export async function toHaveURL(
 }
 
 function toHaveURLMessage(
-  state: ExpectMatcherState,
+  state: ExpectMatcherStateInternal,
   matcherName: string,
-  expression: string,
-  expected: string | RegExp | Function,
+  expected: Function,
   received: string | undefined,
   pass: boolean,
-  didTimeout: boolean,
+  timedOut: boolean,
   timeout: number,
 ): string {
-  const matcherOptions = {
-    isNot: state.isNot,
-    promise: state.promise,
-  };
   const receivedString = received || '';
-  const messagePrefix = matcherHint(state, undefined, matcherName, expression, undefined, matcherOptions, didTimeout ? timeout : undefined);
 
   let printedReceived: string | undefined;
   let printedExpected: string | undefined;
   let printedDiff: string | undefined;
   if (typeof expected === 'function') {
-    printedExpected = `Expected predicate to ${!state.isNot ? 'succeed' : 'fail'}`;
-    printedReceived = `Received string: ${printReceived(receivedString)}`;
+    printedExpected = `Expected: predicate to ${!state.isNot ? 'succeed' : 'fail'}`;
+    printedReceived = `Received: ${state.utils.printReceived(receivedString)}`;
   } else {
     if (pass) {
-      if (typeof expected === 'string') {
-        printedExpected = `Expected string: not ${state.utils.printExpected(expected)}`;
-        const formattedReceived = printReceivedStringContainExpectedSubstring(receivedString, receivedString.indexOf(expected), expected.length);
-        printedReceived = `Received string: ${formattedReceived}`;
-      } else {
-        printedExpected = `Expected pattern: not ${state.utils.printExpected(expected)}`;
-        const formattedReceived = printReceivedStringContainExpectedResult(receivedString, typeof expected.exec === 'function' ? expected.exec(receivedString) : null);
-        printedReceived = `Received string: ${formattedReceived}`;
-      }
+      printedExpected = `Expected pattern: not ${state.utils.printExpected(expected)}`;
+      const formattedReceived = printReceivedStringContainExpectedResult(state.utils, receivedString, null);
+      printedReceived = `Received string: ${formattedReceived}`;
     } else {
       const labelExpected = `Expected ${typeof expected === 'string' ? 'string' : 'pattern'}`;
       printedDiff = state.utils.printDiffOrStringify(expected, receivedString, labelExpected, 'Received string', false);
     }
   }
 
-  const resultDetails = printedDiff ? printedDiff : printedExpected + '\n' + printedReceived;
-  return messagePrefix + resultDetails;
+  return formatMatcherMessage(state.utils, {
+    isNot: state.isNot,
+    promise: state.promise,
+    matcherName,
+    expectation: 'expected',
+    timeout,
+    timedOut,
+    printedExpected,
+    printedReceived,
+    printedDiff,
+  });
 }

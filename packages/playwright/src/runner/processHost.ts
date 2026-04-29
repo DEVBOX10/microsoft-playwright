@@ -16,12 +16,12 @@
 
 import child_process from 'child_process';
 import { EventEmitter } from 'events';
-import { debug } from 'playwright-core/lib/utilsBundle';
-import type { EnvProducedPayload, ProcessInitParams } from '../common/ipc';
-import type { ProtocolResponse } from '../common/process';
-import { execArgvWithExperimentalLoaderOptions } from '../transform/esmUtils';
-import { assert } from 'playwright-core/lib/utils';
-import { esmLoaderRegistered } from '../common/esmLoaderHost';
+
+import debug from 'debug';
+import { assert } from '@isomorphic/assert';
+import { timeOrigin } from '@isomorphic/time';
+
+import type { ipc, processRunner } from '../common';
 
 export type ProcessExitData = {
   unexpectedly: boolean;
@@ -34,28 +34,31 @@ export class ProcessHost extends EventEmitter {
   private _didSendStop = false;
   private _processDidExit = false;
   private _didExitAndRanOnExit = false;
-  private _runnerScript: string;
+  private _entryScript: string;
   private _lastMessageId = 0;
   private _callbacks = new Map<number, { resolve: (result: any) => void, reject: (error: Error) => void }>();
   private _processName: string;
   private _producedEnv: Record<string, string | undefined> = {};
   private _extraEnv: Record<string, string | undefined>;
+  private _requestHandlers = new Map<string, (params: any) => Promise<any>>();
 
-  constructor(runnerScript: string, processName: string, env: Record<string, string | undefined>) {
+  constructor(entryScript: string, processName: string, env: Record<string, string | undefined>) {
     super();
-    this._runnerScript = runnerScript;
+    this._entryScript = entryScript;
     this._processName = processName;
     this._extraEnv = env;
   }
 
   async startRunner(runnerParams: any, options: { onStdOut?: (chunk: Buffer | string) => void, onStdErr?: (chunk: Buffer | string) => void } = {}): Promise<ProcessExitData | undefined> {
     assert(!this.process, 'Internal error: starting the same process twice');
-    this.process = child_process.fork(require.resolve('../common/process'), {
+    this.process = child_process.fork(this._entryScript, {
+      // Note: we pass detached:false, so that workers are in the same process group.
+      // This way Ctrl+C or a kill command can shutdown all workers in case they misbehave.
+      // Otherwise user can end up with a bunch of workers stuck in a busy loop without self-destructing.
       detached: false,
       env: {
         ...process.env,
         ...this._extraEnv,
-        ...(esmLoaderRegistered ? { PW_TS_ESM_LOADER_ON: '1' } : {}),
       },
       stdio: [
         'ignore',
@@ -63,7 +66,6 @@ export class ProcessHost extends EventEmitter {
         (options.onStdErr && !process.env.PW_RUNNER_DEBUG) ? 'pipe' : 'inherit',
         'ipc',
       ],
-      ...(process.env.PW_TS_ESM_LEGACY_LOADER_ON ? { execArgv: execArgvWithExperimentalLoaderOptions() } : {}),
     });
     this.process.on('exit', async (code, signal) => {
       this._processDidExit = true;
@@ -76,10 +78,10 @@ export class ProcessHost extends EventEmitter {
       if (debug.enabled('pw:test:protocol'))
         debug('pw:test:protocol')('◀ RECV ' + JSON.stringify(message));
       if (message.method === '__env_produced__') {
-        const producedEnv: EnvProducedPayload = message.params;
+        const producedEnv: ipc.EnvProducedPayload = message.params;
         this._producedEnv = Object.fromEntries(producedEnv.map(e => [e[0], e[1] ?? undefined]));
       } else if (message.method === '__dispatch__') {
-        const { id, error, method, params, result } = message.params as ProtocolResponse;
+        const { id, error, method, params, result } = message.params as processRunner.ProtocolResponse;
         if (id && this._callbacks.has(id)) {
           const { resolve, reject } = this._callbacks.get(id)!;
           this._callbacks.delete(id);
@@ -92,6 +94,18 @@ export class ProcessHost extends EventEmitter {
           }
         } else {
           this.emit(method!, params);
+        }
+      } else if (message.method === '__request__') {
+        const { id, method, params } = message.params as processRunner.ProtocolRequest;
+        const handler = this._requestHandlers.get(method);
+        if (!handler) {
+          this.send({ method: '__response__', params: { id, error: { message: 'Unknown method' } } });
+        } else {
+          handler(params).then(result => {
+            this.send({ method: '__response__', params: { id, result } });
+          }).catch(error => {
+            this.send({ method: '__response__', params: { id, error: { message: error.message } } });
+          });
         }
       } else {
         this.emit(message.method!, message.params);
@@ -111,14 +125,14 @@ export class ProcessHost extends EventEmitter {
     if (error)
       return error;
 
-    const processParams: ProcessInitParams = {
-      processName: this._processName
+    const processParams: ipc.ProcessInitParams = {
+      processName: this._processName,
+      timeOrigin: timeOrigin(),
     };
 
     this.send({
       method: '__init__', params: {
         processParams,
-        runnerScript: this._runnerScript,
         runnerParams
       }
     });
@@ -140,6 +154,10 @@ export class ProcessHost extends EventEmitter {
   }
 
   protected async onExit() {
+  }
+
+  onRequest(method: string, handler: (params?: any) => Promise<any>) {
+    this._requestHandlers.set(method, handler);
   }
 
   async stop() {

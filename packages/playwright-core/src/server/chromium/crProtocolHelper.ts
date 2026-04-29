@@ -15,12 +15,15 @@
  * limitations under the License.
  */
 
+import fs from 'fs';
+
+import { splitErrorMessage } from '@isomorphic/stackTrace';
+import { mkdirIfNeeded } from '@utils/fileUtils';
+
 import type { CRSession } from './crConnection';
 import type { Protocol } from './protocol';
-import fs from 'fs';
 import type * as types from '../types';
-import { mkdirIfNeeded } from '../../utils/fileUtils';
-import { splitErrorMessage } from '../../utils/stackTrace';
+
 
 export function getExceptionMessage(exceptionDetails: Protocol.Runtime.ExceptionDetails): string {
   if (exceptionDetails.exception)
@@ -67,7 +70,7 @@ export async function readProtocolStream(client: CRSession, handle: string): Pro
   return Buffer.concat(chunks);
 }
 
-export function toConsoleMessageLocation(stackTrace: Protocol.Runtime.StackTrace | undefined): types.ConsoleMessageLocation {
+export function stackTraceToLocation(stackTrace: Protocol.Runtime.StackTrace | undefined): types.ConsoleMessageLocation {
   return stackTrace && stackTrace.callFrames.length ? {
     url: stackTrace.callFrames[0].url,
     lineNumber: stackTrace.callFrames[0].lineNumber,

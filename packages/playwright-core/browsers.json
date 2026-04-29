@@ -3,45 +3,60 @@
   "browsers": [
     {
       "name": "chromium",
-      "revision": "1157",
+      "revision": "1222",
       "installByDefault": true,
-      "browserVersion": "133.0.6943.35"
+      "browserVersion": "148.0.7778.56",
+      "title": "Chrome for Testing"
+    },
+    {
+      "name": "chromium-headless-shell",
+      "revision": "1222",
+      "installByDefault": true,
+      "browserVersion": "148.0.7778.56",
+      "title": "Chrome Headless Shell"
     },
     {
       "name": "chromium-tip-of-tree",
-      "revision": "1299",
+      "revision": "1425",
       "installByDefault": false,
-      "browserVersion": "134.0.6988.0"
+      "browserVersion": "149.0.7812.3",
+      "title": "Chrome Canary for Testing"
+    },
+    {
+      "name": "chromium-tip-of-tree-headless-shell",
+      "revision": "1425",
+      "installByDefault": false,
+      "browserVersion": "149.0.7812.3",
+      "title": "Chrome Canary Headless Shell"
     },
     {
       "name": "firefox",
-      "revision": "1472",
+      "revision": "1515",
       "installByDefault": true,
-      "browserVersion": "134.0"
+      "browserVersion": "149.0",
+      "title": "Firefox"
     },
     {
       "name": "firefox-beta",
-      "revision": "1468",
+      "revision": "1509",
       "installByDefault": false,
-      "browserVersion": "133.0b9"
+      "browserVersion": "148.0b9",
+      "title": "Firefox Beta"
     },
     {
       "name": "webkit",
-      "revision": "2125",
+      "revision": "2285",
       "installByDefault": true,
       "revisionOverrides": {
+        "mac14": "2251",
+        "mac14-arm64": "2251",
         "debian11-x64": "2105",
         "debian11-arm64": "2105",
-        "mac10.14": "1446",
-        "mac10.15": "1616",
-        "mac11": "1816",
-        "mac11-arm64": "1816",
-        "mac12": "2009",
-        "mac12-arm64": "2009",
         "ubuntu20.04-x64": "2092",
         "ubuntu20.04-arm64": "2092"
       },
-      "browserVersion": "18.2"
+      "browserVersion": "26.4",
+      "title": "WebKit"
     },
     {
       "name": "ffmpeg",

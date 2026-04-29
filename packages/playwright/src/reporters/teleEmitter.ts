@@ -15,11 +15,15 @@
  */
 
 import path from 'path';
-import { createGuid } from 'playwright-core/lib/utils';
-import type * as reporterTypes from '../../types/testReporter';
-import type * as teleReceiver from '../isomorphic/teleReceiver';
+
+import { createGuid } from '@utils/crypto';
+
 import { serializeRegexPatterns } from '../isomorphic/teleReceiver';
+
 import type { ReporterV2 } from './reporterV2';
+import type * as reporterTypes from '../../types/testReporter';
+import type { TestAnnotation } from '../../types/test';
+import type * as teleReceiver from '../isomorphic/teleReceiver';
 
 export type TeleReporterEmitterOptions = {
   omitOutput?: boolean;
@@ -30,7 +34,9 @@ export class TeleReporterEmitter implements ReporterV2 {
   private _messageSink: (message: teleReceiver.JsonEvent) => void;
   private _rootDir!: string;
   private _emitterOptions: TeleReporterEmitterOptions;
-  // In case there is blob reporter and UI mode, make sure one does override
+  private _resultKnownAttachmentCounts = new Map<string, number>();
+  private _resultKnownErrorCounts = new Map<string, number>();
+  // In case there is blob reporter and UI mode, make sure one doesn't override
   // the id assigned by the other.
   private readonly _idSymbol = Symbol('id');
 
@@ -66,13 +72,29 @@ export class TeleReporterEmitter implements ReporterV2 {
     });
   }
 
+  async onTestPaused(test: reporterTypes.TestCase, result: reporterTypes.TestResult) {
+    const resultId = (result as any)[this._idSymbol];
+    this._resultKnownErrorCounts.set(resultId, result.errors.length);
+    this._messageSink({
+      method: 'onTestPaused',
+      params: {
+        testId: test.id,
+        resultId,
+        errors: result.errors,
+      }
+    });
+    // keep the test paused until externally resumed
+    await new Promise<void>(() => {});
+  }
+
   onTestEnd(test: reporterTypes.TestCase, result: reporterTypes.TestResult): void {
     const testEnd: teleReceiver.JsonTestEnd = {
       testId: test.id,
       expectedStatus: test.expectedStatus,
-      annotations: test.annotations,
       timeout: test.timeout,
+      annotations: []
     };
+    this._sendNewAttachments(result, test.id);
     this._messageSink({
       method: 'onTestEnd',
       params: {
@@ -80,6 +102,10 @@ export class TeleReporterEmitter implements ReporterV2 {
         result: this._serializeResultEnd(result),
       }
     });
+
+    const resultId = (result as any)[this._idSymbol];
+    this._resultKnownAttachmentCounts.delete(resultId);
+    this._resultKnownErrorCounts.delete(resultId);
   }
 
   onStepBegin(test: reporterTypes.TestCase, result: reporterTypes.TestResult, step: reporterTypes.TestStep): void {
@@ -95,11 +121,15 @@ export class TeleReporterEmitter implements ReporterV2 {
   }
 
   onStepEnd(test: reporterTypes.TestCase, result: reporterTypes.TestResult, step: reporterTypes.TestStep): void {
+    // Create synthetic onAttach event so we serialize the entire attachment along with the step
+    const resultId = (result as any)[this._idSymbol] as string;
+    this._sendNewAttachments(result, test.id);
+
     this._messageSink({
       method: 'onStepEnd',
       params: {
         testId: test.id,
-        resultId: (result as any)[this._idSymbol],
+        resultId,
         step: this._serializeStepEnd(step, result)
       }
     });
@@ -156,8 +186,13 @@ export class TeleReporterEmitter implements ReporterV2 {
       maxFailures: config.maxFailures,
       metadata: config.metadata,
       rootDir: config.rootDir,
+      shard: config.shard,
       version: config.version,
       workers: config.workers,
+      globalSetup: config.globalSetup,
+      globalTeardown: config.globalTeardown,
+      tags: config.tags,
+      webServer: config.webServer,
     };
   }
 
@@ -181,8 +216,16 @@ export class TeleReporterEmitter implements ReporterV2 {
       dependencies: project.dependencies,
       snapshotDir: this._relativePath(project.snapshotDir),
       teardown: project.teardown,
+      ignoreSnapshots: project.ignoreSnapshots ? true : undefined,
+      use: this._serializeProjectUseOptions(project.use),
     };
     return report;
+  }
+
+  private _serializeProjectUseOptions(use: reporterTypes.FullProject['use']): Record<string, any> {
+    return {
+      testIdAttribute: use.testIdAttribute,
+    };
   }
 
   private _serializeSuite(suite: reporterTypes.Suite): teleReceiver.JsonSuite {
@@ -206,7 +249,7 @@ export class TeleReporterEmitter implements ReporterV2 {
       retries: test.retries,
       tags: test.tags,
       repeatEachIndex: test.repeatEachIndex,
-      annotations: test.annotations,
+      annotations: this._relativeAnnotationLocations(test.annotations),
     };
   }
 
@@ -221,21 +264,41 @@ export class TeleReporterEmitter implements ReporterV2 {
   }
 
   private _serializeResultEnd(result: reporterTypes.TestResult): teleReceiver.JsonTestResultEnd {
+    const id = (result as any)[this._idSymbol];
     return {
-      id: (result as any)[this._idSymbol],
+      id,
       duration: result.duration,
       status: result.status,
-      errors: result.errors,
-      attachments: this._serializeAttachments(result.attachments),
+      errors: this._resultKnownErrorCounts.has(id) ? result.errors.slice(this._resultKnownAttachmentCounts.get(id)) : result.errors,
+      annotations: result.annotations?.length ? this._relativeAnnotationLocations(result.annotations) : undefined,
     };
+  }
+
+  private _sendNewAttachments(result: reporterTypes.TestResult, testId: string) {
+    const resultId = (result as any)[this._idSymbol] as string;
+    // Track whether this step (or something else since the last step) has added attachments and send them
+    const knownAttachmentCount = this._resultKnownAttachmentCounts.get(resultId) ?? 0;
+    if (result.attachments.length > knownAttachmentCount) {
+      this._messageSink({
+        method: 'onAttach',
+        params: {
+          testId,
+          resultId,
+          attachments: this._serializeAttachments((result.attachments.slice(knownAttachmentCount))),
+        }
+      });
+    }
+
+    this._resultKnownAttachmentCounts.set(resultId, result.attachments.length);
   }
 
   _serializeAttachments(attachments: reporterTypes.TestResult['attachments']): teleReceiver.JsonAttachment[] {
     return attachments.map(a => {
+      const { body, ...rest } = a;
       return {
-        ...a,
+        ...rest,
         // There is no Buffer in the browser, so there is no point in sending the data there.
-        base64: (a.body && !this._emitterOptions.omitBuffers) ? a.body.toString('base64') : undefined,
+        base64: (body && !this._emitterOptions.omitBuffers) ? body.toString('base64') : undefined,
       };
     });
   }
@@ -256,9 +319,16 @@ export class TeleReporterEmitter implements ReporterV2 {
       id: (step as any)[this._idSymbol],
       duration: step.duration,
       error: step.error,
-      attachments: step.attachments.map(a => result.attachments.indexOf(a)),
-      annotations: step.annotations.length ? step.annotations : undefined,
+      attachments: step.attachments.length ? step.attachments.map(a => result.attachments.indexOf(a)) : undefined,
+      annotations: step.annotations.length ? this._relativeAnnotationLocations(step.annotations) : undefined,
     };
+  }
+
+  private _relativeAnnotationLocations(annotations: TestAnnotation[]): TestAnnotation[] {
+    return annotations.map(annotation => ({
+      ...annotation,
+      location: annotation.location ? this._relativeLocation(annotation.location) : undefined,
+    }));
   }
 
   private _relativeLocation(location: reporterTypes.Location): reporterTypes.Location;

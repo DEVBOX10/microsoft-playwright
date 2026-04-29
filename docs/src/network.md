@@ -706,11 +706,13 @@ Playwright uses simplified glob patterns for URL matching in network interceptio
 1. Asterisks:
   - A single `*` matches any characters except `/`
   - A double `**` matches any characters including `/`
-1. Question mark `?` matches any single character except `/`
+1. Question mark `?` matches only question mark `?`. If you want to match any character, use `*` instead.
 1. Curly braces `{}` can be used to match a list of options separated by commas `,`
+1. Backslash `\` can be used to escape any of special characters (note to escape backslash itself as `\\`)
 
 Examples:
 - `https://example.com/*.js` matches `https://example.com/file.js` but not `https://example.com/path/file.js`
+- `https://example.com/?page=1` matches `https://example.com/?page=1` but not `https://example.com`
 - `**/*.js` matches both `https://example.com/file.js` and `https://example.com/path/file.js`
 - `**/*.{png,jpg,jpeg}` matches all image requests
 
@@ -767,6 +769,11 @@ page.WebSocket += (_, ws) =>
 
 Playwright's built-in [`method: BrowserContext.route`] and [`method: Page.route`] allow your tests to natively route requests and perform mocking and interception.
 
-1. If you're using Playwright's native [`method: BrowserContext.route`] and [`method: Page.route`], and it appears network events are missing, disable Service Workers by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
-1. It might be that you are using a mock tool such as Mock Service Worker (MSW). While this tool works out of the box for mocking responses, it adds its own Service Worker that takes over the network requests, hence making them invisible to [`method: BrowserContext.route`] and [`method: Page.route`]. If you are interested in both network testing and mocking, consider using built-in [`method: BrowserContext.route`] and [`method: Page.route`] for [response mocking](#handle-requests).
-1. If you're interested in not solely using Service Workers for testing and network mocking, but in routing and listening for requests made by Service Workers themselves, please see [this experimental feature](https://github.com/microsoft/playwright/issues/15684).
+If you're using Playwright's native [`method: BrowserContext.route`] and [`method: Page.route`], and it appears network events are missing, disable Service Workers by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
+
+It might be that you are using a mock tool such as Mock Service Worker (MSW). While this tool works out of the box for mocking responses, it adds its own Service Worker that takes over the network requests, hence making them invisible to [`method: BrowserContext.route`] and [`method: Page.route`]. If you are interested in both network testing and mocking, consider using built-in [`method: BrowserContext.route`] and [`method: Page.route`] for [response mocking](#handle-requests).
+
+######
+* langs: js
+
+If you're interested in not solely using Service Workers for testing and network mocking, but in routing and listening for requests made by Service Workers themselves, please see [this guide](./service-workers.md).

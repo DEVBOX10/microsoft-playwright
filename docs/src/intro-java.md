@@ -32,7 +32,7 @@ public class App {
         try (Playwright playwright = Playwright.create()) {
             Browser browser = playwright.chromium().launch();
             Page page = browser.newPage();
-            page.navigate("http://playwright.dev");
+            page.navigate("https://playwright.dev");
             System.out.println(page.title());
         }
     }
@@ -82,7 +82,7 @@ public class App {
 </TabItem>
 </Tabs>
 
-With the Example.java and pom.xml above, compile and execute your new program as follows:
+With the App.java and pom.xml above, compile and execute your new program as follows:
 
 ```bash
 mvn compile exec:java -D exec.mainClass="org.example.App"
@@ -129,9 +129,9 @@ By default browsers launched with Playwright run headless, meaning no browser UI
 ## System requirements
 
 - Java 8 or higher.
-- Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
-- macOS 13 Ventura, or later.
-- Debian 12, Ubuntu 22.04, Ubuntu 24.04, on x86-64 and arm64 architecture.
+- Windows 11+, Windows Server 2019+ or Windows Subsystem for Linux (WSL).
+- macOS 14 Sonoma, or later.
+- Debian 12, Debian 13, Ubuntu 22.04, Ubuntu 24.04, on x86-64 and arm64 architecture.
 
 ## What's next
 

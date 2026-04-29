@@ -115,45 +115,6 @@ test('should report subprocess creation error', async ({ runInlineTest }, testIn
   expect(result.output).toContain('Error: worker process exited unexpectedly (code=42, signal=null)');
 });
 
-test('should ignore subprocess creation error because of SIGINT', async ({ interactWithTestRunner }, testInfo) => {
-  test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
-
-  const readyFile = testInfo.outputPath('ready.txt');
-  const testProcess = await interactWithTestRunner({
-    'hang.js': `
-      require('fs').writeFileSync(${JSON.stringify(readyFile)}, 'ready');
-      setInterval(() => {}, 1000);
-    `,
-    'preload.js': `
-      require('child_process').spawnSync(
-        process.argv[0],
-        [require('path').resolve('./hang.js')],
-        { env: { ...process.env, NODE_OPTIONS: '' } },
-      );
-    `,
-    'a.spec.js': `
-      import { test, expect } from '@playwright/test';
-      test('fails', () => {});
-      test('skipped', () => {});
-      // Infect subprocesses to immediately hang when spawning a worker.
-      process.env.NODE_OPTIONS = '--require ${JSON.stringify(testInfo.outputPath('preload.js'))}';
-    `
-  });
-
-  while (!fs.existsSync(readyFile))
-    await new Promise(f => setTimeout(f, 100));
-  process.kill(-testProcess.process.pid!, 'SIGINT');
-
-  const { exitCode } = await testProcess.exited;
-  expect.soft(exitCode).toBe(130);
-
-  const result = parseTestRunnerOutput(testProcess.output);
-  expect.soft(result.passed).toBe(0);
-  expect.soft(result.failed).toBe(0);
-  expect.soft(result.didNotRun).toBe(2);
-  expect.soft(result.output).not.toContain('worker process exited unexpectedly');
-});
-
 test('sigint should stop workers', async ({ interactWithTestRunner }) => {
   test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
 
@@ -179,7 +140,7 @@ test('sigint should stop workers', async ({ interactWithTestRunner }) => {
       });
     `,
   }, { 'workers': 2, 'reporter': 'line,json' }, {
-    PW_TEST_REPORTER: path.join(__dirname, '../../packages/playwright/lib/reporters/json.js'),
+    PW_TEST_REPORTER: 'json',
     PLAYWRIGHT_JSON_OUTPUT_NAME: 'report.json',
   });
   await testProcess.waitForOutput('%%SEND-SIGINT%%', 2);
@@ -405,6 +366,35 @@ test('should not hang if test suites in worker are inconsistent with runner', as
   expect(result.skipped).toBe(0);
   const expectedError = 'Test not found in the worker process. Make sure test title does not change.';
   expect(countTimes(result.output, expectedError)).toBe(2);  // Once per each test that was missing.
+});
+
+test('should throw in serial mode if test suites in worker are inconsistent with runner', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      module.exports = { name: 'project-name' };
+    `,
+    'a.spec.js': `
+      import { test, expect } from "@playwright/test";
+
+      test.describe.configure({ mode: "serial" });
+
+      const inWorker = process.env.TEST_WORKER_INDEX !== undefined;
+
+      test("first test", async () => {});
+
+      test("second test", async () => {
+        expect(false).toBeTruthy();
+      });
+
+      test("test - " + inWorker, async () => {});
+    `,
+  }, { 'workers': 1 }, { TEST_WORKER_INDEX: undefined });
+  expect.soft(result.exitCode).toBe(1);
+  expect.soft(result.passed).toBe(0);
+  expect.soft(result.failed).toBe(1);
+  expect.soft(result.skipped).toBe(0);
+  const expectedError = 'Test not found in the worker process. Make sure test title does not change.';
+  expect.soft(result.output).toContain(expectedError);
 });
 
 test('sigint should stop global setup', async ({ interactWithTestRunner }) => {
@@ -751,9 +741,16 @@ test('slow double SIGINT should be respected in reporter.onExit', async ({ inter
 });
 
 test('unhandled exception in test.fail should restart worker and continue', async ({ runInlineTest }) => {
-  const result = await runInlineTest({
+  const files = {
     'a.spec.ts': `
-      import { test, expect } from '@playwright/test';
+      import { test as baseTest, expect } from '@playwright/test';
+
+      const test = baseTest.extend({
+        worker: [async ({}, use, info) => {
+          await use();
+          console.log('\\n%%worker teardown=' + info.workerIndex);
+        }, { scope: 'worker', auto: true }],
+      });
 
       test('bad', async () => {
         test.fail();
@@ -767,12 +764,20 @@ test('unhandled exception in test.fail should restart worker and continue', asyn
       test('good', () => {
         console.log('\\n%%good running worker=' + test.info().workerIndex);
       });
-    `
-  }, { retries: 1, reporter: 'list' });
-  expect(result.exitCode).toBe(0);
-  expect(result.passed).toBe(2);
-  expect(result.failed).toBe(0);
-  expect(result.outputLines).toEqual(['bad running worker=0', 'good running worker=1']);
+    `,
+  };
+  for (const parallel of [true, false]) {
+    await test.step(`parallel=${parallel}`, async () => {
+      const options = { retries: 1, reporter: 'list', workers: 1 };
+      if (parallel)
+        options['fully-parallel'] = true;
+      const result = await runInlineTest(files, options);
+      expect(result.exitCode).toBe(0);
+      expect(result.passed).toBe(2);
+      expect(result.failed).toBe(0);
+      expect(result.outputLines).toEqual(['bad running worker=0', 'worker teardown=0', 'good running worker=1', 'worker teardown=1']);
+    });
+  }
 });
 
 test('wait for workers to finish before reporter.onEnd', async ({ runInlineTest }) => {

@@ -109,6 +109,8 @@ await locator.ClickAsync();
 ## async method: ElementHandle.boundingBox
 * since: v1.8
 - returns: <[null]|[Object]>
+  - alias-csharp: ElementHandleBoundingBoxResult
+  - alias-java: BoundingBox
   - `x` <[float]> the x coordinate of the element in pixels.
   - `y` <[float]> the y coordinate of the element in pixels.
   - `width` <[float]> the width of the element in pixels.
@@ -234,6 +236,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: ElementHandle.click.trial = %%-input-trial-%%
 * since: v1.11
 
+### option: ElementHandle.click.steps = %%-input-mousemove-steps-%%
+* since: v1.57
+
 ## async method: ElementHandle.contentFrame
 * since: v1.8
 - returns: <[null]|[Frame]>
@@ -286,6 +291,9 @@ When all steps combined have not finished during the specified [`option: timeout
 
 ### option: ElementHandle.dblclick.trial = %%-input-trial-%%
 * since: v1.11
+
+### option: ElementHandle.dblclick.steps = %%-input-mousemove-steps-%%
+* since: v1.57
 
 ## async method: ElementHandle.dispatchEvent
 * since: v1.8

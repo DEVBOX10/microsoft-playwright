@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
+import { debugLogger } from '@utils/debugLogger';
+import { makeWaitForNextTask } from '@utils/task';
+
 import type { ConnectionTransport, ProtocolRequest, ProtocolResponse } from './transport';
-import { makeWaitForNextTask } from '../utils';
-import { debugLogger } from '../utils/debugLogger';
 
 export class PipeTransport implements ConnectionTransport {
   private _pipeRead: NodeJS.ReadableStream;

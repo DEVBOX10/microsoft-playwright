@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-import type * as channels from '@protocol/channels';
 import { ChannelOwner } from './channelOwner';
-import type { Protocol } from '../server/chromium/protocol';
+
 import type * as api from '../../types/types';
+import type { Protocol } from '../server/chromium/protocol';
+import type * as channels from '@protocol/channels';
 
 export class CDPSession extends ChannelOwner<channels.CDPSessionChannel> implements api.CDPSession {
   static from(cdpSession: channels.CDPSessionChannel): CDPSession {
@@ -27,8 +28,13 @@ export class CDPSession extends ChannelOwner<channels.CDPSessionChannel> impleme
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.CDPSessionInitializer) {
     super(parent, type, guid, initializer);
 
-    this._channel.on('event', ({ method, params }) => {
-      this.emit(method, params);
+    this._channel.on('event', event => {
+      this.emit(event.method, event.params);
+      this.emit('event', event);
+    });
+
+    this._channel.on('close', () => {
+      this.emit('close', this);
     });
 
     this.on = super.on;

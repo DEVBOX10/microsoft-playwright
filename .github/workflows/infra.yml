@@ -18,14 +18,13 @@ jobs:
     name: "docs & lint"
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v6
+    - uses: actions/setup-node@v6
       with:
-        node-version: 18
+        node-version: 20
     - run: npm ci
     - run: npm run build
-    - run: npx playwright install-deps
-    - run: npx playwright install
+    - run: npx playwright install --with-deps
     - run: npm run lint
     - name: Verify clean tree
       run: |
@@ -35,22 +34,23 @@ jobs:
           exit 1
         fi
     - name: Audit prod NPM dependencies
-      run: npm audit --omit dev
+      run: node utils/check_audit.js
+      continue-on-error: true
   lint-snippets:
     name: "Lint snippets"
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v6
+    - uses: actions/setup-node@v6
       with:
-        node-version: 18
-    - uses: actions/setup-python@v5
+        node-version: 20
+    - uses: actions/setup-python@v6
       with:
         python-version: '3.11'
-    - uses: actions/setup-dotnet@v4
+    - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 8.0.x
-    - uses: actions/setup-java@v4
+    - uses: actions/setup-java@v5
       with:
         distribution: 'zulu'
         java-version: '21'

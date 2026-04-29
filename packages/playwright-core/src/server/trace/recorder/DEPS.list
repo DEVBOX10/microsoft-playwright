@@ -1,10 +1,7 @@
 [*]
+@isomorphic/**
+@utils/**
 ../../
 ../../har/
-../../../common/
-../../../protocol/
-../../../utils/
-../../../utilsBundle.ts
-../../../zipBundle.ts
 ../../dispatchers/dispatcher.ts
-../common/
+node_modules/mime

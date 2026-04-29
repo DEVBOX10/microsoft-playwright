@@ -92,7 +92,7 @@ class TypesGenerator {
         return '';
       handledClasses.add(className);
       return this.writeComment(docClass.comment, '') + '\n';
-    }, (className, methodName, overloadIndex) => {
+    }, (className, methodName, overloadIndex, indent) => {
       if (methodName === '__call')
         methodName = '(call)';
       const docClass = this.docClassForName(className);
@@ -110,7 +110,7 @@ class TypesGenerator {
           return '';
         throw new Error(`Unknown override method "${className}.${methodName}"`);
       }
-      return this.memberJSDOC(method, '  ').trimLeft();
+      return this.memberJSDOC(method, indent).trimLeft();
     }, (className) => {
       const docClass = this.docClassForName(className);
       if (!docClass || !this.shouldGenerate(docClass.name))
@@ -217,7 +217,7 @@ class TypesGenerator {
       return null;
     if (type.includes('{'))
       return 'data';
-    return (type[0].toLowerCase() + type.slice(1)).replace(/\|/g, 'Or');
+    return type.replace(/^[A-Z]+/, match => match.length === 1 ? match.toLowerCase() : match.slice(0, -1).toLowerCase() + match.slice(-1)).replace(/\|/g, 'Or');
   }
 
   /**
@@ -497,7 +497,8 @@ class TypesGenerator {
 }
 
 (async function () {
-  const coreDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'api'));
+  const coreDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'api'))
+      .mergeWith(parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'electron-api'), path.join(PROJECT_DIR, 'docs', 'src', 'api', 'params.md')));
   const testDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'test-api'), path.join(PROJECT_DIR, 'docs', 'src', 'api', 'params.md'));
   const reporterDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'test-reporter-api'));
   const assertionClasses = new Set([
@@ -516,7 +517,9 @@ class TypesGenerator {
     const documentation = coreDocumentation.clone();
     const generator = new TypesGenerator({
       documentation,
-      doNotGenerate: assertionClasses,
+      doNotGenerate: new Set([
+        ...assertionClasses,
+      ]),
     });
     let types = await generator.generateTypes(path.join(__dirname, 'overrides.d.ts'));
     const namedDevices = Object.keys(devices).map(name => `  ${JSON.stringify(name)}: DeviceDescriptor;`).join('\n');
@@ -551,6 +554,7 @@ class TypesGenerator {
         'GenericAssertions.any',
         'GenericAssertions.anything',
         'GenericAssertions.arrayContaining',
+        'GenericAssertions.arrayOf',
         'GenericAssertions.closeTo',
         'GenericAssertions.objectContaining',
         'GenericAssertions.stringContaining',
@@ -622,13 +626,16 @@ class TypesGenerator {
   }
 
   const coreTypesDir = path.join(PROJECT_DIR, 'packages', 'playwright-core', 'types');
+  const clientTypesDir = path.join(PROJECT_DIR, 'packages', 'playwright-client', 'types');
   if (!fs.existsSync(coreTypesDir))
     fs.mkdirSync(coreTypesDir)
   const playwrightTypesDir = path.join(PROJECT_DIR, 'packages', 'playwright', 'types');
   if (!fs.existsSync(playwrightTypesDir))
     fs.mkdirSync(playwrightTypesDir)
   writeFile(path.join(coreTypesDir, 'protocol.d.ts'), fs.readFileSync(path.join(PROJECT_DIR, 'packages', 'playwright-core', 'src', 'server', 'chromium', 'protocol.d.ts'), 'utf8'), false);
-  writeFile(path.join(coreTypesDir, 'types.d.ts'), await generateCoreTypes(), true);
+  const coreTypes = await generateCoreTypes();
+  writeFile(path.join(coreTypesDir, 'types.d.ts'), coreTypes, true);
+  writeFile(path.join(clientTypesDir, 'types.d.ts'), coreTypes, true);
   writeFile(path.join(playwrightTypesDir, 'test.d.ts'), await generateTestTypes(), true);
   writeFile(path.join(playwrightTypesDir, 'testReporter.d.ts'), await generateReporterTypes(), true);
   process.exit(0);

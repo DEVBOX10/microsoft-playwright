@@ -14,15 +14,20 @@
  * limitations under the License.
  */
 
+import { monotonicTime } from '@isomorphic/time';
+import { raceAgainstDeadline } from '@isomorphic/timeoutRunner';
+import { getPackageManagerExecCommand } from '@utils/env';
+import { currentZone } from '@utils/zones';
+
+import { currentTestInfo, currentlyLoadingFileSuite, setCurrentlyLoadingFileSuite } from '../globals';
+import { Suite, TestCase } from './test';
 import { expect } from '../matchers/expect';
-import { currentlyLoadingFileSuite, currentTestInfo, setCurrentlyLoadingFileSuite } from './globals';
-import { TestCase, Suite } from './test';
 import { wrapFunctionWithLocation } from '../transform/transform';
+import { validateTestDetails } from './validators';
+
 import type { FixturesWithLocation } from './config';
-import type { Fixtures, TestType, TestDetails, TestStepInfo } from '../../types/test';
+import type { Fixtures, TestDetails, TestStepInfo, TestType } from '../../types/test';
 import type { Location } from '../../types/testReporter';
-import { getPackageManagerExecCommand, monotonicTime, raceAgainstDeadline, zones } from 'playwright-core/lib/utils';
-import { errors } from 'playwright-core';
 
 const testTypeSymbol = Symbol('testType');
 
@@ -53,6 +58,7 @@ export class TestTypeImpl {
     test.skip = wrapFunctionWithLocation(this._modifier.bind(this, 'skip'));
     test.fixme = wrapFunctionWithLocation(this._modifier.bind(this, 'fixme'));
     test.fail = wrapFunctionWithLocation(this._modifier.bind(this, 'fail'));
+    test.abort = wrapFunctionWithLocation(this._abort.bind(this));
     test.fail.only = wrapFunctionWithLocation(this._createTest.bind(this, 'fail.only'));
     test.slow = wrapFunctionWithLocation(this._modifier.bind(this, 'slow'));
     test.setTimeout = wrapFunctionWithLocation(this._setTimeout.bind(this));
@@ -100,19 +106,19 @@ export class TestTypeImpl {
       details = fnOrDetails;
     }
 
-    const validatedDetails = validateTestDetails(details);
+    const validatedDetails = validateTestDetails(details, location);
     const test = new TestCase(title, body, this, location);
     test._requireFile = suite._requireFile;
-    test._staticAnnotations.push(...validatedDetails.annotations);
+    test.annotations.push(...validatedDetails.annotations);
     test._tags.push(...validatedDetails.tags);
     suite._addTest(test);
 
     if (type === 'only' || type === 'fail.only')
       test._only = true;
     if (type === 'skip' || type === 'fixme' || type === 'fail')
-      test._staticAnnotations.push({ type });
+      test.annotations.push({ type, location });
     else if (type === 'fail.only')
-      test._staticAnnotations.push({ type: 'fail' });
+      test.annotations.push({ type: 'fail', location });
   }
 
   private _describe(type: 'default' | 'only' | 'serial' | 'serial.only' | 'parallel' | 'parallel.only' | 'skip' | 'fixme', location: Location, titleOrFn: string | Function, fnOrDetails?: TestDetails | Function, fn?: Function) {
@@ -139,7 +145,7 @@ export class TestTypeImpl {
       body = fn!;
     }
 
-    const validatedDetails = validateTestDetails(details);
+    const validatedDetails = validateTestDetails(details, location);
     const child = new Suite(title, 'describe');
     child._requireFile = suite._requireFile;
     child.location = location;
@@ -154,7 +160,7 @@ export class TestTypeImpl {
     if (type === 'parallel' || type === 'parallel.only')
       child._parallelMode = 'parallel';
     if (type === 'skip' || type === 'fixme')
-      child._staticAnnotations.push({ type });
+      child._staticAnnotations.push({ type, location });
 
     for (let parent: Suite | undefined = suite; parent; parent = parent.parent) {
       if (parent._parallelMode === 'serial' && child._parallelMode === 'parallel')
@@ -225,7 +231,7 @@ export class TestTypeImpl {
         if (modifierArgs.length >= 1 && !modifierArgs[0])
           return;
         const description = modifierArgs[1];
-        suite._staticAnnotations.push({ type, description });
+        suite._staticAnnotations.push({ type, description, location });
       }
       return;
     }
@@ -235,7 +241,14 @@ export class TestTypeImpl {
       throw new Error(`test.${type}() can only be called inside test, describe block or fixture`);
     if (typeof modifierArgs[0] === 'function')
       throw new Error(`test.${type}() with a function can only be called inside describe block`);
-    testInfo[type](...modifierArgs as [any, any]);
+    testInfo._modifier(type, location, modifierArgs as [any, any]);
+  }
+
+  private _abort(location: Location, message?: string) {
+    const testInfo = currentTestInfo();
+    if (!testInfo)
+      throw new Error(`test.abort() can only be called inside a test or fixture`);
+    testInfo._abort(location, message);
   }
 
   private _setTimeout(location: Location, timeout: number) {
@@ -262,13 +275,14 @@ export class TestTypeImpl {
     const testInfo = currentTestInfo();
     if (!testInfo)
       throw new Error(`test.step() can only be called from a test`);
+    await testInfo._onUserStepBegin?.(title);
     const step = testInfo._addStep({ category: 'test.step', title, location: options.location, box: options.box });
-    return await zones.run('stepZone', step, async () => {
+    return await currentZone().with('stepZone', step).run(async () => {
       try {
         let result: Awaited<ReturnType<typeof raceAgainstDeadline<T>>> | undefined = undefined;
         result = await raceAgainstDeadline(async () => {
           try {
-            return await step.info._runStepBody(expectation === 'skip', body);
+            return await step.info._runStepBody(expectation === 'skip', body, step.location);
           } catch (e) {
             // If the step timed out, the test fixtures will tear down, which in turn
             // will abort unfinished actions in the step body. Record such errors here.
@@ -278,12 +292,14 @@ export class TestTypeImpl {
           }
         }, options.timeout ? monotonicTime() + options.timeout : 0);
         if (result.timedOut)
-          throw new errors.TimeoutError(`Step timeout of ${options.timeout}ms exceeded.`);
+          throw new TimeoutError(`Step timeout of ${options.timeout}ms exceeded.`);
         step.complete({});
         return result.result;
       } catch (error) {
         step.complete({ error });
         throw error;
+      } finally {
+        await testInfo._onUserStepEnd?.();
       }
     });
   }
@@ -307,16 +323,6 @@ function throwIfRunningInsideJest() {
   }
 }
 
-function validateTestDetails(details: TestDetails) {
-  const annotations = Array.isArray(details.annotation) ? details.annotation : (details.annotation ? [details.annotation] : []);
-  const tags = Array.isArray(details.tag) ? details.tag : (details.tag ? [details.tag] : []);
-  for (const tag of tags) {
-    if (tag[0] !== '@')
-      throw new Error(`Tag must start with "@" symbol, got "${tag}" instead.`);
-  }
-  return { annotations, tags };
-}
-
 export const rootTestType = new TestTypeImpl([]);
 
 export function mergeTests(...tests: TestType<any, any>[]) {
@@ -330,4 +336,11 @@ export function mergeTests(...tests: TestType<any, any>[]) {
     result = new TestTypeImpl([...result.fixtures, ...newFixtures]);
   }
   return result.test;
+}
+
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutError';
+  }
 }

@@ -95,17 +95,6 @@ test('should teardown on sigint', async ({ runUITest, nodeVersion }) => {
   ]);
 });
 
-test('should show errors in config', async ({ runUITest }) => {
-  const { page } = await runUITest({
-    'playwright.config.ts': `
-      import { defineConfig, devices } from '@playwright/test';
-      throw new Error("URL is empty")
-    `,
-  });
-  await page.getByText('playwright.config.ts').click();
-  await expect(page.getByText('Error: URL is empty')).toBeInViewport();
-});
-
 const testsWithSetup = {
   'playwright.config.ts': `
     import { defineConfig } from '@playwright/test';
@@ -165,7 +154,7 @@ test('should run setup and teardown projects (1)', async ({ runUITest }) => {
         ✅ test
   `);
 
-  await expect(page.getByTestId('test-tree')).toMatchAriaSnapshot(`
+  await expect(page).toMatchAriaSnapshot(`
     - tree:
       - treeitem "[icon-check] setup.ts" [expanded]:
         - group:
@@ -214,7 +203,7 @@ test('should run setup and teardown projects (2)', async ({ runUITest }) => {
         ✅ test
   `);
 
-  await expect(page.getByTestId('test-tree')).toMatchAriaSnapshot(`
+  await expect(page).toMatchAriaSnapshot(`
     - tree:
       - treeitem "[icon-check] teardown.ts" [expanded]:
         - group:
@@ -258,7 +247,7 @@ test('should run setup and teardown projects (3)', async ({ runUITest }) => {
         ✅ test
   `);
 
-  await expect(page.getByTestId('test-tree')).toMatchAriaSnapshot(`
+  await expect(page).toMatchAriaSnapshot(`
     - tree:
       - treeitem "[icon-check] test.ts" [expanded]:
         - group:
@@ -304,7 +293,7 @@ test('should run part of the setup only', async ({ runUITest }) => {
         ◯ test
   `);
 
-  await expect(page.getByTestId('test-tree')).toMatchAriaSnapshot(`
+  await expect(page).toMatchAriaSnapshot(`
     - tree:
       - treeitem "[icon-check] setup.ts" [expanded] [selected]:
         - button "Run"

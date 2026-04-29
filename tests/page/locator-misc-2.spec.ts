@@ -78,12 +78,7 @@ it('should select textarea', async ({ page, server, browserName }) => {
   const textarea = page.locator('textarea');
   await textarea.evaluate(textarea => (textarea as HTMLTextAreaElement).value = 'some value');
   await textarea.selectText();
-  if (browserName === 'firefox' || browserName === 'webkit') {
-    expect(await textarea.evaluate(el => (el as HTMLTextAreaElement).selectionStart)).toBe(0);
-    expect(await textarea.evaluate(el => (el as HTMLTextAreaElement).selectionEnd)).toBe(10);
-  } else {
-    expect(await page.evaluate(() => window.getSelection().toString())).toBe('some value');
-  }
+  expect(await page.evaluate(() => window.getSelection().toString())).toBe('some value');
 });
 
 it('should type', async ({ page }) => {
@@ -150,6 +145,22 @@ it('should combine visible with other selectors', async ({ page }) => {
   await expect(page.locator('.item >> visible=true >> text=data3')).toHaveText('visible data3');
 });
 
+it('should support filter(visible)', async ({ page }) => {
+  await page.setContent(`<div>
+    <div class="item" style="display: none">Hidden data0</div>
+    <div class="item">visible data1</div>
+    <div class="item" style="display: none">Hidden data1</div>
+    <div class="item">visible data2</div>
+    <div class="item" style="display: none">Hidden data2</div>
+    <div class="item">visible data3</div>
+    </div>
+  `);
+  const locator = page.locator('.item').filter({ visible: true }).nth(1);
+  await expect(locator).toHaveText('visible data2');
+  await expect(page.locator('.item').filter({ visible: true }).getByText('data3')).toHaveText('visible data3');
+  await expect(page.locator('.item').filter({ visible: false }).getByText('data1')).toHaveText('Hidden data1');
+});
+
 it('locator.count should work with deleted Map in main world', async ({ page }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/11254' });
   await page.evaluate('Map = 1');
@@ -172,4 +183,29 @@ it('Locator.locator() and FrameLocator.locator() should accept locator', async (
   const divLocator = page.locator('div');
   expect(await divLocator.locator('input').inputValue()).toBe('outer');
   expect(await page.frameLocator('iframe').locator(divLocator).locator('input').inputValue()).toBe('inner');
+});
+
+it('should fill programmatically enabled textarea', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36307' } }, async ({ page }) => {
+  await page.setContent(`
+    <button>Enable</button>
+    <form>
+      <textarea id="text" disabled></textarea>
+    </form>
+    <script>
+      document.querySelector('button').addEventListener('click', () => {
+        document.querySelector('#text').disabled = false;
+      });
+    </script>
+  `);
+  await page.locator('button').click();
+  await page.locator('#text').fill('Hello');
+  await expect(page.locator('#text')).toHaveValue('Hello');
+});
+
+it('press should throw on unknown keys', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/36697' } }, async ({ page, server }) => {
+  await page.setContent(`<input type='text' value='hello' />`);
+  const locator = page.getByRole('textbox');
+  await expect(locator.press('NotARealKey')).rejects.toThrowError(/Unknown key: "NotARealKey"/);
+  await expect(locator.press('ё')).rejects.toThrowError(/Unknown key: "ё"/);
+  await expect(locator.press('😊')).rejects.toThrowError(/Unknown key: "😊"/);
 });

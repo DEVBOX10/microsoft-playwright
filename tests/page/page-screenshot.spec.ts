@@ -240,8 +240,8 @@ it.describe('page screenshot', () => {
     await verifyViewport(page, 500, 500);
   });
 
-  it('should allow transparency', async ({ page, browserName, platform, headless }) => {
-    it.fail(browserName === 'firefox');
+  it('should allow transparency', async ({ page, browserName, isBidi }) => {
+    it.fail(browserName === 'firefox' || isBidi);
 
     await page.setViewportSize({ width: 300, height: 300 });
     await page.setContent(`
@@ -280,21 +280,15 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-clip-odd-size.png');
   });
 
-  it('should work for canvas', async ({ page, server, isElectron, isMac, isLinux, macVersion, browserName, isHeadlessShell, headless }) => {
-    it.fixme(isElectron && isMac, 'Fails on the bots');
-    it.fixme(browserName === 'webkit' && isLinux && !headless, 'WebKit has slightly different corners on gtk4.');
+  it('should work for canvas', async ({ page, server }) => {
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/screenshots/canvas.html');
     const screenshot = await page.screenshot();
-    if ((!isHeadlessShell && browserName === 'chromium' && isMac && os.arch() === 'arm64' && macVersion >= 14) ||
-        (browserName === 'webkit' && isLinux && os.arch() === 'x64'))
-      expect(screenshot).toMatchSnapshot('screenshot-canvas-with-accurate-corners.png');
-    else
-      expect(screenshot).toMatchSnapshot('screenshot-canvas.png');
+    // Allow 4 corners to be rendered differently on various platforms/browsers.
+    expect(screenshot).toMatchSnapshot('screenshot-canvas.png', { maxDiffPixels: 4 });
   });
 
-  it('should capture canvas changes', async ({ page, isElectron, browserName, isMac }) => {
-    it.fixme(browserName === 'webkit' && isMac, 'https://github.com/microsoft/playwright/issues/8796,https://github.com/microsoft/playwright/issues/16180');
+  it('should capture canvas changes', async ({ page, isElectron }) => {
     it.skip(isElectron);
     await page.goto('data:text/html,<canvas></canvas>');
     await page.evaluate(() => {
@@ -325,10 +319,7 @@ it.describe('page screenshot', () => {
   });
 
   it('should work for webgl', async ({ page, server, browserName, platform }) => {
-    it.fixme(browserName === 'firefox');
-    it.fixme(browserName === 'chromium' && platform === 'darwin' && os.arch() === 'arm64', 'SwiftShader is not available on macOS-arm64 - https://github.com/microsoft/playwright/issues/28216');
-    it.skip(browserName === 'webkit' && platform === 'darwin' && os.arch() === 'x64', 'Modernizr uses WebGL which is not available on Intel macOS - https://bugs.webkit.org/show_bug.cgi?id=278277');
-
+    it.skip(browserName === 'webkit' && platform === 'darwin' && os.arch() === 'x64', 'WebGL is not available on Intel macOS - https://bugs.webkit.org/show_bug.cgi?id=278277');
     await page.setViewportSize({ width: 640, height: 480 });
     await page.goto(server.PREFIX + '/screenshots/webgl.html');
     const screenshot = await page.screenshot();
@@ -401,6 +392,13 @@ it.describe('page screenshot', () => {
   it('zero quality option should throw for png', async ({ page }) => {
     const error = await page.screenshot({ quality: 0, type: 'png' }).catch(e => e);
     expect(error.message).toContain('options.quality is unsupported for the png');
+  });
+
+  it('quality option should work for jpeg', async ({ page, server }) => {
+    await page.goto(server.PREFIX + '/grid.html');
+    const zeroQuality = await page.screenshot({ type: 'jpeg', quality: 0 });
+    const highQuality = await page.screenshot({ type: 'jpeg', quality: 100 });
+    expect(zeroQuality.byteLength).toBeLessThan(highQuality.byteLength);
   });
 
   it('should prefer type over extension', async ({ page }, testInfo) => {
@@ -729,9 +727,9 @@ it.describe('page screenshot animations', () => {
     const div = page.locator('div');
     await div.evaluate(el => {
       el.addEventListener('transitionend', () => {
-        const time = window.builtinDate.now();
+        const time = window.builtins.Date.now();
         // Block main thread for 200ms, emulating heavy layout.
-        while (window.builtinDate.now() - time < 200) {}
+        while (window.builtins.Date.now() - time < 200) {}
         const h1 = document.createElement('h1');
         h1.textContent = 'woof-woof';
         document.body.append(h1);
@@ -893,18 +891,21 @@ it.describe('page screenshot animations', () => {
   });
 });
 
-it('should throw if screenshot size is too large', async ({ page, browserName, isMac }) => {
+it('should throw if screenshot size is too large', async ({ page, browserName, isMac, isBidi }) => {
+  const maxSize = browserName === 'firefox' && isBidi ? 65535 : 32767;
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16727' });
   {
-    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: 32767px; background: red;'></div>`);
+    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: ${maxSize}px; background: red;'></div>`);
     const result = await page.screenshot({ fullPage: true });
     expect(result).toBeTruthy();
   }
   {
-    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: 32768px; background: red;'></div>`);
+    await page.setContent(`<style>body {margin: 0; padding: 0;}</style><div style='min-height: ${maxSize + 1}px; background: red;'></div>`);
     const exception = await page.screenshot({ fullPage: true }).catch(e => e);
-    if (browserName === 'firefox' || (browserName === 'webkit' && !isMac))
+    if ((browserName === 'firefox' && !isBidi) || (browserName === 'webkit' && !isMac))
       expect(exception.message).toContain('Cannot take screenshot larger than 32767');
+    else if (browserName === 'firefox' && isBidi)
+      expect(exception.message).toContain('Unable to capture screenshot');
   }
 });
 

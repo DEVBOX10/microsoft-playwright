@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-import type * as channels from '@protocol/channels';
 import fs from 'fs';
 import path from 'path';
-import { assert, fileUploadSizeLimit } from '../utils';
-import { mime } from '../utilsBundle';
+
+import mime from 'mime';
+import { assert } from '@isomorphic/assert';
 import type { WritableStreamDispatcher } from './dispatchers/writableStreamDispatcher';
 import type { InputFilesItems } from './dom';
 import type { Frame } from './frames';
 import type * as types from './types';
+import type * as channels from '@protocol/channels';
+
+// Keep in sync with the client.
+export const fileUploadSizeLimit = 50 * 1024 * 1024;
 
 async function filesExceedUploadLimit(files: string[]) {
   const sizes = await Promise.all(files.map(async file => (await fs.promises.stat(file)).size));
   return sizes.reduce((total, size) => total + size, 0) >= fileUploadSizeLimit;
 }
 
-export async function prepareFilesForUpload(frame: Frame, params: channels.ElementHandleSetInputFilesParams): Promise<InputFilesItems> {
+export async function prepareFilesForUpload(frame: Frame, params: Omit<channels.ElementHandleSetInputFilesParams, 'timeout'>): Promise<InputFilesItems> {
   const { payloads, streams, directoryStream } = params;
   let { localPaths, localDirectory } = params;
 
@@ -53,7 +57,7 @@ export async function prepareFilesForUpload(frame: Frame, params: channels.Eleme
     lastModifiedMs?: number,
   }[] | undefined = payloads;
 
-  if (!frame._page._browserContext._browser._isCollocatedWithServer) {
+  if (!frame._page.browserContext._browser._isCollocatedWithServer) {
     // If the browser is on a different machine read files into buffers.
     if (localPaths) {
       if (await filesExceedUploadLimit(localPaths))

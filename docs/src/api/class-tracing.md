@@ -3,6 +3,12 @@
 
 API for collecting and saving Playwright traces. Playwright traces can be opened in [Trace Viewer](../trace-viewer.md) after Playwright script runs.
 
+:::note
+You probably want to [enable tracing in your config file](https://playwright.dev/docs/api/class-testoptions#test-options-trace) instead of using `context.tracing`.
+
+The `context.tracing` API captures browser operations and network activity, but it doesn't record test assertions (like `expect` calls). We recommend [enabling tracing through Playwright Test configuration](https://playwright.dev/docs/api/class-testoptions#test-options-trace), which includes those assertions and provides a more complete trace for debugging test failures.
+:::
+
 Start recording a trace before performing actions. At the end, stop tracing and save it to a file.
 
 ```js
@@ -11,6 +17,7 @@ const context = await browser.newContext();
 await context.tracing.start({ screenshots: true, snapshots: true });
 const page = await context.newPage();
 await page.goto('https://playwright.dev');
+expect(page.url()).toBe('https://playwright.dev');
 await context.tracing.stop({ path: 'trace.zip' });
 ```
 
@@ -66,12 +73,19 @@ await context.Tracing.StopAsync(new()
 
 Start tracing.
 
+:::note
+You probably want to [enable tracing in your config file](https://playwright.dev/docs/api/class-testoptions#test-options-trace) instead of using `Tracing.start`.
+
+The `context.tracing` API captures browser operations and network activity, but it doesn't record test assertions (like `expect` calls). We recommend [enabling tracing through Playwright Test configuration](https://playwright.dev/docs/api/class-testoptions#test-options-trace), which includes those assertions and provides a more complete trace for debugging test failures.
+:::
+
 **Usage**
 
 ```js
 await context.tracing.start({ screenshots: true, snapshots: true });
 const page = await context.newPage();
 await page.goto('https://playwright.dev');
+expect(page.url()).toBe('https://playwright.dev');
 await context.tracing.stop({ path: 'trace.zip' });
 ```
 
@@ -161,6 +175,14 @@ and by ':' on other platforms).
 - `title` <[string]>
 
 Trace name to be shown in the Trace Viewer.
+
+### option: Tracing.start.live
+* since: v1.59
+- `live` <[boolean]>
+
+When enabled, the trace is written to an unarchived file that is updated in real time as actions occur,
+instead of caching changes and archiving them into a zip file at the end. This is useful for live trace
+viewing during test execution.
 
 ## async method: Tracing.startChunk
 * since: v1.15
@@ -281,8 +303,78 @@ given name prefix inside the [`option: BrowserType.launch.tracesDir`] directory 
 To specify the final trace zip file name, you need to pass `path` option to
 [`method: Tracing.stopChunk`] instead.
 
+## async method: Tracing.startHar
+* since: v1.60
+- returns: <[Disposable]>
+
+Start recording a HAR (HTTP Archive) of network activity in this context. The HAR file is written to disk when [`method: Tracing.stopHar`] is called, or when the returned [Disposable] is disposed.
+
+Only one HAR recording can be active at a time per [BrowserContext].
+
+**Usage**
+
+```js
+await context.tracing.startHar('trace.har');
+const page = await context.newPage();
+await page.goto('https://playwright.dev');
+await context.tracing.stopHar();
+```
+
+```java
+context.tracing().startHar(Paths.get("trace.har"));
+Page page = context.newPage();
+page.navigate("https://playwright.dev");
+context.tracing().stopHar();
+```
+
+```python async
+await context.tracing.start_har("trace.har")
+page = await context.new_page()
+await page.goto("https://playwright.dev")
+await context.tracing.stop_har()
+```
+
+```python sync
+context.tracing.start_har("trace.har")
+page = context.new_page()
+page.goto("https://playwright.dev")
+context.tracing.stop_har()
+```
+
+```csharp
+await context.Tracing.StartHarAsync("trace.har");
+var page = await context.NewPageAsync();
+await page.GotoAsync("https://playwright.dev");
+await context.Tracing.StopHarAsync();
+```
+
+### param: Tracing.startHar.path
+* since: v1.60
+- `path` <[path]>
+
+Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, the HAR is saved as a zip archive with response bodies attached as separate files.
+
+### option: Tracing.startHar.content
+* since: v1.60
+- `content` <[HarContentPolicy]<"omit"|"embed"|"attach">>
+
+Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persisted as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for all other file extensions.
+
+### option: Tracing.startHar.mode
+* since: v1.60
+- `mode` <[HarMode]<"full"|"minimal">>
+
+When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies, security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
+
+### option: Tracing.startHar.urlFilter
+* since: v1.60
+- `urlFilter` <[string]|[RegExp]>
+
+A glob or regex pattern to filter requests that are stored in the HAR. Defaults to none.
+
 ## async method: Tracing.group
 * since: v1.49
+- returns: <[Disposable]>
 
 :::caution
 Use `test.step` instead when available.
@@ -344,6 +436,7 @@ Group name shown in the trace viewer.
 ### option: Tracing.group.location
 * since: v1.49
 - `location` ?<[Object]>
+  - alias-java: Location
   - `file` <[string]>
   - `line` ?<[int]>
   - `column` ?<[int]>
@@ -376,3 +469,8 @@ Stop the trace chunk. See [`method: Tracing.startChunk`] for more details about 
 - `path` <[path]>
 
 Export trace collected since the last [`method: Tracing.startChunk`] call into the file with the given path.
+
+## async method: Tracing.stopHar
+* since: v1.60
+
+Stop HAR recording and save the HAR file to the path given to [`method: Tracing.startHar`].

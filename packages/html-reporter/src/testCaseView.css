@@ -16,7 +16,7 @@
 
 .test-case-column {
   border-radius: 6px;
-  margin: 12px 0 24px 0;
+  margin-bottom: 24px;
 }
 
 .test-case-column .tab-element.selected {
@@ -34,26 +34,27 @@
   color: var(--color-fg-default);
 }
 
-.test-case-title {
-  flex: none;
-  padding: 8px;
-  font-weight: 400;
-  font-size: 32px !important;
-  line-height: 1.25 !important;
-}
-
 .test-case-location,
 .test-case-duration {
   flex: none;
   align-items: center;
   padding: 0 8px 8px;
-  line-height: 24px;
 }
 
-.test-case-path {
+.selected .test-case-run-duration {
+  -webkit-text-stroke: 0;
+}
+
+.test-case-run-duration {
+  color: var(--color-fg-muted);
+  padding-left: 8px;
+}
+
+.header-view .test-case-path {
   flex: none;
+  flex-shrink: 1;
   align-items: center;
-  padding: 0 8px;
+  padding-right: 8px;
 }
 
 .test-case-annotation {
@@ -69,10 +70,4 @@
     border-radius: 0 !important;
     margin: 0 !important;
   }
-}
-
-.test-case-project-labels-row {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
 }

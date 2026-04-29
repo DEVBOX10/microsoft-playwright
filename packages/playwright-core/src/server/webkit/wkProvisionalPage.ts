@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
+import { eventsHelper } from '@utils/eventsHelper';
+import { assert } from '@isomorphic/assert';
+
+import type { Protocol } from './protocol';
 import type { WKSession } from './wkConnection';
 import type { WKPage } from './wkPage';
-import type { RegisteredListener } from '../../utils/eventsHelper';
-import { eventsHelper } from '../../utils/eventsHelper';
-import type { Protocol } from './protocol';
-import { assert } from '../../utils';
+import type { RegisteredListener } from '@utils/eventsHelper';
 import type * as network from '../network';
 
 export class WKProvisionalPage {
@@ -48,7 +49,7 @@ export class WKProvisionalPage {
       return (payload: any) => {
         // Pretend that the events happened in the same process.
         if (payload.frameId)
-          payload.frameId = this._wkPage._page._frameManager.mainFrame()._id;
+          payload.frameId = this._wkPage._page.frameManager.mainFrame()._id;
         handler(payload);
       };
     };
@@ -85,7 +86,7 @@ export class WKProvisionalPage {
       this._wkPage._adoptRequestFromNewProcess(this._coopNavigationRequest, this._session, event.requestId);
       // Simply ignore this event as it has already been dispatched from the original process
       // and there will ne no requestIntercepted event from the provisional process as it resumes
-      // existing network load (that has already received reponse headers).
+      // existing network load (that has already received response headers).
       return;
     }
     this._wkPage._onRequestWillBeSent(this._session, event);

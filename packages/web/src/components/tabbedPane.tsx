@@ -30,8 +30,8 @@ export interface TabbedPaneTabModel {
 
 export const TabbedPane: React.FunctionComponent<{
   tabs: TabbedPaneTabModel[],
-  leftToolbar?: React.ReactElement[],
-  rightToolbar?: React.ReactElement[],
+  leftToolbar?: React.ReactNode[],
+  rightToolbar?: React.ReactNode[],
   selectedTab?: string,
   setSelectedTab?: (tab: string) => void,
   dataTestId?: string,
@@ -63,7 +63,7 @@ export const TabbedPane: React.FunctionComponent<{
           ]}
         </div>}
         {mode === 'select' && <div style={{ flex: 'auto', display: 'flex', height: '100%', overflow: 'hidden' }} role='tablist'>
-          <select style={{ width: '100%', background: 'none', cursor: 'pointer' }} onChange={e => {
+          <select style={{ width: '100%', background: 'none', cursor: 'pointer' }} value={selectedTab} onChange={e => {
             setSelectedTab?.(tabs[e.currentTarget.selectedIndex].id);
           }}>
             {tabs.map(tab => {
@@ -72,7 +72,7 @@ export const TabbedPane: React.FunctionComponent<{
                 suffix = ` (${tab.count})`;
               if (tab.errorCount)
                 suffix = ` (${tab.errorCount})`;
-              return <option key={tab.id} value={tab.id} selected={tab.id === selectedTab} role='tab' aria-controls={`${id}-${tab.id}`}>{tab.title}{suffix}</option>;
+              return <option key={tab.id} value={tab.id} role='tab' aria-controls={`${id}-${tab.id}`}>{tab.title}{suffix}</option>;
             })}
           </select>
         </div>}
@@ -106,7 +106,8 @@ export const TabbedPaneTab: React.FunctionComponent<{
     onClick={() => onSelect?.(id)}
     role='tab'
     title={title}
-    aria-controls={ariaControls}>
+    aria-controls={ariaControls}
+    aria-selected={selected}>
     <div className='tabbed-pane-tab-label'>{title}</div>
     {!!count && <div className='tabbed-pane-tab-counter'>{count}</div>}
     {!!errorCount && <div className='tabbed-pane-tab-counter error'>{errorCount}</div>}

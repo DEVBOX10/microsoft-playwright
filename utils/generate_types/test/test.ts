@@ -122,11 +122,6 @@ playwright.chromium.launch().then(async browser => {
     console.log(content);
   });
 
-  await page.exposeBinding('clicked', async (source, handle) => {
-    await handle.asElement()!.textContent();
-    await source.page.goto('http://example.com');
-  }, { handle: true });
-
   await page.emulateMedia({media: 'screen'});
   await page.pdf({ path: 'page.pdf' });
 
@@ -226,11 +221,10 @@ playwright.chromium.launch().then(async browser => {
 // Test v0.12 features
 (async () => {
   const launchOptions: playwright.LaunchOptions = {
-    devtools: true,
     env: {
-      TIMEOUT: 52,
+      TIMEOUT: '52',
       SOMETHING: '/some/path',
-      JEST_TEST: true
+      JEST_TEST: 'true'
     }
   };
   const browser = await playwright.chromium.launch(launchOptions);

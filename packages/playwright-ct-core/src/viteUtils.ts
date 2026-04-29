@@ -16,13 +16,15 @@
 
 import fs from 'fs';
 import path from 'path';
+
+import { cc, transform } from 'playwright/lib/common';
 import { debug } from 'playwright-core/lib/utilsBundle';
-import { getUserData } from 'playwright/lib/transform/compilationCache';
+
+import type { ImportInfo } from './tsxTransform';
 import type { PlaywrightTestConfig as BasePlaywrightTestConfig } from 'playwright/types/test';
 import type { FullConfig } from 'playwright/types/testReporter';
 import type { InlineConfig, Plugin, TransformResult, UserConfig } from 'vite';
-import type { ImportInfo } from './tsxTransform';
-import { resolveHook } from 'playwright/lib/transform/transform';
+
 
 const log = debug('pw:vite');
 
@@ -142,18 +144,18 @@ export async function createConfig(dirs: ComponentDirs, config: FullConfig, fram
 }
 
 export async function populateComponentsFromTests(componentRegistry: ComponentRegistry, componentsByImportingFile?: Map<string, string[]>) {
-  const importInfos: Map<string, ImportInfo[]> = await getUserData('playwright-ct-core');
+  const importInfos: Map<string, ImportInfo[]> = await cc.getUserData('playwright-ct-core');
   for (const [file, importList] of importInfos) {
     for (const importInfo of importList)
       componentRegistry.set(importInfo.id, importInfo);
     if (componentsByImportingFile)
-      componentsByImportingFile.set(file, importList.map(i => resolveHook(i.filename, i.importSource)).filter(Boolean) as string[]);
+      componentsByImportingFile.set(file, importList.map(i => transform.resolveHook(i.filename, i.importSource)).filter(Boolean) as string[]);
   }
 }
 
 export function hasJSComponents(components: ImportInfo[]): boolean {
   for (const component of components) {
-    const importPath = resolveHook(component.filename, component.importSource);
+    const importPath = transform.resolveHook(component.filename, component.importSource);
     const extname = importPath ? path.extname(importPath) : '';
     if (extname === '.js' || (importPath && !extname && fs.existsSync(importPath + '.js')))
       return true;
@@ -161,12 +163,15 @@ export function hasJSComponents(components: ImportInfo[]): boolean {
   return false;
 }
 
-const importReactRE = /(^|\n|;)import\s+(\*\s+as\s+)?React(,|\s+)/;
+const importReactRE = /(^|[\n;}\])])import\s+(\*\s+as\s+)?React(,|\s+)/;
 const compiledReactRE = /(const|var)\s+React\s*=/;
+const runtimeImportRequire = /import\(['"`]react['"`]\)|require\(['"`]react['"`]\)/i;
 
 export function transformIndexFile(id: string, content: string, templateDir: string, registerSource: string, importInfos: Map<string, ImportInfo>): TransformResult  | null {
   // Vite React plugin will do this for .jsx files, but not .js files.
-  if (id.endsWith('.js') && content.includes('React.createElement') && !content.match(importReactRE) && !content.match(compiledReactRE)) {
+  // `__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED` check is to avoid modifying React itself (such as react.development.js)
+  if (id.endsWith('.js') && content.includes('React.createElement') && !content.includes('__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED') && !content.match(importReactRE)
+    && !content.match(compiledReactRE) && !content.match(runtimeImportRequire)) {
     const code = `import React from 'react';\n${content}`;
     return { code, map: { mappings: '' } };
   }
@@ -183,7 +188,7 @@ export function transformIndexFile(id: string, content: string, templateDir: str
   lines.push(registerSource);
 
   for (const value of importInfos.values()) {
-    const importPath = resolveHook(value.filename, value.importSource) || value.importSource;
+    const importPath = transform.resolveHook(value.filename, value.importSource) || value.importSource;
     lines.push(`const ${value.id} = () => import('${importPath?.replaceAll(path.sep, '/')}').then((mod) => mod.${value.remoteName || 'default'});`);
   }
 

@@ -21,12 +21,9 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import events from 'events';
-import { EventEmitter } from '../../../packages/playwright-core/lib/client/eventEmitter';
-import { setUnderTest } from '../../../packages/playwright-core/lib/utils/debug';
+import { EventEmitter } from './utils';
 import { test, expect } from '@playwright/test';
 import * as common from './utils';
-
-setUnderTest();
 
 test('defaultMaxListeners', () => {
   const e = new EventEmitter();

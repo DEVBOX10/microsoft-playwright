@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+import path from 'path';
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+
 import { bundle } from './bundle';
-import path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -28,17 +30,17 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@isomorphic': path.resolve(__dirname, '../playwright-core/src/utils/isomorphic'),
+      '@isomorphic': path.resolve(__dirname, '../isomorphic'),
       '@protocol': path.resolve(__dirname, '../protocol/src'),
-      '@testIsomorphic': path.resolve(__dirname, '../playwright-core/src/utils/testIsomorphic'),
+      '@testIsomorphic': path.resolve(__dirname, '../playwright/src/isomorphic'),
       '@trace': path.resolve(__dirname, '../trace/src'),
       '@web': path.resolve(__dirname, '../web/src'),
     },
   },
   publicDir: false,
   build: {
-    // outputs into the public dir, where the build of vite.config.ts will pick it up
-    outDir: path.resolve(__dirname, 'public'),
+    outDir: path.resolve(__dirname, '../playwright-core/lib/vite/traceViewer'),
+    // Output dir is shared with vite.config.ts, clearing it here is racy.
     emptyOutDir: false,
     rollupOptions: {
       input: {

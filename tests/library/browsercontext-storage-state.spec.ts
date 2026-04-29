@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
-import { attachFrame } from 'tests/config/utils';
+import { attachFrame } from '../config/utils';
 import { browserTest as it, expect } from '../config/browserTest';
 import fs from 'fs';
+
+import type { BrowserContext } from 'playwright-core';
 
 it('should capture local storage', async ({ contextFactory }) => {
   const context = await contextFactory();
@@ -49,7 +51,9 @@ it('should capture local storage', async ({ contextFactory }) => {
   }]);
 });
 
-it('should set local storage', async ({ contextFactory }) => {
+it('should set local storage', async ({ contextFactory, channel }) => {
+  it.fixme(channel?.startsWith('msedge'), 'Network.clearBrowserCache sometimes stalls');
+
   const context = await contextFactory({
     storageState: {
       cookies: [],
@@ -71,38 +75,129 @@ it('should set local storage', async ({ contextFactory }) => {
   await page.goto('https://www.example.com');
   const localStorage = await page.evaluate('window.localStorage');
   expect(localStorage).toEqual({ name1: 'value1' });
+
+  // Now use setStorageState to replace the storage
+  await context.setStorageState({
+    cookies: [],
+    origins: [
+      {
+        origin: 'https://www.example.com',
+        localStorage: [{
+          name: 'name2',
+          value: 'value2'
+        }]
+      },
+    ]
+  });
+  expect(context.pages()).toHaveLength(1);
+  await page.goto('https://www.example.com');
+  const localStorage2 = await page.evaluate('window.localStorage');
+  expect(localStorage2).toEqual({ name2: 'value2' });
+
   await context.close();
 });
 
-it('should round-trip through the file', async ({ contextFactory }, testInfo) => {
+it('should report good error if the url is not valid', async ({ contextFactory }) => {
+  const error = await contextFactory({
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: 'foo',
+          localStorage: [{
+            name: 'name1',
+            value: 'value1'
+          }]
+        },
+      ]
+    }
+  }).catch(e => e);
+  expect(error.message).toContain('browser.newContext: Error setting storage state:');
+  expect(error.message).toContain('foo');
+});
+
+it('should round-trip through the file', async ({ contextFactory, channel }, testInfo) => {
+  it.fixme(channel?.startsWith('msedge'), 'Network.clearBrowserCache sometimes stalls');
+
   const context = await contextFactory();
   const page1 = await context.newPage();
   await page1.route('**/*', route => {
     route.fulfill({ body: '<html></html>' }).catch(() => {});
   });
   await page1.goto('https://www.example.com');
-  await page1.evaluate(() => {
+  await page1.evaluate(async () => {
     localStorage['name1'] = 'value1';
     document.cookie = 'username=John Doe';
+
+    await new Promise((resolve, reject) => {
+      const openRequest = indexedDB.open('db', 42);
+      openRequest.onupgradeneeded = () => {
+        openRequest.result.createObjectStore('store', { keyPath: 'name' });
+        openRequest.result.createObjectStore('store2');
+      };
+      openRequest.onsuccess = () => {
+        const transaction = openRequest.result.transaction(['store', 'store2'], 'readwrite');
+        transaction
+            .objectStore('store')
+            .put({ name: 'foo', date: new Date(0), null: null });
+        transaction
+            .objectStore('store2')
+            .put(new TextEncoder().encode('bar'), 'foo');
+        transaction.addEventListener('complete', resolve);
+        transaction.addEventListener('error', reject);
+      };
+    });
+
     return document.cookie;
   });
 
   const path = testInfo.outputPath('storage-state.json');
-  const state = await context.storageState({ path });
+  const state = await context.storageState({ path, indexedDB: true });
   const written = await fs.promises.readFile(path, 'utf8');
   expect(JSON.stringify(state, undefined, 2)).toBe(written);
 
+  const checkContext = async (context: BrowserContext) => {
+    const page = await context.newPage();
+    await page.route('**/*', route => {
+      route.fulfill({ body: '<html></html>' }).catch(() => {});
+    });
+    await page.goto('https://www.example.com');
+    const localStorage = await page.evaluate('window.localStorage');
+    expect(localStorage).toEqual({ name1: 'value1' });
+    const cookie = await page.evaluate('document.cookie');
+    expect(cookie).toEqual('username=John Doe');
+    const idbValues = await page.evaluate(() => new Promise((resolve, reject) => {
+      const openRequest = indexedDB.open('db', 42);
+      openRequest.addEventListener('success', async () => {
+        const db = openRequest.result;
+        const transaction = db.transaction(['store', 'store2'], 'readonly');
+        const request1 = transaction.objectStore('store').get('foo');
+        const request2 = transaction.objectStore('store2').get('foo');
+
+        const [result1, result2] = await Promise.all([request1, request2].map(request => new Promise((resolve, reject) => {
+          request.addEventListener('success', () => resolve(request.result));
+          request.addEventListener('error', () => reject(request.error));
+        })));
+
+        resolve([result1, new TextDecoder().decode(result2 as any)]);
+      });
+      openRequest.addEventListener('error', () => reject(openRequest.error));
+    }));
+    expect(idbValues).toEqual([
+      { name: 'foo', date: new Date(0), null: null },
+      'bar'
+    ]);
+  };
+
   const context2 = await contextFactory({ storageState: path });
-  const page2 = await context2.newPage();
-  await page2.route('**/*', route => {
-    route.fulfill({ body: '<html></html>' }).catch(() => {});
-  });
-  await page2.goto('https://www.example.com');
-  const localStorage = await page2.evaluate('window.localStorage');
-  expect(localStorage).toEqual({ name1: 'value1' });
-  const cookie = await page2.evaluate('document.cookie');
-  expect(cookie).toEqual('username=John Doe');
+  await checkContext(context2);
   await context2.close();
+
+  const context3 = await contextFactory();
+  await context3.setStorageState(path);
+  expect(context3.pages()).toHaveLength(0);
+  await checkContext(context3);
+  await context3.close();
 });
 
 it('should capture cookies', async ({ server, context, page, contextFactory }) => {
@@ -315,4 +410,139 @@ it('should roundtrip local storage in third-party context', async ({ page, conte
   const localStorage = await frame2.evaluate('window.localStorage');
   expect(localStorage).toEqual({ name1: 'value1' });
   await context2.close();
+});
+
+it('should support IndexedDB', async ({ page, server, contextFactory }) => {
+  await page.goto(server.PREFIX + '/to-do-notifications/index.html');
+
+  await expect(page.locator('#notifications')).toMatchAriaSnapshot(`
+    - list:
+      - listitem: Database initialised.
+  `);
+  await page.getByLabel('Task title').fill('Pet the cat');
+  await page.getByLabel('Hours').fill('1');
+  await page.getByLabel('Mins').fill('1');
+  await page.getByText('Add Task').click();
+  await expect(page.locator('#notifications')).toMatchAriaSnapshot(`
+    - list:
+      - listitem: "Transaction completed: database modification finished."
+  `);
+
+  const storageState = await page.context().storageState({ indexedDB: true });
+  expect(storageState.origins).toEqual([
+    {
+      origin: server.PREFIX,
+      localStorage: [],
+      indexedDB: [
+        {
+          name: 'toDoList',
+          version: 4,
+          stores: [
+            {
+              name: 'toDoList',
+              autoIncrement: false,
+              keyPath: 'taskTitle',
+              records: [
+                {
+                  valueEncoded: {
+                    id: 1,
+                    o: [
+                      { k: 'taskTitle', v: 'Pet the cat' },
+                      { k: 'hours', v: '1' },
+                      { k: 'minutes', v: '1' },
+                      { k: 'day', v: '01' },
+                      { k: 'month', v: 'January' },
+                      { k: 'year', v: '2025' },
+                      { k: 'notified', v: 'no' },
+                      { k: 'binaryTitle', v: { ab: { b: 'UGV0IHRoZSBjYXQ=' } }, }
+                    ]
+                  },
+                },
+              ],
+              indexes: [
+                {
+                  name: 'day',
+                  keyPath: 'day',
+                  multiEntry: false,
+                  unique: false,
+                },
+                {
+                  name: 'hours',
+                  keyPath: 'hours',
+                  multiEntry: false,
+                  unique: false,
+                },
+                {
+                  name: 'minutes',
+                  keyPath: 'minutes',
+                  multiEntry: false,
+                  unique: false,
+                },
+                {
+                  name: 'month',
+                  keyPath: 'month',
+                  multiEntry: false,
+                  unique: false,
+                },
+                {
+                  name: 'notified',
+                  keyPath: 'notified',
+                  multiEntry: false,
+                  unique: false,
+                },
+                {
+                  name: 'year',
+                  keyPath: 'year',
+                  multiEntry: false,
+                  unique: false,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ]);
+
+  const context = await contextFactory({ storageState });
+  expect(await context.storageState({ indexedDB: true })).toEqual(storageState);
+
+  const recreatedPage = await context.newPage();
+  await recreatedPage.goto(server.PREFIX + '/to-do-notifications/index.html');
+  await expect(recreatedPage.locator('#task-list')).toMatchAriaSnapshot(`
+    - list:
+      - listitem:
+        - text: /Pet the cat \\[Pet the cat\\]/
+  `);
+
+  expect(await context.storageState()).toEqual({ cookies: [], origins: [] });
+});
+
+it('should support empty indexedDB', { annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/35760' } }, async ({ page, server, contextFactory }) => {
+  await page.goto(server.EMPTY_PAGE);
+  await page.evaluate(() => new Promise<void>(resolve => {
+    const openRequest = indexedDB.open('unused-db');
+    openRequest.onsuccess = () => resolve();
+    openRequest.onerror = () => resolve();
+  }));
+  const storageState = await page.context().storageState({ indexedDB: true });
+  expect(storageState.origins).toEqual([{
+    origin: server.PREFIX,
+    localStorage: [],
+    indexedDB: [{
+      name: 'unused-db',
+      version: 1,
+      stores: [],
+    }]
+  }]);
+
+  const context = await contextFactory({ storageState });
+  expect(await context.storageState({ indexedDB: true })).toEqual(storageState);
+});
+
+it('setStorageState should handle missing file', async ({ contextFactory }, testInfo) => {
+  const context = await contextFactory();
+  const file = testInfo.outputPath('does-not-exist.json');
+  const error = await context.setStorageState(file).catch(e => e);
+  expect(error.message).toContain(`Error reading storage state from ${file}`);
 });

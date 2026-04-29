@@ -16,40 +16,43 @@
 
 import os from 'os';
 import path from 'path';
-import { assert, wrapInASCIIBox } from '../../utils';
-import type { Env } from '../../utils/processLauncher';
+
+import { ManualPromise } from '@isomorphic/manualPromise';
+import { wrapInASCIIBox } from '@utils/ascii';
+import { BrowserType, kNoXServerRunningError } from '../browserType';
+import { BidiBrowser } from './bidiBrowser';
+import { kBrowserCloseMessageId, kShutdownSessionNewMessageId } from './bidiConnection';
+import { createProfile } from './third_party/firefoxPrefs';
+
 import type { BrowserOptions } from '../browser';
-import { BrowserReadyState, BrowserType, kNoXServerRunningError } from '../browserType';
 import type { SdkObject } from '../instrumentation';
-import type { ProtocolError } from '../protocolError';
 import type { ConnectionTransport } from '../transport';
 import type * as types from '../types';
-import { BidiBrowser } from './bidiBrowser';
-import { kBrowserCloseMessageId } from './bidiConnection';
-import { createProfile } from './third_party/firefoxPrefs';
+import type { RecentLogsCollector } from '@utils/debugLogger';
+
 
 export class BidiFirefox extends BrowserType {
   constructor(parent: SdkObject) {
-    super(parent, 'bidi');
-    this._useBidi = true;
+    super(parent, 'firefox');
+  }
+
+  override executablePath(): string {
+    return '';
   }
 
   override async connectToTransport(transport: ConnectionTransport, options: BrowserOptions): Promise<BidiBrowser> {
     return BidiBrowser.connect(this.attribution.playwright, transport, options);
   }
 
-  override doRewriteStartupLog(error: ProtocolError): ProtocolError {
-    if (!error.logs)
-      return error;
-    // https://github.com/microsoft/playwright/issues/6500
-    if (error.logs.includes(`as root in a regular user's session is not supported.`))
-      error.logs = '\n' + wrapInASCIIBox(`Firefox is unable to launch if the $HOME folder isn't owned by the current user.\nWorkaround: Set the HOME=/root environment variable${process.env.GITHUB_ACTION ? ' in your GitHub Actions workflow file' : ''} when running Playwright.`, 1);
-    if (error.logs.includes('no DISPLAY environment variable specified'))
-      error.logs = '\n' + wrapInASCIIBox(kNoXServerRunningError, 1);
-    return error;
+  override doRewriteStartupLog(logs: string): string {
+    if (logs.includes(`as root in a regular user's session is not supported.`))
+      logs = '\n' + wrapInASCIIBox(`Firefox is unable to launch if the $HOME folder isn't owned by the current user.\nWorkaround: Set the HOME=/root environment variable${process.env.GITHUB_ACTION ? ' in your GitHub Actions workflow file' : ''} when running Playwright.`, 1);
+    if (logs.includes('no DISPLAY environment variable specified'))
+      logs = '\n' + wrapInASCIIBox(kNoXServerRunningError, 1);
+    return logs;
   }
 
-  override amendEnvironment(env: Env, userDataDir: string, executable: string, browserArguments: string[]): Env {
+  override amendEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     if (!path.isAbsolute(os.homedir()))
       throw new Error(`Cannot launch Firefox with relative home directory. Did you set ${os.platform() === 'win32' ? 'USERPROFILE' : 'HOME'} to a relative path?`);
 
@@ -69,8 +72,28 @@ export class BidiFirefox extends BrowserType {
     return env;
   }
 
-  override attemptToGracefullyCloseBrowser(transport: ConnectionTransport): void {
+  override attemptToGracefullyCloseBrowser(transport: ConnectionTransport) {
+    this._attemptToGracefullyCloseBrowser(transport).catch(() => {});
+  }
+
+  private async _attemptToGracefullyCloseBrowser(transport: ConnectionTransport): Promise<void> {
+    // Note that it's fine to reuse the transport, since our connection ignores kBrowserCloseMessageId.
+    if (!transport.onmessage) {
+      // browser.close does not work without an active session. If there is no connection
+      // created with the transport, make sure to create a new session first.
+      transport.send({ method: 'session.new', params: { capabilities: {} }, id: kShutdownSessionNewMessageId });
+      await new Promise(resolve => {
+        transport.onmessage = message => {
+          if (message.id === kShutdownSessionNewMessageId)
+            resolve(true);
+        };
+      });
+    }
     transport.send({ method: 'browser.close', params: {}, id: kBrowserCloseMessageId });
+  }
+
+  override supportsPipeTransport(): boolean {
+    return false;
   }
 
   override async prepareUserDataDir(options: types.LaunchOptions, userDataDir: string): Promise<void> {
@@ -80,11 +103,13 @@ export class BidiFirefox extends BrowserType {
     });
   }
 
-  override defaultArgs(options: types.LaunchOptions, isPersistent: boolean, userDataDir: string): string[] {
+  override async defaultArgs(options: types.LaunchOptions, isPersistent: boolean, userDataDir: string) {
     const { args = [], headless } = options;
     const userDataDirArg = args.find(arg => arg.startsWith('-profile') || arg.startsWith('--profile'));
     if (userDataDirArg)
       throw this._createUserDataDirArgMisuseError('--profile');
+    if (args.find(arg => !arg.startsWith('-')))
+      throw new Error('Arguments can not specify page to be opened');
     const firefoxArguments = ['--remote-debugging-port=0'];
     if (headless)
       firefoxArguments.push('--headless');
@@ -95,17 +120,13 @@ export class BidiFirefox extends BrowserType {
     return firefoxArguments;
   }
 
-  override readyState(options: types.LaunchOptions): BrowserReadyState | undefined {
-    assert(options.useWebSocket);
-    return new FirefoxReadyState();
-  }
-}
-
-class FirefoxReadyState extends BrowserReadyState {
-  override onBrowserOutput(message: string): void {
-    // Bidi WebSocket in Firefox.
-    const match = message.match(/WebDriver BiDi listening on (ws:\/\/.*)$/);
-    if (match)
-      this._wsEndpoint.resolve(match[1] + '/session');
+  override async waitForReadyState(options: types.LaunchOptions, browserLogsCollector: RecentLogsCollector): Promise<{ wsEndpoint?: string }> {
+    const result = new ManualPromise<{ wsEndpoint?: string }>();
+    browserLogsCollector.onMessage(message => {
+      const match = message.match(/WebDriver BiDi listening on (ws:\/\/.*)$/);
+      if (match)
+        result.resolve({ wsEndpoint: match[1] + '/session' });
+    });
+    return result;
   }
 }

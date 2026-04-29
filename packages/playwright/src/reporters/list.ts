@@ -14,10 +14,15 @@
  * limitations under the License.
  */
 
-import { ms as milliseconds } from 'playwright-core/lib/utilsBundle';
-import { TerminalReporter, stepSuffix, stripAnsiEscapes } from './base';
+import { msToString } from '@isomorphic/formatUtils';
+import { getAsBooleanFromENV } from '@utils/env';
+
+import { markErrorsAsReported, TerminalReporter, stepSuffix } from './base';
+import { stripAnsiEscapes } from '../util';
+
+import type { ListReporterOptions } from '../../types/test';
 import type { FullResult, Suite, TestCase, TestError, TestResult, TestStep } from '../../types/testReporter';
-import { getAsBooleanFromENV } from 'playwright-core/lib/utils';
+import type { CommonReporterOptions, TerminalReporterOptions } from './base';
 
 // Allow it in the Visual Studio Code Terminal and the new Windows Terminal
 const DOES_NOT_SUPPORT_UTF8_IN_TERMINAL = process.platform === 'win32' && process.env.TERM_PROGRAM !== 'vscode' && !process.env.WT_SESSION;
@@ -33,18 +38,19 @@ class ListReporter extends TerminalReporter {
   private _stepIndex = new Map<TestStep, string>();
   private _needNewLine = false;
   private _printSteps: boolean;
+  private _paused = new Set<TestResult>();
 
-  constructor(options: { printSteps?: boolean } = {}) {
-    super();
-    this._printSteps = getAsBooleanFromENV('PLAYWRIGHT_LIST_PRINT_STEPS', options.printSteps);
+  constructor(options?: ListReporterOptions & CommonReporterOptions & TerminalReporterOptions) {
+    super(options);
+    this._printSteps = getAsBooleanFromENV('PLAYWRIGHT_LIST_PRINT_STEPS', options?.printSteps);
   }
 
   override onBegin(suite: Suite) {
     super.onBegin(suite);
     const startingMessage = this.generateStartingMessage();
     if (startingMessage) {
-      console.log(startingMessage);
-      console.log();
+      this.writeLine(startingMessage);
+      this.writeLine('');
     }
   }
 
@@ -63,12 +69,12 @@ class ListReporter extends TerminalReporter {
 
   override onStdOut(chunk: string | Buffer, test?: TestCase, result?: TestResult) {
     super.onStdOut(chunk, test, result);
-    this._dumpToStdio(test, chunk, process.stdout);
+    this._dumpToStdio(test, chunk, this.screen.stdout, 'out');
   }
 
   override onStdErr(chunk: string | Buffer, test?: TestCase, result?: TestResult) {
     super.onStdErr(chunk, test, result);
-    this._dumpToStdio(test, chunk, process.stderr);
+    this._dumpToStdio(test, chunk, this.screen.stderr, 'err');
   }
 
   private getStepIndex(testIndex: string, result: TestResult, step: TestStep): string {
@@ -97,7 +103,7 @@ class ListReporter extends TerminalReporter {
       const line = test.title + this.screen.colors.dim(stepSuffix(step));
       this._appendLine(line, prefix);
     } else {
-      this._updateLine(this._testRows.get(test)!, this.screen.colors.dim(this.formatTestTitle(test, step)) + this._retrySuffix(result), this._testPrefix(testIndex, ''));
+      this._updateOrAppendLine(this._testRows, test, this.screen.colors.dim(this.formatTestTitle(test, step)) + this._retrySuffix(result), this._testPrefix(testIndex, ''));
     }
   }
 
@@ -108,7 +114,7 @@ class ListReporter extends TerminalReporter {
     const testIndex = this._resultIndex.get(result) || '';
     if (!this._printSteps) {
       if (this.screen.isTTY)
-        this._updateLine(this._testRows.get(test)!, this.screen.colors.dim(this.formatTestTitle(test, step.parent)) + this._retrySuffix(result), this._testPrefix(testIndex, ''));
+        this._updateOrAppendLine(this._testRows, test, this.screen.colors.dim(this.formatTestTitle(test, step.parent)) + this._retrySuffix(result), this._testPrefix(testIndex, ''));
       return;
     }
 
@@ -120,15 +126,15 @@ class ListReporter extends TerminalReporter {
       text = this.screen.colors.red(title);
     else
       text = title;
-    text += this.screen.colors.dim(` (${milliseconds(step.duration)})`);
+    text += this.screen.colors.dim(` (${msToString(step.duration)})`);
 
-    this._updateOrAppendLine(this._stepRows.get(step)!, text, prefix);
+    this._updateOrAppendLine(this._stepRows, step, text, prefix);
   }
 
   private _maybeWriteNewLine() {
     if (this._needNewLine) {
       this._needNewLine = false;
-      process.stdout.write('\n');
+      this.screen.stdout.write('\n');
       ++this._lastRow;
       this._lastColumn = 0;
     }
@@ -152,7 +158,7 @@ class ListReporter extends TerminalReporter {
     }
   }
 
-  private _dumpToStdio(test: TestCase | undefined, chunk: string | Buffer, stream: NodeJS.WriteStream) {
+  private _dumpToStdio(test: TestCase | undefined, chunk: string | Buffer, stream: NodeJS.WriteStream, stdio: 'out' | 'err') {
     if (this.config.quiet)
       return;
     const text = chunk.toString('utf-8');
@@ -160,9 +166,34 @@ class ListReporter extends TerminalReporter {
     stream.write(chunk);
   }
 
+  async onTestPaused(test: TestCase, result: TestResult) {
+    // Without TTY, user cannot interrupt the pause. Let's skip it.
+    if (!process.stdin.isTTY && !process.env.PW_TEST_DEBUG_REPORTERS)
+      return;
+
+    this._paused.add(result);
+
+    this._updateTestLine(test, result);
+    this._maybeWriteNewLine();
+    if (test.outcome() === 'unexpected') {
+      const errors = this.formatResultErrors(test, result);
+      this.writeLine(errors);
+      this._updateLineCountAndNewLineFlagForOutput(errors);
+      markErrorsAsReported(result);
+    }
+    this._appendLine(this.screen.colors.yellow(`Paused ${test.outcome() === 'unexpected' ? 'on error' : 'at test end'}. Press Ctrl+C to end.`), this._testPrefix('', ''));
+
+    await new Promise<void>(() => {});
+  }
+
   override onTestEnd(test: TestCase, result: TestResult) {
     super.onTestEnd(test, result);
+    const wasPaused = this._paused.delete(result);
+    if (!wasPaused)
+      this._updateTestLine(test, result);
+  }
 
+  private _updateTestLine(test: TestCase, result: TestResult) {
     const title = this.formatTestTitle(test);
     let prefix = '';
     let text = '';
@@ -188,17 +219,20 @@ class ListReporter extends TerminalReporter {
         prefix = this._testPrefix(index, this.screen.colors.red(statusMark));
         text = this.screen.colors.red(title);
       }
-      text += this._retrySuffix(result) + this.screen.colors.dim(` (${milliseconds(result.duration)})`);
+      text += this._retrySuffix(result) + this.screen.colors.dim(` (${msToString(result.duration)})`);
     }
 
-    this._updateOrAppendLine(this._testRows.get(test)!, text, prefix);
+    this._updateOrAppendLine(this._testRows, test, text, prefix);
   }
 
-  private _updateOrAppendLine(row: number, text: string, prefix: string) {
-    if (this.screen.isTTY) {
+  private _updateOrAppendLine<T>(entityRowNumbers: Map<T, number>, entity: T, text: string, prefix: string) {
+    const row = entityRowNumbers.get(entity);
+    // Only update the line if we assume that the line is still on the screen
+    if (row !== undefined && this.screen.isTTY && this._lastRow - row < this.screen.ttyHeight) {
       this._updateLine(row, text, prefix);
     } else {
       this._maybeWriteNewLine();
+      entityRowNumbers.set(entity, this._lastRow);
       this._appendLine(text, prefix);
     }
   }
@@ -206,10 +240,10 @@ class ListReporter extends TerminalReporter {
   private _appendLine(text: string, prefix: string) {
     const line = prefix + this.fitToScreen(text, prefix);
     if (process.env.PW_TEST_DEBUG_REPORTERS) {
-      process.stdout.write('#' + this._lastRow + ' : ' + line + '\n');
+      this.screen.stdout.write('#' + this._lastRow + ' : ' + line + '\n');
     } else {
-      process.stdout.write(line);
-      process.stdout.write('\n');
+      this.screen.stdout.write(line);
+      this.screen.stdout.write('\n');
     }
     ++this._lastRow;
     this._lastColumn = 0;
@@ -218,7 +252,7 @@ class ListReporter extends TerminalReporter {
   private _updateLine(row: number, text: string, prefix: string) {
     const line = prefix + this.fitToScreen(text, prefix);
     if (process.env.PW_TEST_DEBUG_REPORTERS)
-      process.stdout.write('#' + row + ' : ' + line + '\n');
+      this.screen.stdout.write('#' + row + ' : ' + line + '\n');
     else
       this._updateLineForTTY(row, line);
   }
@@ -226,18 +260,19 @@ class ListReporter extends TerminalReporter {
   private _updateLineForTTY(row: number, line: string) {
     // Go up if needed
     if (row !== this._lastRow)
-      process.stdout.write(`\u001B[${this._lastRow - row}A`);
+      this.screen.stdout.write(`\u001B[${this._lastRow - row}A`);
     // Erase line, go to the start
-    process.stdout.write('\u001B[2K\u001B[0G');
-    process.stdout.write(line);
+    this.screen.stdout.write('\u001B[2K\u001B[0G');
+    this.screen.stdout.write(line);
     // Go down if needed.
     if (row !== this._lastRow)
-      process.stdout.write(`\u001B[${this._lastRow - row}E`);
+      this.screen.stdout.write(`\u001B[${this._lastRow - row}E`);
   }
 
   private _testPrefix(index: string, statusMark: string) {
     const statusMarkLength = stripAnsiEscapes(statusMark).length;
-    return '  ' + statusMark + ' '.repeat(3 - statusMarkLength) + this.screen.colors.dim(index + ' ');
+    const indexLength = Math.ceil(Math.log10(this.totalTestCount + 1));
+    return '  ' + statusMark + ' '.repeat(3 - statusMarkLength) + this.screen.colors.dim(index.padStart(indexLength) + ' ');
   }
 
   private _retrySuffix(result: TestResult) {
@@ -249,12 +284,12 @@ class ListReporter extends TerminalReporter {
     this._maybeWriteNewLine();
     const message = this.formatError(error).message + '\n';
     this._updateLineCountAndNewLineFlagForOutput(message);
-    process.stdout.write(message);
+    this.screen.stdout.write(message);
   }
 
   override async onEnd(result: FullResult) {
     await super.onEnd(result);
-    process.stdout.write('\n');
+    this.screen.stdout.write('\n');
     this.epilogue(true);
   }
 }

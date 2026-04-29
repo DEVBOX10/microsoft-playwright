@@ -15,34 +15,37 @@
  */
 
 import path from 'path';
+
+import { assert } from '@isomorphic/assert';
 import { Page } from './page';
-import { assert } from '../utils';
 import { Artifact } from './artifact';
 
 export class Download {
   readonly artifact: Artifact;
   readonly url: string;
+  private _uuid: string;
   private _page: Page;
   private _suggestedFilename: string | undefined;
 
-  constructor(page: Page, downloadsPath: string, uuid: string, url: string, suggestedFilename?: string) {
-    const unaccessibleErrorMessage = page._browserContext._options.acceptDownloads === 'deny' ? 'Pass { acceptDownloads: true } when you are creating your browser context.' : undefined;
-    this.artifact = new Artifact(page, path.join(downloadsPath, uuid), unaccessibleErrorMessage, () => {
-      return this._page._browserContext.cancelDownload(uuid);
-    });
+  constructor(page: Page, downloadsPath: string, uuid: string, url: string, suggestedFilename?: string, downloadFilename?: string) {
+    const unaccessibleErrorMessage = page.browserContext._options.acceptDownloads === 'deny' ? 'Pass { acceptDownloads: true } when you are creating your browser context.' : undefined;
+    const downloadPath = path.join(downloadsPath, downloadFilename ?? uuid);
+    this.artifact = new Artifact(page, downloadPath, unaccessibleErrorMessage, () => this.cancel());
     this._page = page;
     this.url = url;
+    this._uuid = uuid;
     this._suggestedFilename = suggestedFilename;
-    page._browserContext._downloads.add(this);
+    // Note: downloads are never removed from the context, so that we can delete them upon context closure.
+    page.browserContext._downloads.add(this);
     if (suggestedFilename !== undefined)
       this._fireDownloadEvent();
   }
 
-  page(): Page {
-    return this._page;
+  cancel() {
+    return this._page.browserContext.cancelDownload(this._uuid);
   }
 
-  _filenameSuggested(suggestedFilename: string) {
+  filenameSuggested(suggestedFilename: string) {
     assert(this._suggestedFilename === undefined);
     this._suggestedFilename = suggestedFilename;
     this._fireDownloadEvent();

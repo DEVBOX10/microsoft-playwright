@@ -93,8 +93,8 @@ See [`property: TestConfig.reporter`].
 ## property: FullConfig.reportSlowTests
 * since: v1.10
 - type: <[null]|[Object]>
-  - `max` <[int]> The maximum number of slow test files to report. Defaults to `5`.
-  - `threshold` <[float]> Test duration in milliseconds that is considered slow. Defaults to 15 seconds.
+  - `max` <[int]> The maximum number of slow test files to report.
+  - `threshold` <[float]> Test file duration in milliseconds that is considered slow.
 
 See [`property: TestConfig.reportSlowTests`].
 
@@ -111,6 +111,12 @@ Base directory for all relative paths used in the reporters.
   - `current` <[int]> The index of the shard to execute, one-based.
 
 See [`property: TestConfig.shard`].
+
+## property: FullConfig.tags
+* since: v1.57
+- type: <[Array]<[string]>>
+
+Resolved global tags. See [`property: TestConfig.tag`].
 
 ## property: FullConfig.updateSnapshots
 * since: v1.10

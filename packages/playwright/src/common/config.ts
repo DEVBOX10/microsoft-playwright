@@ -15,14 +15,16 @@
  */
 
 import fs from 'fs';
-import path from 'path';
 import os from 'os';
-import type { Config, Fixtures, Project, ReporterDescription } from '../../types/test';
-import type { Location } from '../../types/testReporter';
+import path from 'path';
+
+import { packageJSON } from '../package';
+import { getPackageJsonPath, mergeObjects, takeFirst } from '../util';
+
+import type { Config, Fixtures, Metadata, Project, ReporterDescription } from '../../types/test';
 import type { TestRunnerPluginRegistration } from '../plugins';
-import { getPackageJsonPath, mergeObjects } from '../util';
-import type { Matcher } from '../util';
 import type { ConfigCLIOverrides } from './ipc';
+import type { Location } from '../../types/testReporter';
 import type { FullConfig, FullProject } from '../../types/testReporter';
 
 export type ConfigLocation = {
@@ -34,7 +36,6 @@ export type FixturesWithLocation = {
   fixtures: Fixtures;
   location: Location;
 };
-export type Annotation = { type: string, description?: string };
 
 export const defaultTimeout = 30000;
 
@@ -46,24 +47,14 @@ export class FullConfigInternal {
   readonly plugins: TestRunnerPluginRegistration[];
   readonly projects: FullProjectInternal[] = [];
   readonly singleTSConfigPath?: string;
-  readonly populateGitInfo: boolean;
-  cliArgs: string[] = [];
-  cliGrep: string | undefined;
-  cliGrepInvert: string | undefined;
-  cliOnlyChanged: string | undefined;
-  cliProjectFilter?: string[];
-  cliListOnly = false;
-  cliPassWithNoTests?: boolean;
-  cliFailOnFlakyTests?: boolean;
-  cliLastFailed?: boolean;
-  testIdMatcher?: Matcher;
-  lastFailedTestIdMatcher?: Matcher;
+  readonly captureGitInfo: Config['captureGitInfo'];
+  readonly failOnFlakyTests: boolean;
   defineConfigWasUsed = false;
 
   globalSetups: string[] = [];
   globalTeardowns: string[] = [];
 
-  constructor(location: ConfigLocation, userConfig: Config, configCLIOverrides: ConfigCLIOverrides) {
+  constructor(location: ConfigLocation, userConfig: Config, configCLIOverrides: ConfigCLIOverrides, metadata?: Metadata) {
     if (configCLIOverrides.projects && userConfig.projects)
       throw new Error(`Cannot use --browser option when configuration file defines projects. Specify browserName in the projects instead.`);
 
@@ -76,7 +67,8 @@ export class FullConfigInternal {
     const privateConfiguration = (userConfig as any)['@playwright/test'];
     this.plugins = (privateConfiguration?.plugins || []).map((p: any) => ({ factory: p }));
     this.singleTSConfigPath = pathResolve(configDir, userConfig.tsconfig);
-    this.populateGitInfo = takeFirst(userConfig.populateGitInfo, false);
+    this.captureGitInfo = userConfig.captureGitInfo;
+    this.failOnFlakyTests = takeFirst(configCLIOverrides.failOnFlakyTests, userConfig.failOnFlakyTests, false);
 
     this.globalSetups = (Array.isArray(userConfig.globalSetup) ? userConfig.globalSetup : [userConfig.globalSetup]).map(s => resolveScript(s, configDir)).filter(script => script !== undefined);
     this.globalTeardowns = (Array.isArray(userConfig.globalTeardown) ? userConfig.globalTeardown : [userConfig.globalTeardown]).map(s => resolveScript(s, configDir)).filter(script => script !== undefined);
@@ -85,6 +77,12 @@ export class FullConfigInternal {
     // so that plugins such as gitCommitInfoPlugin can populate metadata once.
     userConfig.metadata = userConfig.metadata || {};
 
+    const globalTags = Array.isArray(userConfig.tag) ? userConfig.tag : (userConfig.tag ? [userConfig.tag] : []);
+    for (const tag of globalTags) {
+      if (tag[0] !== '@')
+        throw new Error(`Tag must start with "@" symbol, got "${tag}" instead.`);
+    }
+
     this.config = {
       configFile: resolvedConfigFile,
       rootDir: pathResolve(configDir, userConfig.testDir) || configDir,
@@ -92,21 +90,22 @@ export class FullConfigInternal {
       fullyParallel: takeFirst(configCLIOverrides.fullyParallel, userConfig.fullyParallel, false),
       globalSetup: this.globalSetups[0] ?? null,
       globalTeardown: this.globalTeardowns[0] ?? null,
-      globalTimeout: takeFirst(configCLIOverrides.globalTimeout, userConfig.globalTimeout, 0),
+      globalTimeout: takeFirst(configCLIOverrides.debug ? 0 : undefined, configCLIOverrides.globalTimeout, userConfig.globalTimeout, 0),
       grep: takeFirst(userConfig.grep, defaultGrep),
       grepInvert: takeFirst(userConfig.grepInvert, null),
       maxFailures: takeFirst(configCLIOverrides.debug ? 1 : undefined, configCLIOverrides.maxFailures, userConfig.maxFailures, 0),
-      metadata: userConfig.metadata,
+      metadata: metadata ?? userConfig.metadata,
       preserveOutput: takeFirst(userConfig.preserveOutput, 'always'),
-      reporter: takeFirst(configCLIOverrides.reporter, resolveReporters(userConfig.reporter, configDir), [[defaultReporter]]),
-      reportSlowTests: takeFirst(userConfig.reportSlowTests, { max: 5, threshold: 15000 }),
-      quiet: takeFirst(configCLIOverrides.quiet, userConfig.quiet, false),
       projects: [],
+      quiet: takeFirst(configCLIOverrides.quiet, userConfig.quiet, false),
+      reporter: takeFirst(configCLIOverrides.reporter, resolveReporters(userConfig.reporter, configDir), [[defaultReporter]]),
+      reportSlowTests: takeFirst(userConfig.reportSlowTests, { max: 5, threshold: 300_000 /* 5 minutes */ }),
       shard: takeFirst(configCLIOverrides.shard, userConfig.shard, null),
+      tags: globalTags,
       updateSnapshots: takeFirst(configCLIOverrides.updateSnapshots, userConfig.updateSnapshots, 'missing'),
       updateSourceMethod: takeFirst(configCLIOverrides.updateSourceMethod, userConfig.updateSourceMethod, 'patch'),
-      version: require('../../package.json').version,
-      workers: 0,
+      version: packageJSON.version,
+      workers: resolveWorkers(takeFirst((configCLIOverrides.debug || configCLIOverrides.pause) ? 1 : undefined, configCLIOverrides.workers, userConfig.workers, '50%')),
       webServer: null,
     };
     for (const key in userConfig) {
@@ -115,18 +114,6 @@ export class FullConfigInternal {
     }
 
     (this.config as any)[configInternalSymbol] = this;
-
-    const workers = takeFirst(configCLIOverrides.debug ? 1 : undefined, configCLIOverrides.workers, userConfig.workers, '50%');
-    if (typeof workers === 'string') {
-      if (workers.endsWith('%')) {
-        const cpus = os.cpus().length;
-        this.config.workers = Math.max(1, Math.floor(cpus * (parseInt(workers, 10) / 100)));
-      } else {
-        this.config.workers = parseWorkers(workers);
-      }
-    } else {
-      this.config.workers = workers;
-    }
 
     const webServers = takeFirst(userConfig.webServer, null);
     if (Array.isArray(webServers)) { // multiple web server mode
@@ -140,7 +127,8 @@ export class FullConfigInternal {
       this.webServers = [];
     }
 
-    const projectConfigs = configCLIOverrides.projects || userConfig.projects || [userConfig];
+    // When no projects are defined, do not use config.workers as a hard limit for project.workers.
+    const projectConfigs = configCLIOverrides.projects || userConfig.projects || [{ ...userConfig, workers: undefined }];
     this.projects = projectConfigs.map(p => new FullProjectInternal(configDir, userConfig, this, p, this.configCLIOverrides, packageJsonDir));
     resolveProjectDependencies(this.projects);
     this._assignUniqueProjectIds(this.projects);
@@ -171,7 +159,7 @@ export class FullProjectInternal {
   readonly expect: Project['expect'];
   readonly respectGitIgnore: boolean;
   readonly snapshotPathTemplate: string | undefined;
-  readonly ignoreSnapshots: boolean;
+  readonly workers: number | undefined;
   id = '';
   deps: FullProjectInternal[] = [];
   teardown: FullProjectInternal | undefined;
@@ -195,10 +183,11 @@ export class FullProjectInternal {
       snapshotDir: takeFirst(pathResolve(configDir, projectConfig.snapshotDir), pathResolve(configDir, config.snapshotDir), testDir),
       testIgnore: takeFirst(projectConfig.testIgnore, config.testIgnore, []),
       testMatch: takeFirst(projectConfig.testMatch, config.testMatch, '**/*.@(spec|test).?(c|m)[jt]s?(x)'),
-      timeout: takeFirst(configCLIOverrides.debug ? 0 : undefined, configCLIOverrides.timeout, projectConfig.timeout, config.timeout, defaultTimeout),
+      timeout: takeFirst(configCLIOverrides.debug === 'inspector' ? 0 : undefined, configCLIOverrides.timeout, projectConfig.timeout, config.timeout, defaultTimeout),
       use: mergeObjects(config.use, projectConfig.use, configCLIOverrides.use),
       dependencies: projectConfig.dependencies || [],
       teardown: projectConfig.teardown,
+      ignoreSnapshots: takeFirst(configCLIOverrides.ignoreSnapshots,  projectConfig.ignoreSnapshots, config.ignoreSnapshots, false),
     };
     this.fullyParallel = takeFirst(configCLIOverrides.fullyParallel, projectConfig.fullyParallel, config.fullyParallel, undefined);
     this.expect = takeFirst(projectConfig.expect, config.expect, {});
@@ -207,16 +196,10 @@ export class FullProjectInternal {
       this.expect.toHaveScreenshot.stylePath = stylePaths.map(stylePath => path.resolve(configDir, stylePath));
     }
     this.respectGitIgnore = takeFirst(projectConfig.respectGitIgnore, config.respectGitIgnore, !projectConfig.testDir && !config.testDir);
-    this.ignoreSnapshots = takeFirst(configCLIOverrides.ignoreSnapshots,  projectConfig.ignoreSnapshots, config.ignoreSnapshots, false);
+    this.workers = projectConfig.workers ? resolveWorkers(projectConfig.workers) : undefined;
+    if (configCLIOverrides.debug && this.workers)
+      this.workers = 1;
   }
-}
-
-export function takeFirst<T>(...args: (T | undefined)[]): T {
-  for (const arg of args) {
-    if (arg !== undefined)
-      return arg;
-  }
-  return undefined as any as T;
 }
 
 function pathResolve(baseDir: string, relative: string | undefined): string | undefined {
@@ -233,12 +216,22 @@ function resolveReporters(reporters: Config['reporter'], rootDir: string): Repor
   });
 }
 
-function parseWorkers(workers: string) {
-  const parsedWorkers = parseInt(workers, 10);
-  if (isNaN(parsedWorkers))
-    throw new Error(`Workers ${workers} must be a number or percentage.`);
-
-  return parsedWorkers;
+function resolveWorkers(workers: string | number): number {
+  if (typeof workers === 'string') {
+    if (workers.endsWith('%')) {
+      const cpus = os.cpus().length;
+      return Math.max(1, Math.floor(cpus * (parseInt(workers, 10) / 100)));
+    }
+    const parsedWorkers = parseInt(workers, 10);
+    if (isNaN(parsedWorkers))
+      throw new Error(`Workers ${workers} must be a number or percentage.`);
+    if (parsedWorkers < 1)
+      throw new Error(`Workers must be a positive number, received ${parsedWorkers}.`);
+    return parsedWorkers;
+  }
+  if (workers < 1)
+    throw new Error(`Workers must be a positive number, received ${workers}.`);
+  return workers;
 }
 
 function resolveProjectDependencies(projects: FullProjectInternal[]) {

@@ -4,11 +4,11 @@
 
 "use strict";
 
-const {Helper, EventWatcher} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
-const {NetworkObserver, PageNetwork} = ChromeUtils.import('chrome://juggler/content/NetworkObserver.js');
-const {PageTarget} = ChromeUtils.import('chrome://juggler/content/TargetRegistry.js');
-const {setTimeout} = ChromeUtils.import('resource://gre/modules/Timer.jsm');
+const {Helper, EventWatcher} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+const {NetUtil} = ChromeUtils.importESModule('resource://gre/modules/NetUtil.sys.mjs');
+const {NetworkObserver, PageNetwork} = ChromeUtils.importESModule('chrome://juggler/content/NetworkObserver.js');
+const {PageTarget} = ChromeUtils.importESModule('chrome://juggler/content/TargetRegistry.js');
+const {setTimeout} = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
@@ -65,7 +65,7 @@ class WorkerHandler {
   }
 }
 
-class PageHandler {
+export class PageHandler {
   constructor(target, session, contentChannel) {
     this._session = session;
     this._contentChannel = contentChannel;
@@ -92,9 +92,6 @@ class PageHandler {
     // to be ignored by the protocol clients.
     this._isPageReady = false;
 
-    if (this._pageTarget.videoRecordingInfo())
-      this._onVideoRecordingStarted();
-
     this._pageEventSink = {};
     helper.decorateAsEventEmitter(this._pageEventSink);
 
@@ -105,7 +102,6 @@ class PageHandler {
       helper.on(this._pageTarget, PageTarget.Events.Crashed, () => {
         this._session.emitEvent('Page.crashed', {});
       }),
-      helper.on(this._pageTarget, PageTarget.Events.ScreencastStarted, this._onVideoRecordingStarted.bind(this)),
       helper.on(this._pageTarget, PageTarget.Events.ScreencastFrame, this._onScreencastFrame.bind(this)),
       helper.on(this._pageNetwork, PageNetwork.Events.Request, this._handleNetworkEvent.bind(this, 'Network.requestWillBeSent')),
       helper.on(this._pageNetwork, PageNetwork.Events.Response, this._handleNetworkEvent.bind(this, 'Network.responseReceived')),
@@ -157,11 +153,6 @@ class PageHandler {
     for (const watcher of this._pendingEventWatchers)
       watcher.dispose();
     helper.removeListeners(this._eventListeners);
-  }
-
-  _onVideoRecordingStarted() {
-    const info = this._pageTarget.videoRecordingInfo();
-    this._session.emitEvent('Page.videoRecordingStarted', { screencastId: info.sessionId, file: info.file });
   }
 
   _onScreencastFrame(params) {
@@ -240,6 +231,10 @@ class PageHandler {
     await this._pageTarget.setViewportSize(viewportSize === null ? undefined : viewportSize);
   }
 
+  async ['Page.setZoom']({zoom}) {
+    await this._pageTarget.setZoom(zoom);
+  }
+
   async ['Runtime.evaluate'](options) {
     return await this._contentPage.send('evaluate', options);
   }
@@ -290,18 +285,15 @@ class PageHandler {
     this._pageNetwork.fulfillInterceptedRequest(requestId, status, statusText, headers, base64body);
   }
 
-  async ['Accessibility.getFullAXTree'](params) {
-    return await this._contentPage.send('getFullAXTree', params);
-  }
-
   async ['Page.setFileInputFiles'](options) {
     return await this._contentPage.send('setFileInputFiles', options);
   }
 
-  async ['Page.setEmulatedMedia']({colorScheme, type, reducedMotion, forcedColors}) {
+  async ['Page.setEmulatedMedia']({colorScheme, type, reducedMotion, forcedColors, contrast}) {
     this._pageTarget.setColorScheme(colorScheme || null);
     this._pageTarget.setReducedMotion(reducedMotion || null);
     this._pageTarget.setForcedColors(forcedColors || null);
+    this._pageTarget.setContrast(contrast || null);
     this._pageTarget.setEmulatedMedia(type);
   }
 
@@ -499,30 +491,30 @@ class PageHandler {
       if (win.windowUtils.flushApzRepaints())
         await helper.awaitTopic('apz-repaints-flushed');
 
-      const watcher = new EventWatcher(this._pageEventSink, types, this._pendingEventWatchers);
       const promises = [];
       for (const type of types) {
-        // This dispatches to the renderer synchronously.
-        const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
+        promises.push(new Promise(resolve => win.synthesizeMouseEvent(
           type,
           x + boundingBox.left,
           y + boundingBox.top,
-          button,
-          clickCount,
-          modifiers,
-          false /* aIgnoreRootScrollFrame */,
-          0.0 /* pressure */,
-          0 /* inputSource */,
-          true /* isDOMEventSynthesized */,
-          false /* isWidgetEventSynthesized */,
-          buttons,
-          win.windowUtils.DEFAULT_MOUSE_POINTER_ID /* pointerIdentifier */,
-          false /* disablePointerEvent */
-        );
-        promises.push(watcher.ensureEvent(type, eventObject => eventObject.jugglerEventId === jugglerEventId));
+          {
+            identifier: win.windowUtils.DEFAULT_MOUSE_POINTER_ID,
+            button,
+            buttons,
+            clickCount,
+            modifiers,
+            pressure: 0.0,
+            inputSource: MouseEvent.MOZ_SOURCE_MOUSE,
+          },
+          {
+            isDOMEventSynthesized: true,
+            isWidgetEventSynthesized: false,
+            isAsyncEnabled: false,
+          },
+          resolve
+        )));
       }
       await Promise.all(promises);
-      await watcher.dispose();
     };
 
     // We must switch to proper tab in the tabbed browser so that
@@ -540,21 +532,23 @@ class PageHandler {
         // viewport coordinates, then move the mouse off from the Web Content.
         // This way we can eliminate all the hover effects.
         // NOTE: since this won't go inside the renderer, there's no need to wait for ACK.
-        win.windowUtils.sendMouseEvent(
+        win.synthesizeMouseEvent(
           'mousemove',
           0 /* x */,
           0 /* y */,
-          button,
-          clickCount,
-          modifiers,
-          false /* aIgnoreRootScrollFrame */,
-          0.0 /* pressure */,
-          0 /* inputSource */,
-          true /* isDOMEventSynthesized */,
-          false /* isWidgetEventSynthesized */,
-          buttons,
-          win.windowUtils.DEFAULT_MOUSE_POINTER_ID /* pointerIdentifier */,
-          false /* disablePointerEvent */
+          {
+            identifier: win.windowUtils.DEFAULT_MOUSE_POINTER_ID,
+            button,
+            clickCount,
+            modifiers,
+            pressure: 0.0,
+            inputSource: MouseEvent.MOZ_SOURCE_MOUSE,
+          },
+          {
+            ignoreRootScrollFrame: false,
+            isDOMEventSynthesized: true,
+            isWidgetEventSynthesized: false,
+          },
         );
         return;
       }
@@ -676,6 +670,10 @@ class PageHandler {
   }
 
   async ['Page.stopScreencast'](options) {
+    // If screencast is enabled at the context level, then browser
+    // context will handle the stopping.
+    if (this._pageTarget.browserContext().screencastOptions)
+      return;
     await this._pageTarget.stopScreencast(options);
   }
 
@@ -686,6 +684,3 @@ class PageHandler {
     return await worker.sendMessage(JSON.parse(message));
   }
 }
-
-var EXPORTED_SYMBOLS = ['PageHandler'];
-this.PageHandler = PageHandler;

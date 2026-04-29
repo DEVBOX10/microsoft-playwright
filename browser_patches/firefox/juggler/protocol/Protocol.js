@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const {t, checkScheme} = ChromeUtils.import('chrome://juggler/content/protocol/PrimitiveTypes.js');
+const {t} = ChromeUtils.importESModule('chrome://juggler/content/protocol/PrimitiveTypes.js');
 
 // Protocol-specific types.
 const browserTypes = {};
@@ -144,45 +144,6 @@ runtimeTypes.AuxData = {
   name: t.Optional(t.String),
 };
 
-const axTypes = {};
-axTypes.AXTree = {
-  role: t.String,
-  name: t.String,
-  children: t.Optional(t.Array(t.Recursive(axTypes, 'AXTree'))),
-
-  selected: t.Optional(t.Boolean),
-  focused: t.Optional(t.Boolean),
-  pressed: t.Optional(t.Boolean),
-  focusable: t.Optional(t.Boolean),
-  haspopup: t.Optional(t.String),
-  required: t.Optional(t.Boolean),
-  invalid: t.Optional(t.Boolean),
-  modal: t.Optional(t.Boolean),
-  editable: t.Optional(t.Boolean),
-  busy: t.Optional(t.Boolean),
-  multiline: t.Optional(t.Boolean),
-  readonly: t.Optional(t.Boolean),
-  checked: t.Optional(t.Enum(['mixed', true])),
-  expanded: t.Optional(t.Boolean),
-  disabled: t.Optional(t.Boolean),
-  multiselectable: t.Optional(t.Boolean),
-
-  value: t.Optional(t.String),
-  description: t.Optional(t.String),
-
-  roledescription: t.Optional(t.String),
-  valuetext: t.Optional(t.String),
-  orientation: t.Optional(t.String),
-  autocomplete: t.Optional(t.String),
-  keyshortcuts: t.Optional(t.String),
-
-  level: t.Optional(t.Number),
-
-  tag: t.Optional(t.String),
-
-  foundObject: t.Optional(t.Boolean),
-}
-
 const networkTypes = {};
 
 networkTypes.HTTPHeader = {
@@ -241,9 +202,6 @@ const Browser = {
       uuid: t.String,
       canceled: t.Optional(t.Boolean),
       error: t.Optional(t.String),
-    },
-    'videoRecordingFinished': {
-      screencastId: t.String,
     },
   },
 
@@ -463,13 +421,19 @@ const Browser = {
         forcedColors: t.Nullable(t.Enum(['active', 'none'])),
       },
     },
-    'setVideoRecordingOptions': {
+    'setContrast': {
+      params: {
+        browserContextId: t.Optional(t.String),
+        contrast: t.Nullable(t.Enum(['less', 'more', 'custom', 'no-preference'])),
+      },
+    },
+    'setScreencastOptions': {
       params: {
         browserContextId: t.Optional(t.String),
         options: t.Optional({
-          dir: t.String,
           width: t.Number,
           height: t.Number,
+          quality: t.Number,
         }),
       },
     },
@@ -730,10 +694,6 @@ const Page = {
       workerId: t.String,
       message: t.String,
     },
-    'videoRecordingStarted': {
-      screencastId: t.String,
-      file: t.String,
-    },
     'webSocketCreated': {
       frameId: t.String,
       wsid: t.String,
@@ -766,6 +726,7 @@ const Page = {
       data: t.String,
       deviceWidth: t.Number,
       deviceHeight: t.Number,
+      timestamp: t.Number,
     },
   },
 
@@ -794,6 +755,11 @@ const Page = {
         viewportSize: t.Nullable(pageTypes.Size),
       },
     },
+    'setZoom': {
+      params: {
+        zoom: t.Number,
+      },
+    },
     'bringToFront': {
       params: {
       },
@@ -804,6 +770,7 @@ const Page = {
         colorScheme: t.Optional(t.Enum(['dark', 'light', 'no-preference'])),
         reducedMotion: t.Optional(t.Enum(['reduce', 'no-preference'])),
         forcedColors: t.Optional(t.Enum(['active', 'none'])),
+        contrast: t.Optional(t.Enum(['less', 'more', 'custom', 'no-preference'])),
       },
     },
     'setCacheDisabled': {
@@ -860,7 +827,6 @@ const Page = {
       },
     },
     'reload': {
-      params: { },
     },
     'adoptNode': {
       params: {
@@ -948,7 +914,6 @@ const Page = {
       }
     },
     'crash': {
-      params: {}
     },
     'handleDialog': {
       params: {
@@ -975,39 +940,14 @@ const Page = {
         height: t.Number,
         quality: t.Number,
       },
-      returns: {
-        screencastId: t.String,
-      },
     },
     'screencastFrameAck': {
-      params: {
-        screencastId: t.String,
-      },
     },
     'stopScreencast': {
     },
   },
 };
 
-
-const Accessibility = {
-  targets: ['page'],
-  types: axTypes,
-  events: {},
-  methods: {
-    'getFullAXTree': {
-      params: {
-        objectId: t.Optional(t.String),
-      },
-      returns: {
-        tree: axTypes.AXTree
-      },
-    }
-  }
-}
-
-this.protocol = {
-  domains: {Browser, Heap, Page, Runtime, Network, Accessibility},
+export const protocol = {
+  domains: {Browser, Heap, Page, Runtime, Network},
 };
-this.checkScheme = checkScheme;
-this.EXPORTED_SYMBOLS = ['protocol', 'checkScheme'];

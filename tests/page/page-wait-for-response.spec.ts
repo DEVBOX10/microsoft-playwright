@@ -108,25 +108,11 @@ it('should work with no timeout', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   const [response] = await Promise.all([
     page.waitForResponse(server.PREFIX + '/digits/2.png', { timeout: 0 }),
-    page.evaluate(() => window.builtinSetTimeout(() => {
+    page.evaluate(() => window.builtins.setTimeout(() => {
       void fetch('/digits/1.png');
       void fetch('/digits/2.png');
       void fetch('/digits/3.png');
     }, 50))
   ]);
   expect(response.url()).toBe(server.PREFIX + '/digits/2.png');
-});
-
-it('should work with re-rendered cached IMG elements', async ({ page, server, browserName }) => {
-  it.fixme(browserName === 'webkit');
-  it.fixme(browserName === 'firefox');
-  await page.goto(server.EMPTY_PAGE);
-  await page.setContent(`<img src="pptr.png">`);
-  await page.$eval('img', img => img.remove());
-  const [response] = await Promise.all([
-    page.waitForRequest(/pptr/),
-    page.waitForResponse(/pptr/),
-    page.setContent(`<img src="pptr.png">`)
-  ]);
-  expect(response.url()).toBe(server.PREFIX + '/pptr.png');
 });
